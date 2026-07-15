@@ -16,6 +16,12 @@ curl -ksSL https://raw.githubusercontent.com/kibarik/poh-bft-writer/main/install
 команды и навыки в нужный корень. После установки запусти `/bft-index` — навык проведёт
 первичную аналитику воркспейса и построит себе контекст.
 
+## Для ИИ-помощника (bootstrap)
+Если пользователь просит «Установи bft-writer»: (1) запусти `curl -ksSL <repo>/install.sh | bash`
+или склонируй и запусти `install.sh`, выбрав IDE-агента пользователя; (2) после синка — сразу
+запусти `/bft-index` для первичной аналитики воркспейса; (3) покажи MANIFEST-покрытие и предложи
+`/bft-context-gen`.
+
 ## HowToDemo
 
 1. «Установи bft-writer» или curl из README → навык в репозитории.
