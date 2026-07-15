@@ -20,7 +20,11 @@ echo "  2) Codex         (.agents/)"
 echo "  3) Cline         (.clinerules/)"
 echo "  4) DevX (МТС)    (.clinerules/)"
 echo "  5) Universal     (.agents/)"
-read -rp "Выбор [1]: " choice
+if [ -r /dev/tty ]; then
+  read -rp "Выбор [1]: " choice < /dev/tty 2>/dev/null || choice=""
+else
+  choice=""
+fi
 choice="${choice:-1}"
 case "$choice" in
   1) ROOT=".claude";     CMD_DIR="commands" ;;
