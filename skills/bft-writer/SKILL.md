@@ -133,7 +133,6 @@
 - `resources/writing_style.md` — стиль и голос (Humanizer): стоп-слова, тире, эмодзи, bold, `[УТОЧНИТЬ]`-дисциплина, калибровка под золотой референс.
 - `resources/debate_rules.md` — протокол adversarial (для `/bft-debate`).
 - `resources/review_feedback.md` — **реестр замечаний ревью (Lessons Learned)**: замечания PO → durable-правила, применяемые в `/bft-draft` и проверяемые в `/bft-validate` (гейт 15).
-- `resources/constraint_rules.md` — критерии ограничений релиза (справочно, используется при проработке problem/concept).
 - `examples/ideal_bft.md` — пустой шаблон по docx-стандарту.
 - `examples/golden_bft_example.md` — аннотированный эталон (BOOK-2).
 
