@@ -21,11 +21,11 @@ description: "V2 БФТ, роль-Обогатитель. Берёт быстр�
 Грудинг-верификатор + forced-citation + convergence-stop — `resources/grounding_verifier.md`.
 Merge-гейт качества — `resources/eval_rubric.md`.
 
-## Резолв конфига
-Читать `bft-config.md` (опц., в корне воркспейса; нет файла — дефолты ниже, без остановки):
+## Резолв конфига и встроенные дефолты
+Читать `bft-config.md` (опц., в корне воркспейса; нет файла — встроенные дефолты ниже, без остановки):
 - `docs_path` (куда `<epic_slug>/<epic_slug>.md`; нет/не задан → дефолт `.bft/documentation`);
-- `models.deep_lane` (опц., точка расширения; нет отдельной настройки → модель текущей сессии);
-- ruflo namespace `{ruflo.namespace_prefix}/<epic_slug>` (дефолт `bft-deep`) (§ orchestration) — актуально только если ruflo доступен, иначе native-деградация;
+- модель для Deep-lane — модель текущей сессии (точка расширения; отсутствие отдельной настройки не ошибка);
+- ruflo namespace по умолчанию `bft-deep` (§ orchestration) — актуально только если ruflo доступен, иначе native-деградация;
 - `.bft/index/stakeholders.md` (опц., построен `/bft-index`) — владельцы вопросов по зонам ответственности; индекс не построен → `[кому?]`.
 
 ## Голос

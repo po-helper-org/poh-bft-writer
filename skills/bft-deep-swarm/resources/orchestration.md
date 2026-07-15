@@ -2,8 +2,8 @@
 
 ## ruflo-контракт (координация)
 - `swarm_init(topology=hierarchical)` — один swarm на прогон; swarmId в память.
-- `agent_spawn(agentType per роль, model из `models.deep_lane` конфига; дефолт-ориентир: opus для lead/verify, sonnet для worker; фактический per-step выбор — вне итерации, #112)` — cost-tracking + memory на стадию.
-- `memory_store/retrieve(namespace="{ruflo.namespace_prefix}/<epic_slug>")` (дефолт `bft-deep`) — shared fact-base + хендофф артефактов.
+- `agent_spawn(agentType per роль, model — модель текущей сессии (точка расширения); дефолт-ориентир: opus для lead/verify, sonnet для worker; фактический per-step выбор — вне итерации, #112)` — cost-tracking + memory на стадию.
+- `memory_store/retrieve(namespace="bft-deep/<epic_slug>")` — shared fact-base + хендофф артефактов (актуально только если ruflo доступен).
 - `coordination_consensus` — вердикт дебатов + грудинг-споры.
 - **Degradation:** ошибка любого ruflo-tool → native-Task исполнение + файловый хендофф `artefacts/` + лог в error-callback. ruflo down ≠ прогон прерван.
 
