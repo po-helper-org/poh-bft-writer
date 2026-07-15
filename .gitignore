@@ -1,0 +1,5 @@
+.bft/
+.venv/
+.serena/cache/
+.DS_Store
+*.pyc
