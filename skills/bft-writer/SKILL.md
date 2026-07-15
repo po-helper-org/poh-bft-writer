@@ -1,3 +1,8 @@
+---
+name: bft-writer
+description: Генератор БФТ (бизнес-функциональных требований) для эпиков трекера в корпоративном формате. Каноничный пайплайн из 7 стадий с STOP-паузами (Context Builder → Problem Analyst → Solution Designer → Debate → Requirements Writer → Validator → Deliverer). Используй когда — нужно написать БФТ, бизнес-функциональные требования, требования к эпику или фиче, /bft-context-gen, /bft-problem, /bft-concept, /bft-debate, /bft-draft, /bft-validate, /bft-deliver.
+---
+
 # Навык: Генератор БФТ (Business-Functional Requirements Writer)
 
 ## Роль

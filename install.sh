@@ -2,14 +2,13 @@
 set -e
 GREEN='\033[0;32m'; BLUE='\033[0;34m'; YELLOW='\033[1;33m'; NC='\033[0m'
 REPO_URL="https://github.com/kibarik/poh-bft-writer.git"
-TEMP_DIR=".bft_writer_temp"
 
 # Источник: если запущено из клона — текущая папка; если через curl — клонируем
 if [ -d "./commands" ] && [ -d "./skills" ]; then
   SRC="."
 else
   echo -e "${BLUE}Клонирую poh-bft-writer…${NC}"
-  rm -rf "$TEMP_DIR"
+  TEMP_DIR="$(mktemp -d)"
   git clone --depth 1 "$REPO_URL" "$TEMP_DIR"
   SRC="$TEMP_DIR"
 fi
@@ -52,6 +51,7 @@ for skill_src in "$SRC"/skills/*; do
   if ! head -1 "$skill_src/SKILL.md" | grep -q '^---$'; then
     desc="$(sed -n '1s/^# *//p;q' "$skill_src/SKILL.md")"
     desc="${desc:-$skill_name}"
+    desc="${desc//\\/\\\\}"; desc="${desc//\"/\\\"}"
     { printf -- '---\nname: %s\ndescription: "%s"\n---\n' "$skill_name" "$desc"; sed '1d' "$skill_src/SKILL.md"; } > "$skill_dst/SKILL.md"
   fi
 done
