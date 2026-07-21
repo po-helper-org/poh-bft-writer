@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 GREEN='\033[0;32m'; BLUE='\033[0;34m'; YELLOW='\033[1;33m'; NC='\033[0m'
-REPO_URL="https://github.com/kibarik/poh-bft-writer.git"
+REPO_URL="https://github.com/po-helper-org/poh-bft-writer.git"
 
 # Источник: если запущено из клона — текущая папка; если через curl — клонируем
 if [ -d "./commands" ] && [ -d "./skills" ]; then

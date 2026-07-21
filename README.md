@@ -10,7 +10,7 @@
 
 **Через терминал:**
 ```bash
-curl -ksSL https://raw.githubusercontent.com/kibarik/poh-bft-writer/main/install.sh | bash
+curl -ksSL https://raw.githubusercontent.com/po-helper-org/poh-bft-writer/main/install.sh | bash
 ```
 Скрипт спросит IDE-агента (Claude Code / Codex / Cline / DevX / Universal) и синкнет
 команды и навыки в нужный корень. После установки запусти `/bft-index` — навык проведёт
