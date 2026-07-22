@@ -80,6 +80,7 @@ description: 'Отгрузка БФТ — публикация в JIRA+Confluenc
 - `content_format`: markdown.
 
 **Превью 3 — Страница БФТ команды API-слой** (space=`<bft_space>`, parent=`<bft_parent_id>`):
+- **Сначала прочитать `pageId`/`source` из frontmatter документа.** Есть `pageId` (не `pending`) → режим **UPDATE**: страница уже создана `/bft-fast` и обогащена `/bft-deep`, публикуем финальную версию в неё, **новую страницу не создаём**. Нет `pageId` или `pending` → режим **CREATE** (как раньше). Режим показать в сухом прогоне явной строкой: `режим: UPDATE pageId=<id>` или `режим: CREATE (страница ещё не создана)`.
 - `title`: `[БФТ] <epic_code>: <Название>` (как H1 черновика).
 - `body`: **полное содержимое** файла `.bft/documentation/<epic_code>/<epic_code>.md` (frontmatter убери, остальное 1:1 — PlantUML-блоки сохраняй как есть).
 - Если `bft_parent_id` не задан → пометь `[УТОЧНИТЬ у PO: parent page для БФТ в space <bft_space>]`, СТОП.
@@ -151,7 +152,7 @@ PO: подтверди «ок» (или поправь параметры) → �
 - Если parent `{bft_parent_page_id}` недоступен/нет прав → СТОП, доложи.
 
 #### Шаг 3: Страница БФТ команды API-слой
-- `confluence_create_page(space_key=<bft_space>, title=..., content=<полный БФТ>, parent_id=<bft_parent_id>, content_format=<storage|wiki|markdown>)`.
+- Режим **UPDATE**: `confluence_update_page(page_id=<pageId из frontmatter>, title=..., content=<полный документ>, content_format=<storage|wiki|markdown>)`. Режим **CREATE**: `confluence_create_page(space_key=<bft_space>, title=..., content=<полный документ>, parent_id=<bft_parent_id>, content_format=...)`, затем записать полученный `pageId` и URL обратно во frontmatter документа (`pageId`, `source`).
 - Jira/Confluence-упоминания → макросами (см. «Конвертация ссылок в макросы»); `epicKey` (из шага 1) — Jira-макросом. Ссылки только на существующие страницы.
 - **PlantUML → макрос «PlantUML» (ЗМ-015).** Блок ` ```plantuml … ``` ` оборачивай в макрос PlantUML, чтобы диаграмма рендерилась визуально, а не как код:
   - storage: `<ac:structured-macro ac:name="plantuml"><ac:plain-text-body><![CDATA[@startuml … @enduml]]></ac:plain-text-body></ac:structured-macro>`
@@ -196,3 +197,4 @@ PO: подтверди «ок» (или поправь параметры) → �
 6. **Не эмулируй успех** при недоступности MCP (VPN) — честно `[УТОЧНИТЬ]`.
 7. **Не подставляй секреты/токены** в описания; `.mcp.json` вне git.
 8. **Не публикуй битые/выдуманные ссылки** (ЗМ-009) — только существующие страницы, подтверждённые в Этапе 1.5; Jira/Confluence — макросами для превью, не голым текстом.
+9. **Не создавай дубль страницы БФТ.** Есть `pageId` во frontmatter — обновляй её. Вторая страница того же БФТ — ошибка отгрузки.
