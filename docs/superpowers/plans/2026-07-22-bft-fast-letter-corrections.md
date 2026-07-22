@@ -144,3 +144,38 @@ How to demo:
 - [ ] `grep -rn "Документация" skills/bft-fast commands/bft-fast.md` — блок описан в letter_format.md, bft-fast.md, SKILL.md.
 - [ ] `grep -rn "\-\-table" skills/bft-fast commands/bft-fast.md` — флаг описан в bft-fast.md (Использование), SKILL.md, letter_format.md, requirements_table.md.
 - [ ] Прочитать шаблон в `letter_format.md` и «ФОРМАТ ВЫВОДА» в `commands/bft-fast.md` — идентичны по структуре 5 блоков.
+
+---
+
+## Revision 2 — CSV-пивот вложения (правки PO 2026-07-22)
+
+Решения PO после ревью: вложение-таблица = **всегда-вкл `.csv`-файл(ы)**; инлайн-markdown и флаг `--table` (Revision 1) **удалить** (реверт). Разделитель — запятая.
+
+### CANON-CSV-1 — Два файла, всегда
+
+`/bft-fast` всегда пишет два csv в `{docs_path}/{epic_slug}/`, без флага:
+- **`personas.csv`** — контекст о стейкхолдерах. Колонки: `ФИО,Роль,Департамент`. Неизвестно → `[роль не подтверждена]` / `[не указано]`.
+- **`requirements.csv`** — их требования. Колонки: `ID,ASIS (сейчас),TOBE (после),Связанные,Источник (цитата)`. Порядок строк БТ→ПТ→ИТ→ФТ→НФТ.
+
+Содержание/грунтование — по существующим правилам `requirements_table.md` (zero-hallucination: строка ← цитата; ASIS без реплики → `[ASIS не озвучен]`; без приоритетов/обогащения; «Связанные» — только ID). Новых колонок нет (приоритет/критичность запрещены — обогащение вне fast-lane).
+
+### CANON-CSV-2 — Сериализация
+
+- Кодировка: **UTF-8 с BOM** (Excel корректно открывает кириллицу).
+- Разделитель: **запятая** `,`.
+- Кавычки: **RFC-4180** — ячейку с `,`, `"` или переносом строки обернуть в `"..."`; внутренние `"` удвоить (`""`). Пустая «Связанные» → пустое поле.
+- Первая строка — заголовок с именами колонок.
+
+### CANON-CSV-3 — Emit
+
+- Письмо → в чат (чистые 5 блоков, как в Revision 1). **Инлайн-таблицы в чате нет.**
+- Записать `personas.csv` + `requirements.csv`. Нет доступа к папке → рядом с источником, пометка `[УТОЧНИТЬ путь копии]`.
+- В чат — одна строка: `Вложение: <path>/requirements.csv (N требований), <path>/personas.csv (M персон)`.
+
+### Правки (реверт `--table` + csv)
+
+- `commands/bft-fast.md`: убрать `--table` (сигнатура/параметр/пример/формат/самопроверка/этапы); FORMAT — убрать инлайн-markdown вложение, описать csv; этап 5 assemble — сериализация csv; этап 6 emit — запись двух csv + строка-ссылка.
+- `skills/bft-fast/SKILL.md`: description (csv вместо `--table`), этап 4 assemble (csv всегда), этап 6 emit (два csv + строка).
+- `skills/bft-fast/resources/requirements_table.md`: убрать `--table`-пометку; «Форма вывода» → два csv + CANON-CSV-2; правила полей/грунтования без изменений.
+- `skills/bft-fast/resources/letter_format.md`: убрать 3× `--table`; вложение = два csv всегда; «Канал вывода» + durable-урок.
+- `examples/`: `golden_table.md` → `golden_personas.csv` + `golden_requirements.csv`; `golden_table_precision.md` → `golden_personas_precision.csv` + `golden_requirements_precision.csv`; старые `.md` удалить (ссылок нет).
