@@ -383,10 +383,12 @@ grep -rn 'deep_fork\|--no-deep' --include='*.md' . | grep -v '^./docs/'
 for k in document_assembly open_field BFT-HEAD-END publish; do
   grep -q "$k" skills/bft-fast/SKILL.md commands/bft-fast.md || echo "MISSING: $k"
 done
-grep -c 'форк\|фонов' skills/bft-fast/SKILL.md commands/bft-fast.md   # ожидается: 0 в обоих
+# Стейл-ссылки на удалённый ресурс и снятый флаг (само слово «форк» допустимо —
+# новый текст явно отрицает авто-форк: «Не форкает deep автоматически»)
+grep -n 'deep_fork\|--no-deep' skills/bft-fast/SKILL.md commands/bft-fast.md
 ```
 
-Ожидание: ни одного `MISSING`; счётчики форка — `0`.
+Ожидание: ни одного `MISSING`; второй grep — пустой вывод.
 
 - [ ] **Step 6: Коммит**
 
@@ -614,8 +616,9 @@ ID родительской страницы Confluence, под которой �
 # Строка-граница одинакова везде, где встречается целиком (ожидается ровно одна уникальная строка)
 grep -rho '<!-- BFT-HEAD-END[^>]*-->' --include='*.md' skills/ commands/ | sort -u | wc -l
 
-# Не осталось описания старого поведения
-grep -rn 'deep_fork\|--no-deep\|авто-форк\|форкает' --include='*.md' skills/ commands/ README.md
+# Не осталось ссылок на удалённый ресурс и снятый флаг
+# (слово «форк» само по себе допустимо — новый текст его отрицает)
+grep -rn 'deep_fork\|--no-deep' --include='*.md' skills/ commands/ README.md
 
 # Новые ресурсы прописаны в навыке
 grep -q 'document_assembly' skills/bft-fast/SKILL.md && grep -q 'open_field' skills/bft-fast/SKILL.md && echo resources-wired
