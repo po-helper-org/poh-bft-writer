@@ -2,6 +2,20 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> ## ⚠️ Поправка после мержа с origin/main (2026-07-23) — читать до исполнения плана
+>
+> План исполнен полностью, но **одно решение отменено при интеграции**. Пока шла работа, `origin/main` ушёл вперёд и добавил в `bft-fast` собственную эволюцию письма; авто-форк там сохранён и развит. По решению владельца авто-форк и открытое поле оставлены **оба** как комплементарные пути.
+>
+> **Не действуют** (исполнять НЕЛЬЗЯ — сломает смёрженное поведение):
+> - «**Удаляется:** `skills/bft-fast/resources/deep_fork.md`» в разделе File Structure — файл восстановлен и актуален;
+> - Task 3 Step 4 `git rm skills/bft-fast/resources/deep_fork.md` — не выполнять;
+> - «удаление этапа 7 и `--no-deep`», «снятие авто-форка» в Task 3 — флаг `--no-deep` и авто-форк сохранены;
+> - проверки, требующие пустой вывод `grep 'deep_fork\|--no-deep'` (Task 3 Step 5, Task 6 Step 3) — теперь эти ссылки легитимны.
+>
+> **Фактическое поведение после мержа:** пайплайн `bft-fast` восьмиэтапный — emit (письмо + csv + документ) → publish (Confluence-черновик после «ок» PO) → deep-fork (фон, если нет `--no-deep`). Открытое поле остаётся recovery-путём: форк отключён, упал или про задачу забыли. Приоритет путей — `skills/bft-fast/resources/deep_fork.md` §«Открытое поле как recovery».
+>
+> Остальные задачи плана (скелет документа, открытое поле, обогащение под шапкой, deliver без дубля, конфиг/README) действуют как написаны.
+
 **Goal:** Превратить два раздельных артефакта (письмо bft-fast и канон bft-deep) в один растущий документ: fast собирает читаемую шапку + Confluence-черновик + открытое поле с портативным промтом, deep сохраняет шапку и дописывает полный канон MTS ниже.
 
 **Architecture:** Стек-модель. Документ = `frontmatter` + `H1` + строка-статус + **шапка** (формат bft-fast) + **строка-граница** + **область канона** (до deep — плейсхолдер с открытым полем; после deep — полный канон MTS). Граница — ASCII-якорь в HTML-комментарии с видимыми fallback-якорями для Confluence-roundtrip. Contract-файлы (`document_assembly.md`, `open_field.md`) пишутся первыми: от них зависят и fast, и deep.
