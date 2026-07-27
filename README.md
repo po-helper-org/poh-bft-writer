@@ -32,7 +32,15 @@ curl -ksSL https://raw.githubusercontent.com/po-helper-org/poh-bft-writer/main/i
 2. Команды `/bft-*` доступны.
 3. `/bft-index` проводит первичную аналитику и строит контекст (`.bft/index/`).
 4. Полный workflow: `/bft-context-gen → /bft-problem → /bft-concept → /bft-debate → /bft-draft → /bft-validate → /bft-deliver` (STOP-паузы, human-in-the-loop).
-5. v2 автономка: `/bft-fast` (быстрый черновик из письма) + `/bft-deep` (обогащение swarm).
+5. v2 автономка (единый растущий документ):
+   `/bft-fast` — письмо в чат + два csv-вложения + документ-шапка (Цель, How to demo,
+   Открытые вопросы, Границы, Документация, критичные требования) + Confluence-черновик
+   после «ок» PO + открытое поле с промтом для доведения;
+   `/bft-deep` — сохраняет шапку, дописывает полный канон MTS ниже, обновляет ту же страницу
+   (форкается в фоне автоматически, `--no-deep` отключает, либо запускается вручную);
+   `/bft-deliver` — JIRA-эпик, дочерняя страница, связи; страницу БФТ обновляет, не дублирует.
+   Форк отключён, упал или про задачу забыли — открой блок «Довести до полного БФТ» внизу
+   документа, скопируй промт в Claude Code и продолжи с любой точки.
 6. Результат соответствует практикам po-helper: 16 hard gates, стиль/голос, Lessons Learned, корп-шаблон v10, ранги якорей, CATWOE, adversarial-дебаты.
 
 ## Быстрый старт
@@ -53,8 +61,8 @@ curl -ksSL https://raw.githubusercontent.com/po-helper-org/poh-bft-writer/main/i
 | `/bft-draft` | Requirements Writer | `<epic>.md` (финальный БФТ) |
 | `/bft-validate` | Validator | `artefacts/validation.md` |
 | `/bft-deliver` | Deliverer | публикация JIRA+Confluence |
-| `/bft-fast` | Fast lane | быстрый черновик БФТ |
-| `/bft-deep` | Deep swarm | обогащённый БФТ |
+| `/bft-fast` | Fast lane | письмо + csv-вложения + документ (шапка) + Confluence-черновик |
+| `/bft-deep` | Deep swarm | тот же документ, обогащённый каноном |
 
 ## Как это работает
 
