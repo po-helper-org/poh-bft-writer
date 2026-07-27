@@ -116,6 +116,9 @@ description: 'Отгрузка БФТ — публикация в JIRA+Confluenc
 ▸ ССЫЛКИ — формат публикации: <storage|wiki|markdown>; Jira/Confluence → макросами (превью)
    проверка существования: <N ок / M не найдено → понижены до [УТОЧНИТЬ]>
 
+▸ ДИАГРАММЫ (ЗМ-015) — режим: <image|macro|auto>; найдено <N> блоков ```plantuml
+   рендерер: <plantuml CLI | docker | server | НЕТ → [УТОЧНИТЬ]>; при image страница публикуется в storage-формате, диаграммы → PNG-вложения
+
 ── СТОП ──
 PO: подтверди «ок» (или поправь параметры) → выполню все 4 шага с записью.
 Без «ок» — ничего не публикую.
@@ -152,12 +155,31 @@ PO: подтверди «ок» (или поправь параметры) → �
 - Если parent `{bft_parent_page_id}` недоступен/нет прав → СТОП, доложи.
 
 #### Шаг 3: Страница БФТ команды API-слой
-- Режим **UPDATE**: `confluence_update_page(page_id=<pageId из frontmatter>, title=..., content=<полный документ>, content_format=<storage|wiki|markdown>)`. Режим **CREATE**: `confluence_create_page(space_key=<bft_space>, title=..., content=<полный документ>, parent_id=<bft_parent_id>, content_format=...)`, затем записать полученный `pageId` и URL обратно во frontmatter документа (`pageId`, `source`).
+- Режим **UPDATE** (`pageId` во frontmatter документа есть и не `pending` — страницу создал `/bft-fast`, обогатил `/bft-deep`): `confluence_update_page(page_id=<pageId из frontmatter>, title=..., content=<полный документ>, content_format=<storage|wiki|markdown>)`. Новую страницу не создавать.
+- Режим **CREATE** (`pageId` нет или `pending`): `confluence_create_page(space_key=<bft_space>, title=..., content=<полный документ>, parent_id=<bft_parent_id>, content_format=<storage|wiki|markdown>)`, затем записать полученный `pageId` и URL обратно во frontmatter документа (`pageId`, `source`).
+- **Если в БФТ есть блоки ` ```plantuml ` и режим `image`** — вызов (UPDATE или CREATE) выполняется по правилам ЗМ-015 п.2 ниже: `content_format=storage`, а на месте диаграмм в теле идут плейсхолдеры (картинки подставятся на п.4). Отдельного второго создания страницы нет; в режиме UPDATE вложения грузятся на ту же существующую страницу.
 - Jira/Confluence-упоминания → макросами (см. «Конвертация ссылок в макросы»); `epicKey` (из шага 1) — Jira-макросом. Ссылки только на существующие страницы.
-- **PlantUML → макрос «PlantUML» (ЗМ-015).** Блок ` ```plantuml … ``` ` оборачивай в макрос PlantUML, чтобы диаграмма рендерилась визуально, а не как код:
-  - storage: `<ac:structured-macro ac:name="plantuml"><ac:plain-text-body><![CDATA[@startuml … @enduml]]></ac:plain-text-body></ac:structured-macro>`
-  - wiki: `{plantuml}@startuml … @enduml{plantuml}`
-  - Плагин «PlantUML» должен быть установлен в Confluence; если нет → `[УТОЧНИТЬ: плагин PlantUML не установлен]`, оставить блок кодом.
+- **PlantUML → отрендеренная картинка-вложение (ЗМ-015).** Блок ` ```plantuml … ``` ` НЕ публикуется кодом и НЕ полагается на плагин. По умолчанию (`plantuml_render: image` из `bft-config.md`) диаграмма пре-рендерится в PNG и встраивается вложением — рендерится в любом Confluence/JIRA, без плагина. Порядок строгий: **вложение можно загрузить только на уже существующую страницу**, поэтому сначала создаём страницу, потом грузим PNG, потом подставляем картинку в тело.
+  1. **Рендер.** Для каждого блока ` ```plantuml ` вынь тело `@startuml … @enduml` в файл `diagram-<N>.puml` и отрендери в PNG:
+     - `plantuml -tpng diagram-<N>.puml` (нужны `plantuml` CLI + Graphviz), либо
+     - `docker run --rm -v "$PWD:/w" plantuml/plantuml -tpng /w/diagram-<N>.puml`, либо POST в PlantUML-server.
+     - Ни один способ недоступен → **не публиковать кодом молча**: `[УТОЧНИТЬ: нет рендерера PlantUML]` в STOP-отчёте.
+  2. **Создание страницы.** Тот же `confluence_create_page` из начала Шага 3, но `content_format=storage` (обязательно для `<ac:image>`) и на месте каждой диаграммы — плейсхолдер `[[PLANTUML-<N>]]`. Захвати `pageId`.
+  3. **Загрузка вложений.** На полученный `pageId` загрузи каждый PNG: `confluence_upload_attachment(content_id=<pageId>, file_path="diagram-<N>.png")`. MCP-аплоад недоступен/сломан → fallback: прямой Confluence REST изнутри окружения. Токен брать из переменной окружения, наружу не выносить и в лог не печатать:
+
+     ```
+     curl -sS -X POST \
+       -H "Authorization: Bearer $CONFLUENCE_TOKEN" \
+       -H "X-Atlassian-Token: nocheck" \
+       -F "file=@diagram-<N>.png" \
+       "$CONFLUENCE_BASE/rest/api/content/<pageId>/child/attachment"
+     ```
+
+     - `X-Atlassian-Token: nocheck` **обязателен** — без него multipart-загрузка отдаётся 403.
+     - `$CONFLUENCE_BASE`: Server/DC (напр. `https://confluence.mts.ru`) → путь `/rest/api/…` как выше. Confluence **Cloud** → база с суффиксом `/wiki`, т.е. `/wiki/rest/api/…`.
+     - Ответ содержит `results[0].title` — это имя вложения для `ri:filename` на п.4.
+  4. **Замена в теле.** `confluence_update_page`: замени каждый `[[PLANTUML-<N>]]` на `<ac:image ac:align="center"><ri:attachment ri:filename="<имя вложения из ответа п.3>"/></ac:image>`. Имя бери **из ответа загрузки** (REST — `results[0].title`; MCP — поле имени вложения), не подставляй `diagram-<N>.png` вслепую: Confluence может нормализовать имя файла, и тогда картинка не найдётся.
+- **Опционально — макрос «PlantUML»** (только `plantuml_render: macro` И плагин подтверждён в целевом пространстве): storage `<ac:structured-macro ac:name="plantuml"><ac:plain-text-body><![CDATA[@startuml … @enduml]]></ac:plain-text-body></ac:structured-macro>`, wiki `{plantuml}@startuml … @enduml{plantuml}`. `plantuml_render: auto` — по умолчанию картинка (п.1–4); макрос только если плагин **подтверждён явно**: PO подтвердил в сухом прогоне (режим показан в STOP-отчёте) либо в `bft-config.md` у ключа `plantuml_render` прямо указано, что плагин установлен. Плагин не подтверждён — **не гадать и не проверять эвристикой**, публиковать картинкой. Голый блок кода как финал недопустим ни при каком режиме.
 - **Спойлер «Подробный контекст»** в «Бизнес описании» → макрос Expand (storage: `<ac:structured-macro ac:name="expand">`; wiki: `{expand}`), сохраняя свёрнутость.
 - Захвати `pageId_БФТ`.
 
