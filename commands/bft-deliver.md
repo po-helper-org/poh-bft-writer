@@ -9,7 +9,7 @@ description: 'Отгрузка БФТ — публикация в JIRA+Confluenc
 ```
 
 **Параметры:**
-- `<epic_code>` — короткий код БФТ (напр. `EPIC-10`, `EPIC-FAQ`). По нему находится финальный БФТ в папке эпика: `.bft/documentation/<epic_code>/<epic_code>.md` (куда его сохраняет `/bft-draft`).
+- `<epic_code>` — короткий код БФТ (напр. `EPIC-10`, `EPIC-FAQ`). По нему находится документ БФТ в папке эпика: `<docs_path>/<epic_code>/<epic_code>.md`, где `docs_path` — ключ из `bft-config.md` (дефолт `.bft/documentation`). Для документа v2 `epic_code` — **то же значение, что `epic_slug`** во frontmatter: `/bft-fast` кладёт документ в `<docs_path>/<epic_slug>/<epic_slug>.md`, `/bft-deep` пишет туда же.
 - `[bft_space]` — Confluence space для публикации БФТ команды API-слой. **Дефолт — `wiki_space` из `bft-config.md`.**
 - `[bft_parent_id]` — parent page для БФТ-страницы (опц.). Если не задан → `[УТОЧНИТЬ у PO]`.
 - `[project]` — JIRA-проект для создания Эпика. **Дефолт — первый проект из `tracker_projects` (`bft-config.md`).**
@@ -24,7 +24,7 @@ description: 'Отгрузка БФТ — публикация в JIRA+Confluenc
 
 ## Важно
 
-**Роль: Deliverer.** Финальная стадия pipeline после `/bft-validate` (итог 🟢/🟡). Берёт **валидный** черновик БФТ и публикует 4 артефакта: JIRA Эпик + 2 страницы Confluence + связи между ними.
+**Роль: Deliverer.** Финальная стадия pipeline: v2 — после `/bft-deep`; v1 — после `/bft-validate` (итог 🟢/🟡). Берёт **валидный** документ БФТ и публикует 4 артефакта: JIRA Эпик + 2 страницы Confluence + связи между ними.
 
 > Аналог sa-helper: нет прямого; это финал публикации после `/validate-doc`.
 
@@ -33,7 +33,8 @@ description: 'Отгрузка БФТ — публикация в JIRA+Confluenc
 2. После «ок» PO — **выполняет 4 шага подряд**, захватывая ID каждого артефакта для связывания.
 
 **Принципы:**
-- Источник содержимого — **только валидный черновик БФТ** из папки эпика. Не выдумывай факты заново.
+- Источник содержимого — **только валидный документ БФТ** из папки эпика. Не выдумывай факты заново.
+- **Повторный прогон безопасен (идемпотентность).** Повтор `/bft-deliver` — штатная ситуация (упал шаг 4, поправили ссылку, отгружаем заново). Перед записью каждый из 4 артефактов резолвит режим по сохранённым id: Эпик — `jira` во frontmatter документа; дочерняя страница — `summary_pageId` в манифесте `<docs_path>/<epic_code>/artefacts/delivery.md`; страница БФТ — `pageId` во frontmatter; связи — по уже существующим remote links Эпика. Найден id → переиспользовать/обновить, не создавать.
 - `{bft_parent_page_id}` — родительская страница «краткого сутевого описания запроса» (из `bft-config.md`, опционально; не задано → `[УТОЧНИТЬ у PO]`).
 - Каждый шаг захватывает ID (epicKey, pageId) → передаёт на шаг связывания. **Последовательно, не параллельно.**
 - VPN/Confluence/JIRA недоступны → честно `[УТОЧНИТЬ: MCP недоступен]`, не эмулировать успех.
@@ -46,19 +47,25 @@ description: 'Отгрузка БФТ — публикация в JIRA+Confluenc
 ### ТАКТ 1. СУХОЙ ПРОГОН (без записи)
 
 #### Этап 1: Загрузка входов
-1. Найди финальный БФТ: `.bft/documentation/<epic_code>/<epic_code>.md` (корень папки эпика, куда его кладёт `/bft-draft`). Если нет → СТОП:
+1. **Резолв конфига.** Из `bft-config.md`: `docs_path` (дефолт `.bft/documentation`), `wiki_space`, `bft_parent_page_id`, `tracker_projects`, `plantuml_render`. Папка эпика — `<docs_path>/<epic_code>/`, артефакты — `<docs_path>/<epic_code>/artefacts/`. Путь нигде не хардкодить: `docs_path` резолвится один раз здесь и подставляется во все дальнейшие пути.
+2. Найди документ БФТ: `<docs_path>/<epic_code>/<epic_code>.md`. Нет → СТОП:
    ```
-   🔴 Финальный БФТ <epic_code> не найден: .bft/documentation/<epic_code>/<epic_code>.md.
-   → /bft-draft <epic_code>, затем /bft-validate <epic_code>.
+   🔴 Документ БФТ <epic_code> не найден: <docs_path>/<epic_code>/<epic_code>.md.
+   → v2: /bft-fast <источник> <epic_code>, затем /bft-deep <epic_code>.
+   → v1: /bft-draft <epic_code>, затем /bft-validate <epic_code>.
    ```
-2. Проверь `validation.md` (в `.bft/documentation/<epic_code>/artefacts/`). Если есть 🔴 в Hard Gates → СТОП, отгрузка запрещена:
-   ```
-   🔴 БФТ <epic_code> не прошёл валидацию (есть 🔴 в Hard Gates).
-   → /bft-draft <epic_code> (исправить), затем /bft-validate.
-   ```
-3. Прочитай `problem.md` + `concept.md` (если есть) — для краткой выжимки.
-4. Зафиксируй параметры: `epic_code`, `bft_space` (дефолт = `wiki_space` из `bft-config.md`), `bft_parent_id`, `project` (дефолт = первый проект из `tracker_projects` в `bft-config.md`).
-5. **Проверка ссылок (ЗМ-009).** Собери все упоминания Jira/Confluence из черновика. Где MCP доступен — подтверди существование каждой: Jira-ключ → `jira_get_issue`; Confluence pageId → `confluence_get_page`. Несуществующее/невалидное **не публиковать ссылкой** — понизь до `[УТОЧНИТЬ]` или пометки без URL и вынеси в STOP-отчёт. Ссылки только на существующие страницы.
+3. **Прочитай frontmatter документа:** `source`, `space`, `pageId`, `version`, `synced`, `jira`, `status`, `epic_slug`, `stage`, `pin_commit`. Значения `jira`, `pageId`, `stage` задают режимы артефактов (Этап 2). `epic_slug` должен совпадать с `<epic_code>`; расходится → отгружай по `epic_slug` из документа и скажи об этом в STOP-отчёте.
+4. **Прочитай манифест прошлой отгрузки** `<docs_path>/<epic_code>/artefacts/delivery.md`, если он есть. Он — durable-хранилище id **дочерней страницы**: ключи `jira`, `summary_pageId`, `bft_pageId` в его frontmatter (формат — Этап 5). Отдельный frontmatter-ключ в документе БФТ под дочернюю страницу не вводится: контракт документа — ровно 10 ключей (`skills/bft-fast/resources/document_assembly.md` §Frontmatter). Манифеста нет → id дочерней страницы неизвестен, режим CREATE.
+5. **Гейт валидации.**
+   - Есть `artefacts/validation.md` и в нём 🔴 в Hard Gates → СТОП, отгрузка запрещена:
+     ```
+     🔴 БФТ <epic_code> не прошёл валидацию (есть 🔴 в Hard Gates).
+     → v2: /bft-deep <epic_code> (доработать), v1: /bft-draft <epic_code>, затем /bft-validate.
+     ```
+   - **Нет `artefacts/validation.md` ИЛИ `stage: fast` во frontmatter** → это документ-шапка после `/bft-fast`, а не валидированный БФТ (в v2 `validation.md` появляется только после `/bft-deep`). Не СТОП-запрет, но и не штатный ход: вынеси предупреждение в STOP-отчёт (Этап 3) и потребуй **отдельного явного подтверждения PO** — сверх общего «ок» — строкой «отгружаю шапку без глубокой проработки». Нет обоих подтверждений → не публиковать. Нормальный следующий шаг предлагай первым: `/bft-deep <epic_code>`.
+6. Прочитай `problem.md` + `concept.md` (если есть) — для краткой выжимки.
+7. Зафиксируй параметры: `epic_code`, `bft_space` (дефолт = `wiki_space` из `bft-config.md`), `bft_parent_id`, `project` (дефолт = первый проект из `tracker_projects` в `bft-config.md`).
+8. **Проверка ссылок (ЗМ-009).** Собери все упоминания Jira/Confluence из документа. Где MCP доступен — подтверди существование каждой: Jira-ключ → `jira_get_issue`; Confluence pageId → `confluence_get_page`. Несуществующее/невалидное **не публиковать ссылкой** — понизь до `[УТОЧНИТЬ]` или пометки без URL и вынеси в STOP-отчёт. Ссылки только на существующие страницы.
 
 #### Этап 2: Сборка preview 4 артефактов
 
@@ -82,7 +89,7 @@ description: 'Отгрузка БФТ — публикация в JIRA+Confluenc
 **Превью 3 — Страница БФТ команды API-слой** (space=`<bft_space>`, parent=`<bft_parent_id>`):
 - **Сначала прочитать `pageId`/`source` из frontmatter документа.** Есть `pageId` (не `pending`) → режим **UPDATE**: страница уже создана `/bft-fast` и обогащена `/bft-deep`, публикуем финальную версию в неё, **новую страницу не создаём**. Нет `pageId` или `pending` → режим **CREATE** (как раньше). Режим показать в сухом прогоне явной строкой: `режим: UPDATE pageId=<id>` или `режим: CREATE (страница ещё не создана)`.
 - `title`: `[БФТ] <epic_code>: <Название>` (как H1 черновика).
-- `body`: **полное содержимое** файла `.bft/documentation/<epic_code>/<epic_code>.md` (frontmatter убери, остальное 1:1 — PlantUML-блоки сохраняй как есть).
+- `body`: **полное содержимое** файла `<docs_path>/<epic_code>/<epic_code>.md` (frontmatter убери, остальное 1:1 — PlantUML-блоки сохраняй как есть). В документе v2 шапка, строка-граница `BFT-HEAD-END` и блок открытого поля публикуются вместе с каноном — это один документ.
 - Если `bft_parent_id` не задан → пометь `[УТОЧНИТЬ у PO: parent page для БФТ в space <bft_space>]`, СТОП.
 - `content_format`: markdown.
 
@@ -189,7 +196,7 @@ PO: подтверди «ок» (или поправь параметры) → �
 - Опционально: добавить комментарий на Эпик со ссылками на обе страницы (`jira_add_comment`).
 
 #### Этап 5: Манифест отгрузки + отчёт
-- Сохрани `.bft/documentation/<epic_code>/artefacts/delivery.md`:
+- Сохрани `<docs_path>/<epic_code>/artefacts/delivery.md`:
   ```
   # Отгрузка БФТ <epic_code>
   - Дата: ...
@@ -204,7 +211,7 @@ PO: подтверди «ок» (или поправь параметры) → �
   Эпик: <epicKey> — <URL>
   Краткое описание: <URL>
   Полный БФТ: <URL>
-  Связи проставлены. Манифест: .bft/documentation/<epic_code>/artefacts/delivery.md
+  Связи проставлены. Манифест: <docs_path>/<epic_code>/artefacts/delivery.md
   ```
 
 ---
