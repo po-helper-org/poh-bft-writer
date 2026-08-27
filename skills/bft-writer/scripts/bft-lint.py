@@ -86,7 +86,7 @@ PLACEHOLDER_HEADING = "## ⏳ Полный БФТ — в проработке"
 CONTINUE_HEADING = "## Продолжить / уточнить БФТ"
 
 CRITICAL_TABLE_HEADER = ["ID", "ASIS (сейчас)", "TOBE (после)", "Связанные", "Источник (цитата)"]
-PERSONAS_TABLE_HEADER = ["ФИО", "Роль", "Департамент"]
+PERSONAS_TABLE_HEADER = ["ФИО", "Роль", "Влияние"]
 
 ID_RE = re.compile(r"^(БТ|ПТ|ИТ|ФТ|НФТ)-[1-9]\d*$")
 PRIORITY_VALUES = {"Высокий", "Средний", "Низкий"}
