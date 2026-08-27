@@ -10,7 +10,7 @@ GOLDEN=(
 )
 BROKEN="skills/bft-writer/scripts/fixtures/broken_document.md"
 # Коды, которые негативная фикстура обязана поднять. Пропал код — линтер ослаб.
-EXPECTED_CODES=(BD001 HD004 HD006 HD007 CT006 TB001 TB002 DP001 CN002 CN006)
+EXPECTED_CODES=(BD001 HD003 HD004 HD006 HD007 TB001 TB002 DP001 CN002 CN006)
 
 fails=0
 

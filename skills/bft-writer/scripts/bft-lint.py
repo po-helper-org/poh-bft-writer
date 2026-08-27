@@ -36,15 +36,15 @@ HEAD_TITLE = "## Шапка (сутевое описание запроса)"
 HEAD_BLOCKS_REQUIRED = [
     "### How to demo",
     "### Ограничения и договоренности",
-    "### Критичные требования (скелет на цитатах)",
     "### Общая информация",
 ]
 HEAD_BLOCK_OPTIONAL = "### Документация"
 
-# Блоки, снятые решением PO 20.08.2026 (ЗМ-016) — их присутствие = ошибка.
+# Блоки, снятые решением PO — их присутствие = ошибка.
 HEAD_BLOCKS_FORBIDDEN = {
-    "### Открытые вопросы": "вопросы живут в «Вводные для разрабатываемого функционала» ниже границы",
-    "### Границы": "переименован в «Ограничения и договоренности»",
+    "### Открытые вопросы": "вопросы живут в «Вводные для разрабатываемого функционала» ниже границы (ЗМ-016)",
+    "### Границы": "переименован в «Ограничения и договоренности» (ЗМ-016)",
+    "### Критичные требования (скелет на цитатах)": "дублировал personas.csv/requirements.csv в теле документа — снят, скелет живёт только во вложении (ЗМ-018)",
 }
 
 BORDER_TOKEN = "BFT-HEAD-END"
@@ -68,7 +68,7 @@ CANON_SECTIONS = [
 CANON_SECTIONS_FORBIDDEN = {
     "Бизнес описание": "смысл перенесён в блок «Цель» шапки",
     "Общая информация": "перенесена в шапку как «### Общая информация»",
-    "Заинтересованные стороны": "персоны живут в «Критичные требования» шапки",
+    "Заинтересованные стороны": "персоны живут в personas.csv (вложение /bft-fast), не в документе",
     "История изменений": "снят решением PO",
     "Дополнительные материалы и артефакты": "снят решением PO",
     "Ревью требований": "снят решением PO",
@@ -85,8 +85,6 @@ CANON_SUBSECTIONS_REQUIRED = [
 PLACEHOLDER_HEADING = "## ⏳ Полный БФТ — в проработке"
 CONTINUE_HEADING = "## Продолжить / уточнить БФТ"
 
-CRITICAL_TABLE_HEADER = ["ID", "ASIS (сейчас)", "TOBE (после)", "Связанные", "Источник (цитата)"]
-PERSONAS_TABLE_HEADER = ["ФИО", "Роль", "Влияние"]
 SMART_TABLE_HEADER = ["SMART", "Значение"]
 SMART_ROWS = ["S (Specific)", "M (Measurable)", "A (Achievable)", "R (Relevant)", "T (Time-bound)"]
 
@@ -359,42 +357,6 @@ def check_head(doc: Doc, border: int, out: list[Finding]) -> None:
     expected = [b for b in HEAD_BLOCKS_REQUIRED if b in titles]
     if ordered != expected:
         out.append(Finding(head_start, "ERROR", "HD005", f"порядок блоков шапки нарушен: ожидался {' → '.join(expected)}"))
-
-    check_critical_table(doc, head_start, end, out)
-
-
-def check_critical_table(doc: Doc, start: int, end: int, out: list[Finding]) -> None:
-    header_line = doc.find_line("### Критичные требования (скелет на цитатах)", start, end)
-    if not header_line:
-        return
-    blocks = doc.tables(header_line, end)
-    if not blocks:
-        out.append(Finding(header_line, "ERROR", "CT001", "под «Критичные требования» нет таблиц (нужны персоны + требования)"))
-        return
-
-    personas = [b for b in blocks if b[0] == PERSONAS_TABLE_HEADER]
-    requirements = [b for b in blocks if b[0] == CRITICAL_TABLE_HEADER]
-
-    if not personas:
-        out.append(Finding(header_line, "ERROR", "CT002", f"нет таблицы персон ({' | '.join(PERSONAS_TABLE_HEADER)})"))
-    if not requirements:
-        out.append(Finding(header_line, "ERROR", "CT003", f"нет таблицы требований с колонками {' | '.join(CRITICAL_TABLE_HEADER)}"))
-        return
-
-    src_idx = len(CRITICAL_TABLE_HEADER) - 1
-    for _, rows in requirements:
-        for idx, cells in rows:
-            if all(not c for c in cells):
-                continue  # пустая строка-заглушка — её ловит TB001, не дублируем
-            if len(cells) != len(CRITICAL_TABLE_HEADER):
-                out.append(Finding(idx, "ERROR", "CT004", f"в таблице требований {len(cells)} колонок вместо {len(CRITICAL_TABLE_HEADER)}"))
-                continue
-            rid = cells[0]
-            if not ID_RE.match(rid):
-                out.append(Finding(idx, "ERROR", "CT005", f"идентификатор «{rid}» не по схеме {{БТ|ПТ|ИТ|ФТ|НФТ}}-N без ведущих нулей"))
-                continue
-            if not cells[src_idx]:
-                out.append(Finding(idx, "ERROR", "CT006", f"строка {rid}: пустая колонка «Источник (цитата)» — нет цитаты, нет требования"))
 
 
 def check_canon(doc: Doc, border: int, out: list[Finding]) -> None:
