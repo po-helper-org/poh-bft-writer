@@ -11,9 +11,9 @@ GOLDEN=(
 BROKEN="skills/bft-writer/scripts/fixtures/broken_document.md"
 BROKEN_FAST="skills/bft-writer/scripts/fixtures/broken_fast_document.md"
 # Коды, которые негативная deep-фикстура обязана поднять. Пропал код — линтер ослаб.
-EXPECTED_CODES=(BD003 HD003 HD004 HD006 HD007 TB001 TB002 TB003 DP001 CN001 CN002 CN006)
+EXPECTED_CODES=(BD003 HD002 HD003 HD004 HD006 CT006 TB001 TB002 TB003 DP001 CN001 CN002 CN006)
 # Коды стадии fast: на deep они не срабатывают по определению, нужна своя фикстура.
-EXPECTED_FAST_CODES=(BD001 CN010)
+EXPECTED_FAST_CODES=(BD001 CN010 HD004 HD007 HD008)
 
 fails=0
 
