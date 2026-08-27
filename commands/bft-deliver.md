@@ -9,7 +9,7 @@ description: 'Отгрузка БФТ — публикация в JIRA+Confluenc
 ```
 
 **Параметры:**
-- `<epic_code>` — короткий код БФТ (напр. `EPIC-10`, `EPIC-FAQ`). По нему находится документ БФТ в папке эпика: `<docs_path>/<epic_code>/<epic_code>.md`, где `docs_path` — ключ из `bft-config.md` (дефолт `.bft/documentation`). Для документа v2 `epic_code` — **то же значение, что `epic_slug`** во frontmatter: `/bft-fast` кладёт документ в `<docs_path>/<epic_slug>/<epic_slug>.md`, `/bft-deep` пишет туда же.
+- `<epic_code>` — короткий код БФТ (напр. `EPIC-10`, `EPIC-FAQ`). По нему находится документ БФТ в папке эпика: `<docs_path>/<epic_code>/<epic_code>.md`, где `docs_path` — ключ из `bft-config.md` (дефолт `.bft/documentation`). Для документа v2 `epic_code` — **то же значение, что `epic_slug`** во frontmatter. Доставляется финальный документ `<docs_path>/<epic_slug>/<epic_slug>.md` — его владелец `/bft-deep`; `/bft-fast` пишет отдельный `<epic_slug>-fast.md`, который deep читает как seed и не перезаписывает (`skills/bft-fast/resources/document_assembly.md` §«Путь файла»). Финального файла нет (deep не запускался) → доставлять нечего.
 - `[bft_space]` — Confluence space для публикации БФТ команды API-слой. **Дефолт — `wiki_space` из `bft-config.md`.**
 - `[bft_parent_id]` — parent page для БФТ-страницы (опц.). Если не задан → `[УТОЧНИТЬ у PO]`.
 - `[project]` — JIRA-проект для создания Эпика. **Дефолт — первый проект из `tracker_projects` (`bft-config.md`).**

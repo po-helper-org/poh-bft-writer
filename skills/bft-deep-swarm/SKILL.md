@@ -24,7 +24,7 @@ Merge-гейт качества — `resources/eval_rubric.md`.
 
 ## Резолв конфига и встроенные дефолты
 Читать `bft-config.md` (опц., в корне воркспейса; нет файла — встроенные дефолты ниже, без остановки):
-- `docs_path` (куда `<epic_slug>/<epic_slug>.md`; нет/не задан → дефолт `.bft/documentation`);
+- `docs_path` (seed — `<epic_slug>/<epic_slug>-fast.md` на чтение, запись — в свой `<epic_slug>/<epic_slug>.md`; нет/не задан → дефолт `.bft/documentation`);
 - модель для Deep-lane — модель текущей сессии (точка расширения; отсутствие отдельной настройки не ошибка);
 - ruflo namespace по умолчанию `bft-deep` (§ orchestration) — актуально только если ruflo доступен, иначе native-деградация;
 - `.bft/index/stakeholders.md` (опц., построен `/bft-index`) — владельцы вопросов по зонам ответственности; индекс не построен → `[кому?]`.
