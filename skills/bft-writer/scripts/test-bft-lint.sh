@@ -9,8 +9,11 @@ GOLDEN=(
   "skills/bft-deep-swarm/examples/golden_deep_document.md"
 )
 BROKEN="skills/bft-writer/scripts/fixtures/broken_document.md"
-# Коды, которые негативная фикстура обязана поднять. Пропал код — линтер ослаб.
-EXPECTED_CODES=(BD001 HD003 HD004 HD006 HD007 TB001 TB002 DP001 CN002 CN006)
+BROKEN_FAST="skills/bft-writer/scripts/fixtures/broken_fast_document.md"
+# Коды, которые негативная deep-фикстура обязана поднять. Пропал код — линтер ослаб.
+EXPECTED_CODES=(BD003 HD003 HD004 HD006 HD007 TB001 TB002 TB003 DP001 CN001 CN002 CN006)
+# Коды стадии fast: на deep они не срабатывают по определению, нужна своя фикстура.
+EXPECTED_FAST_CODES=(BD001 CN010)
 
 fails=0
 
@@ -38,6 +41,24 @@ for code in "${EXPECTED_CODES[@]}"; do
     echo "ok    код $code поднят"
   else
     echo "FAIL  код $code не поднят на негативной фикстуре"
+    fails=$((fails + 1))
+  fi
+done
+
+fast_out=$(python3 "$LINT" "$BROKEN_FAST" 2>&1)
+fast_rc=$?
+if [ "$fast_rc" -eq 0 ]; then
+  echo "FAIL  broken-fast $BROKEN_FAST — линтер вернул 0 на заведомо сломанном fast-документе"
+  fails=$((fails + 1))
+else
+  echo "ok    broken-fast $BROKEN_FAST — код выхода $fast_rc"
+fi
+
+for code in "${EXPECTED_FAST_CODES[@]}"; do
+  if echo "$fast_out" | grep -q " $code "; then
+    echo "ok    код $code поднят (fast)"
+  else
+    echo "FAIL  код $code не поднят на fast-фикстуре"
     fails=$((fails + 1))
   fi
 done

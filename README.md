@@ -33,17 +33,20 @@ curl -ksSL https://raw.githubusercontent.com/po-helper-org/poh-bft-writer/main/i
 3. `/bft-index` проводит первичную аналитику и строит контекст (`.bft/index/`).
 4. Полный workflow: `/bft-context-gen → /bft-problem → /bft-concept → /bft-debate → /bft-draft → /bft-validate → /bft-deliver` (STOP-паузы, human-in-the-loop).
 5. v2 автономка (единый растущий документ):
-   `/bft-fast` — письмо в чат + два csv-вложения + документ-шапка `<epic_slug>-fast.md`
-   (Цель + SMART-таблица, How to demo, Ограничения и договоренности, Документация,
-   Общая информация) + таблица «Вводные» с открытыми вопросами + Confluence-черновик
-   после «ок» PO + открытое поле с промтом для доведения;
-   `/bft-deep` — читает fast-документ (не перезаписывает его), копирует шапку и пишет
-   полный документ `<epic_slug>.md` с каноном из 11 разделов, обновляет ту же страницу
+   `/bft-fast` — **стенографист**: наружу не ходит (ни JIRA, ни Confluence, ни индекс),
+   фиксирует продиктованное PO в правильной форме. Письмо в чат + два csv-вложения +
+   локальный документ-шапка `<epic_slug>-fast.md` (Цель + SMART-таблица, How to demo,
+   Ограничения и договоренности, Документация, Общая информация) + открытое поле
+   с промтом для доведения. Открытые вопросы уходят в чат, не в документ. Рассчитан на Haiku;
+   `/bft-deep` — **аудитор**: поднимает индекс `.bft/index/`, Confluence, JIRA, git и
+   прошлые артефакты, сначала формирует уточняющие вопросы к PO по пяти срезам
+   (пробел / противоречие / edge-кейс / граница / термин), затем пишет полный документ
+   `<epic_slug>.md` с каноном из 11 разделов и обновляет страницу
    (форкается в фоне автоматически, `--no-deep` отключает, либо запускается вручную);
    `/bft-deliver` — JIRA-эпик, дочерняя страница, связи; страницу БФТ обновляет, не дублирует.
    Форк отключён, упал или про задачу забыли — открой блок «Довести до полного БФТ» внизу
    документа, скопируй промт в Claude Code и продолжи с любой точки.
-6. Результат соответствует практикам po-helper: 18 hard gates (17 — структура, 18 — anti-slop лексика), стиль/голос, Lessons Learned, урезанный канон MTS (ЗМ-016), ранги якорей, CATWOE, adversarial-дебаты.
+6. Результат соответствует практикам po-helper: 19 hard gates (17 — структура, 18 — anti-slop лексика, 19 — сверка с источником), стиль/голос, Lessons Learned, урезанный канон MTS (ЗМ-016), ранги якорей, CATWOE, adversarial-дебаты.
 
 ## Проверка шаблона (гейт 17)
 
@@ -52,6 +55,7 @@ curl -ksSL https://raw.githubusercontent.com/po-helper-org/poh-bft-writer/main/i
 ```bash
 python3 skills/bft-writer/scripts/bft-lint.py .bft/documentation/<epic_slug>/<epic_slug>.md
 python3 skills/bft-writer/scripts/bft-style-lint.py .bft/documentation/<epic_slug>/<epic_slug>.md
+python3 skills/bft-writer/scripts/bft-ground-lint.py .bft/documentation/<epic_slug>/<epic_slug>.md --source <входной Summary> --strict
 ```
 
 Ненулевой код выхода — документ не по шаблону: потеряна строка-граница шапки, пропал раздел

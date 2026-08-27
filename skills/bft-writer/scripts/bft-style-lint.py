@@ -11,6 +11,10 @@
 concept.md, черновик БФТ, validation.md), а не только к финальному документу
 с frontmatter — в отличие от bft-lint.py здесь нет требования к канону.
 
+Не применяется к самим файлам правил (`resources/writing_style.md`,
+`resources/hard_gates.md`): они цитируют запрещённые обороты, чтобы их
+запретить, и срабатывание на цитате — ложное.
+
 Использование:
     python3 scripts/bft-style-lint.py <файл.md> [<файл.md> ...]
     python3 scripts/bft-style-lint.py --format json <файл.md>

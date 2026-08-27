@@ -74,11 +74,11 @@ CANON_SECTIONS_FORBIDDEN = {
     "Ревью требований": "снят решением PO",
     "Границы": "в каноне отсутствует (ЗМ-014)",
     "Критерии успеха": "в каноне отсутствует (v10)",
-    "Ключевые решения": "в каноне отсутствует, вопросы — во «Вводных»",
+    "Ключевые решения": "в каноне отсутствует",
+    "Вводные для разрабатываемого функционала": "снят решением PO (ЗМ-020): открытые вопросы живут в письме и в ответе в чате, в документе — [УТОЧНИТЬ] в ячейке требования",
 }
 
 CANON_SUBSECTIONS_REQUIRED = [
-    "## Вводные для разрабатываемого функционала*",
     "## Ценность разрабатываемого функционала для бизнес-заказчиков*",
 ]
 
@@ -91,6 +91,7 @@ SMART_ROWS = ["S (Specific)", "M (Measurable)", "A (Achievable)", "R (Relevant)"
 ID_RE = re.compile(r"^(БТ|ПТ|ИТ|ФТ|НФТ)-[1-9]\d*$")
 PRIORITY_VALUES = {"Высокий", "Средний", "Низкий"}
 UNCLEAR_RE = re.compile(r"\[УТОЧНИТЬ")
+HTML_LIST_RE = re.compile(r"</?(ul|ol|li|br)\s*/?>", re.I)
 
 # Эмодзи-маркеры стадии, санкционированные вне канона (гейт 13).
 STAGE_MARKERS = "⚡⏳▶✅"
@@ -247,11 +248,19 @@ class Doc:
         return blocks
 
     def canon_start(self, border: int) -> int:
-        """Начало области канона. Без границы — первый заголовок канона."""
+        """Начало области канона. Без границы — первый заголовок канона.
+
+        Заголовки уровня 3 пропускаются: `### Общая информация` и другие блоки шапки
+        носят те же имена, что снятые разделы канона, и приняв такой блок за начало
+        канона линтер объявил бы шапку каноном (а её обязательные блоки — пропавшими).
+        """
         if border:
             return border + 1
+        known = set(CANON_SECTIONS) | set(CANON_SECTIONS_FORBIDDEN)
         for idx, title in self.headings(self.fm_end + 1):
-            if title.strip().rstrip("*").strip() in set(CANON_SECTIONS) | set(CANON_SECTIONS_FORBIDDEN):
+            if self.lines[idx - 1].startswith("###"):
+                continue
+            if title.strip().rstrip("*").strip() in known:
                 return idx
         return len(self.lines) + 1
 
@@ -298,14 +307,25 @@ def check_title(doc: Doc, out: list[Finding]) -> None:
 
 
 def check_border(doc: Doc, out: list[Finding]) -> int:
-    """Возвращает номер строки границы (0 — не найдена)."""
+    """Возвращает номер строки границы (0 — не найдена).
+
+    Граница — служебный якорь стадии fast: по ней /bft-deep отделяет шапку от канона.
+    В финальном документе (stage: deep) её быть не должно — документ цельный, зон две
+    больше нет, а служебный комментарий в клиентском артефакте лишний (ЗМ-022).
+    """
     for idx, raw in enumerate(doc.lines, start=1):
         # Граница — однострочный комментарий, начинающийся с <!--. Упоминание токена
         # в тексте или внутри многострочного комментария границей не считается.
         if BORDER_TOKEN in raw and raw.lstrip().startswith("<!--"):
             doc.border_lines.append(idx)
+
+    if doc.stage == "deep":
+        if doc.border_lines:
+            out.append(Finding(doc.border_lines[0], "ERROR", "BD003", f"строка-граница {BORDER_TOKEN} осталась в финальном документе — на стадии deep её снимают (ЗМ-022)"))
+        return 0
+
     if not doc.border_lines:
-        out.append(Finding(1, "ERROR", "BD001", f"нет строки-границы {BORDER_TOKEN} — шапка и канон неразличимы, следующий /bft-deep допишет второй канон"))
+        out.append(Finding(1, "ERROR", "BD001", f"нет строки-границы {BORDER_TOKEN} — шапка и канон неразличимы, следующий /bft-deep не найдёт точку вставки"))
         return 0
     if len(doc.border_lines) > 1:
         out.append(Finding(doc.border_lines[1], "ERROR", "BD002", f"строк-границ {BORDER_TOKEN} больше одной ({len(doc.border_lines)}) — их должно быть ровно одна"))
@@ -362,6 +382,11 @@ def check_head(doc: Doc, border: int, out: list[Finding]) -> None:
 def check_canon(doc: Doc, border: int, out: list[Finding]) -> None:
     start = doc.canon_start(border)
     if start > len(doc.lines):
+        # Области канона нет вовсе. На fast это само по себе дефект: плейсхолдер
+        # обязателен, и без него документ молча выходит без точки продолжения.
+        # Проверку не пропускаем — иначе она глохнет ровно там, где нужна.
+        if doc.stage == "fast" and not doc.find_line(PLACEHOLDER_HEADING, doc.fm_end + 1):
+            out.append(Finding(len(doc.lines), "ERROR", "CN010", f"на stage: fast нет плейсхолдера «{PLACEHOLDER_HEADING}» — документ без точки продолжения"))
         return
     heads = doc.headings(start)
     titles = [(idx, t.lstrip("#").strip()) for idx, t in heads]
@@ -374,8 +399,6 @@ def check_canon(doc: Doc, border: int, out: list[Finding]) -> None:
     if doc.stage == "fast":
         if not doc.find_line(PLACEHOLDER_HEADING, start):
             out.append(Finding(start, "ERROR", "CN010", f"на stage: fast ниже границы нет плейсхолдера «{PLACEHOLDER_HEADING}»"))
-        if not any("Вводные для разрабатываемого функционала" in t for _, t in titles):
-            out.append(Finding(start, "ERROR", "CN011", "на stage: fast ниже границы нет таблицы «Вводные для разрабатываемого функционала*» — открытым вопросам письма некуда лечь"))
         return
 
     # stage: deep — полный канон
@@ -459,7 +482,10 @@ def check_tables_hygiene(doc: Doc, out: list[Finding]) -> None:
             continue
         for cell in cells:
             if "&lt;" in cell or "&gt;" in cell:
-                out.append(Finding(idx, "ERROR", "TB002", "HTML-сущности &lt;/&gt; в ячейке вместо тегов <ul><li> — в Confluence отрендерится сырым текстом (ЗМ-011)"))
+                out.append(Finding(idx, "ERROR", "TB002", "HTML-сущности &lt;/&gt; в ячейке — в Confluence отрендерится сырым текстом"))
+                break
+            if HTML_LIST_RE.search(cell):
+                out.append(Finding(idx, "ERROR", "TB003", "HTML-разметка списка (<ul>/<li>/<br>) в ячейке — писать одной короткой формулировкой, без вёрстки (ЗМ-021)"))
                 break
 
 
