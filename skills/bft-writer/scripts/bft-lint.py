@@ -87,6 +87,8 @@ CONTINUE_HEADING = "## Продолжить / уточнить БФТ"
 
 CRITICAL_TABLE_HEADER = ["ID", "ASIS (сейчас)", "TOBE (после)", "Связанные", "Источник (цитата)"]
 PERSONAS_TABLE_HEADER = ["ФИО", "Роль", "Влияние"]
+SMART_TABLE_HEADER = ["SMART", "Значение"]
+SMART_ROWS = ["S (Specific)", "M (Measurable)", "A (Achievable)", "R (Relevant)", "T (Time-bound)"]
 
 ID_RE = re.compile(r"^(БТ|ПТ|ИТ|ФТ|НФТ)-[1-9]\d*$")
 PRIORITY_VALUES = {"Высокий", "Средний", "Низкий"}
@@ -323,6 +325,14 @@ def check_head(doc: Doc, border: int, out: list[Finding]) -> None:
             if doc.lines[idx - 1].startswith("Цель:") and not doc.skip(idx)]
     if not goal:
         out.append(Finding(head_start, "ERROR", "HD002", "в шапке нет абзаца «Цель: …» — он несёт образ результата вместо снятого раздела «Бизнес описание»"))
+    else:
+        smart_ok = False
+        for header, rows in doc.tables(goal[0], end):
+            labels = [cells[0] for _, cells in rows if cells]
+            smart_ok = header == SMART_TABLE_HEADER and labels == SMART_ROWS
+            break
+        if not smart_ok:
+            out.append(Finding(goal[0], "ERROR", "HD007", f"под «Цель:» нет SMART-таблицы («{' | '.join(SMART_TABLE_HEADER)}», строки {' → '.join(SMART_ROWS)}) — см. document_assembly.md §SMART-таблица"))
 
     seen: list[tuple[int, str]] = []
     for idx in range(head_start, end + 1):
