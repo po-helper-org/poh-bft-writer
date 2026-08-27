@@ -46,7 +46,7 @@ curl -ksSL https://raw.githubusercontent.com/po-helper-org/poh-bft-writer/main/i
    `/bft-deliver` — JIRA-эпик, дочерняя страница, связи; страницу БФТ обновляет, не дублирует.
    Форк отключён, упал или про задачу забыли — открой блок «Довести до полного БФТ» внизу
    документа, скопируй промт в Claude Code и продолжи с любой точки.
-6. Результат соответствует практикам po-helper: 18 hard gates (17 — структура, 18 — anti-slop лексика), стиль/голос, Lessons Learned, урезанный канон MTS (ЗМ-016), ранги якорей, CATWOE, adversarial-дебаты.
+6. Результат соответствует практикам po-helper: 19 hard gates (17 — структура, 18 — anti-slop лексика, 19 — сверка с источником), стиль/голос, Lessons Learned, урезанный канон MTS (ЗМ-016), ранги якорей, CATWOE, adversarial-дебаты.
 
 ## Проверка шаблона (гейт 17)
 
@@ -55,6 +55,7 @@ curl -ksSL https://raw.githubusercontent.com/po-helper-org/poh-bft-writer/main/i
 ```bash
 python3 skills/bft-writer/scripts/bft-lint.py .bft/documentation/<epic_slug>/<epic_slug>.md
 python3 skills/bft-writer/scripts/bft-style-lint.py .bft/documentation/<epic_slug>/<epic_slug>.md
+python3 skills/bft-writer/scripts/bft-ground-lint.py .bft/documentation/<epic_slug>/<epic_slug>.md --source <входной Summary> --strict
 ```
 
 Ненулевой код выхода — документ не по шаблону: потеряна строка-граница шапки, пропал раздел
