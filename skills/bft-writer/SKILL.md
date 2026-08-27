@@ -135,7 +135,7 @@ description: Генератор БФТ (бизнес-функциональны�
 ## Стандарты и ресурсы
 
 - `resources/bft_standards.md` — идентификаторы, различение типов (ПТ≠ФТ≠НФТ), НФТ-набор + приоритет корпоративного реестра НФТ, frontmatter, словарь, порядок разделов (ЗМ-005), формат таблиц.
-- `resources/hard_gates.md` — **16 бинарных 🔴-гейтов** (вкл. гейт 13 «Стиль/Голос», гейт 14 «Высота БФТ», гейт 15 «Known-Mistake», гейт 16 «Self-Consistency») + чек-лист + Светофор.
+- `resources/hard_gates.md` — **18 бинарных 🔴-гейтов** (вкл. гейт 13 «Стиль/Голос», гейт 14 «Высота БФТ», гейт 15 «Known-Mistake», гейт 16 «Self-Consistency», гейт 17 «Template-Conformance» — машинно `bft-lint.py`, гейт 18 «Anti-Slop» — машинно `bft-style-lint.py`) + чек-лист + Светофор.
 - `resources/anchor_rules.md` — ранги якорей R1 (код, As-Is) / R2 (JIRA/Confluence/BR/ADR) / R3 (PO-решение); код-якорь только для As-Is.
 - `resources/catwoe.md` — CATWOE-декомпозиция (W→БТ, O→Ревью, E→НФТ).
 - `resources/writing_style.md` — стиль и голос (Humanizer + скилл `anti-slop`): стоп-слова, хеджи/интенсификаторы/мета-комментарии, тире, эмодзи, bold, `[УТОЧНИТЬ]`-дисциплина, калибровка под золотой референс.
