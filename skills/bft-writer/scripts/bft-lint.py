@@ -32,8 +32,14 @@ FRONTMATTER_KEYS = [
 
 HEAD_TITLE = "## Шапка (сутевое описание запроса)"
 
+GOAL_BLOCK = "### Цель"
+CRITICAL_BLOCK = "### Критичные требования (скелет на цитатах)"
+
 # Обязательные блоки шапки в фиксированном порядке. Документация — условный.
-HEAD_BLOCKS_REQUIRED = [
+# «Критичные требования» — только на стадии fast (ЗМ-027): скелет-на-цитатах задаёт
+# границы документа, пока канона нет. На deep он развёрнут в разделы канона и снимается.
+HEAD_BLOCKS_REQUIRED_COMMON = [
+    GOAL_BLOCK,
     "### How to demo",
     "### Ограничения и договоренности",
     "### Общая информация",
@@ -41,11 +47,31 @@ HEAD_BLOCKS_REQUIRED = [
 HEAD_BLOCK_OPTIONAL = "### Документация"
 
 # Блоки, снятые решением PO — их присутствие = ошибка.
-HEAD_BLOCKS_FORBIDDEN = {
+HEAD_BLOCKS_FORBIDDEN_COMMON = {
     "### Открытые вопросы": "вопросы живут в «Вводные для разрабатываемого функционала» ниже границы (ЗМ-016)",
     "### Границы": "переименован в «Ограничения и договоренности» (ЗМ-016)",
-    "### Критичные требования (скелет на цитатах)": "дублировал personas.csv/requirements.csv в теле документа — снят, скелет живёт только во вложении (ЗМ-018)",
 }
+CRITICAL_BLOCK_FORBIDDEN_DEEP = (
+    "скелет-на-цитатах развёрнут в разделы канона — на стадии deep блок снимается "
+    "вместе со строкой-границей (ЗМ-027)"
+)
+
+
+def head_blocks_required(stage: str) -> list[str]:
+    """Состав шапки зависит от стадии: на fast в ней есть «Критичные требования»."""
+    if stage != "fast":
+        return list(HEAD_BLOCKS_REQUIRED_COMMON)
+    out = list(HEAD_BLOCKS_REQUIRED_COMMON)
+    out.insert(out.index("### Общая информация"), CRITICAL_BLOCK)
+    return out
+
+
+def head_blocks_forbidden(stage: str) -> dict[str, str]:
+    out = dict(HEAD_BLOCKS_FORBIDDEN_COMMON)
+    if stage != "fast":
+        out[CRITICAL_BLOCK] = CRITICAL_BLOCK_FORBIDDEN_DEEP
+    return out
+
 
 BORDER_TOKEN = "BFT-HEAD-END"
 
@@ -68,7 +94,7 @@ CANON_SECTIONS = [
 CANON_SECTIONS_FORBIDDEN = {
     "Бизнес описание": "смысл перенесён в блок «Цель» шапки",
     "Общая информация": "перенесена в шапку как «### Общая информация»",
-    "Заинтересованные стороны": "персоны живут в personas.csv (вложение /bft-fast), не в документе",
+    "Заинтересованные стороны": "персоны живут в personas.csv (вложение /bft-fast) и в «Критичных требованиях» шапки fast, не в каноне",
     "История изменений": "снят решением PO",
     "Дополнительные материалы и артефакты": "снят решением PO",
     "Ревью требований": "снят решением PO",
@@ -85,6 +111,8 @@ CANON_SUBSECTIONS_REQUIRED = [
 PLACEHOLDER_HEADING = "## ⏳ Полный БФТ — в проработке"
 CONTINUE_HEADING = "## Продолжить / уточнить БФТ"
 
+CRITICAL_TABLE_HEADER = ["ID", "ASIS (сейчас)", "TOBE (после)", "Связанные", "Источник (цитата)"]
+PERSONAS_TABLE_HEADER = ["ФИО", "Роль", "Влияние"]
 SMART_TABLE_HEADER = ["SMART", "Значение"]
 SMART_ROWS = ["S (Specific)", "M (Measurable)", "A (Achievable)", "R (Relevant)", "T (Time-bound)"]
 
@@ -339,18 +367,18 @@ def check_head(doc: Doc, border: int, out: list[Finding]) -> None:
         return
     end = doc.canon_start(border) - 1
 
-    goal = [idx for idx in range(head_start, end + 1)
-            if doc.lines[idx - 1].startswith("Цель:") and not doc.skip(idx)]
-    if not goal:
-        out.append(Finding(head_start, "ERROR", "HD002", "в шапке нет абзаца «Цель: …» — он несёт образ результата вместо снятого раздела «Бизнес описание»"))
+    goal_line = doc.find_line(GOAL_BLOCK, head_start, end)
+    if not goal_line:
+        out.append(Finding(head_start, "ERROR", "HD002", f"в шапке нет блока «{GOAL_BLOCK}» — он несёт образ результата вместо снятого раздела «Бизнес описание»"))
     else:
         smart_ok = False
-        for header, rows in doc.tables(goal[0], end):
+        for header, rows in doc.tables(goal_line, end):
             labels = [cells[0] for _, cells in rows if cells]
             smart_ok = header == SMART_TABLE_HEADER and labels == SMART_ROWS
             break
         if not smart_ok:
-            out.append(Finding(goal[0], "ERROR", "HD007", f"под «Цель:» нет SMART-таблицы («{' | '.join(SMART_TABLE_HEADER)}», строки {' → '.join(SMART_ROWS)}) — см. document_assembly.md §SMART-таблица"))
+            out.append(Finding(goal_line, "ERROR", "HD007", f"под «{GOAL_BLOCK}» нет SMART-таблицы («{' | '.join(SMART_TABLE_HEADER)}», строки {' → '.join(SMART_ROWS)}) — см. document_assembly.md §SMART-таблица"))
+        check_goal_prose(doc, goal_line, end, out)
 
     seen: list[tuple[int, str]] = []
     for idx in range(head_start, end + 1):
@@ -364,19 +392,77 @@ def check_head(doc: Doc, border: int, out: list[Finding]) -> None:
             continue
         seen.append((idx, raw))
 
+    forbidden = head_blocks_forbidden(doc.stage)
+    required = head_blocks_required(doc.stage)
+
     for idx, raw in seen:
-        if raw in HEAD_BLOCKS_FORBIDDEN:
-            out.append(Finding(idx, "ERROR", "HD003", f"блок «{raw}» снят из шапки: {HEAD_BLOCKS_FORBIDDEN[raw]}"))
+        if raw in forbidden:
+            out.append(Finding(idx, "ERROR", "HD003", f"блок «{raw}» снят из шапки: {forbidden[raw]}"))
 
     titles = [raw for _, raw in seen]
-    for block in HEAD_BLOCKS_REQUIRED:
+    for block in required:
         if block not in titles:
             out.append(Finding(head_start, "ERROR", "HD004", f"в шапке нет обязательного блока «{block}»"))
 
-    ordered = [t for t in titles if t in HEAD_BLOCKS_REQUIRED]
-    expected = [b for b in HEAD_BLOCKS_REQUIRED if b in titles]
+    ordered = [t for t in titles if t in required]
+    expected = [b for b in required if b in titles]
     if ordered != expected:
         out.append(Finding(head_start, "ERROR", "HD005", f"порядок блоков шапки нарушен: ожидался {' → '.join(expected)}"))
+
+    check_critical_table(doc, head_start, end, out)
+
+
+def check_goal_prose(doc: Doc, goal_line: int, end: int, out: list[Finding]) -> None:
+    """Между «### Цель» и SMART-таблицей текста нет (ЗМ-026).
+
+    Прозаическое пояснение под целью пересказывало то, на что уже отвечает таблица:
+    S — что делаем, R — зачем. В письме строка «Цель: …» остаётся (letter_format.md),
+    в документе её место занимает таблица.
+    """
+    for idx in range(goal_line + 1, min(end, len(doc.lines)) + 1):
+        if doc.skip(idx):
+            continue
+        raw = doc.lines[idx - 1].strip()
+        if not raw:
+            continue
+        if raw.startswith("|") or raw.startswith("#"):
+            return
+        out.append(Finding(idx, "ERROR", "HD008", f"под «{GOAL_BLOCK}» стоит текстовое пояснение — в документе цель несёт только SMART-таблица (ЗМ-026)"))
+        return
+
+
+def check_critical_table(doc: Doc, start: int, end: int, out: list[Finding]) -> None:
+    header_line = doc.find_line(CRITICAL_BLOCK, start, end)
+    if not header_line:
+        return
+    blocks = doc.tables(header_line, end)
+    if not blocks:
+        out.append(Finding(header_line, "ERROR", "CT001", "под «Критичные требования» нет таблиц (нужны персоны + требования)"))
+        return
+
+    personas = [b for b in blocks if b[0] == PERSONAS_TABLE_HEADER]
+    requirements = [b for b in blocks if b[0] == CRITICAL_TABLE_HEADER]
+
+    if not personas:
+        out.append(Finding(header_line, "ERROR", "CT002", f"нет таблицы персон ({' | '.join(PERSONAS_TABLE_HEADER)})"))
+    if not requirements:
+        out.append(Finding(header_line, "ERROR", "CT003", f"нет таблицы требований с колонками {' | '.join(CRITICAL_TABLE_HEADER)}"))
+        return
+
+    src_idx = len(CRITICAL_TABLE_HEADER) - 1
+    for _, rows in requirements:
+        for idx, cells in rows:
+            if all(not c for c in cells):
+                continue  # пустая строка-заглушка — её ловит TB001, не дублируем
+            if len(cells) != len(CRITICAL_TABLE_HEADER):
+                out.append(Finding(idx, "ERROR", "CT004", f"в таблице требований {len(cells)} колонок вместо {len(CRITICAL_TABLE_HEADER)}"))
+                continue
+            rid = cells[0]
+            if not ID_RE.match(rid):
+                out.append(Finding(idx, "ERROR", "CT005", f"идентификатор «{rid}» не по схеме {{БТ|ПТ|ИТ|ФТ|НФТ}}-N без ведущих нулей"))
+                continue
+            if not cells[src_idx]:
+                out.append(Finding(idx, "ERROR", "CT006", f"строка {rid}: пустая колонка «Источник (цитата)» — нет цитаты, нет требования"))
 
 
 def check_canon(doc: Doc, border: int, out: list[Finding]) -> None:

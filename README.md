@@ -35,9 +35,15 @@ curl -ksSL https://raw.githubusercontent.com/po-helper-org/poh-bft-writer/main/i
 5. v2 автономка (единый растущий документ):
    `/bft-fast` — **стенографист**: наружу не ходит (ни JIRA, ни Confluence, ни индекс),
    фиксирует продиктованное PO в правильной форме. Письмо в чат + два csv-вложения +
-   локальный документ-шапка `<epic_slug>-fast.md` (Цель + SMART-таблица, How to demo,
-   Ограничения и договоренности, Документация, Общая информация) + открытое поле
+   локальный документ-шапка `<epic_slug>-fast.md` (Цель = SMART-таблица, How to demo,
+   Ограничения и договоренности, Документация, Критичные требования на цитатах,
+   Общая информация) + открытое поле
    с промтом для доведения. Открытые вопросы уходят в чат, не в документ. Рассчитан на Haiku;
+   `/bft-recon` — **разведчик**: пока вы читаете письмо, фоновый субагент обходит
+   JIRA и Confluence **только на чтение** и кладёт рядом карту находок
+   `context_map.md` — что по теме уже описано, с чем пересекается, что раньше
+   отклонили, кто вёл тему. В письмо, csv и документ ничего не дописывает: находки
+   приходят нотификацией со ссылками, решение за PO (`--no-recon` отключает);
    `/bft-deep` — **аудитор**: поднимает индекс `.bft/index/`, Confluence, JIRA, git и
    прошлые артефакты, сначала формирует уточняющие вопросы к PO по пяти срезам
    (пробел / противоречие / edge-кейс / граница / термин), затем пишет полный документ
@@ -46,7 +52,7 @@ curl -ksSL https://raw.githubusercontent.com/po-helper-org/poh-bft-writer/main/i
    `/bft-deliver` — JIRA-эпик, дочерняя страница, связи; страницу БФТ обновляет, не дублирует.
    Форк отключён, упал или про задачу забыли — открой блок «Довести до полного БФТ» внизу
    документа, скопируй промт в Claude Code и продолжи с любой точки.
-6. Результат соответствует практикам po-helper: 19 hard gates (17 — структура, 18 — anti-slop лексика, 19 — сверка с источником), стиль/голос, Lessons Learned, урезанный канон MTS (ЗМ-016), ранги якорей, CATWOE, adversarial-дебаты.
+6. Результат соответствует практикам po-helper: 20 hard gates (17 — структура, 18 — anti-slop лексика, 19 — сверка с источником, 20 — карта контекста `/bft-recon`), стиль/голос, Lessons Learned, урезанный канон MTS (ЗМ-016), ранги якорей, CATWOE, adversarial-дебаты.
 
 ## Проверка шаблона (гейт 17)
 
@@ -65,6 +71,14 @@ python3 skills/bft-writer/scripts/bft-ground-lint.py .bft/documentation/<epic_sl
 
 ```bash
 bash skills/bft-writer/scripts/test-bft-lint.sh
+```
+
+Карту контекста `/bft-recon` проверяет свой линтер (гейт 20) — находка без ссылки
+непроверяема, а отсутствие раздела «Что не найдено» выдаёт молчание за пустой результат:
+
+```bash
+python3 skills/bft-writer/scripts/bft-recon-lint.py .bft/documentation/<epic_slug>/context_map.md
+bash skills/bft-writer/scripts/test-bft-recon-lint.sh
 ```
 
 ## Быстрый старт
@@ -86,6 +100,7 @@ bash skills/bft-writer/scripts/test-bft-lint.sh
 | `/bft-validate` | Validator | `artefacts/validation.md` |
 | `/bft-deliver` | Deliverer | публикация JIRA+Confluence |
 | `/bft-fast` | Fast lane | письмо + csv-вложения + документ (шапка) + Confluence-черновик |
+| `/bft-recon` | Разведка контекста | `context_map.md` — карта находок JIRA/Confluence со ссылками |
 | `/bft-deep` | Deep swarm | тот же документ, обогащённый каноном |
 
 ## Как это работает
