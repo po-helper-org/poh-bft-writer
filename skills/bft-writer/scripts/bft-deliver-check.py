@@ -21,7 +21,10 @@ CONFLUENCE_LINK_RE = re.compile(
     r"\[([^\]]*)\]\((https?://confluence\.mts\.ru/pages/viewpage\.action\?pageId=(\d+))\)"
 )
 BARE_PAGEID_RE = re.compile(r"(?<!\()\bpageId\s+(\d+)\b")
-PLANTUML_RE = re.compile(r"```plantuml\b.*?```", re.S)
+# Must match bft-render-plantuml.py's PLANTUML_BLOCK_RE exactly — a block this
+# regex counts as "needs conversion" but that one fails to match (or the
+# reverse) is exactly the drift bug that shipped and got fixed once already.
+PLANTUML_RE = re.compile(r"```plantuml\b[ \t]*\n.*?```", re.S)
 
 
 def check(text: str) -> dict:
