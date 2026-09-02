@@ -147,7 +147,14 @@ def parse_blocks(body: str):
             j = i
             item_lines = []
             ordered = re.match(r"^\d+\.\s", line.strip()) is not None
-            while j < len(lines) and (re.match(r"^\d+\.\s", lines[j].strip()) or lines[j].strip().startswith(("* ", "- "))):
+            # only continue matching the same list type the block started with —
+            # an adjacent numbered/bulleted line with no blank line between them
+            # starts a new block, it doesn't silently join this one under the
+            # first line's type.
+            while j < len(lines) and (
+                re.match(r"^\d+\.\s", lines[j].strip()) if ordered
+                else lines[j].strip().startswith(("* ", "- "))
+            ):
                 item_lines.append(re.sub(r"^(\d+\.\s|\*\s|-\s)", "", lines[j].strip()))
                 j += 1
             blocks.append(("list", ordered, item_lines))
@@ -237,6 +244,7 @@ def render_table(header, rows, id_map):
     is_id_table = header and header[0].strip().lower() in ("идентификатор", "id")
     thead = "<thead><tr>" + "".join(f"<th>{htmlmod.escape(h)}</th>" for h in header) + "</tr></thead>"
     body_rows = []
+    seen_slugs = set()
     for row in rows:
         row = row + [""] * (len(header) - len(row))
         tr_id = ""
@@ -244,8 +252,13 @@ def render_table(header, rows, id_map):
         for idx, cell in enumerate(row):
             if is_id_table and idx == 0:
                 slug = slug_for(cell)
-                if slug:
+                # A duplicated requirement ID in the source table (data-quality
+                # slip) must not produce two <tr id="..."> with the same id —
+                # invalid HTML, and anchors/CSS :target would only ever resolve
+                # to the first one. Only the first occurrence gets the id.
+                if slug and slug not in seen_slugs:
                     tr_id = f' id="{slug}"'
+                    seen_slugs.add(slug)
                 cells.append(f'<td class="rid">{htmlmod.escape(cell)}</td>')
             else:
                 cells.append(f"<td>{inline(cell, id_map=id_map)}</td>")
@@ -496,7 +509,7 @@ def main():
 
     html_out = TEMPLATE_HEAD.format(title=htmlmod.escape(title), css=CSS, meta_line=htmlmod.escape(meta_line))
     html_out += body_html
-    html_out += TEMPLATE_TAIL.format(doc_name=md_path.name, lint_status=lint_status, scripts=scripts)
+    html_out += TEMPLATE_TAIL.format(doc_name=htmlmod.escape(md_path.name), lint_status=lint_status, scripts=scripts)
 
     out_path = Path(args.output) if args.output else md_path.with_suffix(".html")
     out_path.write_text(html_out, encoding="utf-8")
