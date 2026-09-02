@@ -1,6 +1,6 @@
 ---
 name: bft-writer
-description: Генератор БФТ (бизнес-функциональных требований) для эпиков трекера в корпоративном формате. Каноничный пайплайн из 7 стадий с STOP-паузами (Context Builder → Problem Analyst → Solution Designer → Debate → Requirements Writer → Validator → Deliverer). Используй когда — нужно написать БФТ, бизнес-функциональные требования, требования к эпику или фиче, /bft-context-gen, /bft-problem, /bft-concept, /bft-debate, /bft-draft, /bft-validate, /bft-deliver.
+description: Генератор БФТ (бизнес-функциональных требований) для эпиков трекера в корпоративном формате. Каноничный пайплайн из 7 стадий с STOP-паузами (Context Builder → Problem Analyst → Solution Designer → Debate → Requirements Writer → Validator → Deliverer). Используй когда — нужно написать БФТ, бизнес-функциональные требования, требования к эпику или фиче, /bft-context-gen, /bft-problem, /bft-concept, /bft-debate, /bft-draft, /bft-validate, /bft-deliver, /bft-html.
 ---
 
 # Навык: Генератор БФТ (Business-Functional Requirements Writer)
@@ -53,7 +53,10 @@ description: Генератор БФТ (бизнес-функциональны�
 | 3 Дебаты | `/bft-debate` | Architect vs Devil's Advocate | вердикт в `artefacts/concept.md` |
 | 4 Требования | `/bft-draft` | Requirements Writer | `<epic>.md` (финальный БФТ) |
 | 5 Валидация | `/bft-validate` | Validator (свежий взгляд) | `artefacts/validation.md` |
+| — HTML (опц.) | `/bft-html` | — (read-only рендер, не роль пайплайна) | `<epic>.html` рядом с `<epic>.md` |
 | 6 Отгрузка | `/bft-deliver` | Deliverer (публикация) | JIRA Эпик + 2×Confluence + связи; манифест `delivery.md` |
+
+`/bft-html` — опциональный локальный рендер `<epic>.md` в самодостаточный HTML-файл (чёрно-белый документ, не Artifact и не публикация): Mermaid-диаграмма плана демонстрации вместо сырого PlantUML-текста, якоря на все ID требований, TOC по фактическим заголовкам, панель быстрого обхода `[УТОЧНИТЬ]` и комментирование (клик по точке/выделение фрагмента) со сборкой промта для следующего прогона `/bft-deep`. Запускается в любой момент, обычно после `/bft-validate` — см. `commands/bft-html.md`.
 
 **Почему разделение:** разные роли не «загрязняют» друг друга (диагноз ≠ решение ≠ требование); adversarial отдельным запуском ломает confirmation bias; артефакты-передачи проверяемы; STOP-паузы дают human-in-the-loop ревью.
 
