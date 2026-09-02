@@ -76,6 +76,14 @@
       form.classList.remove("open");
     });
   });
+  document.querySelectorAll(".cform textarea").forEach(function(ta){
+    ta.addEventListener("keydown", function(e){
+      if((e.ctrlKey || e.metaKey) && e.key === "Enter"){
+        e.preventDefault();
+        ta.closest(".cform").querySelector(".csave").click();
+      }
+    });
+  });
 
   /* — right-side comments panel — */
   var panel = document.getElementById("panel");
@@ -142,11 +150,17 @@
     pop.style.top = (y + window.scrollY) + "px";
     var quoteHtml = quote ? '<div class="pquote">«' + quote.replace(/</g,"&lt;") + '»</div>' : "";
     pop.innerHTML = quoteHtml +
-      '<textarea placeholder="Комментарий для доработки"></textarea>' +
+      '<textarea placeholder="Комментарий для доработки (Ctrl+Enter — сохранить)"></textarea>' +
       '<div class="prow"><button class="save">Сохранить</button><button class="cancel">Отмена</button></div>';
     document.body.appendChild(pop);
     var ta = pop.querySelector("textarea");
     ta.focus();
+    ta.addEventListener("keydown", function(e){
+      if((e.ctrlKey || e.metaKey) && e.key === "Enter"){
+        e.preventDefault();
+        pop.querySelector(".save").click();
+      }
+    });
     pop.querySelector(".save").addEventListener("click", function(){
       addComment(section, quote, ta.value, uncId);
       closePopover();
