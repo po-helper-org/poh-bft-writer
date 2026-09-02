@@ -23,6 +23,7 @@ import json
 import re
 import sys
 from pathlib import Path
+from xml.sax.saxutils import quoteattr as xml_attr
 
 JIRA_LINK_RE = re.compile(r"\[([^\]]*)\]\((https?://jira\.mts\.ru/browse/([A-Z][A-Z0-9_]+-\d+))\)")
 CONFLUENCE_LINK_RE = re.compile(
@@ -37,17 +38,21 @@ def jira_macro(key: str, fmt: str) -> str:
 
 
 def confluence_macro(page_id: str, link_text: str, page_info: dict, fmt: str) -> str:
-    title = page_info.get("title")
+    title = page_info["title"]
     space = page_info.get("space")
-    if not title:
-        # No lookup available — leave a plain link rather than emit a broken macro.
-        return f'<a href="https://confluence.mts.ru/pages/viewpage.action?pageId={page_id}">{link_text}</a>'
     if fmt == "wiki":
+        # wiki markup has no escaping for these chars in link targets — a title
+        # containing "]" or ">" would corrupt the link; not attempting a fix
+        # here (wiki format is the less-used option), just don't emit HTML.
         if space:
             return f"[{link_text}>{space}:{title}]"
         return f"[{link_text}>{title}]"
-    space_attr = f' ri:space-key="{space}"' if space else ""
-    return f'<ac:link><ri:page ri:content-title="{title}"{space_attr}/><ac:plain-text-link-body><![CDATA[{link_text}]]></ac:plain-text-link-body></ac:link>'
+    space_attr = f" ri:space-key={xml_attr(space)}" if space else ""
+    cdata_text = link_text.replace("]]>", "]]]]><![CDATA[>")
+    return (
+        f"<ac:link><ri:page ri:content-title={xml_attr(title)}{space_attr}/>"
+        f"<ac:plain-text-link-body><![CDATA[{cdata_text}]]></ac:plain-text-link-body></ac:link>"
+    )
 
 
 def convert(text: str, confluence_map: dict, fmt: str) -> tuple[str, list[str]]:
@@ -61,9 +66,9 @@ def convert(text: str, confluence_map: dict, fmt: str) -> tuple[str, list[str]]:
     def confluence_repl(m):
         link_text, page_id = m.group(1), m.group(3)
         info = confluence_map.get(page_id)
-        if not info:
-            warnings.append(f"pageId {page_id} нет в confluence-map — оставлена markdown-ссылка (или plain <a>, не макрос)")
-            return confluence_macro(page_id, link_text, {}, fmt)
+        if not info or not info.get("title"):
+            warnings.append(f"pageId {page_id} нет в confluence-map (или без title) — оставлена markdown-ссылка как есть, не макрос")
+            return m.group(0)
         return confluence_macro(page_id, link_text, info, fmt)
 
     text = CONFLUENCE_LINK_RE.sub(confluence_repl, text)

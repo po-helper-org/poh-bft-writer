@@ -28,7 +28,11 @@ import subprocess
 import sys
 from pathlib import Path
 
-PLANTUML_BLOCK_RE = re.compile(r"```plantuml\n(.*?)```", re.S)
+# Same lenient pattern as bft-deliver-check.py's PLANTUML_RE — must agree on
+# what counts as a block, or a fence this script fails to match (e.g. trailing
+# whitespace after "plantuml") gets counted as "needs conversion" by the
+# pre-flight check but silently skipped here.
+PLANTUML_BLOCK_RE = re.compile(r"```plantuml\b[ \t]*\n(.*?)```", re.S)
 
 
 def find_renderer():
@@ -78,25 +82,37 @@ def main():
 
     renderer = find_renderer()
     manifest = []
-    ok_all = True
+    success = []  # per-block: True only if this block was actually rendered and can be placeholder'd
 
     if renderer is None:
         for i in range(1, len(blocks) + 1):
             manifest.append(f"{i}: [УТОЧНИТЬ: нет рендерера PlantUML — не найден ни plantuml CLI, ни docker]")
-        ok_all = False
+            success.append(False)
     else:
         for i, body in enumerate(blocks, start=1):
             png_path = out_dir / f"diagram-{i}.png"
             ok = render_one(body, out_dir / f"diagram-{i}", renderer)
+            success.append(ok)
             if ok:
                 manifest.append(f"{i}: {png_path}")
             else:
                 manifest.append(f"{i}: [УТОЧНИТЬ: рендер diagram-{i} упал ({renderer})]")
-                ok_all = False
 
-    result_text, n = PLANTUML_BLOCK_RE.subn(
-        lambda m, c=[0]: (c.__setitem__(0, c[0] + 1), f"[[PLANTUML-{c[0]}]]")[1], text
-    )
+    ok_all = all(success)
+
+    # Only replace blocks that actually rendered — a failed/unrendered block
+    # keeps its original ```plantuml fence in the output instead of being
+    # silently swapped for a placeholder with no diagram behind it.
+    counter = {"i": 0}
+
+    def replace(m):
+        counter["i"] += 1
+        idx = counter["i"]
+        if success[idx - 1]:
+            return f"[[PLANTUML-{idx}]]"
+        return m.group(0)
+
+    result_text = PLANTUML_BLOCK_RE.sub(replace, text)
 
     print(result_text)
     print(f"── Манифест рендера ({renderer or 'нет рендерера'}) ──", file=sys.stderr)
