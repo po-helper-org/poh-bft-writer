@@ -320,9 +320,9 @@ TEMPLATE_HEAD = """<!doctype html>
   </div>
 </div>
 
-<button id="uncToggle" class="unc-tab">⟩ УТОЧНИТЬ (<span id="uncCount">0</span>)</button>
+<button id="uncToggle" class="unc-tab">⟩ УТОЧНИТЬ (<span id="uncCount">0/0</span>)</button>
 <div class="unc-drawer" id="uncDrawer">
-  <h4>Быстрый обход «УТОЧНИТЬ»</h4>
+  <div class="unc-drawer-head"><h4>Быстрый обход «УТОЧНИТЬ»</h4><button id="uncClose" class="unc-close" title="Закрыть">×</button></div>
   <div id="uncList"></div>
 </div>
 

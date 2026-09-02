@@ -17,6 +17,7 @@
 <script>
 (function(){
   var STORE_KEY = "__STORE_KEY__";
+  var ANSWERED_KEY = STORE_KEY + "-answered";
   var DOC_NAME = "__DOC_NAME__";
 
   function load(){
@@ -24,6 +25,17 @@
   }
   function save(list){
     try{ localStorage.setItem(STORE_KEY, JSON.stringify(list)); }catch(e){}
+  }
+  function loadAnswered(){
+    try{ return JSON.parse(localStorage.getItem(ANSWERED_KEY) || "[]"); }catch(e){ return []; }
+  }
+  function saveAnswered(list){
+    try{ localStorage.setItem(ANSWERED_KEY, JSON.stringify(list)); }catch(e){}
+  }
+  function markAnswered(uncId){
+    if(!uncId) return;
+    var a = loadAnswered();
+    if(a.indexOf(uncId) === -1){ a.push(uncId); saveAnswered(a); }
   }
   function nearestSection(el){
     var main = document.querySelector("main");
@@ -38,11 +50,12 @@
     }
     return "Документ";
   }
-  function addComment(section, quote, text){
+  function addComment(section, quote, text, uncId){
     if(!text || !text.trim()) return;
     var list = load();
-    list.push({ section: section, quote: quote || "", text: text.trim(), ts: new Date().toISOString() });
+    list.push({ section: section, quote: quote || "", text: text.trim(), ts: new Date().toISOString(), uncId: uncId || null });
     save(list);
+    markAnswered(uncId);
     render();
   }
 
@@ -116,10 +129,11 @@
       });
     }
     document.getElementById("promptOut").value = buildPrompt(list);
+    renderUncDrawer();
   }
 
   /* — generic popover helper — */
-  function openPopover(x, y, quote, section){
+  function openPopover(x, y, quote, section, uncId){
     closePopover();
     var pop = document.createElement("div");
     pop.className = "popover";
@@ -134,7 +148,7 @@
     var ta = pop.querySelector("textarea");
     ta.focus();
     pop.querySelector(".save").addEventListener("click", function(){
-      addComment(section, quote, ta.value);
+      addComment(section, quote, ta.value, uncId);
       closePopover();
     });
     pop.querySelector(".cancel").addEventListener("click", closePopover);
@@ -153,9 +167,15 @@
   /* — blinking dot on every [УТОЧНИТЬ]-mark + left-drawer quick list — */
   var uncDrawerList = document.getElementById("uncList");
   var uncMarks = Array.prototype.slice.call(document.querySelectorAll("main mark.unc"));
-  document.getElementById("uncCount").textContent = uncMarks.length;
+  var uncMeta = [];
   uncMarks.forEach(function(mark, i){
     mark.id = "unc-" + i;
+
+    var section = nearestSection(mark);
+    var container = mark.closest("td") || mark.closest("p") || mark.parentElement;
+    var snip = (container ? container.textContent : mark.textContent).replace(/\s+/g," ").trim();
+    snip = snip.length > 100 ? snip.slice(0,100) + "…" : snip;
+    uncMeta.push({ mark: mark, section: section, snip: snip });
 
     var dot = document.createElement("button");
     dot.className = "unc-dot";
@@ -165,32 +185,58 @@
     dot.addEventListener("click", function(e){
       e.stopPropagation();
       var r = dot.getBoundingClientRect();
-      openPopover(r.left, r.bottom + 4, mark.textContent.trim(), nearestSection(mark));
+      openPopover(r.left, r.bottom + 4, mark.textContent.trim(), section, mark.id);
     });
-
-    var section = nearestSection(mark);
-    var container = mark.closest("td") || mark.closest("p") || mark.parentElement;
-    var snip = (container ? container.textContent : mark.textContent).replace(/\s+/g," ").trim();
-    snip = snip.length > 100 ? snip.slice(0,100) + "…" : snip;
-
-    var item = document.createElement("button");
-    item.className = "unc-item";
-    item.type = "button";
-    item.innerHTML = '<span class="sec">' + section + '</span><span class="snip">' + snip.replace(/</g,"&lt;") + '</span>';
-    item.addEventListener("click", function(){
-      mark.scrollIntoView({ behavior:"smooth", block:"center" });
-      mark.classList.add("flash");
-      setTimeout(function(){ mark.classList.remove("flash"); }, 1600);
-      var r = mark.getBoundingClientRect();
-      openPopover(Math.min(r.left, window.innerWidth - 296), r.bottom + 8, mark.textContent.trim(), section);
-      document.getElementById("uncDrawer").classList.remove("open");
-    });
-    uncDrawerList.appendChild(item);
   });
+
+  function jumpAndComment(meta){
+    meta.mark.scrollIntoView({ behavior:"smooth", block:"center" });
+    meta.mark.classList.add("flash");
+    setTimeout(function(){ meta.mark.classList.remove("flash"); }, 1600);
+    var r = meta.mark.getBoundingClientRect();
+    openPopover(Math.min(r.left, window.innerWidth - 296), r.bottom + 8, meta.mark.textContent.trim(), meta.section, meta.mark.id);
+    document.getElementById("uncDrawer").classList.remove("open");
+  }
+
+  function makeUncItem(meta, answered){
+    var item = document.createElement("button");
+    item.className = "unc-item" + (answered ? " answered" : "");
+    item.type = "button";
+    item.innerHTML = (answered ? '<span class="check">✓</span> ' : "") +
+      '<span class="sec">' + meta.section + '</span><span class="snip">' + meta.snip.replace(/</g,"&lt;") + '</span>';
+    item.addEventListener("click", function(){ jumpAndComment(meta); });
+    return item;
+  }
+
+  function renderUncDrawer(){
+    var answeredIds = loadAnswered();
+    var pending = uncMeta.filter(function(m){ return answeredIds.indexOf(m.mark.id) === -1; });
+    var done = uncMeta.filter(function(m){ return answeredIds.indexOf(m.mark.id) !== -1; });
+
+    document.getElementById("uncCount").textContent = pending.length + "/" + done.length;
+
+    uncDrawerList.innerHTML = "";
+    if(!pending.length && !done.length){
+      uncDrawerList.innerHTML = '<p class="empty">Точек «УТОЧНИТЬ» нет.</p>';
+      return;
+    }
+    pending.forEach(function(m){ uncDrawerList.appendChild(makeUncItem(m, false)); });
+    if(done.length){
+      var div = document.createElement("div");
+      div.className = "unc-divider";
+      div.textContent = "Отвечено";
+      uncDrawerList.appendChild(div);
+      done.forEach(function(m){ uncDrawerList.appendChild(makeUncItem(m, true)); });
+    }
+  }
+  renderUncDrawer();
 
   var uncDrawer = document.getElementById("uncDrawer");
   document.getElementById("uncToggle").addEventListener("click", function(){
     uncDrawer.classList.toggle("open");
+  });
+  document.getElementById("uncClose").addEventListener("click", function(){
+    uncDrawer.classList.remove("open");
   });
 
   /* — comment-by-selection: input appears immediately on mouseup — */
