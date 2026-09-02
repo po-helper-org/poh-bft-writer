@@ -260,9 +260,53 @@ def collect_id_map(blocks):
     return id_map
 
 
+SRC_LEAD_RE = re.compile(r"^Источник[а-я]*\s*\(цитат[аы]\)\s*([А-Я]{2,3}-\d+)?\s*:\s*(.*)$", re.S)
+SRC_ID_RE = re.compile(r"^\s*([А-Я]{2,3}-\d+(?:\s*,\s*[А-Я]{2,3}-\d+)*)\s*[—-]\s*(.+)$", re.S)
+SRC_SPLIT_RE = re.compile(r";\s*(?=[А-Я]{2,3}-\d+(?:\s*,\s*[А-Я]{2,3}-\d+)*\s*[—-])")
+
+
+def render_source_block(text, last_table_ids, id_map):
+    """Render an 'Источник (цитата) ...' paragraph, attributing each quote to
+    its requirement ID when the text names one (`ФТ-1 — PO: «...»; ФТ-2 — ...`),
+    falling back to the single row of the preceding table when unambiguous,
+    and never inventing an attribution otherwise."""
+    m = SRC_LEAD_RE.match(text)
+    lead_id, rest = (m.group(1), m.group(2)) if m else (None, text)
+
+    segments = SRC_SPLIT_RE.split(rest)
+    parsed = []
+    any_matched = False
+    for seg in segments:
+        seg = seg.strip()
+        mm = SRC_ID_RE.match(seg)
+        if mm:
+            any_matched = True
+            ids = [x.strip() for x in mm.group(1).split(",")]
+            parsed.append((ids, mm.group(2).strip()))
+        else:
+            parsed.append((None, seg))
+
+    if any_matched:
+        parts = []
+        for ids, body in parsed:
+            if ids:
+                parts.append(f'<p class="src"><b>Источник для {", ".join(ids)}:</b> {inline(body, id_map=id_map)}</p>')
+            else:
+                parts.append(f'<p class="src">{inline(body, id_map=id_map)}</p>')
+        return "\n".join(parts)
+
+    if lead_id:
+        return f'<p class="src"><b>Источник для {lead_id}:</b> {inline(rest, id_map=id_map)}</p>'
+
+    if last_table_ids and len(last_table_ids) == 1:
+        return f'<p class="src"><b>Источник для {last_table_ids[0]}:</b> {inline(rest, id_map=id_map)}</p>'
+
+    return f'<p class="src">{inline(text, id_map=id_map)}</p>'
+
+
 def render_body(blocks, id_map):
     out = []
-    diagram_html = None
+    last_table_ids = []
     for kind, a, b in blocks:
         if kind == "heading":
             level, text = a, b
@@ -276,6 +320,10 @@ def render_body(blocks, id_map):
             out.append(f'<div class="status">{inline(b, id_map=id_map)}</div>')
         elif kind == "table":
             out.append(render_table(a, b, id_map))
+            if a and a[0].strip().lower() in ("идентификатор", "id"):
+                last_table_ids = [row[0].strip() for row in b if row and slug_for(row[0])]
+            else:
+                last_table_ids = []
         elif kind == "list":
             tag = "ol" if a else "ul"
             items = "".join(f"<li>{inline(x, id_map=id_map)}</li>" for x in b)
@@ -290,9 +338,10 @@ def render_body(blocks, id_map):
             else:
                 out.append(f'<pre><code>{htmlmod.escape(code)}</code></pre>')
         elif kind == "para":
-            cls = "src" if b.startswith("Источник") else ""
-            attr = f' class="{cls}"' if cls else ""
-            out.append(f"<p{attr}>{inline(b, id_map=id_map)}</p>")
+            if b.startswith("Источник"):
+                out.append(render_source_block(b, last_table_ids, id_map))
+            else:
+                out.append(f"<p>{inline(b, id_map=id_map)}</p>")
     return "\n".join(out)
 
 
@@ -356,8 +405,30 @@ CSS = (Path(__file__).parent / "bft-html-export.css").read_text(encoding="utf-8"
 SCRIPTS = (Path(__file__).parent / "bft-html-export.js").read_text(encoding="utf-8")
 
 
+def find_lint_scripts_dir(md_path: Path) -> Path:
+    """Prefer the bft-lint.py that ships with the consumer project next to the
+    document (it's the authoritative template version for that document) over
+    the copy bundled with this exporter — the two can drift (root vs submodule
+    vs project-local skill copies), and running the wrong one produces a FAIL
+    that has nothing to do with the document's actual quality."""
+    rel_candidates = (
+        Path(".claude/skills/bft-writer/scripts"),
+        Path("skills/bft-writer/scripts"),
+    )
+    cur = md_path.resolve().parent
+    for _ in range(12):
+        for rel in rel_candidates:
+            candidate = cur / rel
+            if (candidate / "bft-lint.py").exists():
+                return candidate
+        if cur.parent == cur:
+            break
+        cur = cur.parent
+    return Path(__file__).parent
+
+
 def run_lint(md_path: Path) -> str:
-    scripts_dir = Path(__file__).parent
+    scripts_dir = find_lint_scripts_dir(md_path)
     parts = []
     for name, gate in (("bft-lint.py", "17"), ("bft-style-lint.py", "18")):
         script = scripts_dir / name
