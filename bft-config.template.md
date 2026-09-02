@@ -23,6 +23,13 @@ Glob-паттерны локальных источников для индек�
 - `**/*.docx`
 Пусто → дефолт: `**/*.md` минус node_modules/vendor/dist.
 
+## skills_path
+Папка `skills/` установленного poh-bft-writer — от неё резолвятся вызовы линтеров
+(`<skills_path>/bft-writer/scripts/bft-lint.py` и др.). Пусто → автодетект: первая
+существующая из `.claude/skills`, `.agents/skills`, `.clinerules/skills`, `skills`
+(последняя — запуск из клона репозитория). Задавать вручную нужно только при нестандартной
+раскладке агента.
+
 ## docs_path
 Куда класть готовые БФТ и артефакты эпиков. Дефолт: `.bft/documentation`.
 

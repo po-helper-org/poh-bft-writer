@@ -25,9 +25,9 @@ description: 'Валидация черновика БФТ — hard gates + Св
 ## Инструкция для LLM
 
 ### Этап 1: Загрузка ролей и чек-листов
-1. Прочитай `skills/bft-writer/SKILL.md` (принципы — это критерии).
-2. Гейты: `resources/hard_gates.md`. Стандарты: `resources/bft_standards.md`. Стиль: `resources/writing_style.md`. Шаблон: `examples/ideal_bft.md`.
-3. **`resources/review_feedback.md` — реестр замечаний ревью.** Все строки `активно` = проверяемые правила (уроки прошлых БФТ).
+1. Прочитай `../skills/bft-writer/SKILL.md` (принципы — это критерии).
+2. Гейты: `../skills/bft-writer/resources/hard_gates.md`. Стандарты: `../skills/bft-writer/resources/bft_standards.md`. Стиль: `../skills/bft-writer/resources/writing_style.md`. Шаблон: `../skills/bft-writer/examples/ideal_bft.md`.
+3. **`../skills/bft-writer/resources/review_feedback.md` — реестр замечаний ревью.** Все строки `активно` = проверяемые правила (уроки прошлых БФТ).
 
 ### Этап 2: 4 итерации рефлексии (разные линзы)
 
@@ -64,13 +64,13 @@ description: 'Валидация черновика БФТ — hard gates + Св
 - Frontmatter без diff-narrative (`supersedes …исправлено`, многословный `status`).
 
 **Итерация 6 — Замечания ревью (Known-Mistake):**
-- Прогон по всем `активно`-строкам `resources/review_feedback.md`.
+- Прогон по всем `активно`-строкам `../skills/bft-writer/resources/review_feedback.md`.
 - Любое нарушенное правило реестра = 🔴 (гейт 15). В отчёте укажи ID замечания (`ЗМ-NNN`).
 
 ### Этап 3: Hard Gates (17 бинарных 🔴)
-Прогон по таблице из `resources/hard_gates.md` (гейты 1–16, включая гейт 13 «Стиль/Голос», гейт 14 «Высота БФТ», гейт 15 «Known-Mistake» и гейт 16 «Self-Consistency») — в едином документе по канону ниже `BFT-HEAD-END` (§«Область валидации», `hard_gates.md` §«Область применения»).
+Прогон по таблице из `../skills/bft-writer/resources/hard_gates.md` (гейты 1–16, включая гейт 13 «Стиль/Голос», гейт 14 «Высота БФТ», гейт 15 «Known-Mistake» и гейт 16 «Self-Consistency») — в едином документе по канону ниже `BFT-HEAD-END` (§«Область валидации», `hard_gates.md` §«Область применения»).
 
-**Гейт 17 «Template-Conformance» прогоняется первым и по всему файлу:** `python3 skills/bft-writer/scripts/bft-lint.py <документ>`. Ненулевой код = 🔴; коды и зоны — `hard_gates.md` §«Гейт 17». Находки линтера в шапке (`HD*`, `CT*`) в отчёт попадают, но правит их повторный `/bft-fast` — валидатор шапку не редактирует. Любой 🔴 = документ не готов.
+**Гейт 17 «Template-Conformance» прогоняется первым и по всему файлу:** `python3 <skills_path>/bft-writer/scripts/bft-lint.py <документ>`. Ненулевой код = 🔴; коды и зоны — `hard_gates.md` §«Гейт 17». Находки линтера в шапке (`HD*`, `CT*`) в отчёт попадают, но правит их повторный `/bft-fast` — валидатор шапку не редактирует. Любой 🔴 = документ не готов.
 
 ### Этап 4: Отчёт «Светофор»
 Таблица по слоям (Структура / Скоуп+высота БФТ / Трассировка / НФТ / Negative flows / Изменение в UJM / Якоря / Риски-зависимости / Стиль и голос / Замечания ревью / Шаблон) → 🟢/🟡/🔴 с доказательством и «что исправить».

@@ -17,7 +17,7 @@ Context Builder (навык `bft-indexer`).
 2. Инвентаризирует источники: локальные доки (glob), код (serena MCP если есть), трекер
    (Atlassian MCP если сконфигурирован).
 3. Строит `.bft/index/`: MANIFEST + 7 паков знаний (см. навык `bft-indexer`,
-   `resources/index_schema.md`).
+   `../skills/bft-indexer/resources/index_schema.md`).
 4. STOP: выводит MANIFEST-покрытие, ждёт решения PO.
 
 ## На выходе

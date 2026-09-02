@@ -56,12 +56,14 @@ curl -ksSL https://raw.githubusercontent.com/po-helper-org/poh-bft-writer/main/i
 
 ## Проверка шаблона (гейт 17)
 
-Структуру документа проверяет скрипт, а не самоотчёт модели:
+Структуру документа проверяет скрипт, а не самоотчёт модели. `<skills_path>` — папка `skills/` установки:
+`.claude/skills` (Claude Code), `.agents/skills` (Codex), `.clinerules/skills` (Cline/DevX) или `skills` при запуске
+из клона репозитория; переопределяется ключом `skills_path` в `bft-config.md`.
 
 ```bash
-python3 skills/bft-writer/scripts/bft-lint.py .bft/documentation/<epic_slug>/<epic_slug>.md
-python3 skills/bft-writer/scripts/bft-style-lint.py .bft/documentation/<epic_slug>/<epic_slug>.md
-python3 skills/bft-writer/scripts/bft-ground-lint.py .bft/documentation/<epic_slug>/<epic_slug>.md --source <входной Summary> --strict
+python3 <skills_path>/bft-writer/scripts/bft-lint.py .bft/documentation/<epic_slug>/<epic_slug>.md
+python3 <skills_path>/bft-writer/scripts/bft-style-lint.py .bft/documentation/<epic_slug>/<epic_slug>.md
+python3 <skills_path>/bft-writer/scripts/bft-ground-lint.py .bft/documentation/<epic_slug>/<epic_slug>.md --source <входной Summary> --strict
 ```
 
 Ненулевой код выхода — документ не по шаблону: потеряна строка-граница шапки, пропал раздел
@@ -70,15 +72,23 @@ python3 skills/bft-writer/scripts/bft-ground-lint.py .bft/documentation/<epic_sl
 сохраняют документ с ошибками. Самотест самого линтера:
 
 ```bash
-bash skills/bft-writer/scripts/test-bft-lint.sh
+bash <skills_path>/bft-writer/scripts/test-bft-lint.sh
+```
+
+Ссылки самих команд и навыков на ресурсы проверяет отдельный линтер — он разворачивает
+виртуальную установку всех раскладок `install.sh` и падает, если ссылка не резолвится
+хотя бы в одной (корневая `skills/…` после установки не резолвится нигде):
+
+```bash
+python3 <skills_path>/bft-writer/scripts/bft-paths-lint.py
 ```
 
 Карту контекста `/bft-recon` проверяет свой линтер (гейт 20) — находка без ссылки
 непроверяема, а отсутствие раздела «Что не найдено» выдаёт молчание за пустой результат:
 
 ```bash
-python3 skills/bft-writer/scripts/bft-recon-lint.py .bft/documentation/<epic_slug>/context_map.md
-bash skills/bft-writer/scripts/test-bft-recon-lint.sh
+python3 <skills_path>/bft-writer/scripts/bft-recon-lint.py .bft/documentation/<epic_slug>/context_map.md
+bash <skills_path>/bft-writer/scripts/test-bft-recon-lint.sh
 ```
 
 ## Быстрый старт

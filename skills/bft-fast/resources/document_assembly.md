@@ -124,8 +124,8 @@
 Скелет из этого файла проверяется машинно, а не «на глаз». Перед сохранением документа прогнать:
 
 ```bash
-python3 skills/bft-writer/scripts/bft-lint.py <docs_path>/<epic_slug>/<epic_slug>-fast.md   # стадия fast
-python3 skills/bft-writer/scripts/bft-lint.py <docs_path>/<epic_slug>/<epic_slug>.md        # стадия deep
+python3 <skills_path>/bft-writer/scripts/bft-lint.py <docs_path>/<epic_slug>/<epic_slug>-fast.md   # стадия fast
+python3 <skills_path>/bft-writer/scripts/bft-lint.py <docs_path>/<epic_slug>/<epic_slug>.md        # стадия deep
 ```
 
 Ненулевой код выхода = документ не соответствует шаблону: исправить и прогнать снова. Записывать и публиковать документ с ошибками линтера нельзя — именно так теряются граница шапки, разделы канона и цитаты в критичной таблице. Полный список кодов — `../../bft-writer/scripts/bft-lint.py` (заголовок файла) и `../../bft-writer/resources/hard_gates.md` §«Гейт 17».
