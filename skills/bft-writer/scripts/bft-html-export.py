@@ -18,6 +18,7 @@ actor-level, только ->/-->/alt/else/end/note right of, без message-сх
 """
 import argparse
 import html as htmlmod
+import json
 import re
 import subprocess
 import sys
@@ -63,7 +64,11 @@ def parse_frontmatter(text: str):
 # ---------- inline markdown ----------
 
 def inline(text: str, skip_id_links=False, id_map=None) -> str:
-    esc = htmlmod.escape(text, quote=False)
+    # quote=True (default): a literal `"` in source text must become `&quot;`
+    # before the link regex below builds an href="..." attribute out of it —
+    # otherwise a `"` in a URL or link text breaks out of the attribute and
+    # lets arbitrary markup/attributes be injected into the exported page.
+    esc = htmlmod.escape(text)
 
     # `[УТОЧНИТЬ ...]` (with or without surrounding backticks) -> <mark>, single pass
     esc = re.sub(r"`?(\[УТОЧНИТЬ[^\]]*\])`?", r'<mark class="unc">\1</mark>', esc)
@@ -480,7 +485,14 @@ def main():
 
     lint_status = run_lint(md_path)
 
-    scripts = SCRIPTS.replace("__STORE_KEY__", f"bft-comments-{epic_slug}").replace("__DOC_NAME__", md_path.name)
+    # json.dumps, not str.replace with an f-string: epic_slug (frontmatter,
+    # user-editable) and the filename can contain a `"`/`\`/newline, which
+    # would otherwise break out of the `var X = "...";` JS string literal.
+    scripts = SCRIPTS.replace(
+        "__STORE_KEY_JSON__", json.dumps(f"bft-comments-{epic_slug}")
+    ).replace(
+        "__DOC_NAME_JSON__", json.dumps(md_path.name)
+    )
 
     html_out = TEMPLATE_HEAD.format(title=htmlmod.escape(title), css=CSS, meta_line=htmlmod.escape(meta_line))
     html_out += body_html

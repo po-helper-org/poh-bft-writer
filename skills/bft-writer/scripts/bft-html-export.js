@@ -16,9 +16,9 @@
 </script>
 <script>
 (function(){
-  var STORE_KEY = "__STORE_KEY__";
+  var STORE_KEY = __STORE_KEY_JSON__;
   var ANSWERED_KEY = STORE_KEY + "-answered";
-  var DOC_NAME = "__DOC_NAME__";
+  var DOC_NAME = __DOC_NAME_JSON__;
 
   function load(){
     try{ return JSON.parse(localStorage.getItem(STORE_KEY) || "[]"); }catch(e){ return []; }
@@ -179,16 +179,32 @@
   });
 
   /* — blinking dot on every [УТОЧНИТЬ]-mark + left-drawer quick list — */
+  function hashString(s){
+    // djb2 — only needs to be stable and cheap, not cryptographic.
+    var h = 5381;
+    for(var i=0;i<s.length;i++){ h = ((h*33) ^ s.charCodeAt(i)) >>> 0; }
+    return h.toString(36);
+  }
+
   var uncDrawerList = document.getElementById("uncList");
   var uncMarks = Array.prototype.slice.call(document.querySelectorAll("main mark.unc"));
   var uncMeta = [];
+  var uncIdSeen = {};
   uncMarks.forEach(function(mark, i){
-    mark.id = "unc-" + i;
-
     var section = nearestSection(mark);
     var container = mark.closest("td") || mark.closest("p") || mark.parentElement;
-    var snip = (container ? container.textContent : mark.textContent).replace(/\s+/g," ").trim();
-    snip = snip.length > 100 ? snip.slice(0,100) + "…" : snip;
+    var fullText = (container ? container.textContent : mark.textContent).replace(/\s+/g," ").trim();
+    var snip = fullText.length > 100 ? fullText.slice(0,100) + "…" : fullText;
+
+    // Stable across regenerations of the same document: derived from where the
+    // point is (section) and what it says (surrounding text), not DOM order —
+    // positional "unc-N" ids shift whenever an earlier [УТОЧНИТЬ] is added or
+    // removed, silently reattributing the localStorage "answered" status to a
+    // different point on the next export.
+    var baseId = "unc-" + hashString(section + "|" + fullText);
+    uncIdSeen[baseId] = (uncIdSeen[baseId] || 0) + 1;
+    mark.id = uncIdSeen[baseId] > 1 ? baseId + "-" + uncIdSeen[baseId] : baseId;
+
     uncMeta.push({ mark: mark, section: section, snip: snip });
 
     var dot = document.createElement("button");
