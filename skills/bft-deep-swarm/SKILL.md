@@ -21,7 +21,8 @@ description: "V2 БФТ, роль-Аудитор. Читает fast-докуме
 8. **Повторный прогон — доработка, не пересборка.** `stage: deep` во frontmatter или раздел «Проблема которую решаем» ниже границы → канон уже собран: закрываются `[УТОЧНИТЬ]`, правятся отдельные разделы, существующие ID не перенумеровываются, ручные правки ниже границы не затираются. Точка входа для такого прогона — блок «Продолжить / уточнить БФТ» в конце документа; его ставит стадия 11 в любом прогоне (`resources/orchestration.md` стадии 1 и 11).
 
 ## Этапы
-Оркестрация (стадии seed→context→audit→enrich→sync, ruflo-контракт, degradation) — `resources/orchestration.md`.
+Оркестрация (стадии setup→seed→context→audit→enrich→sync, ruflo-контракт, degradation) — `resources/orchestration.md`.
+Сетап окружения перед прогоном (проверка подключений трекера и вики, помощь в настройке, честный `UNAVAILABLE`) — `resources/environment_setup.md`.
 Аудит и вопросы к PO (первый такт, шесть срезов, две ветки прогона) — `resources/audit.md`.
 Три оси обогащения — `resources/enrichment.md`.
 Грудинг-верификатор + forced-citation + convergence-stop — `resources/grounding_verifier.md`.

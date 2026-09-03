@@ -30,7 +30,7 @@ description: "Разведчик контекста БФТ — обходит JI
 ## Гейт перед записью (обязателен, гейт 20)
 
 ```bash
-python3 skills/bft-writer/scripts/bft-recon-lint.py <docs_path>/<epic_slug>/context_map.md
+python3 <skills_path>/bft-writer/scripts/bft-recon-lint.py <docs_path>/<epic_slug>/context_map.md
 ```
 
 Ненулевой код = карта не по формату: исправить и прогнать снова. Карта с ошибками не сохраняется и в нотификацию не выводится — иначе в чат уезжает находка без ссылки, которую невозможно проверить.

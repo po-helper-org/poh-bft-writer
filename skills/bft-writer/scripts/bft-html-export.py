@@ -119,6 +119,16 @@ def parse_blocks(body: str):
             blocks.append(("code", lang, "\n".join(code_lines)))
             i = j + 1
             continue
+        if line.strip().startswith("<!--"):
+            # HTML-комментарий. В markdown он читателю невидим — невидим и здесь.
+            # Иначе служебные леса (строка-граница BFT-HEAD-END, комментарии
+            # шаблона) вылезают на страницу ревью абзацем escape-текста.
+            # Комментарий внутри ``` сюда не доходит: fenced-блок съеден выше.
+            j = i
+            while j < len(lines) and "-->" not in lines[j]:
+                j += 1
+            i = j + 1
+            continue
         if line.startswith("#"):
             level = len(line) - len(line.lstrip("#"))
             text = line[level:].strip()

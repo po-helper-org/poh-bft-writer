@@ -16,15 +16,15 @@ description: 'Красная команда для БФТ — Адвокат Д�
 
 > Аналог sa-helper: `/fnr-debate` → вердикт в `concept.md`.
 
-**Принцип:** каждый аргумент/контраргумент ← якорь. Запрещено фабриковать доказательства. Протокол — `skills/bft-writer/resources/debate_rules.md`.
+**Принцип:** каждый аргумент/контраргумент ← якорь. Запрещено фабриковать доказательства. Протокол — `../skills/bft-writer/resources/debate_rules.md`.
 
 ---
 
 ## Инструкция для LLM
 
 ### Этап 1: Загрузка роли и входа
-1. Прочитай `skills/bft-writer/SKILL.md` (принцип Adversarial, Explicit Alternatives).
-2. Прочитай протокол: `resources/debate_rules.md`.
+1. Прочитай `../skills/bft-writer/SKILL.md` (принцип Adversarial, Explicit Alternatives).
+2. Прочитай протокол: `../skills/bft-writer/resources/debate_rules.md`.
 3. Прочитай концепты: `.bft/documentation/<epic>/artefacts/concept.md` (+ `artefacts/problem.md` для контекста Gap).
 
 ### Этап 2: Раунд 1 — Защита
@@ -53,4 +53,4 @@ description: 'Красная команда для БФТ — Адвокат Д�
 2. Не игнорировать контраргументы.
 3. Не фабриковать якоря.
 4. Если вердикт «Забраковано» — явно вернуть к `/bft-concept` с причиной.
-5. Соблюдай стиль `skills/bft-writer/resources/writing_style.md` при дописывании дебатов в `concept.md`: деловая проза без AI-стоп-слов, без эмодзи в теле, без раздутого bold, тире умеренно.
+5. Соблюдай стиль `../skills/bft-writer/resources/writing_style.md` при дописывании дебатов в `concept.md`: деловая проза без AI-стоп-слов, без эмодзи в теле, без раздутого bold, тире умеренно.

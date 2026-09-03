@@ -25,6 +25,20 @@ from pathlib import Path
 
 # --- Контракт документа (единственный источник правды для линтера) ----------
 
+# Служебные пометки, адресованные генератору, а не читателю документа.
+# `ЗМ-NNN` — id реестра замечаний ревью; в клиентском тексте это внутренний
+# идентификатор, по которому читателю некуда пойти (ЗМ-030).
+SERVICE_MARK_RE = re.compile(r"\bЗМ-\d+")
+
+# Заметка о состоянии пайплайна в скобках: «(трекер офлайн)», «(MCP недоступен)».
+# Легитимная форма пробела — `[УТОЧНИТЬ: MCP недоступен]` в своей ячейке, она
+# адресована читателю и остаётся; скобочная нота — след прогона и не остаётся.
+PIPELINE_NOTE_RE = re.compile(
+    r"\([^()]*\b(?:офлайн|оффлайн|недоступ\w*|не отвеча\w+|UNAVAILABLE|таймаут|"
+    r"устарел\w*|не поднят\w*|пропущен\w*)\b[^()]*\)",
+    re.IGNORECASE)
+UNCLEAR_MARKER = "[УТОЧНИТЬ"
+
 FRONTMATTER_KEYS = [
     "source", "space", "pageId", "version", "synced",
     "jira", "status", "epic_slug", "stage", "pin_commit",
@@ -614,6 +628,31 @@ def check_emoji_in_canon(doc: Doc, border: int, out: list[Finding]) -> None:
             break
 
 
+def check_service_leak(doc: Doc, out: list[Finding]) -> None:
+    """Служебные пометки пайплайна, утёкшие в клиентский текст (гейт 1, ЗМ-030).
+
+    Проверяется весь документ, включая шапку: утечка приходит из инструкции
+    генератору, а та работает на обеих стадиях. Fenced-блоки и HTML-комментарии
+    пропускаются — там живут промт открытого поля и комментарии шаблона.
+    """
+    for idx, raw in enumerate(doc.lines, start=1):
+        if doc.skip(idx):
+            continue
+        mark = SERVICE_MARK_RE.search(raw)
+        if mark:
+            out.append(Finding(
+                idx, "ERROR", "LK001",
+                f"служебная пометка «{mark.group()}» в теле документа — id реестра "
+                f"замечаний адресован генератору, читателю по нему идти некуда (ЗМ-030)"))
+        note = PIPELINE_NOTE_RE.search(raw)
+        if note and UNCLEAR_MARKER not in raw:
+            out.append(Finding(
+                idx, "ERROR", "LK002",
+                f"заметка о состоянии прогона «{note.group()}» в теле документа — "
+                f"пробел оформляется как `[УТОЧНИТЬ: …]` в своей ячейке, а не скобкой "
+                f"в прозе (ЗМ-030)"))
+
+
 # --- Прогон -----------------------------------------------------------------
 
 
@@ -630,6 +669,7 @@ def lint(path: Path) -> list[Finding]:
     check_priorities(doc, border, out)
     check_tables_hygiene(doc, out)
     check_emoji_in_canon(doc, border, out)
+    check_service_leak(doc, out)
     return sorted(out, key=lambda f: (f.line, f.code))
 
 

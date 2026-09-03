@@ -11,9 +11,18 @@ Kafka сущности «MRS» и «FAQ для категорий» из сос�
 вопрос «выдумывал ли факты» прогон ответил «нет» — и был искренен. Утечка
 пришла из примеров в самих инструкциях (ЗМ-024).
 
-Что проверяет. Редкие содержательные токены документа — латиница, аббревиатуры
+Что проверяет. Два класса.
+
+`GR001` — редкие содержательные токены документа: латиница, аббревиатуры
 капслоком, слова с заглавной буквы вне начала предложения — которых нет в
-источнике. Это сигнал, а не приговор: часть находок легитимна (термины
+источнике.
+
+`GR002` — величины с единицей измерения (24 часа, 200 мс, 350 RPS, 5 попыток),
+числа которых в источнике нет. Ловит фабрикацию точности (ЗМ-029): под давлением
+гейта измеримости мягкое «сутки подойдут, не принципиально» превращается в
+«SLA 24 часа». Цифра выглядит согласованной, документ внутренне непротиворечив,
+и самопроверка модели такую находку не видит — числа в источнике просто не было.
+Обе находки — сигнал, а не приговор. Это сигнал, а не приговор: часть находок легитимна (термины
 шаблона, названия разделов). Поэтому уровень по умолчанию WARN, а `--strict`
 превращает находки в ERROR для использования гейтом.
 
@@ -63,6 +72,29 @@ PATH_RE = re.compile(r"[/\\]|\.(md|csv|py|json|ya?ml)$", re.I)
 
 # Токены: латинские слова, аббревиатуры, слова с заглавной буквы, числа с единицами.
 TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z0-9_.\-]{2,}|[А-ЯЁ][А-Яа-яёЁ\-]{2,}|\b\d+\s?%")
+
+# Величина с единицей измерения: то, что читается как согласованный порог.
+# Идентификаторы (ФТ-8), даты и pageId единицы не несут и сюда не попадают.
+QUANTITY_RE = re.compile(
+    r"\b(\d+(?:[.,]\d+)?)\s*"
+    r"(%|мс|секунд\w*|сек\b|минут\w*|мин\b|часа?\b|часов\b|суток\b|сутки\b|"
+    r"дней\b|дня\b|день\b|недел\w*|месяц\w*|RPS|rps|шт\b|попыт\w*|раз\b|раза\b|"
+    r"[КМГ]?[Бб]айт\w*|[КМГ]б\b|символ\w*|запис\w*|элемент\w*|строк\w*|"
+    r"пользовател\w*|польз\b)",
+    re.IGNORECASE)
+
+# Порог без единицы: «не более 4 тегов», «до 3 попыток». Ограничитель делает число
+# таким же обязывающим, как единица измерения.
+THRESHOLD_RE = re.compile(
+    r"(?:не более|не менее|не превыш\w+|более|менее|до|минимум|максимум|максимальн\w+|"
+    r"минимальн\w+|в течение|за)\s+(\d+(?:[.,]\d+)?)(?=\s+[А-Яа-яёЁA-Za-z])",
+    re.IGNORECASE)
+
+# Числа источника: величина считается заякоренной, если её число там встречается.
+NUMBER_RE = re.compile(r"\d+(?:[.,]\d+)?")
+
+# Цель markdown-ссылки: pageId и номера задач в URL — не пороги требований.
+LINK_TARGET_RE = re.compile(r"\]\([^)]*\)")
 
 
 @dataclass
@@ -135,6 +167,47 @@ def grounded(token: str, source_text: str) -> bool:
     return len(stem) >= 4 and stem in source_text
 
 
+def source_numbers(source_text: str) -> set[str]:
+    """Числа источника в нормализованном виде (запятая = точка, без хвостовых нулей)."""
+    return {canonical_number(m.group()) for m in NUMBER_RE.finditer(source_text)}
+
+
+def canonical_number(raw: str) -> str:
+    value = raw.replace(",", ".")
+    if "." in value:
+        value = value.rstrip("0").rstrip(".")
+    return value or "0"
+
+
+def quantity_findings(lines: list[str], skip: set[int], numbers: set[str], level: str) -> list[Finding]:
+    """Величины документа, числа которых нет в источнике (ЗМ-029)."""
+    out: list[Finding] = []
+    seen: set[str] = set()
+    for idx, raw in enumerate(lines, start=1):
+        if idx in skip or raw.lstrip().startswith("#"):
+            continue
+        spans = code_spans(raw) + [(m.start(), m.end()) for m in LINK_TARGET_RE.finditer(raw)]
+        # Величина с единицей информативнее порога без неё: «24 часа» вместо «за 24».
+        # Одно и то же число в строке ловят оба выражения — сообщаем о нём один раз.
+        reported: set[str] = set()
+        for match in list(QUANTITY_RE.finditer(raw)) + list(THRESHOLD_RE.finditer(raw)):
+            if any(s <= match.start() < e for s, e in spans):
+                continue
+            number = canonical_number(match.group(1))
+            if number in numbers or number in reported:
+                continue
+            quantity = match.group().strip()
+            if quantity.lower() in seen:
+                continue
+            reported.add(number)
+            seen.add(quantity.lower())
+            excerpt = raw.strip()
+            if len(excerpt) > 90:
+                excerpt = excerpt[:87] + "..."
+            out.append(Finding(idx, level, "GR002", quantity, excerpt))
+    return out
+
+
 def lint(doc_path: Path, sources: list[Path], strict: bool) -> list[Finding]:
     source_text = normalize("\n".join(p.read_text(encoding="utf-8-sig") for p in sources))
     lines = doc_path.read_text(encoding="utf-8").split("\n")
@@ -167,11 +240,12 @@ def lint(doc_path: Path, sources: list[Path], strict: bool) -> list[Finding]:
             if len(excerpt) > 90:
                 excerpt = excerpt[:87] + "..."
             out.append(Finding(idx, level, "GR001", token, excerpt))
-    return sorted(out, key=lambda f: f.line)
+    out += quantity_findings(lines, skip, source_numbers(source_text), level)
+    return sorted(out, key=lambda f: (f.line, f.code))
 
 
 def main(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(description="Сверка документа БФТ с источником (ЗМ-024)")
+    parser = argparse.ArgumentParser(description="Сверка документа БФТ с источником (ЗМ-024, ЗМ-029)")
     parser.add_argument("document", type=Path)
     parser.add_argument("--source", type=Path, action="append", required=True,
                         help="входной текст прогона (Summary, транскрипт, csv); можно указать несколько раз")
@@ -193,8 +267,11 @@ def main(argv: list[str]) -> int:
         if not findings:
             print(f"{args.document}: OK — сущностей вне источника не найдено")
         else:
-            print(f"\nНайдено {len(findings)}. Каждая — либо факт из чужого примера (ЗМ-024), "
-                  f"либо термин, который стоит проверить глазами.")
+            print(f"\nНайдено {len(findings)}. `GR001` — либо факт из чужого примера (ЗМ-024), "
+                  f"либо термин, который стоит проверить глазами. `GR002` — величина, числа которой "
+                  f"в источнике нет: либо точность дописана за источник (ЗМ-029, гейт 5) и её надо "
+                  f"вернуть в мягкую формулировку или `[УТОЧНИТЬ]`, либо число получено пересчётом "
+                  f"единиц и его стоит записать так же, как сказал источник.")
     return 1 if (args.strict and findings) else 0
 
 
