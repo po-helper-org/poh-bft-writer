@@ -34,9 +34,19 @@ case "$choice" in
   *) echo "Неизвестный выбор"; exit 1 ;;
 esac
 
-# Синк команд
+# Синк команд действующего контура.
+# Список явный, а не «всё из commands/»: снятая команда, уехавшая в воркспейс,
+# снова начнёт конкурировать за выбор навыка (issue #25). Архив в docs/archive/
+# не синкается вовсе.
+COMMANDS="bft-index bft-fast bft-recon bft-deep bft-draft bft-validate bft-html bft-deliver"
 mkdir -p "$ROOT/$CMD_DIR"
-cp -R "$SRC"/commands/. "$ROOT/$CMD_DIR"/
+for cmd in $COMMANDS; do
+  if [ -f "$SRC/commands/$cmd.md" ]; then
+    cp "$SRC/commands/$cmd.md" "$ROOT/$CMD_DIR/$cmd.md"
+  else
+    echo -e "${YELLOW}пропущено: commands/$cmd.md не найден${NC}"
+  fi
+done
 
 # Синк навыков с инъекцией frontmatter (name + description из первой строки SKILL.md)
 mkdir -p "$ROOT/skills"
@@ -62,4 +72,5 @@ done
 [ "$SRC" = "$TEMP_DIR" ] && rm -rf "$TEMP_DIR"
 
 echo -e "${GREEN}✔ Установлено в $ROOT/${NC}"
+echo -e "Контур: ${GREEN}/bft-fast${NC} → ${GREEN}/bft-deep${NC} → ${GREEN}/bft-deliver${NC} (+ /bft-html для ревью)."
 echo -e "${YELLOW}Следующий шаг:${NC} запусти ${GREEN}/bft-index${NC} — навык построит контекст воркспейса."
