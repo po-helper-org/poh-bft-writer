@@ -38,7 +38,9 @@ curl -ksSL https://raw.githubusercontent.com/po-helper-org/poh-bft-writer/main/i
    локальный документ-шапка `<epic_slug>-fast.md` (Цель = SMART-таблица, How to demo,
    Ограничения и договоренности, Документация, Критичные требования на цитатах,
    Общая информация) + открытое поле
-   с промтом для доведения. Открытые вопросы уходят в чат, не в документ. Рассчитан на Haiku;
+   с промтом для доведения. Сразу после записи собирает страницу ревью `<epic_slug>-fast.html`
+   рядом с документом — её и читает PO (`--no-html` отключает). Открытые вопросы уходят
+   в чат, не в документ. Рассчитан на Haiku;
    `/bft-recon` — **разведчик**: пока вы читаете письмо, фоновый субагент обходит
    JIRA и Confluence **только на чтение** и кладёт рядом карту находок
    `context_map.md` — что по теме уже описано, с чем пересекается, что раньше
@@ -92,6 +94,7 @@ python3 <skills_path>/bft-writer/scripts/bft-paths-lint.py
 ```bash
 python3 <skills_path>/bft-writer/scripts/bft-env-lint.py .mcp.json
 bash <skills_path>/bft-writer/scripts/test-bft-env-lint.sh
+bash <skills_path>/bft-writer/scripts/test-bft-html-export.sh
 ```
 
 Карту контекста `/bft-recon` проверяет свой линтер (гейт 20) — находка без ссылки
@@ -114,7 +117,7 @@ bash <skills_path>/bft-writer/scripts/test-bft-recon-lint.sh
 |---|---|---|
 | `/bft-index` | Context Builder | `.bft/index/` (пакеты знаний) |
 | `/bft-deliver` | Deliverer | публикация: JIRA Эпик + **одна** страница Confluence + связи |
-| `/bft-html` | Ревью в браузере | `<epic>.html` рядом с документом — диаграмма, якоря на ID, панель `[УТОЧНИТЬ]`, комментарии → промт |
+| `/bft-html` | Ревью в браузере | `<epic>.html` рядом с документом — диаграмма, якоря на ID, панель `[УТОЧНИТЬ]`, комментарии → промт. **Обычно вызывать не нужно:** страницу собирают сами `/bft-fast` и `/bft-deep` (ЗМ-033), команда — ручная пересборка |
 | `/bft-fast` | Fast lane | письмо + csv-вложения + документ-шапка `<epic>-fast.md`. Наружу не ходит: ни JIRA, ни Confluence, ни индекс — публикует `/bft-deliver` |
 | `/bft-recon` | Разведка контекста | `context_map.md` — карта находок JIRA/Confluence со ссылками |
 | `/bft-deep` | Deep swarm | тот же документ, обогащённый каноном |
