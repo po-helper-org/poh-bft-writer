@@ -8,6 +8,8 @@
   --mark:#f2f2f2;
   --link:#0000ee;
   --visited:#551a8b;
+  /* Ширина выезжающей панели — токен: по ней же отводится рейка вкладок. */
+  --drawer-w:min(340px, 86vw);
 }
 *{ box-sizing:border-box; }
 body{
@@ -19,24 +21,8 @@ a{ color:var(--link); }
 a:visited{ color:var(--visited); }
 a.anchor-link{ text-decoration:none; border-bottom:1px dotted var(--link); }
 
-.layout{
-  max-width:1180px; margin:0 auto;
-  display:grid; grid-template-columns:1fr 210px; gap:2.5rem;
-  padding:2rem 1.5rem 6rem;
-}
-@media (max-width:900px){ .layout{ grid-template-columns:1fr; } .toc{ display:none; } }
-
-main{ min-width:0; max-width:760px; }
-
-.toc{
-  position:sticky; top:1.2rem; align-self:start;
-  font-family:"Courier New", Consolas, monospace; font-size:.74rem;
-  border-left:1px solid var(--line-soft); padding-left:.9rem;
-  max-height:calc(100vh - 2.4rem); overflow-y:auto;
-}
-.toc-title{ text-transform:uppercase; letter-spacing:.06em; color:var(--faint); margin-bottom:.6rem; }
-.toc a{ display:block; padding:.18rem 0; color:var(--fg); text-decoration:none; border-bottom:0; }
-.toc a:hover{ text-decoration:underline; }
+.layout{ max-width:860px; margin:0 auto; padding:2rem 1.5rem 6rem; }
+main{ min-width:0; max-width:760px; margin:0 auto; }
 
 h1{ font-size:1.65rem; line-height:1.25; margin:0 0 .5rem; }
 h2{ font-size:1.25rem; margin:2.4rem 0 1rem; padding-top:1.6rem; border-top:1px solid var(--line-soft); }
@@ -46,8 +32,7 @@ p{ margin:0 0 .9rem; }
 ol, ul{ margin:0 0 .9rem; padding-left:1.4rem; }
 li{ margin-bottom:.35rem; }
 
-.meta-line{ font-family:"Courier New", Consolas, monospace; font-size:.75rem; color:var(--muted); margin-bottom:.3rem; }
-.status{
+blockquote.quote{
   border:1px solid var(--line); padding:.7rem .9rem; margin:1rem 0 1.6rem;
   font-size:.92rem; background:var(--mark);
 }
@@ -99,6 +84,21 @@ footer{ border-top:1px solid var(--line); margin-top:3rem; padding-top:1.4rem; f
   vertical-align:middle; animation:pulse 1.4s ease-in-out infinite;
 }
 @keyframes pulse{ 0%,100%{ opacity:1; box-shadow:0 0 0 0 rgba(224,0,0,.5); } 50%{ opacity:.55; box-shadow:0 0 0 4px rgba(224,0,0,0); } }
+/* Прокомментированная точка перестаёт звать: зелёная и неподвижная. */
+.unc-dot.has-comment{ background:#1a7a1a; animation:none; }
+.unc-dot:focus-visible{ outline:2px solid var(--link); outline-offset:2px; }
+@media (prefers-reduced-motion:reduce){ .unc-dot{ animation:none; } }
+
+/* Подсказка по наведению — только чтение: реагировать можно в попоувере по клику,
+   поэтому она не перехватывает мышь и не мешает попасть в саму точку. */
+.unc-hint{
+  position:absolute; z-index:70; width:300px; pointer-events:none;
+  background:var(--fg); color:var(--bg); padding:.5rem .6rem;
+  font-family:"Courier New",monospace; font-size:.72rem; line-height:1.45;
+  box-shadow:3px 3px 0 var(--line-soft);
+}
+.unc-hint-title{ text-transform:uppercase; letter-spacing:.05em; font-size:.62rem; opacity:.7; margin-bottom:.35rem; }
+.unc-hint-item + .unc-hint-item{ margin-top:.4rem; padding-top:.4rem; border-top:1px solid rgba(255,255,255,.3); }
 
 /* floating popover for dot-comments and selection-comments */
 .popover{
@@ -111,28 +111,56 @@ footer{ border-top:1px solid var(--line); margin-top:3rem; padding-top:1.4rem; f
 .popover .prow{ display:flex; gap:.4rem; margin-top:.4rem; }
 .popover button{ font-family:inherit; font-size:.72rem; border:1px solid var(--fg); background:var(--fg); color:var(--bg); padding:.25rem .6rem; cursor:pointer; }
 .popover button.cancel{ background:var(--bg); color:var(--fg); }
+/* Уже оставленные комментарии видны прямо в форме — на них и реагируют. */
+.popover .pexisting{ margin-bottom:.55rem; }
+.popover .pexisting-title{ text-transform:uppercase; letter-spacing:.05em; font-size:.62rem; color:var(--faint); margin-bottom:.3rem; }
+.popover .pex-item{ border-left:2px solid #1a7a1a; padding:.15rem .5rem; margin-bottom:.3rem; color:var(--muted); }
+.popover .pex-del{ background:none; border:none; color:var(--faint); text-decoration:underline; padding:0; margin-top:.15rem; font-family:inherit; font-size:.68rem; cursor:pointer; }
 
 /* left drawer: quick walk through УТОЧНИТЬ points */
-.unc-tab{
-  position:fixed; left:0; top:50%; transform:translateY(-50%) rotate(180deg);
-  writing-mode:vertical-rl; z-index:55;
-  background:#e00000; color:#fff; border:none; cursor:pointer;
+/* left rail: two drawers share one edge, so flexbox spaces them instead of
+   two hand-tuned `top` offsets that drift apart when a label changes length */
+.rail{
+  position:fixed; left:0; top:50%; transform:translateY(-50%); z-index:57;
+  display:flex; flex-direction:column; gap:6px; align-items:flex-start;
+  transition:left .12s ease;
+}
+/* Открытая панель занимает левую кромку. Рейка выезжает вместе с ней, иначе
+   она оказывается погребена: вторая вкладка недостижима, а повторный клик по
+   своей же вкладке не закрывает панель. */
+body.drawer-open .rail{ left:var(--drawer-w); }
+@media (prefers-reduced-motion:reduce){ .rail{ transition:none; } }
+.rail-tab{
+  writing-mode:vertical-rl; transform:rotate(180deg);
+  border:none; cursor:pointer; color:#fff;
   font-family:"Courier New",monospace; font-size:.72rem; letter-spacing:.03em;
   padding:.8rem .4rem;
 }
-.unc-drawer{
-  display:none; position:fixed; left:0; top:0; bottom:0; width:340px; z-index:56;
+/* Neutral chrome navigates; red is reserved for what wants an answer. */
+.nav-tab{ background:var(--fg); }
+.unc-tab{ background:#e00000; }
+.rail-tab:focus-visible{ outline:2px solid var(--link); outline-offset:2px; }
+
+.drawer{
+  display:none; position:fixed; left:0; top:0; bottom:0; width:var(--drawer-w); z-index:56;
   background:var(--bg); border-right:1px solid var(--fg); box-shadow:3px 0 0 var(--line-soft);
   padding:1rem; overflow-y:auto; font-family:"Courier New",monospace; font-size:.78rem;
 }
-.unc-drawer.open{ display:block; }
-.unc-drawer-head{ display:flex; align-items:center; justify-content:space-between; margin:0 0 .8rem; }
-.unc-drawer h4{ margin:0; text-transform:uppercase; font-size:.8rem; letter-spacing:.04em; }
-.unc-close{
+.drawer.open{ display:block; }
+.drawer-head{ display:flex; align-items:center; justify-content:space-between; margin:0 0 .8rem; }
+.drawer h4{ margin:0; text-transform:uppercase; font-size:.8rem; letter-spacing:.04em; }
+.drawer-close{
   background:none; border:1px solid var(--line-soft); color:var(--fg); cursor:pointer;
   font-family:inherit; font-size:.9rem; line-height:1; padding:.1rem .5rem; border-radius:3px;
 }
-.unc-close:hover{ border-color:var(--fg); }
+.drawer-close:hover{ border-color:var(--fg); }
+
+/* Оглавление: отступ кодирует реальную вложенность h2 → h3, а не украшает. */
+.toc-link{ display:block; padding:.3rem 0; color:var(--fg); text-decoration:none; border-bottom:1px solid var(--line-soft); }
+.toc-link:visited{ color:var(--fg); }
+.toc-link:hover{ background:var(--mark); }
+.toc-h3{ padding-left:1.1rem; color:var(--muted); font-size:.73rem; border-bottom:0; }
+.toc-h3:visited{ color:var(--muted); }
 .unc-item{
   display:block; width:100%; text-align:left; background:none; border:none; border-bottom:1px solid var(--line-soft);
   padding:.55rem 0; cursor:pointer; color:var(--fg); font-family:inherit; font-size:.76rem;
@@ -140,8 +168,8 @@ footer{ border-top:1px solid var(--line); margin-top:3rem; padding-top:1.4rem; f
 .unc-item:hover{ background:var(--mark); }
 .unc-item .sec{ display:block; color:var(--faint); font-size:.68rem; text-transform:uppercase; margin-bottom:.15rem; }
 .unc-item .snip{ color:var(--muted); }
-.unc-item.answered{ opacity:.6; }
 .unc-item.answered .check{ color:#1a7a1a; font-weight:bold; }
+.unc-item .said{ display:block; margin-top:.3rem; padding-left:.5rem; border-left:2px solid #1a7a1a; color:var(--muted); }
 .unc-divider{
   margin:.8rem 0 .4rem; padding-top:.6rem; border-top:1px dashed var(--line-soft);
   color:var(--faint); font-size:.68rem; text-transform:uppercase; letter-spacing:.05em;

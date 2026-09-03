@@ -342,10 +342,6 @@ def check_title(doc: Doc, out: list[Finding]) -> None:
     slug = doc.frontmatter.get("epic_slug", "")
     if slug and m.group(1) != slug:
         out.append(Finding(h1_line, "ERROR", "H1003", f"epic_slug в H1 («{m.group(1)}») не совпадает с frontmatter («{slug}»)"))
-    nxt = doc.lines[h1_line] if h1_line < len(doc.lines) else ""
-    following = nxt.strip() or (doc.lines[h1_line + 1].strip() if h1_line + 1 < len(doc.lines) else "")
-    if not following.startswith("> Статус проработки:"):
-        out.append(Finding(h1_line + 1, "ERROR", "H1004", "под H1 нет строки-статуса «> Статус проработки: …»"))
 
 
 def check_border(doc: Doc, out: list[Finding]) -> int:

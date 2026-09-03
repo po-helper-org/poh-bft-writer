@@ -11,10 +11,11 @@ actor-level, только ->/-->/alt/else/end/note right of, без message-сх
 
 Страница — статичный документ (ч/б, без промо-палитры): нумерованные ID
 требований (БТ-1/ПТ-1/ИТ-1/ФТ-N/НФТ-N) становятся якорями и авто-ссылками
-на первое упоминание, справа — TOC по реальным <h2>, слева — выезжающая
-панель быстрого обхода всех [УТОЧНИТЬ], клик по фрагменту или по выделению
-текста открывает форму комментария; все комментарии собираются в промт
-для ИИ в правой верхней панели.
+на первое упоминание. Слева — рейка из двух выезжающих панелей: оглавление
+по реальным <h2>/<h3> и быстрый обход всех [УТОЧНИТЬ]. Клик по точке или по
+выделению текста открывает форму комментария; прокомментированная точка
+становится зелёной и показывает оставленный текст по наведению. Все
+комментарии собираются в промт для ИИ в правой верхней панели.
 """
 import argparse
 import html as htmlmod
@@ -134,6 +135,21 @@ def parse_blocks(body: str):
             text = line[level:].strip()
             blocks.append(("heading", level, text))
             i += 1
+            continue
+        # Заголовок-подчёркивание (setext): канон MTS размечает свои разделы
+        # именно так — «Функциональные требования*», а под ним строка «====».
+        # Без этой ветки раздел канона уезжал на страницу абзацем вместе с
+        # подчёркиванием («План демонстрации ====…»), не попадал в оглавление
+        # и не опознавался как секция при подписи комментария — замечание к
+        # требованию подписывалось «Шапка».
+        # Уровень 2, а не 1: H1 занят заголовком документа и рендерится отдельно.
+        # Вариант с «----» намеренно не поддержан — он неотличим от
+        # горизонтальной черты и от разделителя строк таблицы.
+        underline = lines[i + 1].strip() if i + 1 < len(lines) else ""
+        if (not line.startswith(("|", ">")) and underline
+                and set(underline) == {"="} and len(underline) >= 3):
+            blocks.append(("heading", 2, line.strip()))
+            i += 2
             continue
         if line.startswith(">"):
             blocks.append(("quote", None, line.lstrip(">").strip()))
@@ -340,12 +356,12 @@ def render_body(blocks, id_map):
             level, text = a, b
             if level == 1:
                 continue  # title rendered separately
-            if level == 2:
-                out.append(f'<h2 id="">{inline(text, skip_id_links=True)}</h2>')
+            if level in (2, 3):
+                out.append(f'<h{level} id="">{inline(text, skip_id_links=True)}</h{level}>')
             else:
                 out.append(f"<h{level}>{inline(text, skip_id_links=True)}</h{level}>")
         elif kind == "quote":
-            out.append(f'<div class="status">{inline(b, id_map=id_map)}</div>')
+            out.append(f'<blockquote class="quote">{inline(b, id_map=id_map)}</blockquote>')
         elif kind == "table":
             out.append(render_table(a, b, id_map))
             if a and a[0].strip().lower() in ("идентификатор", "id"):
@@ -397,16 +413,24 @@ TEMPLATE_HEAD = """<!doctype html>
   </div>
 </div>
 
-<button id="uncToggle" class="unc-tab">⟩ УТОЧНИТЬ (<span id="uncCount">0/0</span>)</button>
-<div class="unc-drawer" id="uncDrawer">
-  <div class="unc-drawer-head"><h4>Быстрый обход «УТОЧНИТЬ»</h4><button id="uncClose" class="unc-close" title="Закрыть">×</button></div>
+<div class="rail">
+  <button id="navToggle" class="rail-tab nav-tab" type="button">☰ Содержание</button>
+  <button id="uncToggle" class="rail-tab unc-tab" type="button">⟩ УТОЧНИТЬ (<span id="uncCount">0/0</span>)</button>
+</div>
+
+<div class="drawer nav-drawer" id="navDrawer">
+  <div class="drawer-head"><h4>Содержание</h4><button id="navClose" class="drawer-close" type="button" title="Закрыть">×</button></div>
+  <div id="tocList"></div>
+</div>
+
+<div class="drawer unc-drawer" id="uncDrawer">
+  <div class="drawer-head"><h4>Быстрый обход «УТОЧНИТЬ»</h4><button id="uncClose" class="drawer-close" type="button" title="Закрыть">×</button></div>
   <div id="uncList"></div>
 </div>
 
 <div class="layout">
 <main>
 
-<div class="meta-line">{meta_line}</div>
 <h1 id="top">{title}</h1>
 """
 
@@ -416,12 +440,6 @@ TEMPLATE_TAIL = """
 </footer>
 
 </main>
-
-<nav class="toc">
-<div class="toc-title">На странице</div>
-<div id="tocList"></div>
-</nav>
-
 </div>
 
 {scripts}
@@ -491,20 +509,17 @@ def main():
     id_map = collect_id_map(blocks)
     body_html = render_body(blocks, id_map)
 
-    # assign incremental ids to h2 headings post-hoc (avoid clobbering id="" placeholder)
+    # Сквозная нумерация якорей по h2 и h3 разом: оглавление в левой панели
+    # строится из обоих уровней, а на подзаголовок без id сослаться нечем.
     counter = {"n": 0}
 
-    def h2_id(m):
+    def head_id(m):
         counter["n"] += 1
-        return f'<h2 id="sec-{counter["n"]}">'
+        return f'<h{m.group(1)} id="sec-{counter["n"]}">'
 
-    body_html = re.sub(r'<h2 id="">', h2_id, body_html)
+    body_html = re.sub(r'<h([23]) id="">', head_id, body_html)
 
     epic_slug = meta.get("epic_slug") or md_path.stem
-    version = meta.get("version", "")
-    stage = meta.get("stage", "")
-    synced = meta.get("synced", "")
-    meta_line = f"БФТ · {epic_slug} · v{version} · {stage} · синк {synced}"
 
     lint_status = run_lint(md_path)
 
@@ -517,7 +532,7 @@ def main():
         "__DOC_NAME_JSON__", json.dumps(md_path.name)
     )
 
-    html_out = TEMPLATE_HEAD.format(title=htmlmod.escape(title), css=CSS, meta_line=htmlmod.escape(meta_line))
+    html_out = TEMPLATE_HEAD.format(title=htmlmod.escape(title), css=CSS)
     html_out += body_html
     html_out += TEMPLATE_TAIL.format(doc_name=htmlmod.escape(md_path.name), lint_status=lint_status, scripts=scripts)
 

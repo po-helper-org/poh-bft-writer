@@ -17,7 +17,6 @@
 <script>
 (function(){
   var STORE_KEY = __STORE_KEY_JSON__;
-  var ANSWERED_KEY = STORE_KEY + "-answered";
   var DOC_NAME = __DOC_NAME_JSON__;
 
   function load(){
@@ -26,16 +25,17 @@
   function save(list){
     try{ localStorage.setItem(STORE_KEY, JSON.stringify(list)); }catch(e){}
   }
-  function loadAnswered(){
-    try{ return JSON.parse(localStorage.getItem(ANSWERED_KEY) || "[]"); }catch(e){ return []; }
+  function esc(s){
+    return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
   }
-  function saveAnswered(list){
-    try{ localStorage.setItem(ANSWERED_KEY, JSON.stringify(list)); }catch(e){}
-  }
-  function markAnswered(uncId){
-    if(!uncId) return;
-    var a = loadAnswered();
-    if(a.indexOf(uncId) === -1){ a.push(uncId); saveAnswered(a); }
+  // Состояние точки — производное от комментариев, а не отдельный флаг: иначе
+  // удалённый комментарий оставлял бы точку зелёной и «отвеченной» навсегда.
+  function commentsByUnc(){
+    var map = {};
+    load().forEach(function(c){
+      if(c.uncId){ (map[c.uncId] = map[c.uncId] || []).push(c); }
+    });
+    return map;
   }
   function nearestSection(el){
     var main = document.querySelector("main");
@@ -55,7 +55,6 @@
     var list = load();
     list.push({ section: section, quote: quote || "", text: text.trim(), ts: new Date().toISOString(), uncId: uncId || null });
     save(list);
-    markAnswered(uncId);
     render();
   }
 
@@ -137,6 +136,7 @@
       });
     }
     document.getElementById("promptOut").value = buildPrompt(list);
+    paintDots();
     renderUncDrawer();
   }
 
@@ -148,11 +148,34 @@
     pop.id = "activePopover";
     pop.style.left = Math.max(8, Math.min(x, window.innerWidth - 296)) + "px";
     pop.style.top = (y + window.scrollY) + "px";
-    var quoteHtml = quote ? '<div class="pquote">«' + quote.replace(/</g,"&lt;") + '»</div>' : "";
-    pop.innerHTML = quoteHtml +
-      '<textarea placeholder="Комментарий для доработки (Ctrl+Enter — сохранить)"></textarea>' +
+    var quoteHtml = quote ? '<div class="pquote">«' + esc(quote) + '»</div>' : "";
+    var existing = uncId ? (commentsByUnc()[uncId] || []) : [];
+    var existingHtml = existing.length
+      ? '<div class="pexisting"><div class="pexisting-title">Уже оставлено</div>' +
+        existing.map(function(c){
+          return '<div class="pex-item">' + esc(c.text) +
+                 '<button class="pex-del" type="button" data-ts="' + esc(c.ts) + '">удалить</button></div>';
+        }).join("") + '</div>'
+      : "";
+    pop.innerHTML = quoteHtml + existingHtml +
+      '<textarea placeholder="' + (existing.length ? "Ответ или ещё один комментарий" : "Комментарий для доработки") +
+      ' (Ctrl+Enter — сохранить)"></textarea>' +
       '<div class="prow"><button class="save">Сохранить</button><button class="cancel">Отмена</button></div>';
     document.body.appendChild(pop);
+    pop.querySelectorAll(".pex-del").forEach(function(btn){
+      btn.addEventListener("click", function(){
+        var ts = btn.getAttribute("data-ts"), removed = false;
+        // Снимаем ровно одну запись: две с одинаковой меткой времени до
+        // миллисекунды практически невозможны, а если и случатся — они
+        // неразличимы, и удалить первую совпавшую ровно то, что нужно.
+        save(load().filter(function(c){
+          if(!removed && c.ts === ts){ removed = true; return false; }
+          return true;
+        }));
+        render();
+        closePopover();
+      });
+    });
     var ta = pop.querySelector("textarea");
     ta.focus();
     ta.addEventListener("keydown", function(e){
@@ -205,19 +228,53 @@
     uncIdSeen[baseId] = (uncIdSeen[baseId] || 0) + 1;
     mark.id = uncIdSeen[baseId] > 1 ? baseId + "-" + uncIdSeen[baseId] : baseId;
 
-    uncMeta.push({ mark: mark, section: section, snip: snip });
-
     var dot = document.createElement("button");
     dot.className = "unc-dot";
-    dot.title = "Оставить комментарий к этому пункту";
     dot.type = "button";
+    dot.setAttribute("aria-label", "Комментарий к пункту: " + snip.slice(0, 60));
     mark.insertAdjacentElement("afterend", dot);
+
+    var meta = { mark: mark, section: section, snip: snip, dot: dot };
+    uncMeta.push(meta);
+
     dot.addEventListener("click", function(e){
       e.stopPropagation();
+      hideHint();
       var r = dot.getBoundingClientRect();
       openPopover(r.left, r.bottom + 4, mark.textContent.trim(), section, mark.id);
     });
+    dot.addEventListener("mouseenter", function(){ showHint(meta); });
+    dot.addEventListener("mouseleave", hideHint);
+    dot.addEventListener("focus", function(){ showHint(meta); });
+    dot.addEventListener("blur", hideHint);
   });
+
+  function hideHint(){
+    var old = document.getElementById("activeHint");
+    if(old) old.remove();
+  }
+  function showHint(meta){
+    hideHint();
+    var cs = commentsByUnc()[meta.mark.id] || [];
+    var hint = document.createElement("div");
+    hint.className = "unc-hint";
+    hint.id = "activeHint";
+    hint.innerHTML = cs.length
+      ? '<div class="unc-hint-title">Оставлено: ' + cs.length + ' — клик, чтобы ответить</div>' +
+        cs.map(function(c){ return '<div class="unc-hint-item">' + esc(c.text) + '</div>'; }).join("")
+      : '<div class="unc-hint-title">Комментария нет</div>' +
+        '<div class="unc-hint-item">Клик — оставить комментарий к этому пункту.</div>';
+    document.body.appendChild(hint);
+    var r = meta.dot.getBoundingClientRect();
+    hint.style.left = Math.max(8, Math.min(r.left - 6, window.innerWidth - 316)) + "px";
+    hint.style.top = (r.bottom + window.scrollY + 6) + "px";
+  }
+  function paintDots(){
+    var map = commentsByUnc();
+    uncMeta.forEach(function(m){
+      m.dot.classList.toggle("has-comment", !!(map[m.mark.id] || []).length);
+    });
+  }
 
   function jumpAndComment(meta){
     meta.mark.scrollIntoView({ behavior:"smooth", block:"center" });
@@ -225,23 +282,26 @@
     setTimeout(function(){ meta.mark.classList.remove("flash"); }, 1600);
     var r = meta.mark.getBoundingClientRect();
     openPopover(Math.min(r.left, window.innerWidth - 296), r.bottom + 8, meta.mark.textContent.trim(), meta.section, meta.mark.id);
-    document.getElementById("uncDrawer").classList.remove("open");
+    closeDrawers();
   }
 
-  function makeUncItem(meta, answered){
+  function makeUncItem(meta, comments){
     var item = document.createElement("button");
+    var answered = comments.length > 0;
     item.className = "unc-item" + (answered ? " answered" : "");
     item.type = "button";
     item.innerHTML = (answered ? '<span class="check">✓</span> ' : "") +
-      '<span class="sec">' + meta.section + '</span><span class="snip">' + meta.snip.replace(/</g,"&lt;") + '</span>';
+      '<span class="sec">' + esc(meta.section) + '</span>' +
+      '<span class="snip">' + esc(meta.snip) + '</span>' +
+      comments.map(function(c){ return '<span class="said">' + esc(c.text) + '</span>'; }).join("");
     item.addEventListener("click", function(){ jumpAndComment(meta); });
     return item;
   }
 
   function renderUncDrawer(){
-    var answeredIds = loadAnswered();
-    var pending = uncMeta.filter(function(m){ return answeredIds.indexOf(m.mark.id) === -1; });
-    var done = uncMeta.filter(function(m){ return answeredIds.indexOf(m.mark.id) !== -1; });
+    var map = commentsByUnc();
+    var pending = uncMeta.filter(function(m){ return !(map[m.mark.id] || []).length; });
+    var done = uncMeta.filter(function(m){ return (map[m.mark.id] || []).length; });
 
     document.getElementById("uncCount").textContent = pending.length + "/" + done.length;
 
@@ -250,28 +310,47 @@
       uncDrawerList.innerHTML = '<p class="empty">Точек «УТОЧНИТЬ» нет.</p>';
       return;
     }
-    pending.forEach(function(m){ uncDrawerList.appendChild(makeUncItem(m, false)); });
+    pending.forEach(function(m){ uncDrawerList.appendChild(makeUncItem(m, [])); });
     if(done.length){
       var div = document.createElement("div");
       div.className = "unc-divider";
       div.textContent = "Отвечено";
       uncDrawerList.appendChild(div);
-      done.forEach(function(m){ uncDrawerList.appendChild(makeUncItem(m, true)); });
+      done.forEach(function(m){ uncDrawerList.appendChild(makeUncItem(m, map[m.mark.id])); });
     }
   }
   renderUncDrawer();
 
   var uncDrawer = document.getElementById("uncDrawer");
-  document.getElementById("uncToggle").addEventListener("click", function(){
-    uncDrawer.classList.toggle("open");
-  });
-  document.getElementById("uncClose").addEventListener("click", function(){
+  var navDrawer = document.getElementById("navDrawer");
+  // Обе панели выезжают из левой кромки, поэтому открытой может быть только одна:
+  // иначе вторая молча ложится поверх первой.
+  function syncRail(){
+    document.body.classList.toggle("drawer-open",
+      uncDrawer.classList.contains("open") || navDrawer.classList.contains("open"));
+  }
+  function closeDrawers(){
     uncDrawer.classList.remove("open");
+    navDrawer.classList.remove("open");
+    syncRail();
+  }
+  function toggleDrawer(d){
+    var wasOpen = d.classList.contains("open");
+    closeDrawers();
+    if(!wasOpen) d.classList.add("open");
+    syncRail();
+  }
+  document.getElementById("uncToggle").addEventListener("click", function(){ toggleDrawer(uncDrawer); });
+  document.getElementById("uncClose").addEventListener("click", closeDrawers);
+  document.getElementById("navToggle").addEventListener("click", function(){ toggleDrawer(navDrawer); });
+  document.getElementById("navClose").addEventListener("click", closeDrawers);
+  document.addEventListener("keydown", function(e){
+    if(e.key === "Escape"){ closeDrawers(); closePopover(); hideHint(); }
   });
 
   /* — comment-by-selection: input appears immediately on mouseup — */
   document.addEventListener("mouseup", function(e){
-    if(e.target.closest(".popover") || e.target.classList.contains("unc-dot") || e.target.closest(".unc-drawer") || e.target.closest(".promptbox")) return;
+    if(e.target.closest(".popover") || e.target.classList.contains("unc-dot") || e.target.closest(".drawer") || e.target.closest(".rail") || e.target.closest(".promptbox")) return;
     setTimeout(function(){
       var sel = window.getSelection();
       var text = sel && sel.toString().trim();
@@ -286,14 +365,22 @@
     }, 0);
   });
 
-  /* — TOC built from real h2 headings in main — */
+  /* — оглавление в левой панели: разделы и подразделы документа — */
   function buildToc(){
     var box = document.getElementById("tocList");
-    var heads = document.querySelectorAll("main h2[id]");
+    var heads = document.querySelectorAll("main h2[id], main h3[id]");
+    box.innerHTML = "";
+    if(!heads.length){
+      box.innerHTML = '<p class="empty">Заголовков в документе нет.</p>';
+      return;
+    }
     heads.forEach(function(h){
       var a = document.createElement("a");
+      // Отступ у h3 кодирует реальную вложенность, а не украшает список.
+      a.className = "toc-link toc-" + h.tagName.toLowerCase();
       a.href = "#" + h.id;
       a.textContent = h.textContent.trim();
+      a.addEventListener("click", closeDrawers);
       box.appendChild(a);
     });
   }

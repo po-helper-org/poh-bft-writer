@@ -42,6 +42,16 @@ render "$FAST" "epic-fast" && {
     echo "FAIL  часть [УТОЧНИТЬ] потерялась: $html_count при $src_count в исходнике"
     fails=$((fails + 1))
   fi
+
+  # Снятое стандартом не должно вернуться на страницу (ЗМ-034, ЗМ-035).
+  for token in 'class="meta-line"' 'Статус проработки'; do
+    if grep -q "$token" "$TMP/epic-fast.html"; then
+      echo "FAIL  на странице снова появилось: $token"
+      fails=$((fails + 1))
+    else
+      echo "ok    снятое не вернулось: $token"
+    fi
+  done
 }
 
 # Стадия deep — полный канон с диаграммой.
@@ -51,6 +61,24 @@ render "$DEEP" "epic" && {
   else
     echo "FAIL  в deep-документе не нашлось диаграммы"
     fails=$((fails + 1))
+  fi
+
+  # Канон MTS размечен подчёркиванием, а не решётками (ЗМ-037). Если экспортёр
+  # перестанет их разбирать, разделы уедут абзацем вместе с «====» и выпадут
+  # из оглавления — а раздел у комментария будет подписан соседним заголовком.
+  setext_count=$(grep -cE "^={3,}$" "$DEEP")
+  head_count=$(grep -oE "<h2 id=\"sec-[0-9]+\"" "$TMP/epic.html" | wc -l)
+  if [ "$head_count" -ge "$setext_count" ]; then
+    echo "ok    разделы канона стали заголовками с якорем ($head_count h2 при $setext_count подчёркиваниях)"
+  else
+    echo "FAIL  заголовки-подчёркивания не разобраны: $head_count h2 при $setext_count подчёркиваниях"
+    fails=$((fails + 1))
+  fi
+  if grep -qE "<p>[^<]*={3,}" "$TMP/epic.html"; then
+    echo "FAIL  подчёркивание «====» вылезло на страницу абзацем"
+    fails=$((fails + 1))
+  else
+    echo "ok    подчёркивание «====» на страницу не вылезло"
   fi
 }
 
