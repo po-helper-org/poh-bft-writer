@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "atlassian": {
+      "command": "npx",
+      "args": ["-y", "@corp/mcp-atlassian"],
+      "env": {
+        "JIRA_URL": "https://jira.example.corp",
+        "JIRA_TOKEN": "${JIRA_TOKEN}",
+        "CONFLUENCE_URL": "https://confluence.example.corp",
+        "CONFLUENCE_TOKEN": "${CONFLUENCE_TOKEN}"
+      }
+    },
+    "serena": {
+      "command": "uvx",
+      "args": ["--from", "serena", "serena-mcp-server"]
+    }
+  }
+}

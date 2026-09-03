@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "notes": {
+      "command": "npx",
+      "args": ["-y", "@corp/mcp-notes"],
+      "env": {
+        "NOTES_API_KEY": "PLAINTEXT-SECRET-FIXTURE-DO-NOT-USE"
+      }
+    }
+  }
+}

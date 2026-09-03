@@ -83,6 +83,15 @@ bash <skills_path>/bft-writer/scripts/test-bft-lint.sh
 python3 <skills_path>/bft-writer/scripts/bft-paths-lint.py
 ```
 
+Подключения к трекеру и вики `/bft-deep` проверяет на стадии сетапа окружения: живой read-only
+вызов делает агент, а форму конфига MCP — линтер (объявлены ли трекер и вики, не записан ли
+секрет значением вместо ссылки на переменную окружения):
+
+```bash
+python3 <skills_path>/bft-writer/scripts/bft-env-lint.py .mcp.json
+bash <skills_path>/bft-writer/scripts/test-bft-env-lint.sh
+```
+
 Карту контекста `/bft-recon` проверяет свой линтер (гейт 20) — находка без ссылки
 непроверяема, а отсутствие раздела «Что не найдено» выдаёт молчание за пустой результат:
 

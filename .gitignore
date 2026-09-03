@@ -3,3 +3,4 @@
 .serena/cache/
 .DS_Store
 *.pyc
+.mcp.json
