@@ -8,7 +8,7 @@
  */
 import { isAbsolute, join, relative, resolve } from 'node:path'
 import type { BftPluginConfig } from './config.js'
-import { chooseDocument } from './document-source.js'
+import { chooseDocument, type DocumentKind } from './document-source.js'
 import {
   DocumentOutsideWorkspaceError, InvalidTaskIdError, TaskNotFoundError,
 } from './errors.js'
@@ -76,7 +76,15 @@ export class BftReader {
    * формат ссылок: переименование каталога или смена формата ссылок в навыках
    * не требует правок ни в клиенте, ни в протоколе канала.
    */
-  async findDocument(id: string): Promise<{ path: string; content: string } | null> {
+  /**
+   * Документ требования: собранная страница ревью, а если её ещё нет — исходный markdown.
+   *
+   * `kind` едет вместе с содержимым, а не выводится получателем из расширения: для
+   * markdown представление обязано завернуть текст в страницу, и без этого признака оно
+   * показывало бы разметку сырым текстом. Выбор файла — знание хоста (chooseDocument),
+   * и вид документа принадлежит тому же выбору.
+   */
+  async findDocument(id: string): Promise<{ path: string; kind: DocumentKind; content: string } | null> {
     this.assertSlug(id)
     const { docsPath } = await this.scan()
     const dir = join(this.config.workspaceRoot, docsPath, id)
@@ -84,7 +92,7 @@ export class BftReader {
     if (!choice) return null
     const path = `${docsPath}/${id}/${choice.name}`
     const content = await this.readDocument(path)
-    return content && content.trim() !== '' ? { path, content } : null
+    return content && content.trim() !== '' ? { path, kind: choice.kind, content } : null
   }
 
   /** Черновик для чата: продолжение с последнего закрытого отрезка. */

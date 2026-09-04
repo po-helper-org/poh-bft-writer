@@ -10,6 +10,7 @@ import { branchUrl, type BftPluginConfig } from './config.js'
 import { parseFrontmatter, type Frontmatter } from './frontmatter.js'
 import type { BftLinks, BftTask } from './model.js'
 import type { BftPorts } from './ports.js'
+import { parseTaskList } from './backlog-source.js'
 import { artifactsOf, stageFromArtifacts } from './stage.js'
 import { lastFinished, parseWorkLog, WORKLOG_FILE, type WorkLog } from './worklog.js'
 
@@ -87,7 +88,48 @@ export async function scanWorkspace(config: BftPluginConfig, ports: BftPorts): P
     })
   }
 
-  return { docsPath, tasks, workLog }
+  return { docsPath, tasks: await withBacklog(tasks, config, ports), workLog }
+}
+
+/**
+ * Дополняет очередь задачами доски Backlog.md.
+ *
+ * Доска необязательна: не задан бинарь или его нет в PATH — возвращается то же,
+ * что было. Когда доска есть, она добавляет требования, заведённые раньше, чем
+ * появился первый документ: иначе «агент завёл требование» ничем не кончается
+ * до первого прогона /bft-fast.
+ *
+ * Объединение — по идентификатору. Связать задачу доски с её документом иначе,
+ * чем по совпадению идентификатора со слагом эпика, пока нечем: `task list
+ * --plain` ссылок задачи не отдаёт. Стадия документа при совпадении не
+ * затирается доской — она выведена из того, что реально лежит на диске.
+ */
+async function withBacklog(
+  tasks: BftTask[],
+  config: BftPluginConfig,
+  ports: BftPorts,
+): Promise<BftTask[]> {
+  if (!config.backlogBin) return tasks
+
+  const { stdout, code } = await ports.runCommand(
+    config.backlogBin, ['task', 'list', '--plain'], config.workspaceRoot,
+  )
+  if (code !== 0) return tasks
+
+  const known = new Set(tasks.map(task => task.id))
+  for (const summary of parseTaskList(stdout, config.taskType)) {
+    if (known.has(summary.id)) continue
+    tasks.push({
+      ...summary,
+      description: '',
+      howToDemo: [],
+      links: { other: [] },
+      artifacts: { fast: false, fastHtml: false, deep: false, deepHtml: false },
+      // Документа ещё нет — до FAST-DONE не хватает именно его.
+      missing: ['документ БФТ'],
+    })
+  }
+  return tasks
 }
 
 function linksOf(

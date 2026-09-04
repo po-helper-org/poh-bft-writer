@@ -18,3 +18,9 @@ export * from './channel.js'
 export * from './plugin-config.js'
 export * from './ports.js'
 export * from './errors.js'
+
+// Харнесс грузит плагин по имени пакета, то есть через эту точку входа: без
+// `apply` и `name` здесь cordis отвергает пакет («invalid plugin, expect
+// function or object with an "apply" method»). Реэкспорт именной, а не
+// `export *`, чтобы barrel не тянул из plugin.js ничего сверх контракта.
+export { name, apply } from './plugin.js'

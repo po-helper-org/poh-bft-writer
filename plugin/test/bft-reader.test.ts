@@ -15,6 +15,7 @@ function ports(tree: Record<string, string[] | string>, links: Record<string, st
     async readTextFile(path) { const e = tree[path]; return typeof e === 'string' ? e : null },
     async writeTextFile(path, content) { tree[path] = content },
     async realPath(path) { return links[path] ?? path },
+    async runCommand() { return { stdout: '', code: -1 } },
   }
 }
 

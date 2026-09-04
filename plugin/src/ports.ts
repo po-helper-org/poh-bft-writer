@@ -2,6 +2,7 @@
  * Границы с внешним миром. Всё, что читает диск или запускает процессы, живёт
  * здесь и только здесь — ядро остаётся чистым и проверяется без воркспейса.
  */
+import { execFile } from 'node:child_process'
 import { mkdir, readdir, readFile, realpath, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { DocumentUnreadableError, WorkLogWriteError } from './errors.js'
@@ -21,11 +22,19 @@ export type WriteTextFile = (path: string, content: string) => Promise<void>
  */
 export type RealPath = (path: string) => Promise<string>
 
+/**
+ * Запуск внешней команды. Наружу — только вывод и код: раздел обязан пережить
+ * отсутствие CLI, а не упасть вместе с ним, поэтому «не удалось запустить» —
+ * это код возврата, а не исключение.
+ */
+export type RunCommand = (bin: string, args: string[], cwd: string) => Promise<{ stdout: string; code: number }>
+
 export interface BftPorts {
   readTextFile: ReadTextFile
   listDirectory: ListDirectory
   writeTextFile: WriteTextFile
   realPath: RealPath
+  runCommand: RunCommand
 }
 
 function missing(error: unknown): boolean {
@@ -64,5 +73,17 @@ export const nodePorts: BftPorts = {
   async realPath(path) {
     // Несуществующая цель — не ошибка: сверяем путь как есть, вести наружу нечему.
     return realpath(path).catch(() => path)
+  },
+  runCommand(bin, args, cwd) {
+    return new Promise(resolve => {
+      // Таймаут обязателен: висящий CLI иначе подвесит весь раздел, и PO увидит
+      // бесконечную загрузку вместо списка требований.
+      execFile(bin, args, { cwd, timeout: 15_000, maxBuffer: 8 * 1024 * 1024 }, (error, stdout) => {
+        // Код -1 — программу не удалось запустить вовсе (нет бинаря, нет прав).
+        // Это штатное состояние: Backlog.md необязателен.
+        const code = error ? ((error as NodeJS.ErrnoException & { code?: number }).code ?? -1) : 0
+        resolve({ stdout: stdout ?? '', code: typeof code === 'number' ? code : -1 })
+      })
+    })
   },
 }

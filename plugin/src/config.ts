@@ -20,6 +20,21 @@ export const DOCS_PATH_FALLBACKS = ['bft/documentation'] as const
 export const DEFAULT_INDEX_PATH = '.bft/index'
 export const INDEX_PATH_FALLBACKS = ['bft/index'] as const
 
+/**
+ * Бинарь Backlog.md по умолчанию.
+ *
+ * Умолчание живёт здесь, а не только в `cordis.patch.yml` пакета, потому что
+ * слой профиля харнесса не дополняет конфигурацию пакета, а заменяет её целиком:
+ * профиль обязан задать `workspaceRoot`, и в этот момент всё остальное из
+ * патча пакета пропадает (проверено `dsh --profile web --dump-config`). Значение
+ * в коде переживает такую замену; без него доска молча исчезала бы у всех, кто
+ * настроил раздел ровно так, как написано в инструкции.
+ *
+ * Отсутствие бинаря в PATH не ошибка: запуск вернёт код -1, и очередь останется
+ * той же, что была бы без доски.
+ */
+export const DEFAULT_BACKLOG_BIN = 'backlog'
+
 export interface BftPluginConfig {
   /** Корень воркспейса. Без него плагин не стартует: угадывать чужой воркспейс опаснее, чем упасть сразу. */
   workspaceRoot: string
@@ -30,8 +45,9 @@ export interface BftPluginConfig {
   /** Каталог индекса относительно корня воркспейса. */
   indexPath: string
   /**
-   * Исполняемый файл Backlog.md. Пусто — доски нет, и это штатный режим:
-   * стадия тогда выводится из артефактов самого репозитория.
+   * Исполняемый файл Backlog.md. По умолчанию — `backlog` из PATH; значение
+   * `off` отключает доску, и это штатный режим: стадия тогда выводится только
+   * из артефактов самого репозитория.
    */
   backlogBin?: string
   /** Тип задач Backlog.md, который считается требованием БФТ. */
@@ -93,10 +109,23 @@ export function loadConfig(env: Record<string, string | undefined>): BftPluginCo
     // где-то ещё — значит молча показать не тот воркспейс.
     docsPathFallbacks: docsPath ? [] : DOCS_PATH_FALLBACKS,
     indexPath: value(env, 'BFT_INDEX_PATH') ?? DEFAULT_INDEX_PATH,
-    backlogBin: value(env, 'BFT_BACKLOG_BIN'),
+    backlogBin: backlogBin(env),
     taskType: value(env, 'BFT_TASK_TYPE') ?? 'bft',
     entire: entireAccess(env),
   }
+}
+
+/**
+ * Доска включена, пока её не выключили явным словом.
+ *
+ * Пустое значение здесь не выключатель: `value` уже сводит пустую строку к
+ * `undefined`, и трактовать её как отказ значило бы гасить доску от случайной
+ * пустой настройки в профиле. Отказ пишется словом — как и в `BFT_ENTIRE_REQUIRED`.
+ */
+function backlogBin(env: Record<string, string | undefined>): string | undefined {
+  const raw = value(env, 'BFT_BACKLOG_BIN')
+  if (raw === undefined) return DEFAULT_BACKLOG_BIN
+  return ['off', '0', 'false'].includes(raw.toLowerCase()) ? undefined : raw
 }
 
 /** Выключается только явным «0»/«false»: опечатка в значении не должна тихо снимать требование. */
@@ -137,7 +166,7 @@ export function describeConfig(config: BftPluginConfig): string[] {
     `воркспейс:      ${config.workspaceRoot}`,
     `документы:      ${config.docsPath}${config.docsPathFallbacks.length ? ` (запасные: ${config.docsPathFallbacks.join(', ')})` : ''}`,
     `индекс:         ${config.indexPath}`,
-    `Backlog.md:     ${config.backlogBin ?? 'не задан — стадия выводится из артефактов'}`,
+    `Backlog.md:     ${config.backlogBin || 'отключён — стадия выводится из артефактов'}`,
     `тип задач:      ${config.taskType}`,
     `entire.io:      ${config.entire?.baseUrl ?? 'требование снято — истории работы не будет'}`,
   ]

@@ -17,6 +17,7 @@ function fakePorts(tree: Record<string, string[] | string>): BftPorts {
     },
     async writeTextFile(path, content) { tree[path] = content },
     async realPath(path) { return path },
+    async runCommand() { return { stdout: '', code: -1 } },
   }
 }
 

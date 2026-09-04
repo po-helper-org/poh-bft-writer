@@ -19,7 +19,25 @@ test('заданный каталог запасных не имеет — ин�
   assert.deepEqual([...config.docsPathFallbacks], [])
 })
 
-test('Backlog.md не обязателен: без него раздел работает по артефактам', () => {
+test('доска Backlog.md включена умолчанием: слой профиля заменяет конфиг пакета целиком', () => {
   const config = loadConfig({ BFT_WORKSPACE_ROOT: '/ws', BFT_ENTIRE_BASE_URL: 'https://entire.io/t' })
+  assert.equal(config.backlogBin, 'backlog')
+})
+
+test('Backlog.md не обязателен: доска отключается словом off', () => {
+  const config = loadConfig({
+    BFT_WORKSPACE_ROOT: '/ws',
+    BFT_ENTIRE_BASE_URL: 'https://entire.io/t',
+    BFT_BACKLOG_BIN: 'off',
+  })
   assert.equal(config.backlogBin, undefined)
+})
+
+test('пустая настройка доску не гасит: отказ пишется словом, а не пробелами', () => {
+  const config = loadConfig({
+    BFT_WORKSPACE_ROOT: '/ws',
+    BFT_ENTIRE_BASE_URL: 'https://entire.io/t',
+    BFT_BACKLOG_BIN: '   ',
+  })
+  assert.equal(config.backlogBin, 'backlog')
 })

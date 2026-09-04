@@ -20,6 +20,7 @@ function reader(): BftReader {
     async readTextFile(p) { const e = tree[p]; return typeof e === 'string' ? e : null },
     async writeTextFile(p, c) { tree[p] = c },
     async realPath(p) { return p },
+    async runCommand() { return { stdout: '', code: -1 } },
   }
   return new BftReader(loadConfig(ENV), ports)
 }
