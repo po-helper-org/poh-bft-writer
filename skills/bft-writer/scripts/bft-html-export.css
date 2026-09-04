@@ -116,6 +116,17 @@ footer{ border-top:1px solid var(--line); margin-top:3rem; padding-top:1.4rem; f
 .panel textarea{ width:100%; min-height:140px; font:.72rem/1.4 "Courier New",monospace; padding:.5rem; border:1px solid var(--line-soft); margin-top:.5rem; }
 .panel .copybtn{ margin-top:.4rem; width:100%; border:1px solid var(--fg); background:var(--fg); color:var(--bg); padding:.35rem; cursor:pointer; font-family:inherit; }
 .panel .empty{ color:var(--faint); font-style:italic; }
+/* Отгрузка — конец работы с документом, поэтому кнопка стоит первой в панели
+   и оформлена как действие, а не как ещё один пункт списка. */
+.shipbtn{
+  width:100%; margin:0 0 .5rem; padding:.5rem; cursor:pointer;
+  font-family:inherit; font-size:.76rem;
+  border:1px solid var(--fg); background:var(--bg); color:var(--fg);
+}
+.shipbtn:hover{ background:var(--mark); }
+.shiphint{ margin:0 0 .7rem; font-size:.68rem; line-height:1.4; color:var(--muted); }
+.shiphint:empty{ display:none; }
+.shiphint.warn{ color:#a33; }
 
 /* blinking dot on every [УТОЧНИТЬ] */
 .unc-dot{
@@ -139,6 +150,8 @@ footer{ border-top:1px solid var(--line); margin-top:3rem; padding-top:1.4rem; f
 }
 .unc-hint-title{ text-transform:uppercase; letter-spacing:.05em; font-size:.62rem; opacity:.7; margin-bottom:.35rem; }
 .unc-hint-item + .unc-hint-item{ margin-top:.4rem; padding-top:.4rem; border-top:1px solid rgba(255,255,255,.3); }
+.unc-hint-item.closed{ opacity:.75; }
+.unc-hint-item .when{ display:block; margin-top:.2rem; font-size:.64rem; opacity:.7; }
 
 /* floating popover for dot-comments and selection-comments */
 .popover{
@@ -210,6 +223,13 @@ body.drawer-open .rail{ left:var(--drawer-w); }
 .unc-item .snip{ color:var(--muted); }
 .unc-item.answered .check{ color:#1a7a1a; font-weight:bold; }
 .unc-item .said{ display:block; margin-top:.3rem; padding-left:.5rem; border-left:2px solid #1a7a1a; color:var(--muted); }
+/* Закрытый пункт — история, а не работа: он неактивен, ничего не требует и
+   курсор на нём не меняется. Дата закрытия — в подсказке браузера. */
+.unc-item.closed{ cursor:default; color:var(--faint); }
+.unc-item.closed:hover{ background:none; }
+.unc-item.closed .said{ border-left-color:var(--line-soft); color:var(--faint); }
+.unc-item.closed .check{ color:var(--faint); }
+.unc-divider.iter-head{ color:var(--muted); border-top-style:solid; }
 .unc-divider{
   margin:.8rem 0 .4rem; padding-top:.6rem; border-top:1px dashed var(--line-soft);
   color:var(--faint); font-size:.68rem; text-transform:uppercase; letter-spacing:.05em;

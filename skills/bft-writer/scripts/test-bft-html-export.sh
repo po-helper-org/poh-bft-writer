@@ -77,6 +77,22 @@ render "$FAST" "epic-fast" && {
     fails=$((fails + 1))
   fi
 
+  # Круг правок закрывается по хэшу содержимого документа (ЗМ-047): без него
+  # страница не отличит пересобранный документ от прежнего, и замечания
+  # прошлой итерации уедут в промт повторно.
+  if grep -qE 'var DOC_REV = "[0-9a-f]{12}"' "$TMP/epic-fast.html"; then
+    echo "ok    ревизия документа зашита в страницу"
+  else
+    echo "FAIL  ревизии документа на странице нет — круг правок не закроется"
+    fails=$((fails + 1))
+  fi
+  if grep -q 'id="shipBtn"' "$TMP/epic-fast.html" && grep -q 'var EPIC = ' "$TMP/epic-fast.html"; then
+    echo "ok    кнопка отгрузки и эпик для /bft-deliver на месте"
+  else
+    echo "FAIL  кнопки отгрузки или эпика нет"
+    fails=$((fails + 1))
+  fi
+
   # Снятое стандартом не должно вернуться на страницу (ЗМ-034, ЗМ-035).
   for token in 'class="meta-line"' 'Статус проработки'; do
     if grep -q "$token" "$TMP/epic-fast.html"; then

@@ -64,7 +64,18 @@ for code in "${EXPECTED_FAST_CODES[@]}"; do
 done
 
 if [ "$fails" -eq 0 ]; then
-  echo "Все проверки пройдены."
+  # Промт доработки обязан нести шаг пересборки страницы (ЗМ-046): без него PO
+# читает прошлую версию, а его замечания приходят повторно.
+for g in skills/bft-fast/examples/golden_document.md skills/bft-deep-swarm/examples/golden_deep_document.md; do
+  if grep -q "ПОСЛЕ СОХРАНЕНИЯ" "$g" && grep -q "bft-html-export.py" "$g"; then
+    echo "ok    промт в $(basename "$g") требует пересобрать страницу"
+  else
+    echo "FAIL  в $(basename "$g") нет шага пересборки страницы"
+    fails=$((fails + 1))
+  fi
+done
+
+echo "Все проверки пройдены."
   exit 0
 fi
 echo "Провалов: $fails"

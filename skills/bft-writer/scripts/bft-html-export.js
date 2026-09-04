@@ -60,6 +60,10 @@
 (function(){
   var STORE_KEY = __STORE_KEY_JSON__;
   var DOC_NAME = __DOC_NAME_JSON__;
+  var DOC_REV = __DOC_REV_JSON__;      // хэш содержимого документа
+  var EPIC = __EPIC_JSON__;
+  var REV_KEY = STORE_KEY + "-rev";    // ревизия, на которой писались комментарии
+  var ITER_KEY = STORE_KEY + "-iter";  // номер текущего круга правок
 
   function load(){
     try{ return JSON.parse(localStorage.getItem(STORE_KEY) || "[]"); }catch(e){ return []; }
@@ -70,15 +74,66 @@
   function esc(s){
     return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
   }
+  function fmtDate(iso){
+    var d = new Date(iso);
+    if(isNaN(d)) return "";
+    function p(n){ return (n < 10 ? "0" : "") + n; }
+    return p(d.getDate()) + "." + p(d.getMonth() + 1) + "." + d.getFullYear() +
+           " " + p(d.getHours()) + ":" + p(d.getMinutes());
+  }
+  function copyText(s){
+    try{ navigator.clipboard.writeText(s); return true; }
+    catch(e){
+      try{
+        var ta = document.createElement("textarea");
+        ta.value = s; document.body.appendChild(ta); ta.select();
+        document.execCommand("copy"); ta.remove(); return true;
+      }catch(e2){ return false; }
+    }
+  }
+
+  function currentIteration(){
+    var n = parseInt(localStorage.getItem(ITER_KEY) || "1", 10);
+    return (isNaN(n) || n < 1) ? 1 : n;
+  }
+
+  // Документ пересобран — значит, круг правок уехал в работу и вернулся.
+  // Открытые комментарии закрываются с датой и номером круга: удалять их
+  // нельзя (по ним видно проделанную работу), но и тянуть в новый промт
+  // нельзя — иначе ИИ получает уже выполненные правки второй раз.
+  function syncRevision(){
+    var seen = null;
+    try{ seen = localStorage.getItem(REV_KEY); }catch(e){ return; }
+    if(seen && seen !== DOC_REV){
+      var now = new Date().toISOString(), iter = currentIteration(), closed = 0;
+      var list = load();
+      list.forEach(function(c){
+        if(!c.closedAt){ c.closedAt = now; c.iteration = iter; closed++; }
+      });
+      if(closed){
+        save(list);
+        try{ localStorage.setItem(ITER_KEY, String(iter + 1)); }catch(e){}
+      }
+    }
+    try{ localStorage.setItem(REV_KEY, DOC_REV); }catch(e){}
+  }
+  syncRevision();
+
+  function openComments(){ return load().filter(function(c){ return !c.closedAt; }); }
+  function closedComments(){ return load().filter(function(c){ return !!c.closedAt; }); }
   // Состояние точки — производное от комментариев, а не отдельный флаг: иначе
   // удалённый комментарий оставлял бы точку зелёной и «отвеченной» навсегда.
-  function commentsByUnc(){
+  function byUnc(list){
     var map = {};
-    load().forEach(function(c){
+    list.forEach(function(c){
       if(c.uncId){ (map[c.uncId] = map[c.uncId] || []).push(c); }
     });
     return map;
   }
+  // Состояние точки считается по ОТКРЫТЫМ комментариям: закрытые относятся к
+  // прошлому кругу, и точка, пережившая доработку, снова требует внимания.
+  function commentsByUnc(){ return byUnc(openComments()); }
+  function closedByUnc(){ return byUnc(closedComments()); }
   function nearestSection(el){
     var main = document.querySelector("main");
     if(!main) return "Документ";
@@ -134,7 +189,21 @@
   document.getElementById("copyBtn").addEventListener("click", function(){
     var ta = document.getElementById("promptOut");
     ta.select();
-    try{ navigator.clipboard.writeText(ta.value); }catch(e){ try{ document.execCommand("copy"); }catch(e2){} }
+    copyText(ta.value);
+  });
+
+  // Отгрузка. Страница лежит файлом на диске и открыть чат агента не может,
+  // поэтому кнопка делает единственное честное: кладёт команду в буфер.
+  document.getElementById("shipBtn").addEventListener("click", function(){
+    var cmd = "/bft-deliver " + EPIC;
+    var hint = document.getElementById("shipHint");
+    var ok = copyText(cmd);
+    var left = openComments().length;
+    hint.textContent = (ok ? "Команда «" + cmd + "» скопирована — вставьте её в чат с агентом."
+                           : "Скопируйте команду вручную: " + cmd) +
+      (left ? " Учтите: незакрытых комментариев — " + left + "; они в доработку ещё не уходили."
+            : "");
+    hint.className = "shiphint" + (left ? " warn" : " ok");
   });
 
   function buildPrompt(list){
@@ -144,11 +213,20 @@
       var ref = item.quote ? (" (по фрагменту: «" + item.quote + "»)") : "";
       lines.push((i+1) + ". [" + item.section + "]" + ref + " " + item.text);
     });
+    // Без пересборки страницы круг правок не закрывается: страница остаётся на
+    // прежней ревизии, комментарии не переходят в историю и уезжают в
+    // следующий промт повторно.
+    lines.push("");
+    lines.push("После правок — обязательно, в этом же порядке:");
+    lines.push("1. python3 <skills_path>/bft-writer/scripts/bft-lint.py " + DOC_NAME +
+               "  (ненулевой код — исправить, документ с ошибками не сохранять)");
+    lines.push("2. python3 <skills_path>/bft-writer/scripts/bft-html-export.py " + DOC_NAME +
+               "  (пересобрать страницу ревью — без этого замечания придут повторно)");
     return lines.join("\n");
   }
 
   function render(){
-    var list = load();
+    var list = openComments();
     document.getElementById("cCount").textContent = list.length;
     var box = document.getElementById("itemsList");
     if(!list.length){
@@ -166,9 +244,17 @@
         var del = document.createElement("button");
         del.textContent = "удалить";
         del.addEventListener("click", function(){
-          var l = load();
-          l.splice(idx, 1);
-          save(l);
+          // idx — позиция среди ОТКРЫТЫХ, а хранится общий список: удалять надо
+          // по самой записи, иначе снесётся чужой закрытый комментарий.
+          var target = list[idx];
+          var removed = false;
+          save(load().filter(function(c){
+            if(!removed && c === target){ removed = true; return false; }
+            if(!removed && c.ts === target.ts && c.text === target.text && !c.closedAt){
+              removed = true; return false;
+            }
+            return true;
+          }));
           render();
         });
         div.appendChild(where);
@@ -302,11 +388,22 @@
     var hint = document.createElement("div");
     hint.className = "unc-hint";
     hint.id = "activeHint";
-    hint.innerHTML = cs.length
-      ? '<div class="unc-hint-title">Оставлено: ' + cs.length + ' — клик, чтобы ответить</div>' +
-        cs.map(function(c){ return '<div class="unc-hint-item">' + esc(c.text) + '</div>'; }).join("")
-      : '<div class="unc-hint-title">Комментария нет</div>' +
+    var was = closedByUnc()[key] || [];
+    if(cs.length){
+      hint.innerHTML = '<div class="unc-hint-title">Оставлено: ' + cs.length + ' — клик, чтобы ответить</div>' +
+        cs.map(function(c){ return '<div class="unc-hint-item">' + esc(c.text) + '</div>'; }).join("");
+    } else if(was.length){
+      // Точка пережила доработку: прошлое замечание закрыто, но показать его
+      // нужно — иначе PO пишет то же самое второй раз.
+      hint.innerHTML = '<div class="unc-hint-title">Закрыто в прошлом круге — клик, чтобы дополнить</div>' +
+        was.map(function(c){
+          return '<div class="unc-hint-item closed">' + esc(c.text) +
+                 '<span class="when">закрыто ' + fmtDate(c.closedAt) + '</span></div>';
+        }).join("");
+    } else {
+      hint.innerHTML = '<div class="unc-hint-title">Комментария нет</div>' +
         '<div class="unc-hint-item">Клик — оставить комментарий к этому пункту.</div>';
+    }
     document.body.appendChild(hint);
     var r = dot.getBoundingClientRect();
     hint.style.left = Math.max(8, Math.min(r.left - 6, window.innerWidth - 316)) + "px";
@@ -375,8 +472,8 @@
   function paintLooseMarkers(){
     Array.prototype.slice.call(document.querySelectorAll(".loose-dot"))
       .forEach(function(d){ d.remove(); });
-    var map = commentsByUnc(), placed = {};
-    load().forEach(function(c){
+    var placed = {};
+    openComments().forEach(function(c){
       if(!c.uncId || c.uncId.indexOf("q-") !== 0 || placed[c.uncId]) return;
       var host = findQuoteHost(c.quote);
       if(!host) return;
@@ -398,7 +495,6 @@
       dot.addEventListener("focus", function(){ showHint(dot, key); });
       dot.addEventListener("blur", hideHint);
     });
-    return map;
   }
 
   function jumpAndComment(meta){
@@ -423,26 +519,56 @@
     return item;
   }
 
+  // Закрытый пункт рисуется из сохранённых данных, а не из живой точки: после
+  // доработки её в документе может уже не быть, а история обязана остаться.
+  function makeClosedItem(c){
+    var item = document.createElement("div");
+    item.className = "unc-item closed";
+    item.title = "Закрыто " + fmtDate(c.closedAt);
+    item.innerHTML = '<span class="check">✓</span><span class="sec">' + esc(c.section) + '</span>' +
+      '<span class="said">' + esc(c.text) + '</span>';
+    return item;
+  }
+
+  function divider(text, cls){
+    var d = document.createElement("div");
+    d.className = "unc-divider" + (cls ? " " + cls : "");
+    d.textContent = text;
+    return d;
+  }
+
   function renderUncDrawer(){
     var map = commentsByUnc();
     var pending = uncMeta.filter(function(m){ return !(map[m.mark.id] || []).length; });
     var done = uncMeta.filter(function(m){ return (map[m.mark.id] || []).length; });
+    var closed = closedComments();
 
     document.getElementById("uncCount").textContent = pending.length + "/" + done.length;
 
     uncDrawerList.innerHTML = "";
-    if(!pending.length && !done.length){
+    if(!pending.length && !done.length && !closed.length){
       uncDrawerList.innerHTML = '<p class="empty">Точек «УТОЧНИТЬ» нет.</p>';
       return;
     }
     pending.forEach(function(m){ uncDrawerList.appendChild(makeUncItem(m, [])); });
     if(done.length){
-      var div = document.createElement("div");
-      div.className = "unc-divider";
-      div.textContent = "Отвечено";
-      uncDrawerList.appendChild(div);
+      uncDrawerList.appendChild(divider("Отвечено в этом круге"));
       done.forEach(function(m){ uncDrawerList.appendChild(makeUncItem(m, map[m.mark.id])); });
     }
+
+    // История: по кругам правок, свежие сверху. Так видно, какая работа уже
+    // проделана, и не приходится держать это в голове между итерациями.
+    var groups = {};
+    closed.forEach(function(c){
+      var k = c.iteration || 0;
+      (groups[k] = groups[k] || []).push(c);
+    });
+    Object.keys(groups).map(Number).sort(function(a, b){ return b - a; }).forEach(function(k){
+      var items = groups[k];
+      uncDrawerList.appendChild(divider(
+        "Итерация " + k + " · закрыта " + fmtDate(items[0].closedAt), "iter-head"));
+      items.forEach(function(c){ uncDrawerList.appendChild(makeClosedItem(c)); });
+    });
   }
   renderUncDrawer();
 

@@ -20,6 +20,7 @@ actor-level, только ->/-->/alt/else/end/note right of, без message-сх
 комментарии собираются в промт для ИИ в правой верхней панели.
 """
 import argparse
+import hashlib
 import html as htmlmod
 import json
 import re
@@ -556,6 +557,8 @@ TEMPLATE_HEAD = """<!doctype html>
 <div class="promptbox">
   <button id="panelToggle">Комментарии (<span id="cCount">0</span>)</button>
   <div class="panel" id="panel">
+    <button class="shipbtn" id="shipBtn" type="button">Всё ок — отгружай в Confluence/Jira</button>
+    <p class="shiphint" id="shipHint"></p>
     <h4>Комментарии к доработке</h4>
     <div id="itemsList"><p class="empty">Комментариев нет.</p></div>
     <h4 style="margin-top:1rem">Промт для ИИ</h4>
@@ -680,10 +683,20 @@ def main():
     # json.dumps, not str.replace with an f-string: epic_slug (frontmatter,
     # user-editable) and the filename can contain a `"`/`\`/newline, which
     # would otherwise break out of the `var X = "...";` JS string literal.
+    # Ревизия документа — хэш его содержимого. Версия из frontmatter и дата
+    # синка меняются не на каждой доработке, а страница обязана отличить
+    # пересобранный документ от того же самого: по этому и закрывается круг
+    # правок, иначе комментарии прошлой итерации уезжают в промт повторно.
+    doc_rev = hashlib.sha1(text.encode("utf-8")).hexdigest()[:12]
+
     scripts = SCRIPTS.replace(
         "__STORE_KEY_JSON__", json.dumps(f"bft-comments-{epic_slug}")
     ).replace(
         "__DOC_NAME_JSON__", json.dumps(md_path.name)
+    ).replace(
+        "__DOC_REV_JSON__", json.dumps(doc_rev)
+    ).replace(
+        "__EPIC_JSON__", json.dumps(epic_slug)
     )
 
     html_out = TEMPLATE_HEAD.format(title=htmlmod.escape(title), css=CSS)
