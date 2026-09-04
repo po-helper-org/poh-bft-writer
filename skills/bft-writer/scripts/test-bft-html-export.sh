@@ -60,6 +60,23 @@ render "$FAST" "epic-fast" && {
     echo "ok    теги details/summary отданы разметкой"
   fi
 
+  # Источник в таблице требований показывается сноской, полный текст — в подвале
+  # страницы, и ссылка ведёт в обе стороны (ЗМ-045).
+  if grep -q 'class="src-ref" id="src-ref-1" href="#src-note-1"' "$TMP/epic-fast.html" \
+     && grep -q '<li id="src-note-1">' "$TMP/epic-fast.html" \
+     && grep -q 'class="src-back" href="#src-ref-1"' "$TMP/epic-fast.html"; then
+    echo "ok    источник ушёл сноской в подвал, ссылка двусторонняя"
+  else
+    echo "FAIL  сноска на источник или обратная ссылка не построены"
+    fails=$((fails + 1))
+  fi
+  if grep -q '<h2 id="sec-sources">Источники</h2>' "$TMP/epic-fast.html"; then
+    echo "ok    раздел «Источники» на странице есть"
+  else
+    echo "FAIL  раздела «Источники» нет"
+    fails=$((fails + 1))
+  fi
+
   # Снятое стандартом не должно вернуться на страницу (ЗМ-034, ЗМ-035).
   for token in 'class="meta-line"' 'Статус проработки'; do
     if grep -q "$token" "$TMP/epic-fast.html"; then
@@ -85,6 +102,14 @@ render "$DEEP" "epic" && {
   else
     echo "FAIL  раздел «Продолжить / уточнить БФТ» не свёрнут"
     fails=$((fails + 1))
+  fi
+
+  # «Якоря истины» — сам подвал документа: оборачивать его сносками незачем.
+  if grep -q 'class="src-ref"' "$TMP/epic.html"; then
+    echo "FAIL  раздел-подвал «Якоря истины» обёрнут сносками"
+    fails=$((fails + 1))
+  else
+    echo "ok    подвал документа сносками не обёрнут"
   fi
 
   # Сам канон пишется решётками (ЗМ-038), в эталоне подчёркиваний быть не должно.

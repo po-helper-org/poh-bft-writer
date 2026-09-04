@@ -337,7 +337,13 @@ def plantuml_to_mermaid(src: str) -> str:
 
 # ---------- rendering ----------
 
-def render_table(header, rows, id_map):
+# Колонка-источник в таблице требований и разделы-подвалы, где источникам и
+# положено лежать: там сноска не нужна, они и так внизу.
+SOURCE_COL_RE = re.compile(r"^\s*Источник", re.IGNORECASE)
+FOOTER_SECTIONS = ("Якоря истины", "Источники")
+
+
+def render_table(header, rows, id_map, notes=None, src_idx=None):
     is_id_table = header and header[0].strip().lower() in ("идентификатор", "id")
     thead = "<thead><tr>" + "".join(f"<th>{htmlmod.escape(h)}</th>" for h in header) + "</tr></thead>"
     body_rows = []
@@ -357,6 +363,16 @@ def render_table(header, rows, id_map):
                     tr_id = f' id="{slug}"'
                     seen_slugs.add(slug)
                 cells.append(f'<td class="rid">{htmlmod.escape(cell)}</td>')
+            elif notes is not None and idx == src_idx and cell.strip():
+                # Источник уезжает в подвал страницы, в теле остаётся сноска:
+                # цитата длиной в абзац в каждой строке таблицы мешает читать
+                # сами требования, а не помогает (ЗМ-045). Ссылка двусторонняя.
+                n = len(notes) + 1
+                notes.append((n, inline(cell, id_map=id_map)))
+                plain = htmlmod.escape(re.sub(r"\s+", " ", cell).strip())
+                cells.append(
+                    f'<td class="src-cell"><a class="src-ref" id="src-ref-{n}" '
+                    f'href="#src-note-{n}" title="{plain}">[{n}]</a></td>')
             else:
                 cells.append(f"<td>{inline(cell, id_map=id_map)}</td>")
         body_rows.append(f"<tr{tr_id}>" + "".join(cells) + "</tr>")
@@ -446,12 +462,41 @@ def fold_service_sections(body_html: str) -> str:
     return body_html
 
 
-def render_body(blocks, id_map):
+def sources_section(notes):
+    """Подвал страницы: полные источники со ссылкой обратно к своей строке."""
+    if not notes:
+        return ""
+    items = "".join(
+        f'<li id="src-note-{n}">{html_text} '
+        f'<a class="src-back" href="#src-ref-{n}" title="Вернуться к требованию">↩</a></li>'
+        for n, html_text in notes)
+    return f'<h2 id="sec-sources">Источники</h2>\n<ol class="src-notes">{items}</ol>'
+
+
+def insert_sources(body_html: str, section_html: str) -> str:
+    """Подвал источников — перед служебным разделом, а не после него.
+
+    Служебный раздел сворачивается и адресован следующему прогону; источники
+    читает человек, и им место последними в самом документе.
+    """
+    if not section_html:
+        return body_html
+    for name in FOLDABLE_SECTIONS:
+        m = re.search(r'<h2 id="sec-\d+">[^<]*' + re.escape(name), body_html)
+        if m:
+            return body_html[:m.start()] + section_html + "\n" + body_html[m.start():]
+    return body_html + "\n" + section_html
+
+
+def render_body(blocks, id_map, notes=None):
     out = []
     last_table_ids = []
+    section = ""
     for kind, a, b in blocks:
         if kind == "heading":
             level, text = a, b
+            if level == 2:
+                section = text
             if level == 1:
                 continue  # title rendered separately
             if level in (2, 3):
@@ -465,7 +510,11 @@ def render_body(blocks, id_map):
         elif kind == "quote":
             out.append(f'<blockquote class="quote">{inline(b, id_map=id_map)}</blockquote>')
         elif kind == "table":
-            out.append(render_table(a, b, id_map))
+            # В разделах-подвалах источник уже внизу — сноска только запутает.
+            src_idx = None
+            if notes is not None and not any(s in section for s in FOOTER_SECTIONS):
+                src_idx = next((i for i, h in enumerate(a or []) if SOURCE_COL_RE.match(h)), None)
+            out.append(render_table(a, b, id_map, notes=notes, src_idx=src_idx))
             if a and a[0].strip().lower() in ("идентификатор", "id"):
                 last_table_ids = [row[0].strip() for row in b if row and slug_for(row[0])]
             else:
@@ -609,7 +658,8 @@ def main():
             break
 
     id_map = collect_id_map(blocks)
-    body_html = render_body(blocks, id_map)
+    notes: list[tuple[int, str]] = []
+    body_html = render_body(blocks, id_map, notes=notes)
 
     # Сквозная нумерация якорей по h2 и h3 разом: оглавление в левой панели
     # строится из обоих уровней, а на подзаголовок без id сослаться нечем.
@@ -620,6 +670,7 @@ def main():
         return f'<h{m.group(1)} id="sec-{counter["n"]}">'
 
     body_html = re.sub(r'<h([23]) id="">', head_id, body_html)
+    body_html = insert_sources(body_html, sources_section(notes))
     body_html = fold_service_sections(body_html)
 
     epic_slug = meta.get("epic_slug") or md_path.stem

@@ -756,6 +756,60 @@ def check_bare_refs(doc: Doc, out: list[Finding]) -> None:
                     f"[Confluence {page_id}]({WIKI_PAGE}{page_id})"))
 
 
+
+# Раздел-подвал документа: место, где источникам и положено лежать. Всё, что
+# выше него, — тело документа, которое читает бизнес.
+SOURCES_SECTION = "Якоря истины"
+
+# Путь к внутреннему файлу: хотя бы один слэш и расширение документа. URL под
+# шаблон не попадает — у ссылки перед именем стоит «/» или «.», а они в
+# отрицательном ретроспективном условии.
+INTERNAL_PATH_RE = re.compile(
+    r"(?<![\w/@:.\-])"
+    r"((?:[A-Za-zА-Яа-яЁё0-9_.\-]+/)+[A-Za-zА-Яа-яЁё0-9_.\- ]+"
+    r"\.(?:md|markdown|txt|docx?|pdf|csv|xlsx?|pptx?|json|ya?ml))")
+
+# OKR среди внутренних путей выделен отдельно: его чинят не переносом вниз, а
+# переписыванием в человеческую форму.
+OKR_HINT_RE = re.compile(r"(?:^|/)okr/|(?:^|/)kr[-_]?\d+[-_.]\d+", re.IGNORECASE)
+OKR_FORMAT = "Q{квартал}{год} KR{N}.{M} команда {команда}, PO {ФИО}"
+
+
+def check_internal_sources(doc: Doc, out: list[Finding]) -> None:
+    """Внутренние источники в теле документа (гейт 10, ЗМ-043/ЗМ-044).
+
+    БФТ читают за пределами команды, и там путь `GROUND/_intake/chats/…md`
+    некликабелен и ничего не значит: у читателя нет ни этого репозитория, ни
+    прав на него. В теле документа ссылаются только на Confluence и JIRA;
+    внутренний источник живёт в подвале — разделе «Якоря истины», где у него
+    есть ранг и тип.
+
+    Frontmatter пропускается: ключ `source` там и обязан нести путь. Fenced-блоки
+    тоже — в них лежит промт открытого поля, адресованный следующему прогону.
+    """
+    stop = len(doc.lines)
+    for idx, title in doc.headings(doc.fm_end + 1):
+        if SOURCES_SECTION.lower() in title.lower():
+            stop = idx - 1
+            break
+
+    for idx, raw in enumerate(doc.lines, start=1):
+        if idx <= doc.fm_end or idx > stop or doc.skip(idx):
+            continue
+        for m in INTERNAL_PATH_RE.finditer(raw):
+            path = m.group(1)
+            if OKR_HINT_RE.search(path):
+                out.append(Finding(
+                    idx, "ERROR", "SR002",
+                    f"OKR указан файлом «{path}» — писать текстом «{OKR_FORMAT}»; "
+                    f"сам файл, если нужен, идёт в «{SOURCES_SECTION}»"))
+            else:
+                out.append(Finding(
+                    idx, "ERROR", "SR001",
+                    f"внутренний источник «{path}» в теле документа — в теле ссылаются "
+                    f"только на Confluence и JIRA, внутренний путь идёт в «{SOURCES_SECTION}»"))
+
+
 # --- Прогон -----------------------------------------------------------------
 
 
@@ -775,6 +829,7 @@ def lint(path: Path) -> list[Finding]:
     check_service_leak(doc, out)
     check_markup(doc, out)
     check_bare_refs(doc, out)
+    check_internal_sources(doc, out)
     return sorted(out, key=lambda f: (f.line, f.code))
 
 

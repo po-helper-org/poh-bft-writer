@@ -51,6 +51,16 @@ td.rid{ font-family:"Courier New", monospace; font-weight:bold; white-space:nowr
   padding:.3rem .8rem; margin:0 0 1.4rem;
 }
 
+/* Источник уехал в подвал страницы: в таблице требований остаётся сноска.
+   Цитата в каждой строке мешала читать сами требования (ЗМ-045). */
+td.src-cell{ text-align:center; white-space:nowrap; }
+.src-ref{ font-family:"Courier New", monospace; font-size:.78rem; text-decoration:none;
+  border-bottom:1px dotted var(--link); }
+ol.src-notes{ font-size:.86rem; color:var(--muted); padding-left:1.7rem; margin:0 0 1rem; }
+ol.src-notes li{ margin-bottom:.5rem; scroll-margin-top:1rem; }
+ol.src-notes li:target{ background:var(--mark); outline:2px solid var(--fg); outline-offset:2px; }
+.src-back{ text-decoration:none; margin-left:.3rem; }
+
 /* Схема — единственный блок, которому тесно в колонке чтения: она выходит на
    всю ширину окна (колонка центрирована, поэтому хватает сдвига на половину).
    Не влезла и так — прокручивается внутри своей рамки, а не тянет страницу. */
