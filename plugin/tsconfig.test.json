@@ -5,5 +5,11 @@
     "rootDir": ".",
     "declaration": false
   },
-  "include": ["src/**/*.ts", "test/**/*.ts"]
+  "include": [
+    "src/**/*.ts",
+    "test/**/*.ts"
+  ],
+  "exclude": [
+    "src/client/**"
+  ]
 }
