@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { BftTaskSummary } from '../src/model.js'
-import { groupQueue, queueSize, searchTasks } from '../src/queue.js'
+import { boardColumns, queueGroups, queueSize, searchTasks } from '../src/queue.js'
 
 const task = (id: string, stage: BftTaskSummary['stage'], title = id): BftTaskSummary =>
   ({ id, title, stage, stageSource: 'artifacts' })
@@ -15,15 +15,21 @@ const TASKS = [
 ]
 
 test('очередь идёт от почти готового к нетронутому', () => {
-  assert.deepEqual(groupQueue(TASKS).map(g => g.stage), ['DEEP-REVIEW', 'FAST-DONE', 'To Do'])
+  assert.deepEqual(queueGroups(TASKS).map(g => g.stage), ['DEEP-REVIEW', 'FAST-DONE', 'To Do'])
 })
 
 test('пустые стадии в панели не показываются', () => {
-  assert.deepEqual(groupQueue([task('PO-7', 'To Do')]).map(g => g.stage), ['To Do'])
+  assert.deepEqual(queueGroups([task('PO-7', 'To Do')]).map(g => g.stage), ['To Do'])
 })
 
 test('завершённые и отменённые в счётчик очереди не идут', () => {
   assert.equal(queueSize(TASKS), 3)
+})
+
+test('доска сохраняет пустые колонки — «сюда ничего не дошло» тоже смысл', () => {
+  const columns = boardColumns(TASKS)
+  assert.equal(columns.length, 7)
+  assert.deepEqual(columns.find(c => c.stage === 'DEEP-WORK')?.tasks, [])
 })
 
 test('поиск не различает регистр и вид дефиса', () => {
