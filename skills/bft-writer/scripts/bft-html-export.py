@@ -11,12 +11,16 @@ actor-level, только ->/-->/alt/else/end/note right of, без message-сх
 
 Страница — статичный документ (ч/б, без промо-палитры): нумерованные ID
 требований (БТ-1/ПТ-1/ИТ-1/ФТ-N/НФТ-N) становятся якорями и авто-ссылками
-на первое упоминание, справа — TOC по реальным <h2>, слева — выезжающая
-панель быстрого обхода всех [УТОЧНИТЬ], клик по фрагменту или по выделению
-текста открывает форму комментария; все комментарии собираются в промт
-для ИИ в правой верхней панели.
+на первое упоминание; голый ключ трекера («GDSLV-1409») и pageId вики
+(«confluence:1777883376») становятся ссылками в корпоративные системы.
+Слева — рейка из двух выезжающих панелей: оглавление
+по реальным <h2>/<h3> и быстрый обход всех [УТОЧНИТЬ]. Клик по точке или по
+выделению текста открывает форму комментария; прокомментированная точка
+становится зелёной и показывает оставленный текст по наведению. Все
+комментарии собираются в промт для ИИ в правой верхней панели.
 """
 import argparse
+import hashlib
 import html as htmlmod
 import json
 import re
@@ -63,6 +67,59 @@ def parse_frontmatter(text: str):
 
 # ---------- inline markdown ----------
 
+# Базовые адреса корпоративных систем MTS — те же, что в bft_standards.md,
+# bft-lint.py (гейт LN001/LN002) и bft-deliver-check.py.
+JIRA_BROWSE = "https://jira.mts.ru/browse/"
+WIKI_PAGE = "https://confluence.mts.ru/pages/viewpage.action?pageId="
+
+# Ключ трекера: 2–10 заглавных латинских символов, дефис, номер. ID требований
+# БФТ кириллические (БТ-1, ПТ-1), поэтому не пересекаются.
+TRACKER_KEY_RE = re.compile(r"\b([A-Z][A-Z0-9]{1,9})-\d+\b")
+
+# Стандарты и кодировки той же формы, что ключ трекера. Держится в паре со
+# списком в bft-lint.py: там правило, здесь его отображение на странице.
+NOT_TRACKER_PREFIX = frozenset({
+    "UTF", "ISO", "RFC", "SHA", "MD", "HTTP", "HTTPS", "TLS", "SSL", "AES", "RSA",
+    "IPV", "UTC", "GMT", "MSK", "ISBN", "ANSI", "IEEE", "PCI", "DSS", "GOST", "EN",
+    "CP", "WIN", "KOI", "BASE", "SLA", "SLO", "API", "CSV", "JSON", "XML", "HTML",
+    "CSS", "SQL", "PDF", "PNG", "JPEG", "GIF", "SVG",
+})
+
+# «confluence:1777883376», «Confluence 1777883376», «pageId 1777883376» — одной
+# альтернативой, а не двумя проходами: второй проход поймал бы «pageId=» внутри
+# ссылки, которую только что поставил первый, и вложил ссылку в ссылку.
+WIKI_REF_RE = re.compile(r"\b(?:confluence\s*[:#]?\s*|pageid\s*[:=]?\s*)(\d{4,})\b", re.IGNORECASE)
+
+# Куда линковщик не заходит: уже готовая ссылка, код-литерал и пометка
+# `[УТОЧНИТЬ …]` — за последней объекта ещё нет, ссылка была бы выдуманной (ЗМ-009).
+KEEP_AS_IS_RE = re.compile(
+    r'(<a\b[^>]*>.*?</a>|<mark class="unc">.*?</mark>|<code>.*?</code>)', re.S)
+
+
+def linkify_external(esc: str) -> str:
+    """Голый ключ трекера и pageId вики → кликабельная ссылка (ЗМ-041).
+
+    Гейт `LN001`/`LN002` не даёт голым упоминаниям попасть в новый документ, но
+    страницу ревью собирают и по уже написанным — там они есть. Читателю нужен
+    переход, а не сверка ключа глазами, поэтому страница линкует их сама.
+    """
+    parts = KEEP_AS_IS_RE.split(esc)
+    for i in range(0, len(parts), 2):          # нечётные — защищённые куски
+        chunk = parts[i]
+        chunk = WIKI_REF_RE.sub(
+            lambda m: f'<a href="{WIKI_PAGE}{m.group(1)}" class="ext-link" '
+                      f'target="_blank" rel="noopener">{m.group(0)}</a>', chunk)
+
+        def tracker(m):
+            if m.group(1) in NOT_TRACKER_PREFIX:
+                return m.group(0)
+            return (f'<a href="{JIRA_BROWSE}{m.group(0)}" class="ext-link" '
+                    f'target="_blank" rel="noopener">{m.group(0)}</a>')
+
+        parts[i] = TRACKER_KEY_RE.sub(tracker, chunk)
+    return "".join(parts)
+
+
 def inline(text: str, skip_id_links=False, id_map=None) -> str:
     # quote=True (default): a literal `"` in source text must become `&quot;`
     # before the link regex below builds an href="..." attribute out of it —
@@ -79,6 +136,8 @@ def inline(text: str, skip_id_links=False, id_map=None) -> str:
     esc = re.sub(r"\*\*([^*]+)\*\*", r"<b>\1</b>", esc)
     # remaining inline code `x`
     esc = re.sub(r"`([^`]+)`", r"<code>\1</code>", esc)
+    # Голые ключи JIRA и pageId вики — после ссылок и кода: те защищают себя сами.
+    esc = linkify_external(esc)
 
     if not skip_id_links and id_map:
         def repl(m):
@@ -129,11 +188,40 @@ def parse_blocks(body: str):
                 j += 1
             i = j + 1
             continue
+        stripped_tag = line.strip()
+        # <details>/<summary> — часть скелета открытого поля (open_field.md).
+        # Без этой ветки теги уезжали на страницу видимым текстом
+        # «&lt;details&gt; &lt;summary&gt;…», а блок не сворачивался вовсе.
+        # Пропускаются только эти три формы: остальной HTML по-прежнему
+        # экранируется, чтобы разметка из документа не ломала страницу.
+        if stripped_tag in ("<details>", "</details>"):
+            blocks.append(("raw", None, stripped_tag))
+            i += 1
+            continue
+        if stripped_tag.startswith("<summary>") and stripped_tag.endswith("</summary>"):
+            blocks.append(("summary", None, stripped_tag[len("<summary>"):-len("</summary>")]))
+            i += 1
+            continue
         if line.startswith("#"):
             level = len(line) - len(line.lstrip("#"))
             text = line[level:].strip()
             blocks.append(("heading", level, text))
             i += 1
+            continue
+        # Заголовок-подчёркивание (setext): канон MTS размечает свои разделы
+        # именно так — «Функциональные требования*», а под ним строка «====».
+        # Без этой ветки раздел канона уезжал на страницу абзацем вместе с
+        # подчёркиванием («План демонстрации ====…»), не попадал в оглавление
+        # и не опознавался как секция при подписи комментария — замечание к
+        # требованию подписывалось «Шапка».
+        # Уровень 2, а не 1: H1 занят заголовком документа и рендерится отдельно.
+        # Вариант с «----» намеренно не поддержан — он неотличим от
+        # горизонтальной черты и от разделителя строк таблицы.
+        underline = lines[i + 1].strip() if i + 1 < len(lines) else ""
+        if (not line.startswith(("|", ">")) and underline
+                and set(underline) == {"="} and len(underline) >= 3):
+            blocks.append(("heading", 2, line.strip()))
+            i += 2
             continue
         if line.startswith(">"):
             blocks.append(("quote", None, line.lstrip(">").strip()))
@@ -250,7 +338,13 @@ def plantuml_to_mermaid(src: str) -> str:
 
 # ---------- rendering ----------
 
-def render_table(header, rows, id_map):
+# Колонка-источник в таблице требований и разделы-подвалы, где источникам и
+# положено лежать: там сноска не нужна, они и так внизу.
+SOURCE_COL_RE = re.compile(r"^\s*Источник", re.IGNORECASE)
+FOOTER_SECTIONS = ("Якоря истины", "Источники")
+
+
+def render_table(header, rows, id_map, notes=None, src_idx=None):
     is_id_table = header and header[0].strip().lower() in ("идентификатор", "id")
     thead = "<thead><tr>" + "".join(f"<th>{htmlmod.escape(h)}</th>" for h in header) + "</tr></thead>"
     body_rows = []
@@ -270,6 +364,16 @@ def render_table(header, rows, id_map):
                     tr_id = f' id="{slug}"'
                     seen_slugs.add(slug)
                 cells.append(f'<td class="rid">{htmlmod.escape(cell)}</td>')
+            elif notes is not None and idx == src_idx and cell.strip():
+                # Источник уезжает в подвал страницы, в теле остаётся сноска:
+                # цитата длиной в абзац в каждой строке таблицы мешает читать
+                # сами требования, а не помогает (ЗМ-045). Ссылка двусторонняя.
+                n = len(notes) + 1
+                notes.append((n, inline(cell, id_map=id_map)))
+                plain = htmlmod.escape(re.sub(r"\s+", " ", cell).strip())
+                cells.append(
+                    f'<td class="src-cell"><a class="src-ref" id="src-ref-{n}" '
+                    f'href="#src-note-{n}" title="{plain}">[{n}]</a></td>')
             else:
                 cells.append(f"<td>{inline(cell, id_map=id_map)}</td>")
         body_rows.append(f"<tr{tr_id}>" + "".join(cells) + "</tr>")
@@ -332,22 +436,86 @@ def render_source_block(text, last_table_ids, id_map):
     return f'<p class="src">{inline(text, id_map=id_map)}</p>'
 
 
-def render_body(blocks, id_map):
+# Разделы, которые адресованы следующему прогону, а не читателю документа:
+# открытое поле стадии fast и его пост-deep продолжение. На странице ревью они
+# сворачиваются — PO раскрывает их, только если собирается продолжать работу.
+FOLDABLE_SECTIONS = ("Продолжить / уточнить БФТ", "Полный БФТ — в проработке")
+
+
+def fold_service_sections(body_html: str) -> str:
+    """Сворачивает служебные разделы в <details>, оставляя заголовок видимым.
+
+    H1-заголовок остаётся внутри <summary> вместе со своим id: по нему ведёт
+    оглавление, и подмена его на голый текст оборвала бы навигацию.
+    Вложенный <details> с промтом раскрывается сразу — иначе до промта пришлось
+    бы кликать дважды.
+    """
+    for name in FOLDABLE_SECTIONS:
+        m = re.search(r'<h2 id="sec-\d+">[^<]*' + re.escape(name) + r'[^<]*</h2>', body_html)
+        if not m:
+            continue
+        nxt = body_html.find("<h2 ", m.end())
+        end = nxt if nxt != -1 else len(body_html)
+        inner = body_html[m.end():end].replace("<details>", "<details open>")
+        body_html = (body_html[:m.start()]
+                     + f'<details class="fold"><summary>{m.group(0)}</summary>{inner}</details>'
+                     + body_html[end:])
+    return body_html
+
+
+def sources_section(notes):
+    """Подвал страницы: полные источники со ссылкой обратно к своей строке."""
+    if not notes:
+        return ""
+    items = "".join(
+        f'<li id="src-note-{n}">{html_text} '
+        f'<a class="src-back" href="#src-ref-{n}" title="Вернуться к требованию">↩</a></li>'
+        for n, html_text in notes)
+    return f'<h2 id="sec-sources">Источники</h2>\n<ol class="src-notes">{items}</ol>'
+
+
+def insert_sources(body_html: str, section_html: str) -> str:
+    """Подвал источников — перед служебным разделом, а не после него.
+
+    Служебный раздел сворачивается и адресован следующему прогону; источники
+    читает человек, и им место последними в самом документе.
+    """
+    if not section_html:
+        return body_html
+    for name in FOLDABLE_SECTIONS:
+        m = re.search(r'<h2 id="sec-\d+">[^<]*' + re.escape(name), body_html)
+        if m:
+            return body_html[:m.start()] + section_html + "\n" + body_html[m.start():]
+    return body_html + "\n" + section_html
+
+
+def render_body(blocks, id_map, notes=None):
     out = []
     last_table_ids = []
+    section = ""
     for kind, a, b in blocks:
         if kind == "heading":
             level, text = a, b
+            if level == 2:
+                section = text
             if level == 1:
                 continue  # title rendered separately
-            if level == 2:
-                out.append(f'<h2 id="">{inline(text, skip_id_links=True)}</h2>')
+            if level in (2, 3):
+                out.append(f'<h{level} id="">{inline(text, skip_id_links=True)}</h{level}>')
             else:
                 out.append(f"<h{level}>{inline(text, skip_id_links=True)}</h{level}>")
+        elif kind == "raw":
+            out.append(b)
+        elif kind == "summary":
+            out.append(f"<summary>{inline(b, skip_id_links=True)}</summary>")
         elif kind == "quote":
-            out.append(f'<div class="status">{inline(b, id_map=id_map)}</div>')
+            out.append(f'<blockquote class="quote">{inline(b, id_map=id_map)}</blockquote>')
         elif kind == "table":
-            out.append(render_table(a, b, id_map))
+            # В разделах-подвалах источник уже внизу — сноска только запутает.
+            src_idx = None
+            if notes is not None and not any(s in section for s in FOOTER_SECTIONS):
+                src_idx = next((i for i, h in enumerate(a or []) if SOURCE_COL_RE.match(h)), None)
+            out.append(render_table(a, b, id_map, notes=notes, src_idx=src_idx))
             if a and a[0].strip().lower() in ("идентификатор", "id"):
                 last_table_ids = [row[0].strip() for row in b if row and slug_for(row[0])]
             else:
@@ -387,7 +555,9 @@ TEMPLATE_HEAD = """<!doctype html>
 <body>
 
 <div class="promptbox">
+  <button class="shipbtn" id="shipBtn" type="button">Всё ок — отгружай в Confluence/Jira</button>
   <button id="panelToggle">Комментарии (<span id="cCount">0</span>)</button>
+  <p class="shiphint" id="shipHint"></p>
   <div class="panel" id="panel">
     <h4>Комментарии к доработке</h4>
     <div id="itemsList"><p class="empty">Комментариев нет.</p></div>
@@ -397,16 +567,24 @@ TEMPLATE_HEAD = """<!doctype html>
   </div>
 </div>
 
-<button id="uncToggle" class="unc-tab">⟩ УТОЧНИТЬ (<span id="uncCount">0/0</span>)</button>
-<div class="unc-drawer" id="uncDrawer">
-  <div class="unc-drawer-head"><h4>Быстрый обход «УТОЧНИТЬ»</h4><button id="uncClose" class="unc-close" title="Закрыть">×</button></div>
+<div class="rail">
+  <button id="navToggle" class="rail-tab nav-tab" type="button">☰ Содержание</button>
+  <button id="uncToggle" class="rail-tab unc-tab" type="button">⟩ УТОЧНИТЬ (<span id="uncCount">0/0</span>)</button>
+</div>
+
+<div class="drawer nav-drawer" id="navDrawer">
+  <div class="drawer-head"><h4>Содержание</h4><button id="navClose" class="drawer-close" type="button" title="Закрыть">×</button></div>
+  <div id="tocList"></div>
+</div>
+
+<div class="drawer unc-drawer" id="uncDrawer">
+  <div class="drawer-head"><h4>Быстрый обход «УТОЧНИТЬ»</h4><button id="uncClose" class="drawer-close" type="button" title="Закрыть">×</button></div>
   <div id="uncList"></div>
 </div>
 
 <div class="layout">
 <main>
 
-<div class="meta-line">{meta_line}</div>
 <h1 id="top">{title}</h1>
 """
 
@@ -416,12 +594,6 @@ TEMPLATE_TAIL = """
 </footer>
 
 </main>
-
-<nav class="toc">
-<div class="toc-title">На странице</div>
-<div id="tocList"></div>
-</nav>
-
 </div>
 
 {scripts}
@@ -489,35 +661,45 @@ def main():
             break
 
     id_map = collect_id_map(blocks)
-    body_html = render_body(blocks, id_map)
+    notes: list[tuple[int, str]] = []
+    body_html = render_body(blocks, id_map, notes=notes)
 
-    # assign incremental ids to h2 headings post-hoc (avoid clobbering id="" placeholder)
+    # Сквозная нумерация якорей по h2 и h3 разом: оглавление в левой панели
+    # строится из обоих уровней, а на подзаголовок без id сослаться нечем.
     counter = {"n": 0}
 
-    def h2_id(m):
+    def head_id(m):
         counter["n"] += 1
-        return f'<h2 id="sec-{counter["n"]}">'
+        return f'<h{m.group(1)} id="sec-{counter["n"]}">'
 
-    body_html = re.sub(r'<h2 id="">', h2_id, body_html)
+    body_html = re.sub(r'<h([23]) id="">', head_id, body_html)
+    body_html = insert_sources(body_html, sources_section(notes))
+    body_html = fold_service_sections(body_html)
 
     epic_slug = meta.get("epic_slug") or md_path.stem
-    version = meta.get("version", "")
-    stage = meta.get("stage", "")
-    synced = meta.get("synced", "")
-    meta_line = f"БФТ · {epic_slug} · v{version} · {stage} · синк {synced}"
 
     lint_status = run_lint(md_path)
 
     # json.dumps, not str.replace with an f-string: epic_slug (frontmatter,
     # user-editable) and the filename can contain a `"`/`\`/newline, which
     # would otherwise break out of the `var X = "...";` JS string literal.
+    # Ревизия документа — хэш его содержимого. Версия из frontmatter и дата
+    # синка меняются не на каждой доработке, а страница обязана отличить
+    # пересобранный документ от того же самого: по этому и закрывается круг
+    # правок, иначе комментарии прошлой итерации уезжают в промт повторно.
+    doc_rev = hashlib.sha1(text.encode("utf-8")).hexdigest()[:12]
+
     scripts = SCRIPTS.replace(
         "__STORE_KEY_JSON__", json.dumps(f"bft-comments-{epic_slug}")
     ).replace(
         "__DOC_NAME_JSON__", json.dumps(md_path.name)
+    ).replace(
+        "__DOC_REV_JSON__", json.dumps(doc_rev)
+    ).replace(
+        "__EPIC_JSON__", json.dumps(epic_slug)
     )
 
-    html_out = TEMPLATE_HEAD.format(title=htmlmod.escape(title), css=CSS, meta_line=htmlmod.escape(meta_line))
+    html_out = TEMPLATE_HEAD.format(title=htmlmod.escape(title), css=CSS)
     html_out += body_html
     html_out += TEMPLATE_TAIL.format(doc_name=htmlmod.escape(md_path.name), lint_status=lint_status, scripts=scripts)
 

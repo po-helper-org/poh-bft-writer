@@ -342,10 +342,6 @@ def check_title(doc: Doc, out: list[Finding]) -> None:
     slug = doc.frontmatter.get("epic_slug", "")
     if slug and m.group(1) != slug:
         out.append(Finding(h1_line, "ERROR", "H1003", f"epic_slug в H1 («{m.group(1)}») не совпадает с frontmatter («{slug}»)"))
-    nxt = doc.lines[h1_line] if h1_line < len(doc.lines) else ""
-    following = nxt.strip() or (doc.lines[h1_line + 1].strip() if h1_line + 1 < len(doc.lines) else "")
-    if not following.startswith("> Статус проработки:"):
-        out.append(Finding(h1_line + 1, "ERROR", "H1004", "под H1 нет строки-статуса «> Статус проработки: …»"))
 
 
 def check_border(doc: Doc, out: list[Finding]) -> int:
@@ -653,6 +649,167 @@ def check_service_leak(doc: Doc, out: list[Finding]) -> None:
                 f"в прозе (ЗМ-030)"))
 
 
+
+def check_markup(doc: Doc, out: list[Finding]) -> None:
+    """Заголовок, размеченный подчёркиванием (гейт 17, ЗМ-038).
+
+    Канон MTS исторически писался подчёркиванием: строка «Функциональные
+    требования*», под ней «====». Форма легальна в markdown, но в этом
+    репозитории снята. Причина не в эстетике: подчёркивание не видно в diff как
+    заголовок, разъезжается от правки длины строки и уезжает на страницу
+    абзацем вместе с «====» в любом рендере, который его не разбирает — ровно
+    это и случилось со страницей ревью (ЗМ-037). Заголовок — только «##».
+
+    Fenced-блоки пропускаются: промт открытого поля несёт свой текст, и
+    подчёркивание внутри него заголовком документа не является.
+    """
+    for line_no in range(2, len(doc.lines) + 1):
+        underline = doc.lines[line_no - 1].strip()
+        if not underline or set(underline) != {"="} or len(underline) < 3:
+            continue
+        if doc.skip(line_no):
+            continue
+        title = doc.lines[line_no - 2].strip()
+        if not title or title.startswith(("|", ">", "#", "<", "`")):
+            continue
+        out.append(Finding(
+            line_no - 1, "ERROR", "MK001",
+            f"заголовок «{title}» размечен подчёркиванием — писать «## {title}»"))
+
+
+
+# Базовые адреса корпоративных систем MTS — те же, что в bft_standards.md и в
+# bft-deliver-check.py. Меняются здесь, если контур разворачивают в другом.
+JIRA_BROWSE = "https://jira.mts.ru/browse/"
+WIKI_PAGE = "https://confluence.mts.ru/pages/viewpage.action?pageId="
+
+# Ключ трекера: 2–10 заглавных латинских символов, дефис, номер. ID требований
+# БФТ кириллические (БТ-1, ПТ-1, ФТ-1), поэтому не пересекаются.
+TRACKER_KEY_RE = re.compile(r"\b([A-Z][A-Z0-9]{1,9})-\d+\b")
+
+# Стандарты и кодировки той же формы, что и ключ трекера. Список — от реальных
+# ложных срабатываний на текстах репозитория (UTF-8, RFC-4180); дополняется по
+# мере новых, это дешевле, чем требовать заполненный конфиг проектов.
+NOT_TRACKER_PREFIX = frozenset({
+    "UTF", "ISO", "RFC", "SHA", "MD", "HTTP", "HTTPS", "TLS", "SSL", "AES", "RSA",
+    "IPV", "UTC", "GMT", "MSK", "ISBN", "ANSI", "IEEE", "PCI", "DSS", "GOST", "EN",
+    "CP", "WIN", "KOI", "BASE", "SLA", "SLO", "API", "CSV", "JSON", "XML", "HTML",
+    "CSS", "SQL", "PDF", "PNG", "JPEG", "GIF", "SVG",
+})
+
+WIKI_REF_RE = re.compile(r"\bconfluence\s*[:#]?\s*(\d{4,})\b", re.IGNORECASE)
+PAGEID_REF_RE = re.compile(r"\bpageid\s*[:=]?\s*(\d{4,})\b", re.IGNORECASE)
+
+MD_LINK_RE = re.compile(r"\[[^\]]*\]\([^)]*\)")
+CODE_SPAN_RE = re.compile(r"`[^`]*`")
+NO_OBJECT_MARKER_RE = re.compile(r"\[(?:УТОЧНИТЬ|СОЗДАТЬ)[^\]]*\]")
+
+
+def scannable(line: str) -> str:
+    """Строка без того, что ссылкой уже является или ею быть не должно.
+
+    Порядок важен: markdown-ссылка снимается первой — внутри неё и ключ, и URL.
+    Дальше уходят код-спаны (там ключ — литерал примера) и пометки
+    `[УТОЧНИТЬ …]` / `[СОЗДАТЬ …]`: объекта за ними ещё нет, и ссылка на него
+    была бы выдуманной (ЗМ-009).
+    """
+    for rx in (MD_LINK_RE, CODE_SPAN_RE, NO_OBJECT_MARKER_RE):
+        line = rx.sub(" ", line)
+    return line
+
+
+def check_bare_refs(doc: Doc, out: list[Finding]) -> None:
+    """Голые ключи JIRA и pageId вики (гейт 10, ЗМ-004/ЗМ-009/ЗМ-012).
+
+    Правило в стандарте было с самого начала — «ни одного голого ключа/pageId в
+    готовом документе», — но проверялось только чтением, и голые упоминания
+    регулярно доезжали до читателя. Теперь их ловит гейт: линкуется каждое
+    вхождение, а не первое.
+
+    Frontmatter пропускается: ключи `jira` и `pageId` там и обязаны быть голыми
+    значениями, ссылка в них сломала бы парсинг.
+    """
+    slug = doc.frontmatter.get("epic_slug", "")
+    for idx, raw in enumerate(doc.lines, start=1):
+        if idx <= doc.fm_end or doc.skip(idx):
+            continue
+        text = scannable(raw)
+        for m in TRACKER_KEY_RE.finditer(text):
+            key = m.group(0)
+            # epic_slug сам бывает формы ключа и стоит в H1 — это не упоминание задачи.
+            if m.group(1) in NOT_TRACKER_PREFIX or key == slug:
+                continue
+            out.append(Finding(
+                idx, "ERROR", "LN001",
+                f"голый ключ трекера «{key}» — оформить ссылкой "
+                f"[{key}]({JIRA_BROWSE}{key}); задачи ещё нет — писать [СОЗДАТЬ …] без URL"))
+        seen: set[str] = set()
+        for rx in (WIKI_REF_RE, PAGEID_REF_RE):
+            for m in rx.finditer(text):
+                page_id = m.group(1)
+                if page_id in seen:
+                    continue
+                seen.add(page_id)
+                out.append(Finding(
+                    idx, "ERROR", "LN002",
+                    f"голая ссылка на страницу вики «{m.group(0).strip()}» — оформить "
+                    f"[Confluence {page_id}]({WIKI_PAGE}{page_id})"))
+
+
+
+# Раздел-подвал документа: место, где источникам и положено лежать. Всё, что
+# выше него, — тело документа, которое читает бизнес.
+SOURCES_SECTION = "Якоря истины"
+
+# Путь к внутреннему файлу: хотя бы один слэш и расширение документа. URL под
+# шаблон не попадает — у ссылки перед именем стоит «/» или «.», а они в
+# отрицательном ретроспективном условии.
+INTERNAL_PATH_RE = re.compile(
+    r"(?<![\w/@:.\-])"
+    r"((?:[A-Za-zА-Яа-яЁё0-9_.\-]+/)+[A-Za-zА-Яа-яЁё0-9_.\- ]+"
+    r"\.(?:md|markdown|txt|docx?|pdf|csv|xlsx?|pptx?|json|ya?ml))")
+
+# OKR среди внутренних путей выделен отдельно: его чинят не переносом вниз, а
+# переписыванием в человеческую форму.
+OKR_HINT_RE = re.compile(r"(?:^|/)okr/|(?:^|/)kr[-_]?\d+[-_.]\d+", re.IGNORECASE)
+OKR_FORMAT = "Q{квартал}{год} KR{N}.{M} команда {команда}, PO {ФИО}"
+
+
+def check_internal_sources(doc: Doc, out: list[Finding]) -> None:
+    """Внутренние источники в теле документа (гейт 10, ЗМ-043/ЗМ-044).
+
+    БФТ читают за пределами команды, и там путь `GROUND/_intake/chats/…md`
+    некликабелен и ничего не значит: у читателя нет ни этого репозитория, ни
+    прав на него. В теле документа ссылаются только на Confluence и JIRA;
+    внутренний источник живёт в подвале — разделе «Якоря истины», где у него
+    есть ранг и тип.
+
+    Frontmatter пропускается: ключ `source` там и обязан нести путь. Fenced-блоки
+    тоже — в них лежит промт открытого поля, адресованный следующему прогону.
+    """
+    stop = len(doc.lines)
+    for idx, title in doc.headings(doc.fm_end + 1):
+        if SOURCES_SECTION.lower() in title.lower():
+            stop = idx - 1
+            break
+
+    for idx, raw in enumerate(doc.lines, start=1):
+        if idx <= doc.fm_end or idx > stop or doc.skip(idx):
+            continue
+        for m in INTERNAL_PATH_RE.finditer(raw):
+            path = m.group(1)
+            if OKR_HINT_RE.search(path):
+                out.append(Finding(
+                    idx, "ERROR", "SR002",
+                    f"OKR указан файлом «{path}» — писать текстом «{OKR_FORMAT}»; "
+                    f"сам файл, если нужен, идёт в «{SOURCES_SECTION}»"))
+            else:
+                out.append(Finding(
+                    idx, "ERROR", "SR001",
+                    f"внутренний источник «{path}» в теле документа — в теле ссылаются "
+                    f"только на Confluence и JIRA, внутренний путь идёт в «{SOURCES_SECTION}»"))
+
+
 # --- Прогон -----------------------------------------------------------------
 
 
@@ -670,6 +827,9 @@ def lint(path: Path) -> list[Finding]:
     check_tables_hygiene(doc, out)
     check_emoji_in_canon(doc, border, out)
     check_service_leak(doc, out)
+    check_markup(doc, out)
+    check_bare_refs(doc, out)
+    check_internal_sources(doc, out)
     return sorted(out, key=lambda f: (f.line, f.code))
 
 

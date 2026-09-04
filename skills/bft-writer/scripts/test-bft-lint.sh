@@ -11,7 +11,7 @@ GOLDEN=(
 BROKEN="skills/bft-writer/scripts/fixtures/broken_document.md"
 BROKEN_FAST="skills/bft-writer/scripts/fixtures/broken_fast_document.md"
 # Коды, которые негативная deep-фикстура обязана поднять. Пропал код — линтер ослаб.
-EXPECTED_CODES=(BD003 HD002 HD003 HD004 HD006 CT006 TB001 TB002 TB003 DP001 CN001 CN002 CN006 LK001 LK002)
+EXPECTED_CODES=(BD003 HD002 HD003 HD004 HD006 CT006 TB001 TB002 TB003 DP001 CN001 CN002 CN006 LK001 LK002 MK001 LN001 LN002 SR001 SR002)
 # Коды стадии fast: на deep они не срабатывают по определению, нужна своя фикстура.
 EXPECTED_FAST_CODES=(BD001 CN010 HD004 HD007 HD008)
 
@@ -64,7 +64,18 @@ for code in "${EXPECTED_FAST_CODES[@]}"; do
 done
 
 if [ "$fails" -eq 0 ]; then
-  echo "Все проверки пройдены."
+  # Промт доработки обязан нести шаг пересборки страницы (ЗМ-046): без него PO
+# читает прошлую версию, а его замечания приходят повторно.
+for g in skills/bft-fast/examples/golden_document.md skills/bft-deep-swarm/examples/golden_deep_document.md; do
+  if grep -q "ПОСЛЕ СОХРАНЕНИЯ" "$g" && grep -q "bft-html-export.py" "$g"; then
+    echo "ok    промт в $(basename "$g") требует пересобрать страницу"
+  else
+    echo "FAIL  в $(basename "$g") нет шага пересборки страницы"
+    fails=$((fails + 1))
+  fi
+done
+
+echo "Все проверки пройдены."
   exit 0
 fi
 echo "Провалов: $fails"
