@@ -649,6 +649,34 @@ def check_service_leak(doc: Doc, out: list[Finding]) -> None:
                 f"в прозе (ЗМ-030)"))
 
 
+
+def check_markup(doc: Doc, out: list[Finding]) -> None:
+    """Заголовок, размеченный подчёркиванием (гейт 17, ЗМ-038).
+
+    Канон MTS исторически писался подчёркиванием: строка «Функциональные
+    требования*», под ней «====». Форма легальна в markdown, но в этом
+    репозитории снята. Причина не в эстетике: подчёркивание не видно в diff как
+    заголовок, разъезжается от правки длины строки и уезжает на страницу
+    абзацем вместе с «====» в любом рендере, который его не разбирает — ровно
+    это и случилось со страницей ревью (ЗМ-037). Заголовок — только «##».
+
+    Fenced-блоки пропускаются: промт открытого поля несёт свой текст, и
+    подчёркивание внутри него заголовком документа не является.
+    """
+    for line_no in range(2, len(doc.lines) + 1):
+        underline = doc.lines[line_no - 1].strip()
+        if not underline or set(underline) != {"="} or len(underline) < 3:
+            continue
+        if doc.skip(line_no):
+            continue
+        title = doc.lines[line_no - 2].strip()
+        if not title or title.startswith(("|", ">", "#", "<", "`")):
+            continue
+        out.append(Finding(
+            line_no - 1, "ERROR", "MK001",
+            f"заголовок «{title}» размечен подчёркиванием — писать «## {title}»"))
+
+
 # --- Прогон -----------------------------------------------------------------
 
 
@@ -666,6 +694,7 @@ def lint(path: Path) -> list[Finding]:
     check_tables_hygiene(doc, out)
     check_emoji_in_canon(doc, border, out)
     check_service_leak(doc, out)
+    check_markup(doc, out)
     return sorted(out, key=lambda f: (f.line, f.code))
 
 

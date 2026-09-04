@@ -6,7 +6,49 @@
       if(host) host.insertAdjacentHTML("beforebegin", '<p style="color:#e00000;font-family:\'Courier New\',monospace;font-size:.8rem">mermaid.js не загрузился (нет сети?) — ниже сырой код диаграммы.</p>');
       return;
     }
-    mermaid.initialize({ startOnLoad:false, theme:"neutral", securityLevel:"loose" });
+    // Тема neutral рисует подписи серым по светлому — на печатной ч/б странице
+    // текст диаграммы не читается. Палитра задаётся явно и повторяет страницу:
+    // чёрный текст и линии, белые фигуры, серая заливка только у заметок.
+    mermaid.initialize({
+      startOnLoad:false,
+      securityLevel:"loose",
+      theme:"base",
+      fontFamily:'Georgia, "Times New Roman", serif',
+      // useMaxWidth:false — иначе mermaid ужимает всю схему под ширину колонки
+      // текста и вместе с ней ужимает подписи: формально чёрные, фактически
+      // нечитаемые. Схема рисуется в натуральную величину, а не влезающая по
+      // ширине прокручивается внутри своего блока (.mermaid{overflow-x:auto}).
+      sequence:{ useMaxWidth:false, actorFontSize:16, messageFontSize:15, noteFontSize:15,
+                 wrap:true, width:165, boxMargin:10 },
+      themeVariables:{
+        fontFamily:'Georgia, "Times New Roman", serif',
+        fontSize:"15px",
+        textColor:"#000000",
+        lineColor:"#000000",
+        primaryColor:"#ffffff",
+        primaryTextColor:"#000000",
+        primaryBorderColor:"#000000",
+        secondaryColor:"#f2f2f2",
+        tertiaryColor:"#ffffff",
+        actorBkg:"#ffffff",
+        actorBorder:"#000000",
+        actorTextColor:"#000000",
+        actorLineColor:"#000000",
+        signalColor:"#000000",
+        signalTextColor:"#000000",
+        labelBoxBkgColor:"#f2f2f2",
+        labelBoxBorderColor:"#000000",
+        labelTextColor:"#000000",
+        loopTextColor:"#000000",
+        noteBkgColor:"#f2f2f2",
+        noteBorderColor:"#000000",
+        noteTextColor:"#000000",
+        altSectionBkgColor:"#ffffff",
+        activationBkgColor:"#f2f2f2",
+        activationBorderColor:"#000000",
+        sequenceNumberColor:"#ffffff"
+      }
+    });
     mermaid.run({ querySelector:".mermaid" });
   }
   if(document.readyState === "complete" || document.readyState === "interactive") run();

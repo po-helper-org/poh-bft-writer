@@ -130,6 +130,20 @@ def parse_blocks(body: str):
                 j += 1
             i = j + 1
             continue
+        stripped_tag = line.strip()
+        # <details>/<summary> — часть скелета открытого поля (open_field.md).
+        # Без этой ветки теги уезжали на страницу видимым текстом
+        # «&lt;details&gt; &lt;summary&gt;…», а блок не сворачивался вовсе.
+        # Пропускаются только эти три формы: остальной HTML по-прежнему
+        # экранируется, чтобы разметка из документа не ломала страницу.
+        if stripped_tag in ("<details>", "</details>"):
+            blocks.append(("raw", None, stripped_tag))
+            i += 1
+            continue
+        if stripped_tag.startswith("<summary>") and stripped_tag.endswith("</summary>"):
+            blocks.append(("summary", None, stripped_tag[len("<summary>"):-len("</summary>")]))
+            i += 1
+            continue
         if line.startswith("#"):
             level = len(line) - len(line.lstrip("#"))
             text = line[level:].strip()
@@ -348,6 +362,33 @@ def render_source_block(text, last_table_ids, id_map):
     return f'<p class="src">{inline(text, id_map=id_map)}</p>'
 
 
+# Разделы, которые адресованы следующему прогону, а не читателю документа:
+# открытое поле стадии fast и его пост-deep продолжение. На странице ревью они
+# сворачиваются — PO раскрывает их, только если собирается продолжать работу.
+FOLDABLE_SECTIONS = ("Продолжить / уточнить БФТ", "Полный БФТ — в проработке")
+
+
+def fold_service_sections(body_html: str) -> str:
+    """Сворачивает служебные разделы в <details>, оставляя заголовок видимым.
+
+    H1-заголовок остаётся внутри <summary> вместе со своим id: по нему ведёт
+    оглавление, и подмена его на голый текст оборвала бы навигацию.
+    Вложенный <details> с промтом раскрывается сразу — иначе до промта пришлось
+    бы кликать дважды.
+    """
+    for name in FOLDABLE_SECTIONS:
+        m = re.search(r'<h2 id="sec-\d+">[^<]*' + re.escape(name) + r'[^<]*</h2>', body_html)
+        if not m:
+            continue
+        nxt = body_html.find("<h2 ", m.end())
+        end = nxt if nxt != -1 else len(body_html)
+        inner = body_html[m.end():end].replace("<details>", "<details open>")
+        body_html = (body_html[:m.start()]
+                     + f'<details class="fold"><summary>{m.group(0)}</summary>{inner}</details>'
+                     + body_html[end:])
+    return body_html
+
+
 def render_body(blocks, id_map):
     out = []
     last_table_ids = []
@@ -360,6 +401,10 @@ def render_body(blocks, id_map):
                 out.append(f'<h{level} id="">{inline(text, skip_id_links=True)}</h{level}>')
             else:
                 out.append(f"<h{level}>{inline(text, skip_id_links=True)}</h{level}>")
+        elif kind == "raw":
+            out.append(b)
+        elif kind == "summary":
+            out.append(f"<summary>{inline(b, skip_id_links=True)}</summary>")
         elif kind == "quote":
             out.append(f'<blockquote class="quote">{inline(b, id_map=id_map)}</blockquote>')
         elif kind == "table":
@@ -518,6 +563,7 @@ def main():
         return f'<h{m.group(1)} id="sec-{counter["n"]}">'
 
     body_html = re.sub(r'<h([23]) id="">', head_id, body_html)
+    body_html = fold_service_sections(body_html)
 
     epic_slug = meta.get("epic_slug") or md_path.stem
 

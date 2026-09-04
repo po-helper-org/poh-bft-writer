@@ -7,6 +7,8 @@ set -u
 EXPORT="skills/bft-writer/scripts/bft-html-export.py"
 FAST="skills/bft-fast/examples/golden_document.md"
 DEEP="skills/bft-deep-swarm/examples/golden_deep_document.md"
+# Документ со старой разметкой заголовков — фикстура обратной совместимости.
+LEGACY="skills/bft-writer/scripts/fixtures/broken_document.md"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
@@ -43,6 +45,21 @@ render "$FAST" "epic-fast" && {
     fails=$((fails + 1))
   fi
 
+  # Открытое поле адресовано следующему прогону, а не читателю: на странице оно
+  # свёрнуто, а его <details>/<summary> — разметка, не экранированный текст (ЗМ-039).
+  if grep -q '<details class="fold"><summary><h2' "$TMP/epic-fast.html"; then
+    echo "ok    служебный раздел свёрнут, заголовок остался якорем оглавления"
+  else
+    echo "FAIL  служебный раздел не свёрнут"
+    fails=$((fails + 1))
+  fi
+  if grep -q "&lt;details&gt;\|&lt;summary&gt;" "$TMP/epic-fast.html"; then
+    echo "FAIL  теги details/summary вылезли на страницу текстом"
+    fails=$((fails + 1))
+  else
+    echo "ok    теги details/summary отданы разметкой"
+  fi
+
   # Снятое стандартом не должно вернуться на страницу (ЗМ-034, ЗМ-035).
   for token in 'class="meta-line"' 'Статус проработки'; do
     if grep -q "$token" "$TMP/epic-fast.html"; then
@@ -63,18 +80,35 @@ render "$DEEP" "epic" && {
     fails=$((fails + 1))
   fi
 
-  # Канон MTS размечен подчёркиванием, а не решётками (ЗМ-037). Если экспортёр
-  # перестанет их разбирать, разделы уедут абзацем вместе с «====» и выпадут
-  # из оглавления — а раздел у комментария будет подписан соседним заголовком.
-  setext_count=$(grep -cE "^={3,}$" "$DEEP")
-  head_count=$(grep -oE "<h2 id=\"sec-[0-9]+\"" "$TMP/epic.html" | wc -l)
+  if grep -q '<details class="fold"><summary><h2' "$TMP/epic.html"; then
+    echo "ok    раздел «Продолжить / уточнить БФТ» свёрнут"
+  else
+    echo "FAIL  раздел «Продолжить / уточнить БФТ» не свёрнут"
+    fails=$((fails + 1))
+  fi
+
+  # Сам канон пишется решётками (ЗМ-038), в эталоне подчёркиваний быть не должно.
+  if grep -qE "^={3,}$" "$DEEP"; then
+    echo "FAIL  в эталоне канона снова появилось подчёркивание вместо ##"
+    fails=$((fails + 1))
+  else
+    echo "ok    канон эталона размечен решётками"
+  fi
+}
+
+# Совместимость со старым: документы, написанные до ЗМ-038, несут заголовки
+# подчёркиванием. Экспортёр обязан их разбирать — иначе весь канон таких
+# документов уедет абзацем вместе с «====» и выпадет из оглавления (ЗМ-037).
+render "$LEGACY" "legacy" && {
+  setext_count=$(grep -cE "^={3,}$" "$LEGACY")
+  head_count=$(grep -oE "<h2 id=\"sec-[0-9]+\"" "$TMP/legacy.html" | wc -l)
   if [ "$head_count" -ge "$setext_count" ]; then
-    echo "ok    разделы канона стали заголовками с якорем ($head_count h2 при $setext_count подчёркиваниях)"
+    echo "ok    старая разметка разобрана ($head_count h2 при $setext_count подчёркиваниях)"
   else
     echo "FAIL  заголовки-подчёркивания не разобраны: $head_count h2 при $setext_count подчёркиваниях"
     fails=$((fails + 1))
   fi
-  if grep -qE "<p>[^<]*={3,}" "$TMP/epic.html"; then
+  if grep -qE "<p>[^<]*={3,}" "$TMP/legacy.html"; then
     echo "FAIL  подчёркивание «====» вылезло на страницу абзацем"
     fails=$((fails + 1))
   else
