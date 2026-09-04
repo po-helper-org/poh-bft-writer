@@ -8,18 +8,18 @@ test('без корня воркспейса конфиг падает, а не 
 })
 
 test('умолчание каталога документов — то же, что в bft-config.template.md', () => {
-  const config = loadConfig({ BFT_WORKSPACE_ROOT: '/ws' })
+  const config = loadConfig({ BFT_WORKSPACE_ROOT: '/ws', BFT_ENTIRE_BASE_URL: 'https://entire.io/t' })
   assert.equal(config.docsPath, DEFAULT_DOCS_PATH)
   assert.deepEqual([...config.docsPathFallbacks], ['bft/documentation'])
 })
 
 test('заданный каталог запасных не имеет — иначе можно молча показать не тот воркспейс', () => {
-  const config = loadConfig({ BFT_WORKSPACE_ROOT: '/ws', BFT_DOCS_PATH: 'custom/docs' })
+  const config = loadConfig({ BFT_WORKSPACE_ROOT: '/ws', BFT_ENTIRE_BASE_URL: 'https://entire.io/t', BFT_DOCS_PATH: 'custom/docs' })
   assert.equal(config.docsPath, 'custom/docs')
   assert.deepEqual([...config.docsPathFallbacks], [])
 })
 
 test('Backlog.md не обязателен: без него раздел работает по артефактам', () => {
-  const config = loadConfig({ BFT_WORKSPACE_ROOT: '/ws' })
+  const config = loadConfig({ BFT_WORKSPACE_ROOT: '/ws', BFT_ENTIRE_BASE_URL: 'https://entire.io/t' })
   assert.equal(config.backlogBin, undefined)
 })

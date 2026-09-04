@@ -45,6 +45,8 @@ export interface BftLinks {
   okr?: string
   /** Путь к собранной странице ревью относительно корня воркспейса. */
   html?: string
+  /** Ветка entire.io с контекстным чатом последнего закрытого отрезка работы. */
+  entire?: string
   other: string[]
 }
 

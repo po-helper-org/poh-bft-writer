@@ -30,7 +30,7 @@ test('очередь собирается из артефактов, без Back
     '/ws/.bft/documentation/beta': ['beta.md', 'beta.html'],
     '/ws/.bft/documentation/beta/beta.md': deepDoc('beta'),
   })
-  const { tasks, docsPath } = await scanWorkspace(loadConfig({ BFT_WORKSPACE_ROOT: '/ws' }), ports)
+  const { tasks, docsPath } = await scanWorkspace(loadConfig({ BFT_WORKSPACE_ROOT: '/ws', BFT_ENTIRE_BASE_URL: 'https://entire.io/t' }), ports)
 
   assert.equal(docsPath, '.bft/documentation')
   assert.deepEqual(tasks.map(t => [t.id, t.stage]), [['alpha', 'FAST-DONE'], ['beta', 'DEEP-REVIEW']])
@@ -43,7 +43,7 @@ test('название берётся из H1, а не из имени папк�
     '/ws/.bft/documentation/beta': ['beta.md'],
     '/ws/.bft/documentation/beta/beta.md': deepDoc('beta'),
   })
-  const { tasks } = await scanWorkspace(loadConfig({ BFT_WORKSPACE_ROOT: '/ws' }), ports)
+  const { tasks } = await scanWorkspace(loadConfig({ BFT_WORKSPACE_ROOT: '/ws', BFT_ENTIRE_BASE_URL: 'https://entire.io/t' }), ports)
   assert.equal(tasks[0].title, 'Название эпика')
 })
 
@@ -52,7 +52,7 @@ test('прежняя раскладка каталога подхватывае�
     '/ws/bft/documentation': ['gamma'],
     '/ws/bft/documentation/gamma': ['gamma-fast.md', 'gamma-fast.html'],
   })
-  const { tasks, docsPath } = await scanWorkspace(loadConfig({ BFT_WORKSPACE_ROOT: '/ws' }), ports)
+  const { tasks, docsPath } = await scanWorkspace(loadConfig({ BFT_WORKSPACE_ROOT: '/ws', BFT_ENTIRE_BASE_URL: 'https://entire.io/t' }), ports)
   assert.equal(docsPath, 'bft/documentation')
   assert.deepEqual(tasks.map(t => t.id), ['gamma'])
 })
@@ -63,7 +63,7 @@ test('каталог без документов эпиком не считае�
     '/ws/.bft/documentation/artefacts': ['personas.csv'],
     '/ws/.bft/documentation/alpha': ['alpha-fast.md', 'alpha-fast.html'],
   })
-  const { tasks } = await scanWorkspace(loadConfig({ BFT_WORKSPACE_ROOT: '/ws' }), ports)
+  const { tasks } = await scanWorkspace(loadConfig({ BFT_WORKSPACE_ROOT: '/ws', BFT_ENTIRE_BASE_URL: 'https://entire.io/t' }), ports)
   assert.deepEqual(tasks.map(t => t.id), ['alpha'])
 })
 
@@ -75,7 +75,7 @@ test('ссылки строятся только на существующие �
     '/ws/.bft/documentation/links': ['links.md', 'links.html'],
     '/ws/.bft/documentation/links/links.md': deepDoc('links', { pageId: '2272447498', jira: 'GDSLV-1409' }),
   })
-  const { tasks } = await scanWorkspace(loadConfig({ BFT_WORKSPACE_ROOT: '/ws' }), ports)
+  const { tasks } = await scanWorkspace(loadConfig({ BFT_WORKSPACE_ROOT: '/ws', BFT_ENTIRE_BASE_URL: 'https://entire.io/t' }), ports)
   const [withLinks, without] = [tasks.find(t => t.id === 'links')!, tasks.find(t => t.id === 'nolinks')!]
 
   assert.equal(without.links.confluence, undefined)

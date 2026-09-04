@@ -23,7 +23,7 @@ python3 "$REPO/skills/bft-writer/scripts/bft-html-export.py" "$DOCS/vibeapp/vibe
 
 ( cd "$REPO/plugin" && npx tsc -p tsconfig.json ) || { echo "FAIL  плагин не собрался"; exit 1; }
 
-BFT_WORKSPACE_ROOT="$TMP/ws" node --input-type=module -e "
+BFT_WORKSPACE_ROOT="$TMP/ws" BFT_ENTIRE_BASE_URL="https://entire.io/test" node --input-type=module -e "
 import { loadConfig, scanWorkspace, nodePorts, chooseDocument } from '$REPO/plugin/lib/index.js'
 const { tasks, docsPath } = await scanWorkspace(loadConfig(process.env), nodePorts)
 console.log(JSON.stringify({ docsPath, tasks: tasks.map(t => ({

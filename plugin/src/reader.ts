@@ -6,11 +6,12 @@
  * лежит в чистых модулях рядом и проверяется без воркспейса.
  */
 import { join } from 'node:path'
-import type { BftPluginConfig } from './config.js'
+import { branchUrl, type BftPluginConfig } from './config.js'
 import { parseFrontmatter, type Frontmatter } from './frontmatter.js'
 import type { BftLinks, BftTask } from './model.js'
 import type { BftPorts } from './ports.js'
 import { artifactsOf, stageFromArtifacts } from './stage.js'
+import { lastFinished, parseWorkLog, WORKLOG_FILE, type WorkLog } from './worklog.js'
 
 const JIRA_BROWSE = 'https://jira.mts.ru/browse/'
 const WIKI_PAGE = 'https://confluence.mts.ru/pages/viewpage.action?pageId='
@@ -22,6 +23,8 @@ export interface WorkspaceScan {
   /** Каталог документов, который в итоге нашёлся (относительно корня воркспейса). */
   docsPath: string
   tasks: BftTask[]
+  /** Журнал работы. Пустой — истории ещё нет либо файл не читается. */
+  workLog: WorkLog
 }
 
 /**
@@ -39,6 +42,9 @@ async function resolveDocsPath(config: BftPluginConfig, ports: BftPorts): Promis
 
 export async function scanWorkspace(config: BftPluginConfig, ports: BftPorts): Promise<WorkspaceScan> {
   const docsPath = await resolveDocsPath(config, ports)
+  const workLog = parseWorkLog(
+    await ports.readTextFile(join(config.workspaceRoot, config.indexPath, WORKLOG_FILE)),
+  )
   const root = join(config.workspaceRoot, docsPath)
   const slugs = await ports.listDirectory(root)
 
@@ -69,13 +75,19 @@ export async function scanWorkspace(config: BftPluginConfig, ports: BftPorts): P
       stageSource: 'artifacts',
       description: frontmatter.status ?? '',
       howToDemo: [],
-      links: linksOf(frontmatter, docsPath, slug, entries),
+      links: {
+        ...linksOf(frontmatter, docsPath, slug, entries),
+        // Ветка последнего закрытого отрезка: по ней продолжают, а не начинают.
+        entire: config.entire
+          ? branchUrl(config.entire, lastFinished(workLog, slug)?.contextRef)
+          : undefined,
+      },
       artifacts,
       missing: verdict.missing,
     })
   }
 
-  return { docsPath, tasks }
+  return { docsPath, tasks, workLog }
 }
 
 function linksOf(
