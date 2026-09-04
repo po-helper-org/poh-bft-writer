@@ -48,14 +48,22 @@ export interface BftLinks {
   other: string[]
 }
 
-/** Артефакты эпика на диске. Из них выводится стадия, когда доски нет. */
+/**
+ * Артефакты эпика на диске. Из них выводится стадия, когда доски нет.
+ *
+ * Страницы ревью две, и различать их обязательно: `{slug}-fast.html` закрывает
+ * стадию fast, `{slug}.html` — стадию deep. Один общий флаг «html есть» засчитал
+ * бы страницу от быстрого прохода как готовность глубокого.
+ */
 export interface BftArtifacts {
   /** `{slug}-fast.md` — документ стадии fast. */
   fast: boolean
+  /** `{slug}-fast.html` — страница ревью стадии fast. */
+  fastHtml: boolean
   /** `{slug}.md` — единый документ после deep. */
   deep: boolean
-  /** `{slug}.html` либо `{slug}-fast.html` — страница ревью. */
-  html: boolean
+  /** `{slug}.html` — страница ревью единого документа. */
+  deepHtml: boolean
 }
 
 /** Строка списка: всё, что видно в панели без открытия требования. */
@@ -68,6 +76,17 @@ export interface BftTaskSummary {
 }
 
 /** Полное требование: то, что показывают превью и детальная страница. */
+/** Разбор стадии: что получилось и чего не хватило до следующей. */
+export interface StageVerdict {
+  stage: BftStage
+  /**
+   * Чего не хватает до следующей стадии, человеческими словами. Пусто — всё
+   * на месте. Без этого «вернулось в DEEP-REVIEW» не отвечает на вопрос
+   * «а что чинить», и PO идёт выяснять это руками.
+   */
+  missing: string[]
+}
+
 export interface BftTask extends BftTaskSummary {
   /** Заказчик инициативы: «ФИО (подразделение)». */
   customer?: string
@@ -76,5 +95,7 @@ export interface BftTask extends BftTaskSummary {
   howToDemo: string[]
   links: BftLinks
   artifacts: BftArtifacts
+  /** Чего не хватает до следующей стадии. Пусто — всё на месте. */
+  missing: string[]
   cancelReason?: string
 }

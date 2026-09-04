@@ -61,15 +61,17 @@ export async function scanWorkspace(config: BftPluginConfig, ports: BftPorts): P
     const text = deepDocument ?? fastDocument ?? ''
     const frontmatter = parseFrontmatter(text)
 
+    const verdict = stageFromArtifacts(slug, { entries, deepDocument })
     tasks.push({
       id: slug,
       title: H1_RE.exec(text)?.[1]?.trim() || slug,
-      stage: stageFromArtifacts(slug, { entries, deepDocument }),
+      stage: verdict.stage,
       stageSource: 'artifacts',
       description: frontmatter.status ?? '',
       howToDemo: [],
       links: linksOf(frontmatter, docsPath, slug, entries),
       artifacts,
+      missing: verdict.missing,
     })
   }
 

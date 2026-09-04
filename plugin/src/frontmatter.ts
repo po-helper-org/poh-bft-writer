@@ -55,3 +55,14 @@ export function isPublished(frontmatter: Frontmatter): boolean {
   if (!pageId || pageId === 'pending') return false
   return !pageId.startsWith('[')
 }
+
+/**
+ * Эпик в трекере заведён и на него можно сослаться.
+ *
+ * `[СОЗДАТЬ эпик]` и любая другая пометка в скобках — не ключ: ссылка на них
+ * была бы выдуманной, а это прямо запрещено (ЗМ-009).
+ */
+export function hasEpicKey(frontmatter: Frontmatter): boolean {
+  const jira = frontmatter.jira?.trim()
+  return !!jira && !jira.startsWith('[')
+}

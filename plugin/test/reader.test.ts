@@ -50,7 +50,7 @@ test('название берётся из H1, а не из имени папк�
 test('прежняя раскладка каталога подхватывается запасным путём', async () => {
   const ports = fakePorts({
     '/ws/bft/documentation': ['gamma'],
-    '/ws/bft/documentation/gamma': ['gamma-fast.md'],
+    '/ws/bft/documentation/gamma': ['gamma-fast.md', 'gamma-fast.html'],
   })
   const { tasks, docsPath } = await scanWorkspace(loadConfig({ BFT_WORKSPACE_ROOT: '/ws' }), ports)
   assert.equal(docsPath, 'bft/documentation')
@@ -61,7 +61,7 @@ test('каталог без документов эпиком не считае�
   const ports = fakePorts({
     '/ws/.bft/documentation': ['artefacts', 'alpha'],
     '/ws/.bft/documentation/artefacts': ['personas.csv'],
-    '/ws/.bft/documentation/alpha': ['alpha-fast.md'],
+    '/ws/.bft/documentation/alpha': ['alpha-fast.md', 'alpha-fast.html'],
   })
   const { tasks } = await scanWorkspace(loadConfig({ BFT_WORKSPACE_ROOT: '/ws' }), ports)
   assert.deepEqual(tasks.map(t => t.id), ['alpha'])
@@ -85,4 +85,9 @@ test('ссылки строятся только на существующие �
   assert.equal(withLinks.links.epic, 'https://jira.mts.ru/browse/GDSLV-1409')
   assert.equal(withLinks.links.html, '.bft/documentation/links/links.html')
   assert.equal(withLinks.stage, 'DEEP-DONE')
+  assert.deepEqual(withLinks.missing, [])
+  // Неполный набор обязан объяснить себя, а не просто откатиться стадией.
+  assert.equal(without.stage, 'DEEP-REVIEW')
+  assert.deepEqual(without.missing,
+    ['страница ревью', 'ссылка на страницу Confluence', 'ссылка на эпик JIRA'])
 })

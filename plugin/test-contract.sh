@@ -27,7 +27,8 @@ BFT_WORKSPACE_ROOT="$TMP/ws" node --input-type=module -e "
 import { loadConfig, scanWorkspace, nodePorts, chooseDocument } from '$REPO/plugin/lib/index.js'
 const { tasks, docsPath } = await scanWorkspace(loadConfig(process.env), nodePorts)
 console.log(JSON.stringify({ docsPath, tasks: tasks.map(t => ({
-  id: t.id, stage: t.stage, title: t.title, html: t.links.html, artifacts: t.artifacts,
+  id: t.id, stage: t.stage, title: t.title, html: t.links.html,
+  artifacts: t.artifacts, missing: t.missing,
 })) }))
 " > "$TMP/scan.json" 2>"$TMP/scan.err" || { echo "FAIL  прогон упал:"; cat "$TMP/scan.err"; exit 1; }
 
@@ -49,8 +50,13 @@ check "название взято из H1 документа, а не из им
       "'Вопрос-ответ' in [t for t in d['tasks'] if t['id']=='direct-faq'][0]['title']"
 check "ссылка на страницу ревью указывает на собранный экспортёром файл" \
       "[t for t in d['tasks'] if t['id']=='direct-faq'][0]['html'] == '.bft/documentation/direct-faq/direct-faq.html'"
-check "страница ревью распознана и у fast-эпика" \
-      "[t for t in d['tasks'] if t['id']=='vibeapp'][0]['artifacts']['html'] is True"
+check "страница ревью fast распознана как своя, а не как страница deep" \
+      "[t for t in d['tasks'] if t['id']=='vibeapp'][0]['artifacts'] == {'fast': True, 'fastHtml': True, 'deep': False, 'deepHtml': False}"
+
+# Эталон deep собран, но не отгружен: страницы Confluence и эпика в нём нет.
+# Это ровно тот случай, который обязан вернуться в DEEP-REVIEW с объяснением.
+check "неполный набор deep назван поимённо, а не просто откатил стадию" \
+      "[t for t in d['tasks'] if t['id']=='direct-faq'][0]['missing'] == ['ссылка на страницу Confluence', 'ссылка на эпик JIRA']"
 
 # Файл, на который указывает плагин, обязан существовать на диске.
 HTML="$TMP/ws/$(python3 -c "
