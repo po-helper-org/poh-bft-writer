@@ -179,6 +179,7 @@
     }
     document.getElementById("promptOut").value = buildPrompt(list);
     paintDots();
+    paintLooseMarkers();
     renderUncDrawer();
   }
 
@@ -285,9 +286,9 @@
       var r = dot.getBoundingClientRect();
       openPopover(r.left, r.bottom + 4, mark.textContent.trim(), section, mark.id);
     });
-    dot.addEventListener("mouseenter", function(){ showHint(meta); });
+    dot.addEventListener("mouseenter", function(){ showHint(dot, mark.id); });
     dot.addEventListener("mouseleave", hideHint);
-    dot.addEventListener("focus", function(){ showHint(meta); });
+    dot.addEventListener("focus", function(){ showHint(dot, mark.id); });
     dot.addEventListener("blur", hideHint);
   });
 
@@ -295,9 +296,9 @@
     var old = document.getElementById("activeHint");
     if(old) old.remove();
   }
-  function showHint(meta){
+  function showHint(dot, key){
     hideHint();
-    var cs = commentsByUnc()[meta.mark.id] || [];
+    var cs = commentsByUnc()[key] || [];
     var hint = document.createElement("div");
     hint.className = "unc-hint";
     hint.id = "activeHint";
@@ -307,7 +308,7 @@
       : '<div class="unc-hint-title">Комментария нет</div>' +
         '<div class="unc-hint-item">Клик — оставить комментарий к этому пункту.</div>';
     document.body.appendChild(hint);
-    var r = meta.dot.getBoundingClientRect();
+    var r = dot.getBoundingClientRect();
     hint.style.left = Math.max(8, Math.min(r.left - 6, window.innerWidth - 316)) + "px";
     hint.style.top = (r.bottom + window.scrollY + 6) + "px";
   }
@@ -316,6 +317,88 @@
     uncMeta.forEach(function(m){
       m.dot.classList.toggle("has-comment", !!(map[m.mark.id] || []).length);
     });
+  }
+
+  /* — комментарий, оставленный прямо в тексте — */
+
+  // Точка, к которой относится выделение. Сначала — та, которую выделение
+  // задело или внутри которой началось; иначе ближайшая в той же ячейке или
+  // абзаце. Без этого комментарий «по красному гейту», сделанный через текст,
+  // уходил в никуда: uncId пустой, точка оставалась красной, обход её не
+  // засчитывал, и у самого места комментария не было видно.
+  function markForRange(range, container){
+    var direct = container.closest && container.closest("mark.unc");
+    if(direct) return direct;
+    if(range.intersectsNode){
+      for(var i = 0; i < uncMeta.length; i++){
+        try{ if(range.intersectsNode(uncMeta[i].mark)) return uncMeta[i].mark; }catch(e){}
+      }
+    }
+    var host = container.closest("td, th, li, p, h2, h3");
+    if(!host) return null;
+    var inside = uncMeta.filter(function(m){ return host.contains(m.mark); });
+    if(!inside.length) return null;
+    if(inside.length === 1) return inside[0].mark;
+    // Несколько точек в одной ячейке: берём геометрически ближайшую к выделению.
+    var rect = range.getBoundingClientRect(), best = null, bestD = Infinity;
+    inside.forEach(function(m){
+      var r = m.mark.getBoundingClientRect();
+      var d = Math.abs(r.top - rect.top) * 1000 + Math.abs(r.left - rect.left);
+      if(d < bestD){ bestD = d; best = m.mark; }
+    });
+    return best;
+  }
+
+  // Комментарий не к точке [УТОЧНИТЬ] всё равно должен быть виден у своего
+  // места. Ключ — хэш цитаты: он переживает перезагрузку, потому что не
+  // зависит ни от порядка в DOM, ни от номера комментария.
+  function looseKey(quote){ return "q-" + hashString(norm(quote)); }
+  function norm(s){ return (s || "").replace(/\s+/g, " ").trim(); }
+
+  function findQuoteHost(quote){
+    var needle = norm(quote).replace(/…$/, "");
+    if(needle.length < 3) return null;
+    var els = Array.prototype.slice.call(
+      document.querySelectorAll("main td, main th, main li, main p, main h2, main h3"));
+    for(var i = 0; i < els.length; i++){
+      if(norm(els[i].textContent).indexOf(needle) !== -1) return els[i];
+    }
+    // Выделение могло охватить несколько элементов — тогда цитата шире любого
+    // из них; годится первый, чей текст целиком лежит внутри цитаты.
+    for(var j = 0; j < els.length; j++){
+      var txt = norm(els[j].textContent);
+      if(txt.length > 10 && needle.indexOf(txt) !== -1) return els[j];
+    }
+    return null;
+  }
+
+  function paintLooseMarkers(){
+    Array.prototype.slice.call(document.querySelectorAll(".loose-dot"))
+      .forEach(function(d){ d.remove(); });
+    var map = commentsByUnc(), placed = {};
+    load().forEach(function(c){
+      if(!c.uncId || c.uncId.indexOf("q-") !== 0 || placed[c.uncId]) return;
+      var host = findQuoteHost(c.quote);
+      if(!host) return;
+      placed[c.uncId] = true;
+      var dot = document.createElement("button");
+      dot.className = "unc-dot has-comment loose-dot";
+      dot.type = "button";
+      dot.setAttribute("aria-label", "Комментарий к этому фрагменту");
+      host.appendChild(dot);
+      var key = c.uncId, quote = c.quote, section = c.section;
+      dot.addEventListener("click", function(e){
+        e.stopPropagation();
+        hideHint();
+        var r = dot.getBoundingClientRect();
+        openPopover(r.left, r.bottom + 4, quote, section, key);
+      });
+      dot.addEventListener("mouseenter", function(){ showHint(dot, key); });
+      dot.addEventListener("mouseleave", hideHint);
+      dot.addEventListener("focus", function(){ showHint(dot, key); });
+      dot.addEventListener("blur", hideHint);
+    });
+    return map;
   }
 
   function jumpAndComment(meta){
@@ -403,7 +486,12 @@
       var range = sel.getRangeAt(0);
       var rect = range.getBoundingClientRect();
       var quote = text.length > 220 ? text.slice(0,220) + "…" : text;
-      openPopover(rect.left, rect.bottom + 6, quote, nearestSection(container));
+      // Работа «прямо по тексту» — такой же проход по документу, как через
+      // панель: комментарий обязан попасть в ту же точку [УТОЧНИТЬ], а не
+      // повиснуть отдельно. Не попал ни в одну — получает свой ключ по цитате.
+      var mark = markForRange(range, container);
+      openPopover(rect.left, rect.bottom + 6, quote, nearestSection(container),
+                  mark ? mark.id : looseKey(quote));
     }, 0);
   });
 
