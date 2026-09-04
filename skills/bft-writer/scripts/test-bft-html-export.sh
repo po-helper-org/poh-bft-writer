@@ -114,6 +114,38 @@ render "$LEGACY" "legacy" && {
   else
     echo "ok    подчёркивание «====» на страницу не вылезло"
   fi
+
+  # Голые упоминания внешних систем в старом документе страница линкует сама
+  # (ЗМ-041): гейт LN001/LN002 бережёт новые документы, но не переписывает
+  # написанные раньше — читателю нужен переход, а не сверка ключа глазами.
+  if grep -q 'href="https://jira.mts.ru/browse/GDSLV-1409"' "$TMP/legacy.html"; then
+    echo "ok    голый ключ трекера стал ссылкой в JIRA"
+  else
+    echo "FAIL  голый ключ трекера ссылкой не стал"
+    fails=$((fails + 1))
+  fi
+  if grep -q 'viewpage.action?pageId=1777883376"' "$TMP/legacy.html"; then
+    echo "ok    голый pageId стал ссылкой в Confluence"
+  else
+    echo "FAIL  голый pageId ссылкой не стал"
+    fails=$((fails + 1))
+  fi
+  # Стандарты и кодировки той же формы ссылкой стать не должны.
+  if grep -qE 'href="https://jira[^"]*(UTF-8|RFC-4180)"' "$TMP/legacy.html"; then
+    echo "FAIL  UTF-8/RFC-4180 приняты за ключ трекера"
+    fails=$((fails + 1))
+  else
+    echo "ok    стандарты формы ключа ссылкой не стали"
+  fi
+  # Вложенная ссылка = сломанная разметка: считаем открывающие и закрывающие.
+  opens=$(grep -o "<a " "$TMP/legacy.html" | wc -l)
+  closes=$(grep -o "</a>" "$TMP/legacy.html" | wc -l)
+  if [ "$opens" -eq "$closes" ] && ! grep -qE "<a [^>]*>[^<]*<a " "$TMP/legacy.html"; then
+    echo "ok    ссылки не вложены друг в друга ($opens шт.)"
+  else
+    echo "FAIL  вложенная или незакрытая ссылка: <a $opens, </a> $closes"
+    fails=$((fails + 1))
+  fi
 }
 
 if [ "$fails" -eq 0 ]; then

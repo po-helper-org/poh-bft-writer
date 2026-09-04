@@ -677,6 +677,85 @@ def check_markup(doc: Doc, out: list[Finding]) -> None:
             f"заголовок «{title}» размечен подчёркиванием — писать «## {title}»"))
 
 
+
+# Базовые адреса корпоративных систем MTS — те же, что в bft_standards.md и в
+# bft-deliver-check.py. Меняются здесь, если контур разворачивают в другом.
+JIRA_BROWSE = "https://jira.mts.ru/browse/"
+WIKI_PAGE = "https://confluence.mts.ru/pages/viewpage.action?pageId="
+
+# Ключ трекера: 2–10 заглавных латинских символов, дефис, номер. ID требований
+# БФТ кириллические (БТ-1, ПТ-1, ФТ-1), поэтому не пересекаются.
+TRACKER_KEY_RE = re.compile(r"\b([A-Z][A-Z0-9]{1,9})-\d+\b")
+
+# Стандарты и кодировки той же формы, что и ключ трекера. Список — от реальных
+# ложных срабатываний на текстах репозитория (UTF-8, RFC-4180); дополняется по
+# мере новых, это дешевле, чем требовать заполненный конфиг проектов.
+NOT_TRACKER_PREFIX = frozenset({
+    "UTF", "ISO", "RFC", "SHA", "MD", "HTTP", "HTTPS", "TLS", "SSL", "AES", "RSA",
+    "IPV", "UTC", "GMT", "MSK", "ISBN", "ANSI", "IEEE", "PCI", "DSS", "GOST", "EN",
+    "CP", "WIN", "KOI", "BASE", "SLA", "SLO", "API", "CSV", "JSON", "XML", "HTML",
+    "CSS", "SQL", "PDF", "PNG", "JPEG", "GIF", "SVG",
+})
+
+WIKI_REF_RE = re.compile(r"\bconfluence\s*[:#]?\s*(\d{4,})\b", re.IGNORECASE)
+PAGEID_REF_RE = re.compile(r"\bpageid\s*[:=]?\s*(\d{4,})\b", re.IGNORECASE)
+
+MD_LINK_RE = re.compile(r"\[[^\]]*\]\([^)]*\)")
+CODE_SPAN_RE = re.compile(r"`[^`]*`")
+NO_OBJECT_MARKER_RE = re.compile(r"\[(?:УТОЧНИТЬ|СОЗДАТЬ)[^\]]*\]")
+
+
+def scannable(line: str) -> str:
+    """Строка без того, что ссылкой уже является или ею быть не должно.
+
+    Порядок важен: markdown-ссылка снимается первой — внутри неё и ключ, и URL.
+    Дальше уходят код-спаны (там ключ — литерал примера) и пометки
+    `[УТОЧНИТЬ …]` / `[СОЗДАТЬ …]`: объекта за ними ещё нет, и ссылка на него
+    была бы выдуманной (ЗМ-009).
+    """
+    for rx in (MD_LINK_RE, CODE_SPAN_RE, NO_OBJECT_MARKER_RE):
+        line = rx.sub(" ", line)
+    return line
+
+
+def check_bare_refs(doc: Doc, out: list[Finding]) -> None:
+    """Голые ключи JIRA и pageId вики (гейт 10, ЗМ-004/ЗМ-009/ЗМ-012).
+
+    Правило в стандарте было с самого начала — «ни одного голого ключа/pageId в
+    готовом документе», — но проверялось только чтением, и голые упоминания
+    регулярно доезжали до читателя. Теперь их ловит гейт: линкуется каждое
+    вхождение, а не первое.
+
+    Frontmatter пропускается: ключи `jira` и `pageId` там и обязаны быть голыми
+    значениями, ссылка в них сломала бы парсинг.
+    """
+    slug = doc.frontmatter.get("epic_slug", "")
+    for idx, raw in enumerate(doc.lines, start=1):
+        if idx <= doc.fm_end or doc.skip(idx):
+            continue
+        text = scannable(raw)
+        for m in TRACKER_KEY_RE.finditer(text):
+            key = m.group(0)
+            # epic_slug сам бывает формы ключа и стоит в H1 — это не упоминание задачи.
+            if m.group(1) in NOT_TRACKER_PREFIX or key == slug:
+                continue
+            out.append(Finding(
+                idx, "ERROR", "LN001",
+                f"голый ключ трекера «{key}» — оформить ссылкой "
+                f"[{key}]({JIRA_BROWSE}{key}); задачи ещё нет — писать [СОЗДАТЬ …] без URL"))
+        seen: set[str] = set()
+        for rx in (WIKI_REF_RE, PAGEID_REF_RE):
+            for m in rx.finditer(text):
+                page_id = m.group(1)
+                if page_id in seen:
+                    continue
+                seen.add(page_id)
+                out.append(Finding(
+                    idx, "ERROR", "LN002",
+                    f"голая ссылка на страницу вики «{m.group(0).strip()}» — оформить "
+                    f"[Confluence {page_id}]({WIKI_PAGE}{page_id})"))
+
+
 # --- Прогон -----------------------------------------------------------------
 
 
@@ -695,6 +774,7 @@ def lint(path: Path) -> list[Finding]:
     check_emoji_in_canon(doc, border, out)
     check_service_leak(doc, out)
     check_markup(doc, out)
+    check_bare_refs(doc, out)
     return sorted(out, key=lambda f: (f.line, f.code))
 
 

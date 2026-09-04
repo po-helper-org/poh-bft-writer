@@ -11,7 +11,9 @@ actor-level, только ->/-->/alt/else/end/note right of, без message-сх
 
 Страница — статичный документ (ч/б, без промо-палитры): нумерованные ID
 требований (БТ-1/ПТ-1/ИТ-1/ФТ-N/НФТ-N) становятся якорями и авто-ссылками
-на первое упоминание. Слева — рейка из двух выезжающих панелей: оглавление
+на первое упоминание; голый ключ трекера («GDSLV-1409») и pageId вики
+(«confluence:1777883376») становятся ссылками в корпоративные системы.
+Слева — рейка из двух выезжающих панелей: оглавление
 по реальным <h2>/<h3> и быстрый обход всех [УТОЧНИТЬ]. Клик по точке или по
 выделению текста открывает форму комментария; прокомментированная точка
 становится зелёной и показывает оставленный текст по наведению. Все
@@ -64,6 +66,59 @@ def parse_frontmatter(text: str):
 
 # ---------- inline markdown ----------
 
+# Базовые адреса корпоративных систем MTS — те же, что в bft_standards.md,
+# bft-lint.py (гейт LN001/LN002) и bft-deliver-check.py.
+JIRA_BROWSE = "https://jira.mts.ru/browse/"
+WIKI_PAGE = "https://confluence.mts.ru/pages/viewpage.action?pageId="
+
+# Ключ трекера: 2–10 заглавных латинских символов, дефис, номер. ID требований
+# БФТ кириллические (БТ-1, ПТ-1), поэтому не пересекаются.
+TRACKER_KEY_RE = re.compile(r"\b([A-Z][A-Z0-9]{1,9})-\d+\b")
+
+# Стандарты и кодировки той же формы, что ключ трекера. Держится в паре со
+# списком в bft-lint.py: там правило, здесь его отображение на странице.
+NOT_TRACKER_PREFIX = frozenset({
+    "UTF", "ISO", "RFC", "SHA", "MD", "HTTP", "HTTPS", "TLS", "SSL", "AES", "RSA",
+    "IPV", "UTC", "GMT", "MSK", "ISBN", "ANSI", "IEEE", "PCI", "DSS", "GOST", "EN",
+    "CP", "WIN", "KOI", "BASE", "SLA", "SLO", "API", "CSV", "JSON", "XML", "HTML",
+    "CSS", "SQL", "PDF", "PNG", "JPEG", "GIF", "SVG",
+})
+
+# «confluence:1777883376», «Confluence 1777883376», «pageId 1777883376» — одной
+# альтернативой, а не двумя проходами: второй проход поймал бы «pageId=» внутри
+# ссылки, которую только что поставил первый, и вложил ссылку в ссылку.
+WIKI_REF_RE = re.compile(r"\b(?:confluence\s*[:#]?\s*|pageid\s*[:=]?\s*)(\d{4,})\b", re.IGNORECASE)
+
+# Куда линковщик не заходит: уже готовая ссылка, код-литерал и пометка
+# `[УТОЧНИТЬ …]` — за последней объекта ещё нет, ссылка была бы выдуманной (ЗМ-009).
+KEEP_AS_IS_RE = re.compile(
+    r'(<a\b[^>]*>.*?</a>|<mark class="unc">.*?</mark>|<code>.*?</code>)', re.S)
+
+
+def linkify_external(esc: str) -> str:
+    """Голый ключ трекера и pageId вики → кликабельная ссылка (ЗМ-041).
+
+    Гейт `LN001`/`LN002` не даёт голым упоминаниям попасть в новый документ, но
+    страницу ревью собирают и по уже написанным — там они есть. Читателю нужен
+    переход, а не сверка ключа глазами, поэтому страница линкует их сама.
+    """
+    parts = KEEP_AS_IS_RE.split(esc)
+    for i in range(0, len(parts), 2):          # нечётные — защищённые куски
+        chunk = parts[i]
+        chunk = WIKI_REF_RE.sub(
+            lambda m: f'<a href="{WIKI_PAGE}{m.group(1)}" class="ext-link" '
+                      f'target="_blank" rel="noopener">{m.group(0)}</a>', chunk)
+
+        def tracker(m):
+            if m.group(1) in NOT_TRACKER_PREFIX:
+                return m.group(0)
+            return (f'<a href="{JIRA_BROWSE}{m.group(0)}" class="ext-link" '
+                    f'target="_blank" rel="noopener">{m.group(0)}</a>')
+
+        parts[i] = TRACKER_KEY_RE.sub(tracker, chunk)
+    return "".join(parts)
+
+
 def inline(text: str, skip_id_links=False, id_map=None) -> str:
     # quote=True (default): a literal `"` in source text must become `&quot;`
     # before the link regex below builds an href="..." attribute out of it —
@@ -80,6 +135,8 @@ def inline(text: str, skip_id_links=False, id_map=None) -> str:
     esc = re.sub(r"\*\*([^*]+)\*\*", r"<b>\1</b>", esc)
     # remaining inline code `x`
     esc = re.sub(r"`([^`]+)`", r"<code>\1</code>", esc)
+    # Голые ключи JIRA и pageId вики — после ссылок и кода: те защищают себя сами.
+    esc = linkify_external(esc)
 
     if not skip_id_links and id_map:
         def repl(m):
