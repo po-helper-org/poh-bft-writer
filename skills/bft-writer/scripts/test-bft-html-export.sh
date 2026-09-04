@@ -86,8 +86,18 @@ render "$FAST" "epic-fast" && {
     echo "FAIL  ревизии документа на странице нет — круг правок не закроется"
     fails=$((fails + 1))
   fi
-  if grep -q 'id="shipBtn"' "$TMP/epic-fast.html" && grep -q 'var EPIC = ' "$TMP/epic-fast.html"; then
-    echo "ok    кнопка отгрузки и эпик для /bft-deliver на месте"
+  # Кнопка отгрузки — прямой ребёнок угловой панели и стоит ДО «Комментариев»:
+  # внутри списка комментариев её не видно, пока панель не открыта (ЗМ-049).
+  if grep -q '<button class="shipbtn" id="shipBtn"' "$TMP/epic-fast.html" \
+     && grep -q 'var EPIC = ' "$TMP/epic-fast.html" \
+     && python3 - "$TMP/epic-fast.html" <<'PYEOF'
+import re, sys
+h = open(sys.argv[1], encoding="utf-8").read()
+box = re.search(r'<div class="promptbox">(.*?)<div class="panel"', h, re.S).group(1)
+sys.exit(0 if box.index('id="shipBtn"') < box.index('id="panelToggle"') else 1)
+PYEOF
+  then
+    echo "ok    кнопка отгрузки в углу над «Комментариями», эпик подставлен"
   else
     echo "FAIL  кнопки отгрузки или эпика нет"
     fails=$((fails + 1))

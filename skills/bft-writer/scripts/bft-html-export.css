@@ -98,6 +98,7 @@ footer{ border-top:1px solid var(--line); margin-top:3rem; padding-top:1.4rem; f
 /* comments panel (top-right) */
 .promptbox{
   position:fixed; top:1rem; right:1rem; z-index:50;
+  display:flex; flex-direction:column; align-items:flex-end; gap:.4rem;
   font-family:"Courier New", monospace; font-size:.75rem;
 }
 .promptbox > button{
@@ -105,7 +106,9 @@ footer{ border-top:1px solid var(--line); margin-top:3rem; padding-top:1.4rem; f
   padding:.4rem .7rem; cursor:pointer; font-family:inherit; font-size:.78rem;
 }
 .panel{
-  display:none; position:absolute; top:2.2rem; right:0; width:360px; max-height:75vh; overflow-y:auto;
+  /* В потоке колонки, а не на подобранном вручную отступе сверху: кнопок в
+     углу две, и любой фиксированный top разъехался бы при смене их числа. */
+  display:none; width:360px; max-height:75vh; overflow-y:auto;
   background:var(--bg); border:1px solid var(--fg); padding:.9rem; box-shadow:3px 3px 0 var(--line-soft);
 }
 .panel.open{ display:block; }
@@ -116,17 +119,22 @@ footer{ border-top:1px solid var(--line); margin-top:3rem; padding-top:1.4rem; f
 .panel textarea{ width:100%; min-height:140px; font:.72rem/1.4 "Courier New",monospace; padding:.5rem; border:1px solid var(--line-soft); margin-top:.5rem; }
 .panel .copybtn{ margin-top:.4rem; width:100%; border:1px solid var(--fg); background:var(--fg); color:var(--bg); padding:.35rem; cursor:pointer; font-family:inherit; }
 .panel .empty{ color:var(--faint); font-style:italic; }
-/* Отгрузка — конец работы с документом, поэтому кнопка стоит первой в панели
-   и оформлена как действие, а не как ещё один пункт списка. */
-.shipbtn{
-  width:100%; margin:0 0 .5rem; padding:.5rem; cursor:pointer;
-  font-family:inherit; font-size:.76rem;
-  border:1px solid var(--fg); background:var(--bg); color:var(--fg);
+/* Отгрузка — конец работы с документом, поэтому кнопка стоит в углу над
+   «Комментариями» и видна не открывая панель. Зелёный здесь тот же, что у
+   отвеченной точки: на этой странице он значит «закрыто», а не «нажми меня». */
+.promptbox > button.shipbtn{
+  padding:.4rem .7rem; cursor:pointer; font-family:inherit; font-size:.78rem;
+  border:1px solid #1a7a1a; background:var(--bg); color:#1a7a1a;
 }
-.shipbtn:hover{ background:var(--mark); }
-.shiphint{ margin:0 0 .7rem; font-size:.68rem; line-height:1.4; color:var(--muted); }
+.promptbox > button.shipbtn:hover{ background:#1a7a1a; color:#fff; }
+.promptbox > button.shipbtn:focus-visible{ outline:2px solid var(--link); outline-offset:2px; }
+.shiphint{
+  max-width:340px; margin:0; text-align:right;
+  font-size:.68rem; line-height:1.4; color:var(--muted);
+  background:var(--bg); border:1px solid var(--line-soft); padding:.35rem .5rem;
+}
 .shiphint:empty{ display:none; }
-.shiphint.warn{ color:#a33; }
+.shiphint.warn{ color:#a33; border-color:#a33; }
 
 /* blinking dot on every [УТОЧНИТЬ] */
 .unc-dot{

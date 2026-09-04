@@ -555,10 +555,10 @@ TEMPLATE_HEAD = """<!doctype html>
 <body>
 
 <div class="promptbox">
+  <button class="shipbtn" id="shipBtn" type="button">Всё ок — отгружай в Confluence/Jira</button>
   <button id="panelToggle">Комментарии (<span id="cCount">0</span>)</button>
+  <p class="shiphint" id="shipHint"></p>
   <div class="panel" id="panel">
-    <button class="shipbtn" id="shipBtn" type="button">Всё ок — отгружай в Confluence/Jira</button>
-    <p class="shiphint" id="shipHint"></p>
     <h4>Комментарии к доработке</h4>
     <div id="itemsList"><p class="empty">Комментариев нет.</p></div>
     <h4 style="margin-top:1rem">Промт для ИИ</h4>
