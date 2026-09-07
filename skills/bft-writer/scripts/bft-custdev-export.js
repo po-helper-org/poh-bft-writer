@@ -1,9 +1,9 @@
-/* Поверхность встречи: ответы, фильтр по участнику, прогресс, сборка промта.
+/* Поверхность встречи: опросник по одному вопросу на экран, материалы в боковых панелях.
  *
- * Ответы живут в localStorage браузера, не в файле: они превращаются в промт и
- * уходят в чат, а не остаются частью артефакта. Ключ ответа — хэш текста
- * вопроса (его считает экспортёр), поэтому пересборка скрипта после правки
- * документа не сдвигает уже данные ответы на соседний вопрос.
+ * Ответы живут в localStorage браузера, не в файле: они превращаются в промт и уходят в
+ * чат, а не остаются частью артефакта. Ключ ответа — хэш текста вопроса (его считает
+ * экспортёр), поэтому пересборка скрипта после правки документа не сдвигает уже данные
+ * ответы на соседний вопрос.
  */
 (function () {
   "use strict";
@@ -11,8 +11,8 @@
   var DATA = __DATA_JSON__;
   var STORE_KEY = __STORE_KEY_JSON__;
 
-  // Приватный режим и запрет на данные сайта роняют сам доступ к хранилищу, а не
-  // только чтение: без try страница осталась бы пустой вместо рабочей формы.
+  // Приватный режим и запрет на данные сайта роняют сам доступ к хранилищу, а не только
+  // чтение: без try страница осталась бы пустой вместо рабочей формы.
   function load() {
     try {
       return JSON.parse(localStorage.getItem(STORE_KEY) || "{}") || {};
@@ -20,149 +20,203 @@
       return {};
     }
   }
-  function save(state) {
+  function save() {
     try {
       localStorage.setItem(STORE_KEY, JSON.stringify(state));
     } catch (e) {
-      /* нет места или доступа — встреча продолжается, промт соберётся из DOM */
+      /* нет места или доступа — встреча продолжается, промт соберётся из состояния в памяти */
     }
   }
 
   var state = load();
+  var cards = Array.prototype.slice.call(document.querySelectorAll(".q"));
   var byId = {};
-  DATA.questions.forEach(function (q) { byId[q.id] = q; });
+  cards.forEach(function (card) { byId[card.dataset.qid] = card; });
 
-  var cards = Array.prototype.slice.call(document.querySelectorAll(".card"));
-  var doneCount = document.getElementById("doneCount");
-  var totalCount = document.getElementById("totalCount");
+  var scope = "";          // пусто — все участники
+  var order = [];          // карточки текущего охвата, в порядке скрипта
+  var cursor = 0;
 
   function entry(id) {
     if (!state[id]) state[id] = { answer: "", who: "", skipped: false };
     return state[id];
   }
+  function answered(id) { return ((state[id] || {}).answer || "").trim() !== ""; }
+  function skipped(id) { return !!(state[id] || {}).skipped; }
+  function done(id) { return answered(id) || skipped(id); }
 
-  function isDone(rec) {
-    return !!(rec && (rec.skipped || (rec.answer || "").trim()));
+  /* ---------- охват и навигация ---------- */
+
+  function rebuild(keepId) {
+    order = cards.filter(function (card) { return !scope || card.dataset.whom === scope; });
+    var at = keepId ? order.findIndex(function (c) { return c.dataset.qid === keepId; }) : -1;
+    cursor = at >= 0 ? at : 0;
+    render();
   }
 
-  function paint(card) {
-    var id = card.dataset.qid;
-    var rec = state[id] || {};
-    var answered = !!(rec.answer || "").trim();
-    card.classList.toggle("answered", answered);
-    card.classList.toggle("skipped", !!rec.skipped && !answered);
-    var skip = card.querySelector(".skip");
-    skip.setAttribute("aria-pressed", rec.skipped ? "true" : "false");
-    var stateEl = card.querySelector(".state");
-    stateEl.textContent = answered ? "отвечено" : (rec.skipped ? "не относится" : "");
+  function render() {
+    cards.forEach(function (card) { card.hidden = true; });
+    var finish = document.getElementById("finish");
+    var atEnd = cursor >= order.length;
+    finish.hidden = !atEnd;
+
+    if (!atEnd && order.length) {
+      var card = order[cursor];
+      card.hidden = false;
+      var box = card.querySelector("textarea.answer");
+      // Фокус в поле ответа сразу: на встрече печатают, не целятся мышью.
+      window.setTimeout(function () { box.focus({ preventScroll: true }); }, 0);
+    }
+
+    var doneCount = order.filter(function (c) { return done(c.dataset.qid); }).length;
+    document.getElementById("qPos").textContent = order.length
+      ? (atEnd ? "готово" : (cursor + 1) + " из " + order.length) + " · отвечено " + doneCount
+      : "вопросов нет";
+    document.getElementById("qScope").textContent = scope || "все участники";
+    document.getElementById("scopeReset").hidden = !scope;
+
+    var share = order.length ? (atEnd ? 1 : cursor / order.length) : 0;
+    document.getElementById("barFill").style.width = (share * 100).toFixed(1) + "%";
+
+    document.getElementById("prevBtn").disabled = cursor === 0;
+    document.getElementById("nextBtn").disabled = atEnd;
+    document.getElementById("skipBtn").disabled = atEnd;
+    document.getElementById("skipBtn").textContent =
+      !atEnd && order.length && skipped(order[cursor].dataset.qid) ? "Вернуть в опрос" : "Не относится";
+
+    if (atEnd) {
+      document.getElementById("finishText").textContent =
+        "Отвечено " + doneCount + " из " + order.length +
+        (scope ? " по блоку «" + scope + "»." : ".");
+    }
   }
 
-  function refreshProgress() {
-    var visible = cards.filter(function (c) { return !c.hidden; });
-    var done = visible.filter(function (c) { return isDone(state[c.dataset.qid]); });
-    doneCount.textContent = String(done.length);
-    totalCount.textContent = String(visible.length);
+  function step(delta) {
+    cursor = Math.max(0, Math.min(order.length, cursor + delta));
+    render();
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   cards.forEach(function (card) {
     var id = card.dataset.qid;
     var rec = entry(id);
-    var answer = card.querySelector(".answer");
-    var who = card.querySelector(".who");
-    var skip = card.querySelector(".skip");
+    var box = card.querySelector("textarea.answer");
+    var who = card.querySelector("input.who");
 
-    answer.value = rec.answer || "";
+    box.value = rec.answer || "";
     who.value = rec.who || "";
-    // Адресат вопроса — разумная заготовка «кто ответил»: на встрече её правят,
-    // когда отвечает не тот, кому вопрос был адресован.
+    // Адресат вопроса — разумная заготовка «кто ответил»: на встрече её правят, когда
+    // отвечает не тот, кому вопрос был адресован.
     if (!who.value && card.dataset.whom && card.dataset.whom.indexOf("[") !== 0) {
       who.placeholder = card.dataset.whom;
     }
 
-    answer.addEventListener("input", function () {
-      entry(id).answer = answer.value;
-      if (answer.value.trim()) entry(id).skipped = false;
-      save(state);
-      paint(card);
-      refreshProgress();
+    box.addEventListener("input", function () {
+      var r = entry(id);
+      r.answer = box.value;
+      if (box.value.trim()) r.skipped = false;
+      save();
+      render();
     });
-    who.addEventListener("input", function () {
-      entry(id).who = who.value;
-      save(state);
-    });
-    skip.addEventListener("click", function () {
-      var rec2 = entry(id);
-      rec2.skipped = !rec2.skipped;
-      save(state);
-      paint(card);
-      refreshProgress();
-    });
-
-    paint(card);
+    who.addEventListener("input", function () { entry(id).who = who.value; save(); });
   });
 
-  /* --- фильтр по участнику --- */
-  var filters = document.getElementById("filters");
-  var people = ["Все"].concat(DATA.participants.filter(function (p) {
-    return p && p.indexOf("[") !== 0;
-  }));
-  var active = "Все";
+  document.getElementById("prevBtn").addEventListener("click", function () { step(-1); });
+  document.getElementById("nextBtn").addEventListener("click", function () { step(1); });
+  document.getElementById("skipBtn").addEventListener("click", function () {
+    if (cursor >= order.length) return;
+    var id = order[cursor].dataset.qid;
+    var rec = entry(id);
+    rec.skipped = !rec.skipped;
+    save();
+    if (rec.skipped) step(1); else render();
+  });
+  document.getElementById("finishBack").addEventListener("click", function () { step(-1); });
+  document.getElementById("scopeReset").addEventListener("click", function () {
+    scope = "";
+    rebuild();
+  });
 
-  function applyFilter() {
-    cards.forEach(function (card) {
-      card.hidden = active !== "Все" && card.dataset.whom !== active;
+  document.addEventListener("keydown", function (event) {
+    if ((event.ctrlKey || event.metaKey) && event.key === "Enter") { event.preventDefault(); step(1); }
+    if (event.altKey && event.key === "ArrowLeft") { event.preventDefault(); step(-1); }
+    if (event.key === "Escape") closeDrawers();
+  });
+
+  /* ---------- панели ---------- */
+
+  function closeDrawers() {
+    Array.prototype.forEach.call(document.querySelectorAll(".drawer"), function (d) { d.hidden = true; });
+    Array.prototype.forEach.call(document.querySelectorAll(".rail-tab"), function (b) {
+      b.setAttribute("aria-expanded", "false");
     });
-    refreshProgress();
   }
 
-  people.forEach(function (name) {
-    var b = document.createElement("button");
-    b.className = "chip";
-    b.type = "button";
-    b.textContent = name;
-    b.setAttribute("aria-pressed", name === active ? "true" : "false");
-    b.addEventListener("click", function () {
-      active = name;
-      Array.prototype.forEach.call(filters.children, function (el) {
-        el.setAttribute("aria-pressed", el === b ? "true" : "false");
-      });
-      applyFilter();
+  Array.prototype.forEach.call(document.querySelectorAll(".rail-tab"), function (tab) {
+    tab.setAttribute("aria-expanded", "false");
+    tab.addEventListener("click", function () {
+      var drawer = document.getElementById("drawer-" + tab.dataset.drawer);
+      var opening = drawer.hidden;
+      closeDrawers();
+      if (!opening) return;
+      drawer.hidden = false;
+      tab.setAttribute("aria-expanded", "true");
+      if (tab.dataset.drawer === "result") document.getElementById("promptOut").value = buildPrompt();
     });
-    filters.appendChild(b);
+  });
+  Array.prototype.forEach.call(document.querySelectorAll("[data-close]"), function (btn) {
+    btn.addEventListener("click", closeDrawers);
   });
 
-  /* --- панели --- */
-  function wireDrawer(btnId, drawerId, closeId, onOpen) {
-    var btn = document.getElementById(btnId);
-    var drawer = document.getElementById(drawerId);
-    var close = document.getElementById(closeId);
-    if (!btn || !drawer) return;
+  Array.prototype.forEach.call(document.querySelectorAll(".pane-tabs button"), function (tab) {
+    tab.addEventListener("click", function () {
+      var strip = tab.parentElement;
+      Array.prototype.forEach.call(strip.children, function (b) {
+        b.setAttribute("aria-pressed", b === tab ? "true" : "false");
+      });
+      var body = strip.parentElement.querySelector(".drawer-body");
+      Array.prototype.forEach.call(body.children, function (pane) {
+        pane.hidden = pane.dataset.pane !== tab.dataset.pane;
+      });
+    });
+  });
+
+  Array.prototype.forEach.call(document.querySelectorAll(".scope-btn"), function (btn) {
     btn.addEventListener("click", function () {
-      var opening = !drawer.classList.contains("open");
-      Array.prototype.forEach.call(document.querySelectorAll(".drawer.open"), function (d) {
-        d.classList.remove("open");
-      });
-      if (opening) {
-        drawer.classList.add("open");
-        if (onOpen) onOpen();
-      }
+      scope = btn.dataset.whom || "";
+      rebuild();
+      closeDrawers();
     });
-    if (close) close.addEventListener("click", function () { drawer.classList.remove("open"); });
+  });
+
+  /* ---------- письмо участникам ---------- */
+
+  function copyFrom(field, button, label) {
+    field.select();
+    var ok = false;
+    try { ok = document.execCommand("copy"); } catch (e) { ok = false; }
+    if (!ok && navigator.clipboard) {
+      navigator.clipboard.writeText(field.value).then(function () { button.textContent = "Скопировано"; });
+      return;
+    }
+    button.textContent = ok ? "Скопировано" : "Выделено — Ctrl+C";
+    window.setTimeout(function () { button.textContent = label; }, 2000);
   }
 
-  /* --- сборка результата --- */
-  function collected() {
-    return DATA.questions
-      .map(function (q) { return { q: q, rec: state[q.id] || {} }; })
-      .filter(function (item) { return (item.rec.answer || "").trim(); });
-  }
+  var agendaText = document.getElementById("agendaText");
+  var agendaCopy = document.getElementById("agendaCopy");
+  agendaCopy.addEventListener("click", function () { copyFrom(agendaText, agendaCopy, "Скопировать"); });
+  document.getElementById("agendaMail").addEventListener("click", function () {
+    // Первая строка письма — тема: она уходит в subject, остальное в тело. Адресов у
+    // страницы нет (в personas.csv их не бывает), поэтому «Кому» заполняет PO в почте.
+    var lines = agendaText.value.split("\n");
+    var subject = lines[0].replace(/^Тема:\s*/, "");
+    var body = lines.slice(1).join("\n").replace(/^\n+/, "");
+    window.location.href = "mailto:?subject=" + encodeURIComponent(subject) +
+      "&body=" + encodeURIComponent(body);
+  });
 
-  function unanswered() {
-    return DATA.questions.filter(function (q) {
-      var rec = state[q.id] || {};
-      return !(rec.answer || "").trim() && !rec.skipped;
-    });
-  }
+  /* ---------- результат встречи ---------- */
 
   function plural(n, one, few, many) {
     var mod100 = n % 100, mod10 = n % 10;
@@ -179,7 +233,7 @@
   }
 
   function buildPrompt() {
-    var answers = collected();
+    var answers = DATA.questions.filter(function (q) { return answered(q.id); });
     var lines = [];
     lines.push("Внеси в " + (DATA.source || DATA.epic + "-fast.md") +
                " результаты CustDev-интервью" + (DATA.prepared ? " по скрипту от " + DATA.prepared : "") + ".");
@@ -189,12 +243,14 @@
       return lines.join("\n");
     }
     lines.push("Ответы:");
-    answers.forEach(function (item, i) {
-      var who = (item.rec.who || "").trim() || item.q.whom || "участник";
-      lines.push((i + 1) + ". [" + label(item.q) + "] " + item.q.text);
-      lines.push("   → «" + item.rec.answer.trim() + "» (" + who + ")");
+    answers.forEach(function (q, i) {
+      var rec = state[q.id];
+      var who = (rec.who || "").trim() || q.whom || "участник";
+      lines.push((i + 1) + ". [" + label(q) + "] " + q.text);
+      lines.push("   → «" + rec.answer.trim() + "» (" + who + ")");
     });
-    var left = unanswered();
+
+    var left = DATA.questions.filter(function (q) { return !done(q.id); });
     if (left.length) {
       lines.push("");
       // Перечислять поимённо все непройденные вопросы бессмысленно: следующему прогону
@@ -210,6 +266,7 @@
       if (script) parts.push(script + " " + plural(script, "вопрос", "вопроса", "вопросов") + " основного скрипта");
       lines.push("Не проверено, до этого не дошли: " + parts.join("; ") + ".");
     }
+
     lines.push("");
     lines.push("Правила: ответ участника — цитата-источник требования; закрывай [УТОЧНИТЬ] только тем,");
     lines.push("что прозвучало; опровергнутую гипотезу не правь молча, вынеси вопросом в чат.");
@@ -237,39 +294,18 @@
     DATA.questions.forEach(function (q) {
       var rec = state[q.id] || {};
       var answer = (rec.answer || "").trim() || (rec.skipped ? "не относится" : "");
-      var who = (rec.who || "").trim();
       lines.push("| " + q.n + " | " + label(q) + " | " + q.text.replace(/\|/g, "\\|") +
-                 " | " + answer.replace(/\|/g, "\\|").replace(/\n/g, " ") + " | " + who + " |");
+                 " | " + answer.replace(/\|/g, "\\|").replace(/\n/g, " ") + " | " + (rec.who || "").trim() + " |");
     });
     return lines.join("\n");
   }
 
   var promptOut = document.getElementById("promptOut");
-  wireDrawer("triggerBtn", "triggerDrawer", "triggerClose");
-  wireDrawer("exportBtn", "exportDrawer", "exportClose", function () {
-    promptOut.value = buildPrompt();
-  });
-
   var copyBtn = document.getElementById("copyBtn");
   copyBtn.addEventListener("click", function () {
     promptOut.value = buildPrompt();
-    promptOut.select();
-    var ok = false;
-    try {
-      ok = document.execCommand("copy");
-    } catch (e) {
-      ok = false;
-    }
-    if (!ok && navigator.clipboard) {
-      navigator.clipboard.writeText(promptOut.value).then(function () {
-        copyBtn.textContent = "Скопировано";
-      });
-      return;
-    }
-    copyBtn.textContent = ok ? "Скопировано" : "Выделено — Ctrl+C";
-    setTimeout(function () { copyBtn.textContent = "Скопировать промт"; }, 2000);
+    copyFrom(promptOut, copyBtn, "Скопировать промт");
   });
-
   document.getElementById("downloadBtn").addEventListener("click", function () {
     var blob = new Blob([buildAnswersFile()], { type: "text/markdown;charset=utf-8" });
     var a = document.createElement("a");
@@ -278,9 +314,12 @@
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+    window.setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+  });
+  document.getElementById("finishResult").addEventListener("click", function () {
+    var tab = document.querySelector('.rail-tab[data-drawer="result"]');
+    if (tab) tab.click();
   });
 
-  applyFilter();
-  refreshProgress();
+  rebuild();
 })();

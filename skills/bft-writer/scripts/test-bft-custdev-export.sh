@@ -23,11 +23,21 @@ PAGE="$TMP/epic-custdev.html"
 
 # Число карточек = вопросы скрипта плюс вопросы дополнительных гипотез. Потеря
 # карточки означает, что вопрос на встрече не зададут вовсе.
-cards=$(grep -c "<article class='card'" "$PAGE")
+cards=$(grep -c "<article class='q'" "$PAGE")
 if [ "$cards" -ge 30 ]; then
   echo "ok    вопросы стали карточками ($cards шт.)"
 else
   echo "FAIL  карточек всего $cards — часть вопросов потерялась"
+  fails=$((fails + 1))
+fi
+
+# Опросник ведёт по одному вопросу: все карточки приезжают скрытыми, показывает их скрипт.
+# Забыли hidden — страница снова превращается в простыню из тридцати полей.
+visible=$(grep -c "<article class='q'[^>]*hidden>" "$PAGE")
+if [ "$visible" -eq "$cards" ]; then
+  echo "ok    все карточки скрыты в разметке, показывает их опросник"
+else
+  echo "FAIL  скрыто $visible из $cards карточек — страница развернётся простынёй"
   fails=$((fails + 1))
 fi
 
@@ -40,11 +50,12 @@ else
   echo "ok    данные страницы подставлены"
 fi
 
-for token in 'id="filters"' 'id="promptOut"' 'id="downloadBtn"' "class='triggers'" 'textarea class="answer"'; do
-  case "$token" in
-    'textarea class="answer"') pattern="class='answer'" ;;
-    *) pattern="$token" ;;
-  esac
+# Рейка, панели и органы управления опросником: пропажа любого делает страницу
+# нерабочей на встрече, а вёрстка при этом остаётся внешне целой.
+for pattern in 'data-drawer="meta"' 'data-drawer="agenda"' 'data-drawer="hints"' \
+               'data-drawer="result"' 'id="agendaText"' 'id="agendaMail"' 'id="promptOut"' \
+               'id="downloadBtn"' 'id="nextBtn"' 'id="prevBtn"' 'id="skipBtn"' 'id="barFill"' \
+               "class='triggers'" "class='answer'" "class='scope-btn scope-all'"; do
   if grep -q "$pattern" "$PAGE"; then
     echo "ok    на странице есть: $pattern"
   else
@@ -52,6 +63,29 @@ for token in 'id="filters"' 'id="promptOut"' 'id="downloadBtn"' "class='triggers
     fails=$((fails + 1))
   fi
 done
+
+# Верхней панели быть не должно: её убрали, и вернуться она может только незаметно.
+if grep -q "class=\"topbar\"" "$PAGE"; then
+  echo "FAIL  верхняя панель вернулась на страницу"
+  fails=$((fails + 1))
+else
+  echo "ok    верхней панели нет"
+fi
+
+# Письмо участникам собирается на сервере и лежит в разметке готовым текстом.
+if grep -q "Цель встречи:" "$PAGE" && grep -q "Вопросы к обсуждению:" "$PAGE"; then
+  echo "ok    заготовка письма собрана с целью и вопросами"
+else
+  echo "FAIL  в заготовке письма нет цели или вопросов к обсуждению"
+  fails=$((fails + 1))
+fi
+# Ни маркера артефакта, ни слага эпика в теме: письмо уходит наружу.
+if grep -q "Тема: CustDev-интервью: \[CustDev\]" "$PAGE" || grep -qE "Тема: CustDev-интервью: [a-z0-9-]+:" "$PAGE"; then
+  echo "FAIL  в тему письма протёк слаг эпика или маркер артефакта"
+  fails=$((fails + 1))
+else
+  echo "ok    тема письма без служебных маркеров"
+fi
 
 # Гейт 22 прогоняется на исходнике и виден в подвале — расхождение версий
 # шаблона должно быть заметно сразу, а не только при ручном запуске линтера.
@@ -64,7 +98,7 @@ fi
 
 # Тег блока гипотезы доезжает до карточки: без него на встрече не видно, какую
 # часть гипотезы проверяет вопрос.
-if grep -q "<span class='tag'>Метрика блокера</span>" "$PAGE"; then
+if grep -q "Метрика блокера</p>" "$PAGE"; then
   echo "ok    тег блока гипотезы доехал до карточки"
 else
   echo "FAIL  тега блока гипотезы на карточке нет"
