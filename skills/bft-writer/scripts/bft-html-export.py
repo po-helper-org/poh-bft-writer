@@ -24,6 +24,7 @@ import hashlib
 import html as htmlmod
 import json
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -270,6 +271,98 @@ def parse_blocks(body: str):
 
 
 # ---------- PlantUML -> Mermaid ----------
+
+# ---------- Wireloom (StepByStep-раскадровка UI, HowToDemo) ----------
+
+WIRELOOM_RUNTIME = Path(__file__).parent / "wireloom-runtime"
+WIRELOOM_FRAME_SPLIT_RE = re.compile(r"\n===+\s*\n")
+WIRELOOM_SVG_ROOT_RE = re.compile(r'<svg\b([^>]*)>(.*)</svg>\s*\Z', re.S)
+WIRELOOM_WH_RE = re.compile(r'\bwidth="([\d.]+)"[^>]*\bheight="([\d.]+)"')
+WIRELOOM_UNC = '<p><mark class="unc">[УТОЧНИТЬ: {}]</mark></p>'
+
+
+def _wireloom_render_frame(source: str) -> tuple[str, str] | tuple[None, str]:
+    """Один экран .wireloom -> (svg, "") либо (None, причина отказа)."""
+    node = shutil.which("node")
+    script = WIRELOOM_RUNTIME / "render.mjs"
+    if not node or not script.exists() or not (WIRELOOM_RUNTIME / "node_modules").exists():
+        return None, "нет рендерера Wireloom (node/скрипт/npm install в wireloom-runtime)"
+    try:
+        res = subprocess.run([node, str(script)], input=source, capture_output=True,
+                              text=True, timeout=20)
+    except Exception as e:
+        return None, f"Wireloom не запустился — {e}"
+    if res.returncode != 0:
+        return None, f"ошибка разбора .wireloom — {res.stderr.strip()[:200]}"
+    return res.stdout, ""
+
+
+def _wireloom_compose_storyboard(frames: list[tuple[str, str]]) -> str:
+    """frames: [(подпись, svg-строка), ...] -> один SVG-холст: номер, кадр,
+    подпись под кадром, стрелка к следующему. Композиция — единственное,
+    что дописано поверх рендера Wireloom: сам экран целиком его выход."""
+    ink, acc, muted = "#1f2328", "#2b6cb0", "#6b7684"
+    gap, pad_top, cap_gap, cap_line = 64, 40, 22, 15
+
+    parsed = []
+    for caption, svg in frames:
+        m = WIRELOOM_SVG_ROOT_RE.match(svg.strip())
+        inner_attrs, inner_body = (m.group(1), m.group(2)) if m else ("", svg)
+        wh = WIRELOOM_WH_RE.search(inner_attrs)
+        w, h = (float(wh.group(1)), float(wh.group(2))) if wh else (200.0, 120.0)
+        cap_lines = [caption] if caption else []
+        parsed.append((w, h, inner_body, cap_lines))
+
+    max_h = max(h for _, h, _, _ in parsed)
+    total_h = pad_top + max_h + cap_gap + cap_line * max((len(c) for *_, c in parsed), default=1) + 12
+    x = 16
+    body = []
+    centers = []
+    for i, (w, h, inner, cap_lines) in enumerate(parsed, start=1):
+        body.append(f'<text x="{x}" y="20" font-family="Inter,Arial,sans-serif" font-size="14" '
+                    f'font-weight="800" fill="{acc}">{i}</text>')
+        fx = x + 20
+        body.append(f'<svg x="{fx:.1f}" y="{pad_top}" width="{w:.1f}" height="{h:.1f}" '
+                    f'viewBox="0 0 {w:.1f} {h:.1f}">{inner}</svg>')
+        cap_y = pad_top + max_h + cap_gap
+        for j, line in enumerate(cap_lines):
+            body.append(f'<text x="{x}" y="{cap_y + j * cap_line:.1f}" '
+                        f'font-family="Inter,Arial,sans-serif" font-size="10.5" '
+                        f'fill="{muted}">{htmlmod.escape(line)}</text>')
+        centers.append((x, fx + w, pad_top + h / 2))
+        x = fx + w + gap
+    for (_, x1, cy1), (x2, _, cy2) in zip(centers, centers[1:]):
+        cy = (cy1 + cy2) / 2
+        body.append(f'<path d="M{x1 + 6:.1f} {cy:.1f} L{x2 - 14:.1f} {cy:.1f}" '
+                    f'stroke="{acc}" stroke-width="1.6" fill="none" marker-end="url(#wl-ah)"/>')
+    total_w = x - gap + 16
+    head = (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {total_w:.1f} {total_h:.1f}" '
+            f'width="{total_w:.1f}" height="{total_h:.1f}">'
+            f'<defs><marker id="wl-ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" '
+            f'markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" '
+            f'fill="{acc}"/></marker></defs><rect width="{total_w:.1f}" height="{total_h:.1f}" fill="#fff"/>')
+    return head + "".join(body) + "</svg>"
+
+
+def render_wireloom_storyboard(code: str) -> str:
+    """```wireloom-storyboard``` -> один составной SVG. Формат тела блока —
+    кадры через строку "===", в каждом кадре первая строка — подпись, дальше
+    строка "---", дальше исходник экрана .wireloom (ровно один window на кадр,
+    это ограничение самого Wireloom, не наше)."""
+    chunks = [c for c in WIRELOOM_FRAME_SPLIT_RE.split(code.strip("\n") + "\n") if c.strip()]
+    if not chunks:
+        return WIRELOOM_UNC.format("пустой блок wireloom-storyboard")
+    frames = []
+    for chunk in chunks:
+        caption, sep, source = chunk.partition("\n---\n")
+        if not sep:
+            return WIRELOOM_UNC.format("в кадре нет разделителя \"---\" между подписью и .wireloom")
+        svg, err = _wireloom_render_frame(source.strip("\n"))
+        if svg is None:
+            return WIRELOOM_UNC.format(err)
+        frames.append((caption.strip(), svg))
+    return _wireloom_compose_storyboard(frames)
+
 
 def plantuml_to_mermaid(src: str) -> str:
     lines = [l.rstrip() for l in src.splitlines()]
@@ -536,6 +629,12 @@ def render_body(blocks, id_map, notes=None):
                 # как есть — иначе фреймы приезжают текстом. Скрипт внутри блока
                 # закрывает эту ветку: рисунок обязан быть инертным.
                 out.append(f'<figure class="wireframe">{code}</figure>')
+            elif lang == "wireloom-storyboard":
+                # StepByStep-раскадровка HowToDemo: N экранов Wireloom (каждый —
+                # свой fenced-кадр внутри блока) рендерятся node-обвязкой и
+                # склеиваются в один SVG стрелками. Нет рендерера — честный
+                # [УТОЧНИТЬ], а не тихая пропажа картинки.
+                out.append(f'<figure class="wireframe">{render_wireloom_storyboard(code)}</figure>')
             else:
                 out.append(f'<pre><code>{htmlmod.escape(code)}</code></pre>')
         elif kind == "para":

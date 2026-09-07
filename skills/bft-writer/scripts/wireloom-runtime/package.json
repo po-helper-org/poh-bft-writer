@@ -1,0 +1,9 @@
+{
+  "name": "bft-wireloom-runtime",
+  "private": true,
+  "description": "Тонкая обвязка над wireloom для bft-html-export.py: экран .wireloom со stdin -> SVG на stdout.",
+  "type": "module",
+  "dependencies": {
+    "wireloom": "0.7.0"
+  }
+}
