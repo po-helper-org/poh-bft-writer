@@ -531,6 +531,11 @@ def render_body(blocks, id_map, notes=None):
                 out.append(f'<pre class="mermaid">\n{htmlmod.escape(mermaid)}\n</pre>')
             elif lang == "mermaid":
                 out.append(f'<pre class="mermaid">\n{htmlmod.escape(code)}\n</pre>')
+            elif lang == "svg" and "<script" not in code.lower():
+                # Wireframe-раскадровка сценария: разметка отдаётся на страницу
+                # как есть — иначе фреймы приезжают текстом. Скрипт внутри блока
+                # закрывает эту ветку: рисунок обязан быть инертным.
+                out.append(f'<figure class="wireframe">{code}</figure>')
             else:
                 out.append(f'<pre><code>{htmlmod.escape(code)}</code></pre>')
         elif kind == "para":
