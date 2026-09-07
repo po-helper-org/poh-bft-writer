@@ -25,6 +25,7 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties, type Reac
 import {
   Button, IconChevronLeftOutline14, IconCloseOutline16, IconWarningOutline16,
 } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { DocumentRole } from '../bft-reader.js'
 import type { RpcResult } from '../channel.js'
 import type { BftTask } from '../model.js'
 import type { BftLocaleKey } from './locales.js'
@@ -51,7 +52,7 @@ export interface PreviewProps {
    * Открывает детальную страницу (Task 3, DetailPage.tsx) — переключает режим панели, живёт
    * локально в Panel.tsx (не в RequirementsPanelInjected: см. комментарий у route в Panel.tsx).
    */
-  onOpenDetail(id: string): void
+  onOpenDetail(id: string, doc?: DocumentRole): void
   /** Стрелка «назад»: возвращает панель к списку, не закрывая её. */
   onBack(): void
   /** Панель целиком — зовётся после успешного ухода в чат (см. handleChat ниже). */
@@ -191,7 +192,7 @@ export function Preview({ id, t, getTask, getHandoff, openChatWithDraft, onOpenD
       )}
       {state.phase === 'ready' && (
         <>
-          <ReadyBody task={state.task} t={t} />
+          <ReadyBody task={state.task} t={t} onOpenDetail={onOpenDetail} />
           <div className={css.previewFooter}>
             <Button
               variant="primary"
@@ -211,7 +212,10 @@ export function Preview({ id, t, getTask, getHandoff, openChatWithDraft, onOpenD
   )
 }
 
-function ReadyBody({ task, t }: { task: BftTask; t: (key: BftLocaleKey) => string }) {
+function ReadyBody(
+  { task, t, onOpenDetail }:
+  { task: BftTask; t: (key: BftLocaleKey) => string; onOpenDetail(id: string, doc?: DocumentRole): void },
+) {
   const tone = { '--tone': STAGE_TONE[task.stage] } as CSSProperties
 
   // Секции всегда существуют (PO: «замени "Не заполнено: …" — секции всегда должны
@@ -276,6 +280,22 @@ function ReadyBody({ task, t }: { task: BftTask; t: (key: BftLocaleKey) => strin
         : EMPTY,
     },
     { label: t('previewLinksHtml'), value: task.links.html ?? EMPTY },
+    {
+      // Путь скрипта интервью показан как есть — он относительный, ссылкой в браузере ему
+      // не стать. Открывает его кнопка: детальная страница умеет читать документ эпика по
+      // каналу и показать в рамке, а локальный файл браузер сам не откроет.
+      label: t('previewLinksCustdev'),
+      value: task.links.custdev
+        ? (
+          <>
+            <p>{task.links.custdev}</p>
+            <button type="button" className={css.previewLinkButton} onClick={() => { onOpenDetail(task.id, 'custdev') }}>
+              {t('previewOpenCustdev')}
+            </button>
+          </>
+          )
+        : EMPTY,
+    },
     { label: t('previewSmart'), value: task.smart ? <p>{task.smart}</p> : EMPTY },
     {
       label: t('previewHowToDemo'),

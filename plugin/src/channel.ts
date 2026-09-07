@@ -81,7 +81,13 @@ export async function dispatch(
       case 'findDocument': {
         const id = stringField(payload, 'id')
         if (!id) return fail('bad-request', 'не передан идентификатор требования')
-        return ok(await reader.findDocument(id))
+        // Роль опциональна: старый клиент её не шлёт и получает документ требования,
+        // как получал. Чужое значение не угадывается — оно отвергается.
+        const kind = stringField(payload, 'kind')
+        if (kind !== null && kind !== 'requirement' && kind !== 'custdev') {
+          return fail('bad-request', `неизвестный вид документа «${kind}»`)
+        }
+        return ok(await reader.findDocument(id, kind ?? 'requirement'))
       }
 
       // Черновик для чата: продолжение с последнего закрытого отрезка работы.

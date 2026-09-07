@@ -24,6 +24,7 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties } from 're
 import {
   Button, IconChevronLeftOutline14, IconCodeOutline16, IconWarningOutline16,
 } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { DocumentRole } from '../bft-reader.js'
 import type { RpcResult } from '../channel.js'
 import type { BftTask } from '../model.js'
 import type { BftLocaleKey } from './locales.js'
@@ -43,7 +44,13 @@ export interface DetailPageProps {
    * Страница передаёт только идентификатор: где лежит файл и как он называется — знание
    * хоста, а не клиента. Поэтому смена формата ссылок в навыках сюда не протекает.
    */
-  findDocument(id: string, signal: AbortSignal): Promise<RpcResult<unknown>>
+  findDocument(id: string, kind: DocumentRole, signal: AbortSignal): Promise<RpcResult<unknown>>
+  /**
+   * Какой документ эпика открыт: сам БФТ или скрипт CustDev-интервью. Приходит извне,
+   * потому что открыть страницу сразу на скрипте умеет и превью (ссылка «CustDev»), и
+   * переключатель внутри самой страницы.
+   */
+  doc?: DocumentRole
   /** Обобщённая цепочка «уйти в чат с черновиком» (см. index.tsx). Отправки нет никогда. */
   openChatWithDraft(draft: string): Promise<void>
   /** Стрелка «← Назад»: возвращает панель к превью того же требования (см. Panel.tsx). */
@@ -97,7 +104,7 @@ function toFoundDocument(value: unknown): FoundDocument | null {
   return { path: doc.path, kind: doc.kind === 'markdown' ? 'markdown' : 'html', content: doc.content }
 }
 
-export function DetailPage({ id, t, getTask, findDocument, openChatWithDraft, onBack, onClose }: DetailPageProps) {
+export function DetailPage({ id, t, getTask, findDocument, doc: initialDoc = 'requirement', openChatWithDraft, onBack, onClose }: DetailPageProps) {
   const [taskState, setTaskState] = useState<TaskState>({ phase: 'loading' })
   const taskControllerRef = useRef<AbortController | null>(null)
 
@@ -132,13 +139,16 @@ export function DetailPage({ id, t, getTask, findDocument, openChatWithDraft, on
   // зависит от того, записал ли навык ссылку на артефакт.
   const [docState, setDocState] = useState<DocState>({ phase: 'loading' })
   const docControllerRef = useRef<AbortController | null>(null)
+  // Какой из двух документов эпика показан. Живёт здесь, а не в маршруте панели: переключение
+  // не меняет, что открыто, — оно меняет, что видно внутри уже открытого требования.
+  const [docRole, setDocRole] = useState<DocumentRole>(initialDoc)
 
   const loadDoc = useCallback(() => {
     docControllerRef.current?.abort()
     const controller = new AbortController()
     docControllerRef.current = controller
     setDocState({ phase: 'loading' })
-    findDocument(id, controller.signal)
+    findDocument(id, docRole, controller.signal)
       .then((result) => {
         if (controller.signal.aborted) return
         if (!result.ok) {
@@ -159,7 +169,7 @@ export function DetailPage({ id, t, getTask, findDocument, openChatWithDraft, on
         if (controller.signal.aborted) return
         setDocState({ phase: 'error', message: error instanceof Error ? error.message : String(error) })
       })
-  }, [findDocument, id])
+  }, [findDocument, id, docRole])
 
   useEffect(() => {
     loadDoc()
@@ -267,6 +277,24 @@ export function DetailPage({ id, t, getTask, findDocument, openChatWithDraft, on
                 <span className={css.stateIcon} data-tone="error" aria-hidden="true"><IconWarningOutline16 size={20} /></span>
                 <p className={css.stateMessage}>{docState.message}</p>
                 <Button variant="outline" onClick={loadDoc}>{t('retry')}</Button>
+              </div>
+            )}
+            {taskState.task.artifacts.custdev && (
+              // Две кнопки, а не вкладки харнесса: переключатель из двух состояний, и
+              // собственный компонент вкладок ради него был бы тяжелее самой функции.
+              <div className={css.detailDocSwitch} role="group" aria-label={t('detailDocSwitch')}>
+                <Button
+                  variant={docRole === 'requirement' ? 'primary' : 'outline'}
+                  onClick={() => { setDocRole('requirement') }}
+                >
+                  {t('detailDocRequirement')}
+                </Button>
+                <Button
+                  variant={docRole === 'custdev' ? 'primary' : 'outline'}
+                  onClick={() => { setDocRole('custdev') }}
+                >
+                  {t('detailDocCustdev')}
+                </Button>
               </div>
             )}
             {docState.phase === 'ready' && (

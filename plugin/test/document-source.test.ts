@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { chooseDocument } from '../src/document-source.js'
+import { chooseCustdevDocument, chooseDocument } from '../src/document-source.js'
 
 test('канонический HTML побеждает всё остальное', () => {
   const choice = chooseDocument('epic', ['epic.md', 'epic-fast.md', 'epic.html', 'other.html'])
@@ -24,4 +24,28 @@ test('после одного /bft-fast документ тоже показыв
 
 test('показывать нечего — null, а не выдуманное имя', () => {
   assert.equal(chooseDocument('epic', ['personas.csv']), null)
+})
+
+test('страница встречи не подменяет собой страницу ревью', () => {
+  const choice = chooseDocument('epic', ['epic-fast.md', 'epic-custdev.md', 'epic-custdev.html', 'epic-fast.html'])
+  assert.deepEqual(choice, { name: 'epic-fast.html', kind: 'html' })
+})
+
+test('страница встречи не показывается вместо документа, даже когда других HTML нет', () => {
+  const choice = chooseDocument('epic', ['epic-fast.md', 'epic-custdev.html'])
+  assert.deepEqual(choice, { name: 'epic-fast.md', kind: 'markdown' })
+})
+
+test('скрипт интервью: страница встречи побеждает исходный markdown', () => {
+  assert.deepEqual(chooseCustdevDocument('epic', ['epic-custdev.md', 'epic-custdev.html', 'epic-fast.html']),
+    { name: 'epic-custdev.html', kind: 'html' })
+})
+
+test('страницы встречи ещё нет — показывается сам скрипт', () => {
+  assert.deepEqual(chooseCustdevDocument('epic', ['epic-custdev.md', 'epic-fast.html']),
+    { name: 'epic-custdev.md', kind: 'markdown' })
+})
+
+test('интервью не готовили — показывать нечего, а не документ требования', () => {
+  assert.equal(chooseCustdevDocument('epic', ['epic-fast.md', 'epic-fast.html']), null)
 })

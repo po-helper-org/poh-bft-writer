@@ -22,10 +22,10 @@ cp -r "$REPO"/commands "$REPO"/skills "$REPO"/install.sh "$REPO"/bft-config.temp
 
 cmds=$(ls -1 "$TMP/agent/.claude/commands" 2>/dev/null | wc -l)
 skls=$(ls -1 "$TMP/agent/.claude/skills" 2>/dev/null | wc -l)
-[ "$cmds" -eq 8 ] && ok "install.sh поставил восемь команд контура" \
-  || fail "команд установлено $cmds, ожидалось 8"
-[ "$skls" -eq 5 ] && ok "install.sh поставил пять навыков" \
-  || fail "навыков установлено $skls, ожидалось 5"
+[ "$cmds" -eq 9 ] && ok "install.sh поставил девять команд контура" \
+  || fail "команд установлено $cmds, ожидалось 9"
+[ "$skls" -eq 6 ] && ok "install.sh поставил шесть навыков" \
+  || fail "навыков установлено $skls, ожидалось 6"
 
 # Главное: установка для IDE-агента не должна ничего знать о плагине.
 if find "$TMP/agent/.claude" -iname "*plugin*" -o -iname "*.ts" -o -iname "package.json" 2>/dev/null | grep -q .; then

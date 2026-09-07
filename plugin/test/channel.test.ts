@@ -74,3 +74,12 @@ test('закрытие отрезка требует итог, а не толь�
   assert.equal((await dispatch(r, 'finishWork', { id: 'alpha' })).ok, false)
   assert.equal((await dispatch(r, 'finishWork', { id: 'alpha', summary: 'готово', contextRef: 'br' })).ok, true)
 })
+
+test('вид документа проверяется на проводе, а не угадывается', async () => {
+  const bad = await dispatch(reader(), 'findDocument', { id: 'alpha', kind: 'что-то' })
+  assert.deepEqual(bad, { ok: false, error: { code: 'bad-request', message: 'неизвестный вид документа «что-то»', details: {} } })
+
+  // Роль опциональна: клиент прошлой версии её не шлёт и получает документ требования.
+  const old = await dispatch(reader(), 'findDocument', { id: 'alpha' })
+  assert.equal(old.ok, true)
+})
