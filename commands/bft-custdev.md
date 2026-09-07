@@ -9,7 +9,7 @@ description: 'Подготовка проблемного CustDev-интервь
 ```
 
 **Параметры:**
-- `<epic_slug>` — имя эпика. Скрипт собирается по артефактам `<docs_path>/<epic_slug>/`: `<epic_slug>-fast.md` (обязателен), `personas.csv`, `requirements.csv`, `context_map.md` (опц.). Пусто → команда просит указать эпик.
+- `<epic_slug>` — имя эпика. Скрипт собирается по **собранному БФТ**: берётся `<epic_slug>.md` со `stage: deep`, если он есть, иначе `<epic_slug>-fast.md`. Рядом читаются `personas.csv`, `requirements.csv` и `context_map.md` (опц.). Пусто → команда просит указать эпик.
 - `--no-html` — не собирать страницу встречи `<epic_slug>-custdev.html` (по умолчанию собирается). Сам `.md` пишется в любом случае.
 
 ## Примеры
@@ -91,7 +91,7 @@ Ctrl+Enter ведёт дальше.
 
 ## Инструкция для LLM
 
-1. Убедиться, что `<docs_path>/<epic_slug>/<epic_slug>-fast.md` существует; нет — сообщить путь и остановиться, содержимое не эмулировать.
+1. Выбрать исходный документ: `<docs_path>/<epic_slug>/<epic_slug>.md` со `stage: deep`, иначе `<epic_slug>-fast.md`. Нет ни одного — сообщить путь и остановиться, содержимое не эмулировать.
 2. Отработать этапы навыка `bft-custdev` (`<skills_path>/bft-custdev/SKILL.md`), пробелы брать по `../skills/bft-custdev/resources/gap_sourcing.md`.
 3. Прогнать гейт 22: `python3 <skills_path>/bft-writer/scripts/bft-custdev-lint.py <путь к -custdev.md>`. Ненулевой код — исправить, файл не сохранять.
 4. Собрать страницу, если нет `--no-html`: `python3 <skills_path>/bft-writer/scripts/bft-custdev-export.py <путь к -custdev.md>`.
