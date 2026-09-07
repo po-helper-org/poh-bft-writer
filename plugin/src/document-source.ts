@@ -3,11 +3,15 @@
  *
  * Порядок не произвольный. Сначала канонический `{slug}.html` — собранная
  * страница ревью, ради которой раздел и нужен: в ней комментирование, обход
- * `[УТОЧНИТЬ]` и сборка промта. Затем любой другой `.html` — эпик могли
- * назвать иначе. Затем markdown: единый `{slug}.md`, а после него
- * `{slug}-fast.md` — быстрый проход, у которого страницы может не быть вовсе.
- * Благодаря последнему шагу раздел показывает документ уже после `/bft-fast`,
- * а не только после `/bft-deep`.
+ * `[УТОЧНИТЬ]` и сборка промта. Затем `{slug}-fast.html` — та же страница
+ * стадии fast. Затем любой другой `.html` — эпик могли назвать иначе. Затем
+ * markdown: единый `{slug}.md`, а после него `{slug}-fast.md` — быстрый проход,
+ * у которого страницы может не быть вовсе. Благодаря последнему шагу раздел
+ * показывает документ уже после `/bft-fast`, а не только после `/bft-deep`.
+ *
+ * `{slug}-custdev.html` из выбора исключён совсем. Это страница встречи, а не
+ * документ требования, и по алфавиту она обходит `{slug}-fast.html`: без явного
+ * исключения раздел показывал бы скрипт интервью вместо самого БФТ.
  */
 
 export type DocumentKind = 'html' | 'markdown'
@@ -25,8 +29,13 @@ export function chooseDocument(slug: string, entries: readonly string[]): Docume
   const canonicalHtml = pick(`${slug}.html`)
   if (canonicalHtml) return { name: canonicalHtml, kind: 'html' }
 
+  const fastHtml = pick(`${slug}-fast.html`)
+  if (fastHtml) return { name: fastHtml, kind: 'html' }
+
+  const custdevHtml = `${slug}-custdev.html`.toLowerCase()
   const otherHtml = entries
     .filter(entry => entry.toLowerCase().endsWith('.html'))
+    .filter(entry => entry.toLowerCase() !== custdevHtml)
     .sort()[0]
   if (otherHtml) return { name: otherHtml, kind: 'html' }
 

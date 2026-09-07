@@ -124,7 +124,7 @@ async function withBacklog(
       description: '',
       howToDemo: [],
       links: { other: [] },
-      artifacts: { fast: false, fastHtml: false, deep: false, deepHtml: false },
+      artifacts: { fast: false, fastHtml: false, deep: false, deepHtml: false, custdev: false, custdevHtml: false },
       // Документа ещё нет — до FAST-DONE не хватает именно его.
       missing: ['документ БФТ'],
     })
@@ -152,6 +152,11 @@ function linksOf(
   const html = entries.find(entry => entry.toLowerCase() === `${slug}.html`.toLowerCase())
     ?? entries.find(entry => entry.toLowerCase() === `${slug}-fast.html`.toLowerCase())
   if (html) links.html = `${docsPath}/${slug}/${html}`
+
+  // Страница встречи идёт отдельной ссылкой, а не подменяет собой страницу ревью:
+  // это скрипт интервью, а не документ требования.
+  const custdev = entries.find(entry => entry.toLowerCase() === `${slug}-custdev.html`.toLowerCase())
+  if (custdev) links.custdev = `${docsPath}/${slug}/${custdev}`
 
   return links
 }
