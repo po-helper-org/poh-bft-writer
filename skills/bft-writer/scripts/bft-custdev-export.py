@@ -21,7 +21,6 @@ import html as htmlmod
 import importlib.util
 import json
 import re
-import subprocess
 import sys
 from pathlib import Path
 
@@ -42,12 +41,6 @@ def _load_sibling(name: str, filename: str):
 _export = _load_sibling("bft_html_export", "bft-html-export.py")
 inline = _export.inline
 parse_frontmatter = _export.parse_frontmatter
-
-FLOW_VERIFY = "верификация гипотезы"
-FLOW_DISCOVER = "новые знания"
-
-CLOSING_STAGES = {"«Волшебная палочка»", "Обратный вопрос"}
-
 
 def qid(text: str) -> str:
     """Идентификатор вопроса — хэш его текста, чтобы ответ пережил пересборку скрипта."""
@@ -83,11 +76,10 @@ def table_of(lines: list[str]) -> list[list[str]]:
     return rows
 
 
-def questions_of(cell: str) -> list[str]:
-    return [q.strip() for q in re.split(r"<br\s*/?>", cell) if q.strip()]
-
-
-TAG_RE = re.compile(r"\s*\((Поведение|Метрика блокера|Мотивация|Причина)\)\s*$")
+# Тег исхода в конце вопроса: на странице он не показывается, но снять его с текста
+# нужно — иначе он прозвучит вслух вместе с вопросом.
+OUTCOME_TAGS = ["Для кого", "Проблема", "Приёмка", "Измерение", "Участники", "Решение"]
+TAG_RE = re.compile(r"\s*\((" + "|".join(OUTCOME_TAGS) + r")\)\s*$")
 
 
 def strip_tag(question: str) -> tuple[str, str | None]:
@@ -98,73 +90,45 @@ def strip_tag(question: str) -> tuple[str, str | None]:
 
 
 def collect_questions(sections: dict[str, list[str]], respondent: str) -> list[dict]:
-    """Вопросы скрипта и дополнительных гипотез — единым списком карточек."""
+    """Вопросы интервью одной таблицей: `# | Вопрос | Что хотим узнать | Кому | Пробел`."""
     out: list[dict] = []
+    for row in table_of(sections.get("Вопросы", []))[1:]:
+        if len(row) != 5:
+            continue
+        num, raw, intent, whom, gap = row
+        text, tag = strip_tag(raw)
+        out.append({
+            "id": qid(text),
+            "num": num,
+            "text": text,
+            "tag": tag,
+            "intent": intent,
+            "whom": whom or respondent,
+            "gap": gap,
+        })
+    for n, item in enumerate(out, start=1):
+        item["n"] = n
+    return out
 
-    for row in table_of(sections.get("Скрипт интервью", []))[1:]:
+
+def collect_outcomes(sections: dict[str, list[str]]) -> list[dict]:
+    """Шесть блоков исхода: что уже знаем и где пробел."""
+    out = []
+    for row in table_of(sections.get("Что должны унести", []))[1:]:
         if len(row) != 3:
             continue
-        stage, verify, discover = row
-        for flow, cell in ((FLOW_VERIFY, verify), (FLOW_DISCOVER, discover)):
-            for raw in questions_of(cell):
-                text, tag = strip_tag(raw)
-                out.append({
-                    "id": qid(text),
-                    "text": text,
-                    "stage": stage,
-                    "flow": flow,
-                    "tag": tag,
-                    "whom": respondent,
-                    "hyp": "",
-                    "closing": stage in CLOSING_STAGES,
-                })
-
-    for row in table_of(sections.get("Дополнительные гипотезы", []))[1:]:
-        if len(row) != 6:
-            continue
-        num, kind, formulation, gap, whom, question = row
-        out.append({
-            "id": qid(question),
-            "text": question,
-            "stage": f"Дополнительная гипотеза {num}",
-            "flow": f"гипотеза {kind}",
-            "tag": None,
-            "whom": whom,
-            "hyp": formulation,
-            "gap": gap,
-            "closing": False,
-        })
-
-    seen: set[str] = set()
-    unique: list[dict] = []
-    for item in out:
-        # Один и тот же вопрос дважды — один ответ: иначе на встрече его зададут два раза,
-        # а в промт он уедет с двумя разными формулировками ответа.
-        if item["id"] in seen:
-            continue
-        seen.add(item["id"])
-        unique.append(item)
-    for n, item in enumerate(unique, start=1):
-        item["n"] = n
-    return unique
+        known = row[1].strip()
+        out.append({"block": row[0], "known": known, "gap": not known or "[пробел]" in known})
+    return out
 
 
 def collect_participants(sections: dict[str, list[str]]) -> list[dict]:
     people = []
     for row in table_of(sections.get("Участники", []))[1:]:
-        if len(row) != 4:
+        if len(row) != 3:
             continue
-        people.append({"name": row[0], "role": row[1], "why": row[2], "blocks": row[3]})
+        people.append({"name": row[0], "role": row[1], "want": row[2]})
     return people
-
-
-def collect_triggers(sections: dict[str, list[str]]) -> list[dict]:
-    out = []
-    for row in table_of(sections.get("Уточняющие контекстные вопросы", []))[1:]:
-        if len(row) != 2:
-            continue
-        out.append({"when": row[0], "ask": [q for q in questions_of(row[1])]})
-    return out
 
 
 def collect_hypothesis(sections: dict[str, list[str]]) -> dict:
@@ -194,122 +158,170 @@ def collect_list(lines: list[str]) -> list[str]:
 
 # ---------- рендер ----------
 
+# ---------- рендер ----------
+
 def render_hypothesis(hyp: dict) -> str:
+    """Гипотеза на странице — четыре строки и метрика. Источники остаются в документе.
+
+    Колонку «Источник» страница не показывает: на встрече её не читают, а цитата рядом с
+    формулировкой удваивает текст. Грундинг от этого не слабеет — он проверяется гейтом 22
+    по `.md`, где источник на месте.
+    """
     if not hyp["blocks"] and not hyp["metric"]:
-        return ""
+        return "<p class='pane-empty'>Гипотеза не собрана.</p>"
     rows = "".join(
-        f"<tr><th>{htmlmod.escape(b['block'])}</th><td>{inline(b['text'])}</td>"
-        f"<td class='src'>{inline(b['source'])}</td></tr>"
+        f"<tr><th>{htmlmod.escape(b['block'])}</th><td>{inline(b['text'])}</td></tr>"
         for b in hyp["blocks"]
     )
     metric = "".join(
         f"<p class='metric'><b>{htmlmod.escape(m['label'])}:</b> {inline(m['value'])}</p>"
         for m in hyp["metric"]
     )
-    return (
-        "<details class='hyp' open><summary>Гипотеза проблемы</summary>"
-        f"<table class='hyp-table'><tbody>{rows}</tbody></table>{metric}</details>"
-    )
+    return f"<table class='hyp-table'><tbody>{rows}</tbody></table>{metric}"
 
 
-def render_plan(sections: dict[str, list[str]]) -> str:
-    rows = table_of(sections.get("План мероприятия", []))
-    goals = collect_list(sections.get("Цели интервью", []))
-    parts = []
-    if goals:
-        items = "".join(f"<li>{inline(g)}</li>" for g in goals)
-        parts.append(f"<h3>Цели интервью</h3><ol class='goals'>{items}</ol>")
-    if rows:
-        head = "".join(f"<th>{htmlmod.escape(c)}</th>" for c in rows[0])
-        body = "".join(
-            "<tr>" + "".join(f"<td>{inline(c)}</td>" for c in row) + "</tr>"
-            for row in rows[1:]
-        )
-        parts.append(f"<h3>План мероприятия</h3><table><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>")
-    notes = [p for p in collect_paragraphs(sections.get("План мероприятия", []))]
-    if notes:
-        parts.append("".join(f"<p>{inline(p)}</p>" for p in notes))
-    if not parts:
-        return ""
-    return "<details class='plan'><summary>План и цели встречи</summary>" + "".join(parts) + "</details>"
-
-
-def collect_paragraphs(lines: list[str]) -> list[str]:
-    out, buf = [], []
-    for raw in lines:
-        stripped = raw.strip()
-        if stripped.startswith("|") or stripped.startswith("#"):
+def collect_outcomes(sections: dict[str, list[str]]) -> list[dict]:
+    """Шесть блоков исхода: что уже знаем и где пробел."""
+    out = []
+    for row in table_of(sections.get("Что должны унести", []))[1:]:
+        if len(row) != 3:
             continue
-        if not stripped:
-            if buf:
-                out.append(" ".join(buf))
-                buf = []
-            continue
-        buf.append(stripped)
-    if buf:
-        out.append(" ".join(buf))
+        known = row[1].strip()
+        out.append({"block": row[0], "known": known, "gap": not known or "[пробел]" in known})
     return out
+
+
+def collect_participants(sections: dict[str, list[str]]) -> list[dict]:
+    people = []
+    for row in table_of(sections.get("Участники", []))[1:]:
+        if len(row) != 3:
+            continue
+        people.append({"name": row[0], "role": row[1], "want": row[2]})
+    return people
+
+
+def collect_hypothesis(sections: dict[str, list[str]]) -> dict:
+    blocks = []
+    for row in table_of(sections.get("Гипотеза проблемы", []))[1:]:
+        if len(row) != 3:
+            continue
+        blocks.append({"block": row[0], "text": row[1], "source": row[2]})
+    metric = []
+    for raw in sections.get("Гипотеза проблемы", []):
+        stripped = raw.strip()
+        m = re.match(r"^\*\*([^*]+):\*\*\s*(.*)$", stripped)
+        if m:
+            metric.append({"label": m.group(1), "value": m.group(2)})
+    return {"blocks": blocks, "metric": metric}
+
+
+def render_outcomes(outcomes: list[dict]) -> str:
+    """Контракт результата на странице: видно, что уже знаем и что должны унести."""
+    if not outcomes:
+        return "<p class='pane-empty'>Исходы не заданы.</p>"
+    rows = "".join(
+        "<tr data-gap='{gap}'><th>{block}</th><td>{known}</td></tr>".format(
+            gap="1" if o["gap"] else "0",
+            block=htmlmod.escape(o["block"]),
+            known="<span class='gap'>пробел</span>" if o["gap"] else inline(o["known"]),
+        )
+        for o in outcomes
+    )
+    return f"<table class='outcomes'><tbody>{rows}</tbody></table>"
 
 
 def render_participants(people: list[dict]) -> str:
     if not people:
-        return ""
-    rows = "".join(
-        f"<tr><td>{inline(p['name'])}</td><td>{inline(p['role'])}</td>"
-        f"<td>{inline(p['why'])}</td><td>{inline(p['blocks'])}</td></tr>"
+        return "<p class='pane-empty'>Участники не названы.</p>"
+    return "".join(
+        "<article class='person'>"
+        f"<h3>{inline(p['name'])}</h3>"
+        f"<p class='person-role'>{inline(p['role'])}</p>"
+        f"<p>{inline(p['want'])}</p>"
+        "</article>"
         for p in people
     )
-    return (
-        "<details class='people'><summary>Участники</summary><table><thead><tr>"
-        "<th>ФИО</th><th>Роль</th><th>Зачем на интервью</th><th>Блоки вопросов</th>"
-        f"</tr></thead><tbody>{rows}</tbody></table></details>"
-    )
 
 
-def render_cards(questions: list[dict]) -> str:
+def render_questions(questions: list[dict]) -> str:
+    """Карточки вопросов: все в разметке, видна одна — ей управляет опросник.
+
+    Служебной строки «этап · тег» на карточке нет: на встрече она не помогает задать
+    вопрос, а место занимает. Тег живёт в документе и в панели навигации.
+    """
     cards = []
     for q in questions:
-        meta = [f"<span class='stage'>{htmlmod.escape(q['stage'])}</span>",
-                f"<span class='flow'>{htmlmod.escape(q['flow'])}</span>"]
-        if q["tag"]:
-            meta.append(f"<span class='tag'>{htmlmod.escape(q['tag'])}</span>")
-        if q["whom"]:
-            meta.append(f"<span class='whom'>{inline(q['whom'])}</span>")
-        hyp = f"<p class='hyp-line'>{inline(q['hyp'])}</p>" if q.get("hyp") else ""
-        gap = f"<p class='gap-line'>Пробел: {inline(q['gap'])}</p>" if q.get("gap") else ""
+        intent = f"<p class='q-intent'>{inline(q['intent'])}</p>" if q["intent"] else ""
+        whom = f"<p class='q-whom'>{inline(q['whom'])}</p>" if q["whom"] else ""
         cards.append(
-            f"<article class='card' id='q-{q['id']}' data-qid='{q['id']}' "
-            f"data-whom=\"{htmlmod.escape(q['whom'], quote=True)}\">"
-            f"<header><span class='num'>{q['n']}</span><div class='meta'>{''.join(meta)}</div></header>"
-            f"<p class='qtext'>{inline(q['text'])}</p>{hyp}{gap}"
-            "<textarea class='answer' rows='3' placeholder='Ответ участника — своими словами, лучше цитатой'></textarea>"
-            "<div class='card-foot'>"
+            f"<article class='q' id='q-{q['id']}' data-qid='{q['id']}' "
+            f"data-whom=\"{htmlmod.escape(q['whom'], quote=True)}\" hidden>"
+            f"<h2 class='q-text'>{inline(q['text'])}</h2>"
+            f"{intent}{whom}"
+            "<textarea class='answer' rows='4' placeholder='Ответ — своими словами, лучше цитатой'></textarea>"
             "<input class='who' type='text' placeholder='Кто ответил'>"
-            "<button class='skip' type='button'>Не относится</button>"
-            "<span class='state'></span>"
-            "</div></article>"
+            # Вложения: скриншот из буфера, фото доски, файл с диска. На доске и на экране
+            # информации часто больше, чем участник успевает проговорить.
+            "<div class='attach'>"
+            "<label class='attach-add'>Приложить файл"
+            "<input type='file' class='attach-input' multiple accept='image/*,.pdf,.txt,.md,.csv'>"
+            "</label>"
+            "<span class='attach-hint'>или Ctrl+V — скриншот из буфера</span>"
+            "<ul class='attach-list'></ul>"
+            "</div>"
+            "</article>"
         )
     return "\n".join(cards)
 
 
-def render_triggers(triggers: list[dict]) -> str:
-    if not triggers:
-        return ""
+def render_nav(questions: list[dict]) -> str:
+    """Список вопросов для правой панели: прыжок к любому без прохода по всем."""
     items = "".join(
-        f"<li><b>{inline(t['when'])}</b>"
-        + "".join(f"<span>{inline(a)}</span>" for a in t["ask"])
-        + "</li>"
-        for t in triggers
+        f"<li><button type='button' class='nav-item' data-qid='{q['id']}'>"
+        f"<span class='nav-num'>{q['num']}</span>"
+        f"<span class='nav-text'>{inline(q['text'])}</span>"
+        f"<span class='nav-state' aria-hidden='true'></span></button></li>"
+        for q in questions
     )
-    return f"<ul class='triggers'>{items}</ul>"
+    return f"<ol class='nav-list'>{items}</ol>"
 
 
-def render_skipped(sections: dict[str, list[str]]) -> str:
-    items = collect_list(sections.get("Чего не спрашиваем", []))
-    if not items:
-        return ""
-    body = "".join(f"<li>{inline(i)}</li>" for i in items)
-    return f"<details class='skipped'><summary>Чего не спрашиваем</summary><ul>{body}</ul></details>"
+def build_agenda(title: str, sections: dict[str, list[str]], people: list[dict],
+                 questions: list[dict]) -> str:
+    """Заготовка письма участникам: зачем зовём и что спросим.
+
+    Регистр терсый (`../../bft-custdev/resources/script_stages.md` §«Регистр текста»):
+    письмо читают между делом, вводные и связки в нём только мешают. Внутренние маркеры
+    наружу не уходят — ни ссылка на пробел, ни слаг эпика, ни `[кому?]`.
+    """
+    plain_title = re.sub(r"^\[CustDev\]\s*", "", title)
+    plain_title = re.sub(r"^[a-z0-9][a-z0-9._-]*:\s*", "", plain_title)
+    gaps = [o["block"] for o in collect_outcomes(sections) if o["gap"]]
+
+    lines = ["Тема: CustDev — " + plain_title, "", "Коллеги, привет!", ""]
+    lines.append("Зову на короткий разговор: 10 минут, без подготовки.")
+    lines.append("Решение не обсуждаем. Нужны примеры из практики: как было в последний раз.")
+    lines.append("")
+
+    if gaps:
+        lines.append("Что выясняем:")
+        lines += ["— " + g.lower() for g in gaps]
+        lines.append("")
+
+    lines.append("Вопросы:")
+    for person in people:
+        # Неназванный участник (`[кому?]`) адресатом не бывает: приглашать некого.
+        if person["name"].startswith("["):
+            continue
+        personal = [q for q in questions if q["whom"] == person["name"]]
+        if not personal:
+            continue
+        lines.append("")
+        lines.append(person["name"] + ":")
+        lines += ["— " + q["text"] for q in personal]
+    lines.append("")
+    lines.append("Спасибо!")
+    return "\n".join(lines)
 
 
 def read_head(body: str) -> tuple[str, str]:
@@ -333,20 +345,6 @@ def read_head(body: str) -> tuple[str, str]:
     return title, " ".join(lead)
 
 
-def run_lint(md_path: Path) -> str:
-    script = SCRIPTS_DIR / "bft-custdev-lint.py"
-    if not script.exists():
-        return ""
-    try:
-        res = subprocess.run(["python3", str(script), str(md_path)],
-                             capture_output=True, text=True, timeout=30)
-    except Exception:
-        return " · гейт 22 — не прогнан"
-    warns = sum(1 for line in res.stdout.splitlines() if " WARN " in line)
-    status = "OK" if res.returncode == 0 else "FAIL"
-    return f" · гейт 22 — {status}" + (f", предупреждений: {warns}" if warns else "")
-
-
 TEMPLATE = """<!doctype html>
 <html lang="ru">
 <head>
@@ -359,47 +357,80 @@ TEMPLATE = """<!doctype html>
 </head>
 <body>
 
-<div class="topbar">
-  <div class="progress"><b id="doneCount">0</b> из <b id="totalCount">0</b> отвечено</div>
-  <div class="filters" id="filters"></div>
-  <div class="actions">
-    <button id="triggerBtn" type="button">Подсказки</button>
-    <button id="exportBtn" type="button">Ответы и промт</button>
-  </div>
-</div>
+<nav class="rail" aria-label="Материалы встречи">
+  <button type="button" class="rail-tab" data-drawer="meta">Материалы</button>
+  <button type="button" class="rail-tab" data-drawer="agenda">Email Agenda</button>
+</nav>
 
-<aside class="drawer" id="triggerDrawer">
-  <div class="drawer-head"><h4>Уточняющие контекстные вопросы</h4>
-  <button class="drawer-close" id="triggerClose" type="button" title="Закрыть">×</button></div>
-  <p class="hint">Задаются по ходу рассказа, а не по номеру этапа.</p>
-  {triggers}
-</aside>
-
-<aside class="drawer wide" id="exportDrawer">
-  <div class="drawer-head"><h4>Результат встречи</h4>
-  <button class="drawer-close" id="exportClose" type="button" title="Закрыть">×</button></div>
-  <p class="hint">Промт уходит в чат вместе с транскрибацией. Файл — архив встречи.</p>
-  <textarea id="promptOut" readonly rows="14"></textarea>
-  <div class="drawer-actions">
-    <button id="copyBtn" type="button">Скопировать промт</button>
-    <button id="downloadBtn" type="button">Скачать ответы</button>
+<aside class="drawer" id="drawer-meta" hidden>
+  <header class="drawer-head">
+    <h2>Материалы</h2>
+    <button type="button" class="drawer-close" data-close title="Закрыть">×</button>
+  </header>
+  <nav class="pane-tabs">
+    <button type="button" data-pane="hyp" aria-pressed="true">Гипотеза</button>
+    <button type="button" data-pane="outcomes" aria-pressed="false">Что унести</button>
+    <button type="button" data-pane="people" aria-pressed="false">Участники</button>
+  </nav>
+  <div class="drawer-body">
+    <section data-pane="hyp">{hypothesis}</section>
+    <section data-pane="outcomes" hidden>{outcomes}</section>
+    <section data-pane="people" hidden>{participants}</section>
   </div>
 </aside>
 
-<main>
-<h1>{title}</h1>
-<p class="lead">{lead}</p>
+<aside class="drawer" id="drawer-agenda" hidden>
+  <header class="drawer-head">
+    <h2>Письмо участникам</h2>
+    <button type="button" class="drawer-close" data-close title="Закрыть">×</button>
+  </header>
+  <div class="drawer-body">
+    <textarea id="agendaText" rows="20">{agenda}</textarea>
+    <div class="drawer-actions">
+      <button type="button" id="agendaCopy">Скопировать</button>
+      <button type="button" id="agendaMail">Открыть в почте</button>
+    </div>
+  </div>
+</aside>
 
-{hypothesis}
-{plan}
-{participants}
-{skipped}
+<button type="button" class="nav-toggle" id="navToggle" aria-expanded="false">Вопросы</button>
 
-<div class="cards" id="cards">
-{cards}
-</div>
+<aside class="nav-panel" id="navPanel" hidden aria-label="Навигация по вопросам">
+  <header class="drawer-head">
+    <h2><span id="navDone">0</span> из <span id="navTotal">0</span></h2>
+    <button type="button" class="drawer-close" id="navClose" title="Закрыть">×</button>
+  </header>
+  <div class="drawer-body">
+{nav}
+  </div>
+</aside>
 
-<footer>Скрипт: <code>{doc_name}</code>{lint_status}</footer>
+<div class="bar"><div class="bar-fill" id="barFill"></div></div>
+
+<main class="survey">
+  <div class="survey-inner">
+    <div id="questions">
+{questions}
+    </div>
+
+    <section class="finish" id="finish" hidden>
+      <h2>Готово</h2>
+      <p id="finishText"></p>
+      <textarea id="promptOut" readonly rows="12"></textarea>
+      <div class="finish-actions">
+        <button type="button" id="copyBtn">Скопировать промт</button>
+        <button type="button" id="downloadBtn">Скачать ответы</button>
+        <button type="button" id="finishBack">К вопросам</button>
+      </div>
+    </section>
+  </div>
+
+  <footer class="survey-nav">
+    <button type="button" id="prevBtn">Назад</button>
+    <span class="nav-hint">Ctrl + Enter — дальше</span>
+    <button type="button" id="skipBtn">Пропустить</button>
+    <button type="button" id="nextBtn" class="primary">Далее</button>
+  </footer>
 </main>
 
 <script>
@@ -419,13 +450,11 @@ def main():
     md_path = Path(args.md_path)
     text = md_path.read_text(encoding="utf-8")
     meta, body = parse_frontmatter(text)
-    # Служебные комментарии .md читателю невидимы, и на странице их быть не должно:
-    # экранированные, они вылезли бы текстом в первый же абзац.
+    # Служебные комментарии .md читателю невидимы, и на странице их быть не должно.
     body = re.sub(r"<!--.*?-->", "", body, flags=re.S)
     sections = split_sections(body)
 
-    title, lead = read_head(body)
-
+    title, _lead = read_head(body)
     respondent = meta.get("respondent", "")
     questions = collect_questions(sections, respondent)
     participants = collect_participants(sections)
@@ -433,15 +462,13 @@ def main():
     epic_slug = meta.get("epic_slug") or md_path.stem
     payload = {
         "questions": questions,
-        "participants": [p["name"] for p in participants],
         "epic": epic_slug,
         "source": meta.get("source", ""),
         "prepared": meta.get("prepared", ""),
         "doc": md_path.name,
     }
 
-    css = (SCRIPTS_DIR / "bft-html-export.css").read_text(encoding="utf-8")
-    css += "\n" + (SCRIPTS_DIR / "bft-custdev-export.css").read_text(encoding="utf-8")
+    css = (SCRIPTS_DIR / "bft-custdev-export.css").read_text(encoding="utf-8")
     scripts = (SCRIPTS_DIR / "bft-custdev-export.js").read_text(encoding="utf-8")
     # json.dumps, не подстановка в f-строку: slug и имена участников приходят из
     # frontmatter и таблицы, где кавычка или перевод строки разорвали бы литерал.
@@ -453,16 +480,13 @@ def main():
 
     html_out = TEMPLATE.format(
         title=htmlmod.escape(title),
-        lead=inline(lead) if lead else "",
         css=css,
         hypothesis=render_hypothesis(collect_hypothesis(sections)),
-        plan=render_plan(sections),
+        outcomes=render_outcomes(collect_outcomes(sections)),
         participants=render_participants(participants),
-        skipped=render_skipped(sections),
-        triggers=render_triggers(collect_triggers(sections)),
-        cards=render_cards(questions),
-        doc_name=htmlmod.escape(md_path.name),
-        lint_status=run_lint(md_path),
+        agenda=htmlmod.escape(build_agenda(title, sections, participants, questions)),
+        nav=render_nav(questions),
+        questions=render_questions(questions),
         scripts=scripts,
     )
 

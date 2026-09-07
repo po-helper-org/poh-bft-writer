@@ -101,3 +101,29 @@ test('черновик для чата продолжает последний �
   assert.match(handoff.prompt, /не хватает: ссылка на страницу Confluence, ссылка на эпик JIRA\./)
   assert.ok(!handoff.prompt.includes('не хватает: страница ревью'))
 })
+
+test('роль документа выбирает, какой артефакт эпика открыть', async () => {
+  const tree = {
+    '/ws/.bft/documentation': ['alpha'],
+    '/ws/.bft/documentation/alpha': ['alpha-fast.md', 'alpha-fast.html', 'alpha-custdev.md', 'alpha-custdev.html'],
+    '/ws/.bft/documentation/alpha/alpha-fast.md': DOC,
+    '/ws/.bft/documentation/alpha/alpha-fast.html': '<h1>БФТ</h1>',
+    '/ws/.bft/documentation/alpha/alpha-custdev.md': '# CustDev',
+    '/ws/.bft/documentation/alpha/alpha-custdev.html': '<h1>Интервью</h1>',
+  }
+  const reader = new BftReader(loadConfig(ENV), ports(tree))
+
+  // По умолчанию — документ требования: старый вызов без роли ведёт себя как прежде.
+  const requirement = await reader.findDocument('alpha')
+  assert.equal(requirement?.path, '.bft/documentation/alpha/alpha-fast.html')
+  assert.equal(requirement?.content, '<h1>БФТ</h1>')
+
+  const custdev = await reader.findDocument('alpha', 'custdev')
+  assert.equal(custdev?.path, '.bft/documentation/alpha/alpha-custdev.html')
+  assert.equal(custdev?.content, '<h1>Интервью</h1>')
+})
+
+test('интервью не готовили — роль custdev отдаёт null, а не документ требования', async () => {
+  const reader = new BftReader(loadConfig(ENV), ports({ ...TREE }))
+  assert.equal(await reader.findDocument('alpha', 'custdev'), null)
+})
