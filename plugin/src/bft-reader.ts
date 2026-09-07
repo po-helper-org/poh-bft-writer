@@ -8,7 +8,7 @@
  */
 import { isAbsolute, join, relative, resolve } from 'node:path'
 import type { BftPluginConfig } from './config.js'
-import { chooseDocument, type DocumentKind } from './document-source.js'
+import { chooseCustdevDocument, chooseDocument, type DocumentKind } from './document-source.js'
 import {
   DocumentOutsideWorkspaceError, InvalidTaskIdError, TaskNotFoundError,
 } from './errors.js'
@@ -20,6 +20,9 @@ import {
   finishWork, lastFinished, parseWorkLog, serializeWorkLog, startWork,
   WORKLOG_FILE, type WorkEntry, type WorkLog,
 } from './worklog.js'
+
+/** Какой документ эпика открывают: сам БФТ или скрипт CustDev-интервью. */
+export type DocumentRole = 'requirement' | 'custdev'
 
 /** Слаг эпика — имя каталога. Всё, что похоже на путь, идентификатором не является. */
 const SLUG_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
@@ -83,12 +86,20 @@ export class BftReader {
    * markdown представление обязано завернуть текст в страницу, и без этого признака оно
    * показывало бы разметку сырым текстом. Выбор файла — знание хоста (chooseDocument),
    * и вид документа принадлежит тому же выбору.
+   *
+   * Аргумент `kind` выбирает, какой документ эпика открыть: сам БФТ или скрипт
+   * CustDev-интервью. Клиент передаёт только роль, а имя файла по-прежнему не знает —
+   * иначе переименование артефакта в навыке протекло бы в браузер.
    */
-  async findDocument(id: string): Promise<{ path: string; kind: DocumentKind; content: string } | null> {
+  async findDocument(
+    id: string,
+    kind: DocumentRole = 'requirement',
+  ): Promise<{ path: string; kind: DocumentKind; content: string } | null> {
     this.assertSlug(id)
     const { docsPath } = await this.scan()
     const dir = join(this.config.workspaceRoot, docsPath, id)
-    const choice = chooseDocument(id, await this.ports.listDirectory(dir))
+    const entries = await this.ports.listDirectory(dir)
+    const choice = kind === 'custdev' ? chooseCustdevDocument(id, entries) : chooseDocument(id, entries)
     if (!choice) return null
     const path = `${docsPath}/${id}/${choice.name}`
     const content = await this.readDocument(path)

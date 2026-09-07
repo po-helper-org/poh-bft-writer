@@ -74,6 +74,7 @@ export const panelClassNames = {
   previewFieldLabel: 'bft-preview-field-label',
   previewFieldValue: 'bft-preview-field-value',
   previewLink: 'bft-preview-link',
+  previewLinkButton: 'bft-preview-link-button',
   previewList: 'bft-preview-list',
   previewFooter: 'bft-preview-footer',
   // Детальная страница (Task 3): полноэкранная поверх приложения, тот же приём соседней панели
@@ -85,6 +86,7 @@ export const panelClassNames = {
   detailLeft: 'bft-detail-left',
   detailRight: 'bft-detail-right',
   detailFrame: 'bft-detail-frame',
+  detailDocSwitch: 'bft-detail-doc-switch',
   detailTextarea: 'bft-detail-textarea',
   // Футер списка панели (Task 4): держит кнопку «Статус проработки» вне скроллящегося
   // .body — сама кнопка теперь настоящий <Button variant="outline"> (Task 4 визуального
@@ -362,6 +364,13 @@ export const panelStyleText = `
 
 .${c.previewLink} { color: var(--dsw-alias-button-info-fill); text-decoration: none; }
 @media (hover: hover) and (pointer: fine) { .${c.previewLink}:hover { text-decoration: underline; } }
+/* Открыть скрипт интервью: путь артефакта относительный, ссылкой в браузере ему не стать,
+   поэтому действие — кнопка, а выглядит она как ссылка, чтобы поле читалось единообразно. */
+.${c.previewLinkButton} {
+  margin-top: 4px; padding: 0; border: none; background: none; cursor: pointer;
+  font: inherit; color: var(--dsw-alias-button-info-fill); text-decoration: underline;
+}
+@media (hover: hover) and (pointer: fine) { .${c.previewLinkButton}:hover { text-decoration: none; } }
 
 .${c.previewList} {
   margin: 0;
@@ -435,6 +444,9 @@ export const panelStyleText = `
 }
 
 .${c.detailFrame} { flex: 1; width: 100%; height: 100%; border: none; }
+/* Переключатель «документ БФТ / скрипт интервью» над рамкой: узкая полоса, чтобы документ
+   не терял высоту, и он есть только у требований, где скрипт действительно собран. */
+.${c.detailDocSwitch} { display: flex; gap: 8px; padding: 8px 12px; flex: 0 0 auto; }
 
 .${c.detailTextarea} {
   width: 100%;

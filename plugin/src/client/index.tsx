@@ -38,6 +38,7 @@ import type { Context as ClientContext } from '@deepseek-ai/cordis'
 // харнессу).
 import { IconChecklistOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { defineStore, type PropsStore, type StoreHandle } from '@deepseek-ai/dsh-client-store'
+import type { DocumentRole } from '../bft-reader.js'
 import type { RpcResult } from '../channel.js'
 import { ru, type BftLocaleKey } from './locales.js'
 import { RequirementsPanel, type RequirementsPanelInjected } from './Panel.js'
@@ -148,8 +149,8 @@ export function apply(ctx: ClientContext): void {
   // Поиск документа по конвенции каталогов: клиент передаёт только идентификатор задачи и
   // ничего не знает ни про пути, ни про формат ссылок. Поэтому изменения в навыках bft-*
   // (префиксы, переименования каталогов, незарегистрированный HTML) его не касаются.
-  const findDocument = (id: string, signal: AbortSignal): Promise<RpcResult<unknown>> =>
-    connection.rpc.call(CHANNEL, 'findDocument', { id }, signal)
+  const findDocument = (id: string, kind: DocumentRole, signal: AbortSignal): Promise<RpcResult<unknown>> =>
+    connection.rpc.call(CHANNEL, 'findDocument', { id, kind }, signal)
   // Черновик для чата собирает сервер: он знает журнал работы и подставляет
   // продолжение с последнего закрытого отрезка со ссылкой на ветку контекста.
   // Клиент журнала не видит и построить это не может.

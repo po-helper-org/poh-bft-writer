@@ -34,6 +34,7 @@ import {
   Button, IconArchiveOutline20, IconCloseOutline16, IconRefreshOutline16, IconSearchOutline16, IconWarningOutline16,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import type { DocumentRole } from '../bft-reader.js'
 import type { RpcResult } from '../channel.js'
 import type { BftStage } from '../model.js'
 import { queueGroups, searchTasks, type BftGroup } from '../queue.js'
@@ -61,7 +62,7 @@ export interface RequirementsPanelInjected {
    * Основной путь получения документа на детальной странице: в отличие от `getDocument`
    * не требует, чтобы навык записал ссылку на файл в строго определённом формате.
    */
-  findDocument(id: string, signal: AbortSignal): Promise<RpcResult<unknown>>
+  findDocument(id: string, kind: DocumentRole, signal: AbortSignal): Promise<RpcResult<unknown>>
   /**
    * Черновик для чата: канал `/bft`, подкоманда `handoff`. Собирается на сервере,
    * потому что опирается на журнал работы — клиенту он не виден.
@@ -118,7 +119,7 @@ type DetailBackRoute = { view: 'preview'; id: string } | { view: 'board' }
 type PanelRoute =
   | { view: 'list' }
   | { view: 'preview'; id: string }
-  | { view: 'detail'; id: string; back: DetailBackRoute }
+  | { view: 'detail'; id: string; back: DetailBackRoute; doc?: DocumentRole }
   | { view: 'board' }
 
 /** Панель раздела. Возвращает null, пока закрыта — тогда в оверлее нет узла, перехватывать нечего. */
@@ -240,6 +241,7 @@ export function RequirementsPanel({
         t={t}
         getTask={getTask}
         findDocument={findDocument}
+        doc={route.doc}
         openChatWithDraft={openChatWithDraft}
         onBack={() => { setRoute(route.back) }}
         onClose={() => { actions.close() }}
@@ -258,7 +260,7 @@ export function RequirementsPanel({
           getTask={getTask}
           getHandoff={getHandoff}
           openChatWithDraft={openChatWithDraft}
-          onOpenDetail={(id) => { setRoute({ view: 'detail', id, back: { view: 'preview', id } }) }}
+          onOpenDetail={(id, doc) => { setRoute({ view: 'detail', id, back: { view: 'preview', id }, doc }) }}
           onBack={() => { setRoute({ view: 'list' }) }}
           onClose={() => { actions.close() }}
         />
