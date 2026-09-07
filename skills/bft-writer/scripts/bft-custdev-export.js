@@ -33,8 +33,7 @@
   var byId = {};
   cards.forEach(function (card) { byId[card.dataset.qid] = card; });
 
-  var scope = "";          // пусто — все участники
-  var order = [];          // карточки текущего охвата, в порядке скрипта
+  var order = cards.slice();
   var cursor = 0;
 
   function entry(id) {
@@ -45,14 +44,7 @@
   function skipped(id) { return !!(state[id] || {}).skipped; }
   function done(id) { return answered(id) || skipped(id); }
 
-  /* ---------- охват и навигация ---------- */
-
-  function rebuild(keepId) {
-    order = cards.filter(function (card) { return !scope || card.dataset.whom === scope; });
-    var at = keepId ? order.findIndex(function (c) { return c.dataset.qid === keepId; }) : -1;
-    cursor = at >= 0 ? at : 0;
-    render();
-  }
+  /* ---------- навигация ---------- */
 
   function render() {
     cards.forEach(function (card) { card.hidden = true; });
@@ -69,11 +61,8 @@
     }
 
     var doneCount = order.filter(function (c) { return done(c.dataset.qid); }).length;
-    document.getElementById("qPos").textContent = order.length
-      ? (atEnd ? "готово" : (cursor + 1) + " из " + order.length) + " · отвечено " + doneCount
-      : "вопросов нет";
-    document.getElementById("qScope").textContent = scope || "все участники";
-    document.getElementById("scopeReset").hidden = !scope;
+    document.getElementById("navDone").textContent = String(doneCount);
+    document.getElementById("navTotal").textContent = String(order.length);
 
     var share = order.length ? (atEnd ? 1 : cursor / order.length) : 0;
     document.getElementById("barFill").style.width = (share * 100).toFixed(1) + "%";
@@ -82,12 +71,18 @@
     document.getElementById("nextBtn").disabled = atEnd;
     document.getElementById("skipBtn").disabled = atEnd;
     document.getElementById("skipBtn").textContent =
-      !atEnd && order.length && skipped(order[cursor].dataset.qid) ? "Вернуть в опрос" : "Не относится";
+      !atEnd && order.length && skipped(order[cursor].dataset.qid) ? "Вернуть" : "Пропустить";
+
+    Array.prototype.forEach.call(document.querySelectorAll(".nav-item"), function (item, i) {
+      var id = item.dataset.qid;
+      item.dataset.state = answered(id) ? "answered" : (skipped(id) ? "skipped" : "open");
+      item.setAttribute("aria-current", !atEnd && i === cursor ? "true" : "false");
+    });
 
     if (atEnd) {
       document.getElementById("finishText").textContent =
-        "Отвечено " + doneCount + " из " + order.length +
-        (scope ? " по блоку «" + scope + "»." : ".");
+        "Отвечено " + doneCount + " из " + order.length + ".";
+      document.getElementById("promptOut").value = buildPrompt();
     }
   }
 
@@ -95,6 +90,13 @@
     cursor = Math.max(0, Math.min(order.length, cursor + delta));
     render();
     window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function jump(qid) {
+    var at = order.findIndex(function (c) { return c.dataset.qid === qid; });
+    if (at < 0) return;
+    cursor = at;
+    render();
   }
 
   cards.forEach(function (card) {
@@ -132,15 +134,10 @@
     if (rec.skipped) step(1); else render();
   });
   document.getElementById("finishBack").addEventListener("click", function () { step(-1); });
-  document.getElementById("scopeReset").addEventListener("click", function () {
-    scope = "";
-    rebuild();
-  });
-
   document.addEventListener("keydown", function (event) {
     if ((event.ctrlKey || event.metaKey) && event.key === "Enter") { event.preventDefault(); step(1); }
     if (event.altKey && event.key === "ArrowLeft") { event.preventDefault(); step(-1); }
-    if (event.key === "Escape") closeDrawers();
+    if (event.key === "Escape") { closeDrawers(); setNav(false); }
   });
 
   /* ---------- панели ---------- */
@@ -161,7 +158,6 @@
       if (!opening) return;
       drawer.hidden = false;
       tab.setAttribute("aria-expanded", "true");
-      if (tab.dataset.drawer === "result") document.getElementById("promptOut").value = buildPrompt();
     });
   });
   Array.prototype.forEach.call(document.querySelectorAll("[data-close]"), function (btn) {
@@ -181,12 +177,18 @@
     });
   });
 
-  Array.prototype.forEach.call(document.querySelectorAll(".scope-btn"), function (btn) {
-    btn.addEventListener("click", function () {
-      scope = btn.dataset.whom || "";
-      rebuild();
-      closeDrawers();
-    });
+  /* ---------- правая панель навигации ---------- */
+
+  var navPanel = document.getElementById("navPanel");
+  var navToggle = document.getElementById("navToggle");
+  function setNav(open) {
+    navPanel.hidden = !open;
+    navToggle.setAttribute("aria-expanded", open ? "true" : "false");
+  }
+  navToggle.addEventListener("click", function () { setNav(navPanel.hidden); });
+  document.getElementById("navClose").addEventListener("click", function () { setNav(false); });
+  Array.prototype.forEach.call(document.querySelectorAll(".nav-item"), function (item) {
+    item.addEventListener("click", function () { jump(item.dataset.qid); });
   });
 
   /* ---------- письмо участникам ---------- */
@@ -316,10 +318,5 @@
     document.body.removeChild(a);
     window.setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
   });
-  document.getElementById("finishResult").addEventListener("click", function () {
-    var tab = document.querySelector('.rail-tab[data-drawer="result"]');
-    if (tab) tab.click();
-  });
-
-  rebuild();
+  render();
 })();

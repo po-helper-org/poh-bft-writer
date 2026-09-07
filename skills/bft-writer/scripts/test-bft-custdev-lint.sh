@@ -7,8 +7,8 @@ LINT="skills/bft-writer/scripts/bft-custdev-lint.py"
 GOLDEN="skills/bft-custdev/examples/golden_custdev_script.md"
 BROKEN="skills/bft-writer/scripts/fixtures/broken_custdev_script.md"
 # Коды, которые негативная фикстура обязана поднять. Пропал код — линтер ослаб.
-EXPECTED_ERRORS=(CD001 CD002 CD003 CD004 CD005 CD006 CD007 CD008 CD009)
-EXPECTED_WARNS=(CD011 CD012 CD013)
+EXPECTED_ERRORS=(CD001 CD002 CD003 CD004 CD005 CD007 CD008 CD009)
+EXPECTED_WARNS=(CD011 CD012 CD013 CD014 CD015)
 
 fails=0
 
@@ -21,14 +21,23 @@ else
   fails=$((fails + 1))
 fi
 
-# Эталон воспроизводит канон методички дословно, а канон держит закрытые уточнения внутри
-# ячейки («Каждый ли раз вы именно таким образом решаете проблему?», этап 11). Замечание по
-# форме обязано остаться предупреждением: превратись оно в ошибку, линтер отверг бы источник.
-if echo "$golden_out" | grep -q "WARN CD011"; then
-  echo "ok    golden несёт WARN CD011 и всё равно проходит — форма не отвергает канон"
+# Интервью на 5–10 минут: эталон обязан оставаться коротким. Разрастись он молча — и
+# страница снова превратится в допрос, ради ухода от которого длину и ограничили.
+qcount=$(sed -n '/^## Вопросы/,/^## /p' "$GOLDEN" | grep -cE '^\| В-[0-9]+ ')
+if [ "$qcount" -ge 3 ] && [ "$qcount" -le 12 ]; then
+  echo "ok    в эталоне $qcount вопросов — разговор укладывается в 5–10 минут"
 else
-  echo "FAIL  golden не поднял WARN CD011 — проверка формы вопроса отключилась"
+  echo "FAIL  в эталоне $qcount вопросов — вне коридора 3…12"
   fails=$((fails + 1))
+fi
+
+# Эталон не должен нести и предупреждений: он образец формы, а не пример нарушений.
+if echo "$golden_out" | grep -q "WARN"; then
+  echo "FAIL  эталон несёт предупреждения:"
+  echo "$golden_out" | grep "WARN" | sed 's/^/        /'
+  fails=$((fails + 1))
+else
+  echo "ok    эталон без предупреждений"
 fi
 
 broken_out=$(python3 "$LINT" "$BROKEN" 2>&1)

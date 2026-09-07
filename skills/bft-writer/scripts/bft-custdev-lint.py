@@ -7,14 +7,17 @@
 
   * гипотеза собрана из четырёх блоков, и у каждого назван источник (`CD002`);
   * метрика блокера и метрика цели — одна метрика, опора «качелей» (`CD003`);
-  * канон из 14 этапов на месте и в порядке (`CD004`);
-  * вопрос потока верификации привязан к блоку гипотезы (`CD005`);
-  * дополнительная гипотеза записана формулой своего типа (`CD006`);
-  * у гипотезы есть пробел-источник и адресат (`CD007`, `CD008`).
+  * вопросов столько, сколько влезает в разговор на 5–10 минут (`CD004`);
+  * вопрос привязан к блоку гипотезы, иначе он ничего не проверяет (`CD005`);
+  * у вопроса есть пробел-источник и адресат (`CD007`, `CD008`).
 
-Форма вопроса проверяется предупреждением, а не отказом (`CD011`–`CD013`): канон
-методички сам держит закрытые и гипотетические уточнения внутри ячеек, и жёсткий
-отказ по форме отверг бы источник. Решает человек.
+Канон методички — источник форм вопроса, а не сценарий обхода: полные 14 этапов
+рассчитаны на 45–60 минут исследования незнакомой персоны, а здесь закрывают
+конкретные пробелы документа (`skills/bft-custdev/resources/script_stages.md`).
+
+Форма вопроса проверяется предупреждением, а не отказом (`CD011`–`CD015`): канон
+сам держит закрытые уточнения, и жёсткий отказ по форме отверг бы источник.
+Решает человек.
 
 Формат документа — `skills/bft-custdev/resources/document_assembly.md`.
 
@@ -35,20 +38,25 @@ import sys
 from dataclasses import dataclass, asdict
 from pathlib import Path
 
-FRONTMATTER_KEYS = ["epic_slug", "stage", "prepared", "source", "respondent", "hypotheses"]
+FRONTMATTER_KEYS = ["epic_slug", "stage", "prepared", "source", "respondent", "questions"]
 
 # Разделы документа. Порядок — как их читает PO; все обязательны (CD009).
 SECTIONS = [
     "## Гипотеза проблемы",
     "## Цели интервью",
-    "## План мероприятия",
     "## Участники",
-    "## Скрипт интервью",
-    "## Уточняющие контекстные вопросы",
-    "## Дополнительные гипотезы",
+    "## Вопросы",
     "## Чего не спрашиваем",
     "## После интервью",
 ]
+
+# Интервью на 5–10 минут. Тридцать вопросов канона дают воду и вопросы не по делу —
+# проверено на живом прогоне, см. script_stages.md §«Правило длины». Границы шире
+# рекомендованных 6–9: линтер ловит вырождение, а не спорит о девятом вопросе.
+MIN_QUESTIONS = 3
+MAX_QUESTIONS = 12
+QUESTION_WORDS = 15
+INTENT_WORDS = 8
 
 # Шаг 1 методички: Person + Problem + Cause + Motivation = Problem Hypothesis.
 HYPOTHESIS_BLOCKS = ["Person", "Problem", "Cause", "Motivation"]
@@ -61,45 +69,14 @@ METRIC_LINES = [
     "**Мотивация повышает метрику:**",
 ]
 
-# Шаг 2: 14 этапов канона, порядок фиксирован (слева-направо, сверху-вниз).
-STAGES = [
-    "Общий вопрос про поведение в рамках исследуемой гипотезы",
-    "Получение примера работы",
-    "Анализ частотности поведения",
-    "Анализ инструментария",
-    "Уточнение проблемы в рамках гипотезы",
-    "Уточнение проблемы: дополнительные вопросы",
-    "Выяснение эмоций",
-    "Последствия",
-    "Уточнение наличия блокера для проблемы",
-    "Валидация влияния на цель",
-    "Уточнение текущего решения",
-    "Другие способы решения",
-    "«Волшебная палочка»",
-    "Обратный вопрос",
-]
-SCRIPT_HEADER = ["Этап", "Поток верификации гипотезы", "Поток получения новых знаний"]
+QUESTIONS_HEADER = ["#", "Вопрос", "Что хотим узнать", "Кому", "Пробел"]
 
-# Этапы 13 и 14 — «Завершение»: они выходят за поток верификации и тегов не несут.
-CLOSING_STAGES = {"«Волшебная палочка»", "Обратный вопрос"}
-# Гипотетическая форма санкционирована каноном на этих двух этапах.
-HYPOTHETICAL_OK = {"Уточнение проблемы: дополнительные вопросы", "«Волшебная палочка»"}
-
+# Тег блока гипотезы в конце вопроса. Без него вопрос не бьёт ни в поведение, ни в
+# метрику, ни в мотивацию, ни в причину — и не проверяет гипотезу.
 BLOCK_TAGS = {"Поведение", "Метрика блокера", "Мотивация", "Причина"}
 TAG_RE = re.compile(r"\((Поведение|Метрика блокера|Мотивация|Причина)\)\s*$")
 
-PARTICIPANTS_HEADER = ["ФИО", "Роль", "Зачем на интервью", "Блоки вопросов"]
-EXTRA_HEADER = ["#", "Тип", "Формулировка", "Пробел-источник", "Кому", "Вопрос на встрече"]
-
-# Шаг 3: пять типов дополнительных гипотез и связки их формул.
-HYPOTHESIS_FORMULAS = {
-    "поведения": (("Когда ",), (", то ", ", потому что ")),
-    "проблемы": (("Когда ",), (", то ", ", а это мешает ")),
-    "мотивации": ((), (" хочет", ", а не ", ", чтобы ")),
-    "блокера": ((), (", потому что ",)),
-    "решения": (("Если ",), (" предоставить ", ", то можно будет решить ", ", что можно подтвердить с помощью ")),
-}
-
+PARTICIPANTS_HEADER = ["ФИО", "Роль", "Что хотим узнать"]
 # Источник блока гипотезы: цитата, честное «это моя гипотеза из такой-то дырки» или [УТОЧНИТЬ].
 SOURCE_OK_RE = re.compile(r"гипотеза\s*←|\[УТОЧНИТЬ|«|\.md\b|\.csv\b")
 
@@ -270,111 +247,77 @@ def check_participants(lines: list[str], start: int, out: list[Finding]) -> None
             out.append(Finding(idx, "ERROR", "CD008",
                                f"в строке участника {len(cells)} колонок вместо {len(PARTICIPANTS_HEADER)}"))
             continue
-        name, role, why, _ = cells
+        name, role, why = cells
         if not name or PLACEHOLDER_RE.match(name):
             out.append(Finding(idx, "ERROR", "CD008", "участник без имени: адресовать вопрос некому"))
         if not role or PLACEHOLDER_RE.match(role):
             out.append(Finding(idx, "ERROR", "CD008", f"участник «{name}» без роли"))
         if not why or PLACEHOLDER_RE.match(why):
             out.append(Finding(idx, "ERROR", "CD008",
-                               f"участник «{name}»: пустая колонка «Зачем на интервью» — зачем его звать"))
+                               f"участник «{name}»: пусто «Что хотим узнать» — зачем его звать"))
 
 
-def check_script(lines: list[str], start: int, out: list[Finding]) -> None:
+def check_questions(lines: list[str], start: int, out: list[Finding]) -> None:
     end = section_bounds(lines, start)
     rows = table_rows(lines, start, end)
     if not rows:
-        out.append(Finding(start, "ERROR", "CD004", "под «Скрипт интервью» нет таблицы этапов"))
+        out.append(Finding(start, "ERROR", "CD004", "под «Вопросы» нет таблицы"))
         return
     header_idx, header = rows[0]
-    if header != SCRIPT_HEADER:
+    if header != QUESTIONS_HEADER:
         out.append(Finding(header_idx, "ERROR", "CD004",
-                           f"колонки скрипта: ожидались {' | '.join(SCRIPT_HEADER)}"))
+                           f"колонки вопросов: ожидались {' | '.join(QUESTIONS_HEADER)}"))
 
     body = rows[1:]
-    names = [cells[0] for _, cells in body if cells]
-    if names != STAGES:
-        missing = [s for s in STAGES if s not in names]
-        extra = [s for s in names if s not in STAGES]
-        if missing:
-            out.append(Finding(start, "ERROR", "CD004",
-                               f"в скрипте нет этапов канона: {'; '.join(missing)}"))
-        if extra:
-            out.append(Finding(start, "ERROR", "CD004",
-                               f"в скрипте есть этапы вне канона: {'; '.join(extra)}"))
-        if not missing and not extra:
-            out.append(Finding(start, "ERROR", "CD004",
-                               "порядок этапов нарушен: вопросы задаются сверху-вниз, порядок канона фиксирован"))
+    if len(body) < MIN_QUESTIONS:
+        out.append(Finding(start, "ERROR", "CD004",
+                           f"вопросов {len(body)} — интервью не о чем вести, минимум {MIN_QUESTIONS}"))
+    if len(body) > MAX_QUESTIONS:
+        out.append(Finding(start, "ERROR", "CD004",
+                           f"вопросов {len(body)} — встреча в 5–10 минут не уложится, максимум {MAX_QUESTIONS}"))
 
     for idx, cells in body:
-        if len(cells) != len(SCRIPT_HEADER):
+        if len(cells) != len(QUESTIONS_HEADER):
             out.append(Finding(idx, "ERROR", "CD004",
-                               f"в строке этапа {len(cells)} колонок вместо {len(SCRIPT_HEADER)}"))
+                               f"в строке вопроса {len(cells)} колонок вместо {len(QUESTIONS_HEADER)}"))
             continue
-        stage, verify, discover = cells
-        if not questions_of(verify) and not questions_of(discover):
-            out.append(Finding(idx, "ERROR", "CD004", f"этап «{stage}»: обе ячейки пусты"))
+        num, question, intent, whom, gap = cells
+
+        if not question or PLACEHOLDER_RE.match(question):
+            out.append(Finding(idx, "ERROR", "CD004", f"{num}: пустой вопрос"))
             continue
 
-        verify_questions = questions_of(verify)
-        if stage not in CLOSING_STAGES:
-            for question in verify_questions:
-                if not TAG_RE.search(question):
-                    out.append(Finding(idx, "ERROR", "CD005",
-                                       f"этап «{stage}»: вопрос потока верификации без тега блока гипотезы "
-                                       f"({', '.join(sorted(BLOCK_TAGS))}) — «{question[:60]}»"))
-
-        for flow_questions in (verify_questions, questions_of(discover)):
-            for position, question in enumerate(flow_questions):
-                first_sentence = re.split(r"[?!.]", question)[0]
-                if position == 0 and CLOSED_RE.search(first_sentence):
-                    out.append(Finding(idx, "WARN", "CD011",
-                                       f"этап «{stage}»: ведущий вопрос ячейки закрытый — «{question[:60]}»"))
-                if ANCHOR_RE.search(question):
-                    out.append(Finding(idx, "WARN", "CD012",
-                                       f"этап «{stage}»: ответ подсказан в вопросе (эффект якоря) — «{question[:60]}»"))
-                if stage not in HYPOTHETICAL_OK and HYPOTHETICAL_RE.search(question.lower()):
-                    out.append(Finding(idx, "WARN", "CD013",
-                                       f"этап «{stage}»: описание «в идеале» вместо кейса использования — «{question[:60]}»"))
-
-
-def check_extra_hypotheses(lines: list[str], start: int, out: list[Finding]) -> None:
-    end = section_bounds(lines, start)
-    rows = table_rows(lines, start, end)
-    if not rows:
-        out.append(Finding(start, "ERROR", "CD006", "под «Дополнительные гипотезы» нет таблицы"))
-        return
-    header_idx, header = rows[0]
-    if header != EXTRA_HEADER:
-        out.append(Finding(header_idx, "ERROR", "CD006",
-                           f"колонки дополнительных гипотез: ожидались {' | '.join(EXTRA_HEADER)}"))
-    for idx, cells in rows[1:]:
-        if len(cells) != len(EXTRA_HEADER):
-            out.append(Finding(idx, "ERROR", "CD006",
-                               f"в строке гипотезы {len(cells)} колонок вместо {len(EXTRA_HEADER)}"))
-            continue
-        num, kind, formulation, gap, whom, question = cells
-        if kind not in HYPOTHESIS_FORMULAS:
-            out.append(Finding(idx, "ERROR", "CD006",
-                               f"{num}: тип «{kind}» не из пяти: {', '.join(HYPOTHESIS_FORMULAS)}"))
-        else:
-            prefixes, parts = HYPOTHESIS_FORMULAS[kind]
-            if prefixes and not any(formulation.startswith(p) for p in prefixes):
-                out.append(Finding(idx, "ERROR", "CD006",
-                                   f"{num}: гипотеза {kind} должна начинаться с «{prefixes[0].strip()}»"))
-            lost = [p for p in parts if p not in formulation]
-            if lost:
-                out.append(Finding(idx, "ERROR", "CD006",
-                                   f"{num}: гипотеза {kind} не по формуле, нет связок: "
-                                   + "; ".join(f"«{p.strip()}»" for p in lost)))
+        tag = TAG_RE.search(question)
+        if not tag:
+            out.append(Finding(idx, "ERROR", "CD005",
+                               f"{num}: вопрос без тега блока гипотезы "
+                               f"({', '.join(sorted(BLOCK_TAGS))}) — он ничего не проверяет"))
         if not gap or PLACEHOLDER_RE.match(gap):
             out.append(Finding(idx, "ERROR", "CD007",
-                               f"{num}: пустой пробел-источник — гипотезу никто не заказывал, она выдумана"))
+                               f"{num}: пустой пробел-источник — вопрос никто не заказывал, он выдуман"))
         if not whom or PLACEHOLDER_RE.match(whom):
             out.append(Finding(idx, "ERROR", "CD008",
                                f"{num}: пустая колонка «Кому» — неизвестный адресат пишется как [кому?], не пустотой"))
-        if not question or PLACEHOLDER_RE.match(question):
-            out.append(Finding(idx, "ERROR", "CD006", f"{num}: нет вопроса на встрече"))
+        if not intent or PLACEHOLDER_RE.match(intent):
+            out.append(Finding(idx, "ERROR", "CD004", f"{num}: пусто «Что хотим узнать»"))
+
+        text = TAG_RE.sub("", question).strip()
+        first_sentence = re.split(r"[?!.]", text)[0]
+        if CLOSED_RE.search(first_sentence):
+            out.append(Finding(idx, "WARN", "CD011", f"{num}: вопрос закрытый (да/нет) — «{text[:60]}»"))
+        if ANCHOR_RE.search(text):
+            out.append(Finding(idx, "WARN", "CD012", f"{num}: ответ подсказан в вопросе (эффект якоря)"))
+        if HYPOTHETICAL_RE.search(text.lower()):
+            out.append(Finding(idx, "WARN", "CD013", f"{num}: описание «в идеале» вместо кейса использования"))
+
+        words = len(text.split())
+        if words > QUESTION_WORDS or text.count("?") > 1:
+            out.append(Finding(idx, "WARN", "CD014",
+                               f"{num}: вопрос из {words} слов и {text.count('?')} знаков — "
+                               f"держим до {QUESTION_WORDS} слов и одного вопроса"))
+        if intent and len(intent.split()) > INTENT_WORDS:
+            out.append(Finding(idx, "WARN", "CD015",
+                               f"{num}: «Что хотим узнать» из {len(intent.split())} слов, держим до {INTENT_WORDS}"))
 
 
 def lint(path: Path) -> list[Finding]:
@@ -388,8 +331,7 @@ def lint(path: Path) -> list[Finding]:
         "## Гипотеза проблемы": check_hypothesis,
         "## Цели интервью": check_goals,
         "## Участники": check_participants,
-        "## Скрипт интервью": check_script,
-        "## Дополнительные гипотезы": check_extra_hypotheses,
+        "## Вопросы": check_questions,
     }
     for heading, check in checks.items():
         if heading in found:
