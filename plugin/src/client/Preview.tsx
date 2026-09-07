@@ -276,6 +276,7 @@ function ReadyBody({ task, t }: { task: BftTask; t: (key: BftLocaleKey) => strin
         : EMPTY,
     },
     { label: t('previewLinksHtml'), value: task.links.html ?? EMPTY },
+    { label: t('previewLinksCustdev'), value: task.links.custdev ?? EMPTY },
     { label: t('previewSmart'), value: task.smart ? <p>{task.smart}</p> : EMPTY },
     {
       label: t('previewHowToDemo'),

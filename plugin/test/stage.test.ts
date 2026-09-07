@@ -77,5 +77,15 @@ test('единый документ со stage fast меряется требо�
 
 test('состав артефактов читается без учёта регистра и различает две страницы', () => {
   assert.deepEqual(artifactsOf('epic', ['Epic.MD', 'EPIC-FAST.md', 'epic.HTML']),
-    { fast: true, fastHtml: false, deep: true, deepHtml: true })
+    { fast: true, fastHtml: false, deep: true, deepHtml: true, custdev: false, custdevHtml: false })
+})
+
+test('артефакты интервью видны отдельно и стадию не двигают', () => {
+  const entries = ['epic-fast.md', 'epic-fast.html', 'epic-custdev.md', 'epic-custdev.html']
+  assert.deepEqual(artifactsOf('epic', entries),
+    { fast: true, fastHtml: true, deep: false, deepHtml: false, custdev: true, custdevHtml: true })
+  // Интервью нужно не каждому эпику: требуй его стадия — всё уже готовое уехало бы в To Do.
+  assert.deepEqual(stageFromArtifacts('epic', { entries }), { stage: 'FAST-DONE', missing: [] })
+  assert.deepEqual(stageFromArtifacts('epic', { entries: ['epic-fast.md', 'epic-fast.html'] }),
+    { stage: 'FAST-DONE', missing: [] })
 })

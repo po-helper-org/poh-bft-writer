@@ -25,3 +25,13 @@ test('после одного /bft-fast документ тоже показыв
 test('показывать нечего — null, а не выдуманное имя', () => {
   assert.equal(chooseDocument('epic', ['personas.csv']), null)
 })
+
+test('страница встречи не подменяет собой страницу ревью', () => {
+  const choice = chooseDocument('epic', ['epic-fast.md', 'epic-custdev.md', 'epic-custdev.html', 'epic-fast.html'])
+  assert.deepEqual(choice, { name: 'epic-fast.html', kind: 'html' })
+})
+
+test('страница встречи не показывается вместо документа, даже когда других HTML нет', () => {
+  const choice = chooseDocument('epic', ['epic-fast.md', 'epic-custdev.html'])
+  assert.deepEqual(choice, { name: 'epic-fast.md', kind: 'markdown' })
+})

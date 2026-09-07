@@ -38,6 +38,8 @@ export function artifactsOf(slug: string, entries: readonly string[]): BftArtifa
     fastHtml: has(`${slug}-fast.html`),
     deep: has(`${slug}.md`),
     deepHtml: has(`${slug}.html`),
+    custdev: has(`${slug}-custdev.md`),
+    custdevHtml: has(`${slug}-custdev.html`),
   }
 }
 

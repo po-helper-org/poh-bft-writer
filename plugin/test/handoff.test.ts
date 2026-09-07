@@ -11,7 +11,7 @@ const task: BftTask = {
   id: 'PO-21', title: 'Фильтровать заказы с возвратом', stage: 'FAST-DONE',
   stageSource: 'artifacts', description: '', howToDemo: [],
   links: { other: [], html: '.bft/documentation/po-21/po-21.html' },
-  artifacts: { fast: true, fastHtml: true, deep: false, deepHtml: false },
+  artifacts: { fast: true, fastHtml: true, deep: false, deepHtml: false, custdev: false, custdevHtml: false },
   missing: [],
 }
 
