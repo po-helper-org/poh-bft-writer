@@ -76,9 +76,10 @@ def table_of(lines: list[str]) -> list[list[str]]:
     return rows
 
 
-# Тег блока гипотезы в конце вопроса: на странице он не показывается, но снять его
-# с текста нужно — иначе он прозвучит вслух вместе с вопросом.
-TAG_RE = re.compile(r"\s*\((Поведение|Метрика блокера|Мотивация|Причина)\)\s*$")
+# Тег исхода в конце вопроса: на странице он не показывается, но снять его с текста
+# нужно — иначе он прозвучит вслух вместе с вопросом.
+OUTCOME_TAGS = ["Для кого", "Проблема", "Приёмка", "Измерение", "Участники", "Решение"]
+TAG_RE = re.compile(r"\s*\((" + "|".join(OUTCOME_TAGS) + r")\)\s*$")
 
 
 def strip_tag(question: str) -> tuple[str, str | None]:
@@ -107,6 +108,17 @@ def collect_questions(sections: dict[str, list[str]], respondent: str) -> list[d
         })
     for n, item in enumerate(out, start=1):
         item["n"] = n
+    return out
+
+
+def collect_outcomes(sections: dict[str, list[str]]) -> list[dict]:
+    """Шесть блоков исхода: что уже знаем и где пробел."""
+    out = []
+    for row in table_of(sections.get("Что должны унести", []))[1:]:
+        if len(row) != 3:
+            continue
+        known = row[1].strip()
+        out.append({"block": row[0], "known": known, "gap": not known or "[пробел]" in known})
     return out
 
 
@@ -168,13 +180,54 @@ def render_hypothesis(hyp: dict) -> str:
     return f"<table class='hyp-table'><tbody>{rows}</tbody></table>{metric}"
 
 
-def render_goals(sections: dict[str, list[str]]) -> str:
-    """Цели списком. Тайминга и формата на странице нет — они не помогают вести разговор."""
-    goals = collect_list(sections.get("Цели интервью", []))
-    if not goals:
-        return "<p class='pane-empty'>Цели не заданы.</p>"
-    items = "".join(f"<li>{inline(strip_gap_ref(g))}</li>" for g in goals)
-    return f"<ul class='goals'>{items}</ul>"
+def collect_outcomes(sections: dict[str, list[str]]) -> list[dict]:
+    """Шесть блоков исхода: что уже знаем и где пробел."""
+    out = []
+    for row in table_of(sections.get("Что должны унести", []))[1:]:
+        if len(row) != 3:
+            continue
+        known = row[1].strip()
+        out.append({"block": row[0], "known": known, "gap": not known or "[пробел]" in known})
+    return out
+
+
+def collect_participants(sections: dict[str, list[str]]) -> list[dict]:
+    people = []
+    for row in table_of(sections.get("Участники", []))[1:]:
+        if len(row) != 3:
+            continue
+        people.append({"name": row[0], "role": row[1], "want": row[2]})
+    return people
+
+
+def collect_hypothesis(sections: dict[str, list[str]]) -> dict:
+    blocks = []
+    for row in table_of(sections.get("Гипотеза проблемы", []))[1:]:
+        if len(row) != 3:
+            continue
+        blocks.append({"block": row[0], "text": row[1], "source": row[2]})
+    metric = []
+    for raw in sections.get("Гипотеза проблемы", []):
+        stripped = raw.strip()
+        m = re.match(r"^\*\*([^*]+):\*\*\s*(.*)$", stripped)
+        if m:
+            metric.append({"label": m.group(1), "value": m.group(2)})
+    return {"blocks": blocks, "metric": metric}
+
+
+def render_outcomes(outcomes: list[dict]) -> str:
+    """Контракт результата на странице: видно, что уже знаем и что должны унести."""
+    if not outcomes:
+        return "<p class='pane-empty'>Исходы не заданы.</p>"
+    rows = "".join(
+        "<tr data-gap='{gap}'><th>{block}</th><td>{known}</td></tr>".format(
+            gap="1" if o["gap"] else "0",
+            block=htmlmod.escape(o["block"]),
+            known="<span class='gap'>пробел</span>" if o["gap"] else inline(o["known"]),
+        )
+        for o in outcomes
+    )
+    return f"<table class='outcomes'><tbody>{rows}</tbody></table>"
 
 
 def render_participants(people: list[dict]) -> str:
@@ -207,6 +260,15 @@ def render_questions(questions: list[dict]) -> str:
             f"{intent}{whom}"
             "<textarea class='answer' rows='4' placeholder='Ответ — своими словами, лучше цитатой'></textarea>"
             "<input class='who' type='text' placeholder='Кто ответил'>"
+            # Вложения: скриншот из буфера, фото доски, файл с диска. На доске и на экране
+            # информации часто больше, чем участник успевает проговорить.
+            "<div class='attach'>"
+            "<label class='attach-add'>Приложить файл"
+            "<input type='file' class='attach-input' multiple accept='image/*,.pdf,.txt,.md,.csv'>"
+            "</label>"
+            "<span class='attach-hint'>или Ctrl+V — скриншот из буфера</span>"
+            "<ul class='attach-list'></ul>"
+            "</div>"
             "</article>"
         )
     return "\n".join(cards)
@@ -224,11 +286,6 @@ def render_nav(questions: list[dict]) -> str:
     return f"<ol class='nav-list'>{items}</ol>"
 
 
-def strip_gap_ref(text: str) -> str:
-    """Цель без внутренней ссылки на пробел: письмо уходит наружу, маркеры остаются внутри."""
-    return re.split(r"\s*←\s*", text)[0].strip().rstrip(".")
-
-
 def build_agenda(title: str, sections: dict[str, list[str]], people: list[dict],
                  questions: list[dict]) -> str:
     """Заготовка письма участникам: зачем зовём и что спросим.
@@ -239,16 +296,16 @@ def build_agenda(title: str, sections: dict[str, list[str]], people: list[dict],
     """
     plain_title = re.sub(r"^\[CustDev\]\s*", "", title)
     plain_title = re.sub(r"^[a-z0-9][a-z0-9._-]*:\s*", "", plain_title)
-    goals = [strip_gap_ref(g) for g in collect_list(sections.get("Цели интервью", []))]
+    gaps = [o["block"] for o in collect_outcomes(sections) if o["gap"]]
 
     lines = ["Тема: CustDev — " + plain_title, "", "Коллеги, привет!", ""]
     lines.append("Зову на короткий разговор: 10 минут, без подготовки.")
     lines.append("Решение не обсуждаем. Нужны примеры из практики: как было в последний раз.")
     lines.append("")
 
-    if goals:
+    if gaps:
         lines.append("Что выясняем:")
-        lines += ["— " + g for g in goals]
+        lines += ["— " + g.lower() for g in gaps]
         lines.append("")
 
     lines.append("Вопросы:")
@@ -312,12 +369,12 @@ TEMPLATE = """<!doctype html>
   </header>
   <nav class="pane-tabs">
     <button type="button" data-pane="hyp" aria-pressed="true">Гипотеза</button>
-    <button type="button" data-pane="goals" aria-pressed="false">Цели</button>
+    <button type="button" data-pane="outcomes" aria-pressed="false">Что унести</button>
     <button type="button" data-pane="people" aria-pressed="false">Участники</button>
   </nav>
   <div class="drawer-body">
     <section data-pane="hyp">{hypothesis}</section>
-    <section data-pane="goals" hidden>{goals}</section>
+    <section data-pane="outcomes" hidden>{outcomes}</section>
     <section data-pane="people" hidden>{participants}</section>
   </div>
 </aside>
@@ -425,7 +482,7 @@ def main():
         title=htmlmod.escape(title),
         css=css,
         hypothesis=render_hypothesis(collect_hypothesis(sections)),
-        goals=render_goals(sections),
+        outcomes=render_outcomes(collect_outcomes(sections)),
         participants=render_participants(participants),
         agenda=htmlmod.escape(build_agenda(title, sections, participants, questions)),
         nav=render_nav(questions),

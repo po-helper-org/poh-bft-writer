@@ -52,7 +52,8 @@ fi
 for pattern in 'data-drawer="meta"' 'data-drawer="agenda"' 'id="agendaText"' 'id="agendaMail"' \
                'id="navPanel"' 'id="navToggle"' "class='nav-item'" 'id="promptOut"' \
                'id="downloadBtn"' 'id="nextBtn"' 'id="prevBtn"' 'id="skipBtn"' 'id="barFill"' \
-               "class='answer'"; do
+               "class='answer'" "class='attach-input'" "class='attach-list'" \
+               'data-pane="outcomes"' "table class='outcomes'"; do
   if grep -q "$pattern" "$PAGE"; then
     echo "ok    на странице есть: $pattern"
   else
@@ -117,6 +118,31 @@ fi
 
 # Ключ вопроса стоит в двух местах: на карточке и в пункте панели навигации. Считаем
 # уникальные, иначе одна правка выглядит как две.
+# Шесть исходов — контракт результата, и на странице их видно все, с отметкой пробелов.
+outcomes=$(grep -o "<tr data-gap=" "$PAGE" | wc -l)
+if [ "$outcomes" -eq 6 ]; then
+  echo "ok    на странице все шесть исходов"
+else
+  echo "FAIL  исходов на странице $outcomes вместо шести"
+  fails=$((fails + 1))
+fi
+if grep -q "data-gap='1'" "$PAGE"; then
+  echo "ok    пробелы отмечены отдельно от известного"
+else
+  echo "FAIL  пробелы на странице не отмечены"
+  fails=$((fails + 1))
+fi
+
+# Вложение прикладывается к каждому вопросу: скриншот и фото доски несут больше, чем
+# участник успевает проговорить. Поле должно быть у всех карточек, а не у первой.
+attach=$(grep -o "class='attach-input'" "$PAGE" | wc -l)
+if [ "$attach" -eq "$cards" ]; then
+  echo "ok    поле вложений у каждого вопроса ($attach)"
+else
+  echo "FAIL  полей вложений $attach при $cards вопросах"
+  fails=$((fails + 1))
+fi
+
 ids_of() { grep -o "data-qid='[0-9a-f]*'" "$1" | sort -u; }
 
 # Ключ ответа — хэш текста вопроса. Пересобрали скрипт без правок — ключи те же,
@@ -131,7 +157,7 @@ else
 fi
 
 # Правка одного вопроса меняет только его ключ: остальные ответы остаются на месте.
-sed 's/Как часто приходят вопросы по одному событию?/Как часто вопросы повторяются?/' "$GOLDEN" > "$TMP/edited-custdev.md"
+sed 's/Кто заметит это первым?/Кто увидит это первым?/' "$GOLDEN" > "$TMP/edited-custdev.md"
 python3 "$EXPORT" "$TMP/edited-custdev.md" >/dev/null 2>&1
 changed=$(comm -13 <(ids_of "$PAGE") <(ids_of "$TMP/edited-custdev.html") | wc -l)
 if [ "$changed" -eq 1 ]; then

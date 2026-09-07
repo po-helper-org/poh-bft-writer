@@ -7,7 +7,7 @@ LINT="skills/bft-writer/scripts/bft-custdev-lint.py"
 GOLDEN="skills/bft-custdev/examples/golden_custdev_script.md"
 BROKEN="skills/bft-writer/scripts/fixtures/broken_custdev_script.md"
 # Коды, которые негативная фикстура обязана поднять. Пропал код — линтер ослаб.
-EXPECTED_ERRORS=(CD001 CD002 CD003 CD004 CD005 CD007 CD008 CD009)
+EXPECTED_ERRORS=(CD001 CD002 CD003 CD004 CD005 CD006 CD007 CD008 CD009 CD010)
 EXPECTED_WARNS=(CD011 CD012 CD013 CD014 CD015)
 
 fails=0
@@ -23,7 +23,7 @@ fi
 
 # Интервью на 5–10 минут: эталон обязан оставаться коротким. Разрастись он молча — и
 # страница снова превратится в допрос, ради ухода от которого длину и ограничили.
-qcount=$(sed -n '/^## Вопросы/,/^## /p' "$GOLDEN" | grep -cE '^\| В-[0-9]+ ')
+qcount=$(sed -n '/^## Вопросы/,/^## Чего/p' "$GOLDEN" | grep -cE '^\| В-[0-9]+ ')
 if [ "$qcount" -ge 3 ] && [ "$qcount" -le 12 ]; then
   echo "ok    в эталоне $qcount вопросов — разговор укладывается в 5–10 минут"
 else
@@ -65,6 +65,29 @@ for code in "${EXPECTED_WARNS[@]}"; do
     fails=$((fails + 1))
   fi
 done
+
+
+# Шесть исходов — контракт результата. Пропади блок из эталона, и следующий скрипт соберут
+# без приёмки или без измерения, а по ним потом пишут БФТ.
+for block in "Для кого" "Какую проблему решаем" "Как принимается работа" \
+             "Как поймём, что решает" "Кто вовлечён" "Какое решение видит запрашивающий"; do
+  if grep -q "| $block |" "$GOLDEN"; then
+    echo "ok    исход на месте: $block"
+  else
+    echo "FAIL  в эталоне нет исхода: $block"
+    fails=$((fails + 1))
+  fi
+done
+
+# Каждый вопрос помечен исходом: без тега он не закрывает ни один блок.
+untagged=$(sed -n '/^## Вопросы/,/^## Чего/p' "$GOLDEN" | grep -E '^\| В-[0-9]+ ' \
+  | grep -cvE '\((Для кого|Проблема|Приёмка|Измерение|Участники|Решение)\)')
+if [ "$untagged" -eq 0 ]; then
+  echo "ok    все вопросы эталона помечены исходом"
+else
+  echo "FAIL  вопросов без тега исхода: $untagged"
+  fails=$((fails + 1))
+fi
 
 if [ "$fails" -eq 0 ]; then
   echo "Все проверки пройдены."

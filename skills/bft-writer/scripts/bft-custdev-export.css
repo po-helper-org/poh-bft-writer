@@ -212,3 +212,39 @@ ol.nav-list{ list-style:none; margin:0; padding:0; counter-reset:none; }
   border:1px solid var(--line); background:var(--bg); color:var(--fg); resize:vertical;
   text-align:left;
 }
+
+/* ---------- вложения к ответу ---------- */
+.attach{ margin-top:.7rem; }
+.attach-add{
+  display:inline-block; font-size:.82rem; padding:.35rem .7rem; cursor:pointer;
+  border:1px solid var(--line); background:var(--bg); color:var(--muted);
+}
+.attach-add:hover{ border-color:var(--line-strong); color:var(--fg); }
+.attach-input{ position:absolute; width:1px; height:1px; opacity:0; pointer-events:none; }
+.attach-hint{ margin-left:.6rem; font-size:.78rem; color:var(--faint); }
+ul.attach-list{ list-style:none; margin:.6rem 0 0; padding:0; display:flex; flex-wrap:wrap; gap:.5rem; }
+ul.attach-list li{
+  display:flex; align-items:center; gap:.5rem; padding:.35rem .5rem;
+  border:1px solid var(--line); font-size:.8rem; max-width:100%;
+}
+ul.attach-list img{ width:44px; height:44px; object-fit:cover; border:1px solid var(--line); }
+.attach-name{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:14rem; }
+.attach-drop{
+  border:none; background:none; padding:0; cursor:pointer; color:var(--faint);
+  font:inherit; font-size:.76rem; text-decoration:underline;
+}
+.attach-drop:hover{ color:var(--fg); }
+.attach-lost{ color:var(--faint); font-style:italic; }
+
+/* ---------- контракт результата ---------- */
+table.outcomes{ border-collapse:collapse; width:100%; font-size:.86rem; }
+table.outcomes th{
+  width:11rem; text-align:left; font-weight:600; background:var(--mark);
+  border:1px solid var(--line); padding:.45rem .55rem; vertical-align:top;
+}
+table.outcomes td{ border:1px solid var(--line); padding:.45rem .55rem; vertical-align:top; }
+table.outcomes tr[data-gap="1"] th{ background:var(--bg); }
+table.outcomes .gap{
+  font-family:"SF Mono", Consolas, monospace; font-size:.78rem; color:var(--faint);
+  border:1px dashed var(--line); padding:.05em .4em;
+}

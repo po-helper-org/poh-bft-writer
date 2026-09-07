@@ -42,13 +42,37 @@ FRONTMATTER_KEYS = ["epic_slug", "stage", "prepared", "source", "respondent", "q
 
 # Разделы документа. Порядок — как их читает PO; все обязательны (CD009).
 SECTIONS = [
+    "## Что должны унести",
     "## Гипотеза проблемы",
-    "## Цели интервью",
     "## Участники",
     "## Вопросы",
     "## Чего не спрашиваем",
     "## После интервью",
 ]
+
+# Шесть исходов интервью: контракт результата (interview_outcomes.md). Порядок — тот, в
+# котором их разбирают на встрече: без «для кого» и «проблемы» остальное не читается,
+# ради «приёмки» и «измерения» всё и затевается.
+OUTCOMES = [
+    "Для кого",
+    "Какую проблему решаем",
+    "Как принимается работа",
+    "Как поймём, что решает",
+    "Кто вовлечён",
+    "Какое решение видит запрашивающий",
+]
+OUTCOMES_HEADER = ["Блок", "Что уже знаем", "Источник"]
+GAP_MARK = "[пробел]"
+
+# Тег исхода в конце вопроса. Короткий, чтобы влезал в строку таблицы.
+OUTCOME_TAGS = {
+    "Для кого": "Для кого",
+    "Проблема": "Какую проблему решаем",
+    "Приёмка": "Как принимается работа",
+    "Измерение": "Как поймём, что решает",
+    "Участники": "Кто вовлечён",
+    "Решение": "Какое решение видит запрашивающий",
+}
 
 # Интервью на 5–10 минут. Тридцать вопросов канона дают воду и вопросы не по делу —
 # проверено на живом прогоне, см. script_stages.md §«Правило длины». Границы шире
@@ -71,10 +95,7 @@ METRIC_LINES = [
 
 QUESTIONS_HEADER = ["#", "Вопрос", "Что хотим узнать", "Кому", "Пробел"]
 
-# Тег блока гипотезы в конце вопроса. Без него вопрос не бьёт ни в поведение, ни в
-# метрику, ни в мотивацию, ни в причину — и не проверяет гипотезу.
-BLOCK_TAGS = {"Поведение", "Метрика блокера", "Мотивация", "Причина"}
-TAG_RE = re.compile(r"\((Поведение|Метрика блокера|Мотивация|Причина)\)\s*$")
+TAG_RE = re.compile(r"\((" + "|".join(OUTCOME_TAGS) + r")\)\s*$")
 
 PARTICIPANTS_HEADER = ["ФИО", "Роль", "Что хотим узнать"]
 # Источник блока гипотезы: цитата, честное «это моя гипотеза из такой-то дырки» или [УТОЧНИТЬ].
@@ -215,21 +236,6 @@ def check_hypothesis(lines: list[str], start: int, out: list[Finding]) -> None:
             out.append(Finding(text[marker][0], "ERROR", "CD003", f"строка «{marker}» пуста"))
 
 
-def check_goals(lines: list[str], start: int, out: list[Finding]) -> None:
-    end = section_bounds(lines, start)
-    goals = 0
-    for idx in range(start, min(end, len(lines)) + 1):
-        raw = lines[idx - 1].strip()
-        if not re.match(r"^\d+\.\s+\S", raw):
-            continue
-        goals += 1
-        if "←" not in raw:
-            out.append(Finding(idx, "ERROR", "CD007",
-                               "цель интервью без пробела-источника: непонятно, какую дырку она закрывает"))
-    if not goals:
-        out.append(Finding(start, "ERROR", "CD007", "под «Цели интервью» нет ни одной цели"))
-
-
 def check_participants(lines: list[str], start: int, out: list[Finding]) -> None:
     end = section_bounds(lines, start)
     rows = table_rows(lines, start, end)
@@ -257,7 +263,46 @@ def check_participants(lines: list[str], start: int, out: list[Finding]) -> None
                                f"участник «{name}»: пусто «Что хотим узнать» — зачем его звать"))
 
 
-def check_questions(lines: list[str], start: int, out: list[Finding]) -> None:
+def check_outcomes(lines: list[str], start: int, out: list[Finding]) -> set[str]:
+    """Шесть блоков исхода. Возвращает те, что помечены `[пробел]` — их закрывают вопросы."""
+    end = section_bounds(lines, start)
+    rows = table_rows(lines, start, end)
+    if not rows:
+        out.append(Finding(start, "ERROR", "CD010", "под «Что должны унести» нет таблицы"))
+        return set()
+    header_idx, header = rows[0]
+    if header != OUTCOMES_HEADER:
+        out.append(Finding(header_idx, "ERROR", "CD010",
+                           f"колонки исходов: ожидались {' | '.join(OUTCOMES_HEADER)}"))
+
+    seen: dict[str, str] = {}
+    for idx, cells in rows[1:]:
+        if len(cells) != len(OUTCOMES_HEADER):
+            out.append(Finding(idx, "ERROR", "CD010",
+                               f"в строке исхода {len(cells)} колонок вместо {len(OUTCOMES_HEADER)}"))
+            continue
+        block, known, _source = cells
+        if block not in OUTCOMES:
+            out.append(Finding(idx, "ERROR", "CD010",
+                               f"блок «{block}» не из шести: {'; '.join(OUTCOMES)}"))
+            continue
+        seen[block] = known
+
+    missing = [b for b in OUTCOMES if b not in seen]
+    if missing:
+        out.append(Finding(start, "ERROR", "CD010",
+                           "в «Что должны унести» нет блоков: " + "; ".join(missing)))
+
+    gaps = {b for b, known in seen.items() if not known or GAP_MARK in known}
+    for block, known in seen.items():
+        if known and GAP_MARK not in known and PLACEHOLDER_RE.match(known):
+            out.append(Finding(start, "ERROR", "CD010",
+                               f"блок «{block}»: пусто без пометки {GAP_MARK} — "
+                               "неизвестно, знаем мы это или нет"))
+    return gaps
+
+
+def check_questions(lines: list[str], start: int, out: list[Finding], gaps: set[str]) -> None:
     end = section_bounds(lines, start)
     rows = table_rows(lines, start, end)
     if not rows:
@@ -268,6 +313,7 @@ def check_questions(lines: list[str], start: int, out: list[Finding]) -> None:
         out.append(Finding(header_idx, "ERROR", "CD004",
                            f"колонки вопросов: ожидались {' | '.join(QUESTIONS_HEADER)}"))
 
+    covered: set[str] = set()
     body = rows[1:]
     if len(body) < MIN_QUESTIONS:
         out.append(Finding(start, "ERROR", "CD004",
@@ -290,8 +336,10 @@ def check_questions(lines: list[str], start: int, out: list[Finding]) -> None:
         tag = TAG_RE.search(question)
         if not tag:
             out.append(Finding(idx, "ERROR", "CD005",
-                               f"{num}: вопрос без тега блока гипотезы "
-                               f"({', '.join(sorted(BLOCK_TAGS))}) — он ничего не проверяет"))
+                               f"{num}: вопрос без тега исхода "
+                               f"({', '.join(OUTCOME_TAGS)}) — он не закрывает ни один блок"))
+        else:
+            covered.add(OUTCOME_TAGS[tag.group(1)])
         if not gap or PLACEHOLDER_RE.match(gap):
             out.append(Finding(idx, "ERROR", "CD007",
                                f"{num}: пустой пробел-источник — вопрос никто не заказывал, он выдуман"))
@@ -319,6 +367,13 @@ def check_questions(lines: list[str], start: int, out: list[Finding]) -> None:
             out.append(Finding(idx, "WARN", "CD015",
                                f"{num}: «Что хотим узнать» из {len(intent.split())} слов, держим до {INTENT_WORDS}"))
 
+    # Пробел без вопроса означает, что встреча его не закроет, а документ делает вид,
+    # что закроет. Это дороже лишнего вопроса: по нему потом пишут БФТ.
+    unasked = sorted(gaps - covered)
+    if unasked:
+        out.append(Finding(start, "ERROR", "CD006",
+                           "блок помечен [пробел], но вопроса к нему нет: " + "; ".join(unasked)))
+
 
 def lint(path: Path) -> list[Finding]:
     lines = path.read_text(encoding="utf-8").split("\n")
@@ -327,15 +382,19 @@ def lint(path: Path) -> list[Finding]:
     check_frontmatter(lines, out)
     found = check_sections(lines, out)
 
-    checks = {
+    gaps: set[str] = set()
+    if "## Что должны унести" in found:
+        gaps = check_outcomes(lines, found["## Что должны унести"], out)
+
+    for heading, check in {
         "## Гипотеза проблемы": check_hypothesis,
-        "## Цели интервью": check_goals,
         "## Участники": check_participants,
-        "## Вопросы": check_questions,
-    }
-    for heading, check in checks.items():
+    }.items():
         if heading in found:
             check(lines, found[heading], out)
+
+    if "## Вопросы" in found:
+        check_questions(lines, found["## Вопросы"], out, gaps)
 
     return sorted(out, key=lambda f: (f.line, f.code))
 
