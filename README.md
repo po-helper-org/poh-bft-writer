@@ -176,9 +176,19 @@ bash <skills_path>/bft-writer/scripts/test-bft-custdev-export.sh
 3. `/bft-fast <источник> <epic>` — зафиксировать сказанное. Дальше `/bft-deep <epic>` и `/bft-deliver <epic>`.
 4. Скрипт CustDev-интервью собирается сам после разведки — вместе с `/bft-fast`. Канон собран (`/bft-deep` отработал) — пересобрать по нему: `/bft-custdev <epic>`. Разбор прогона целиком — в разделе ниже.
 
+## Документация
+
+| Гайд | О чём |
+|---|---|
+| [`docs/guides/first-run-for-beginners.md`](docs/guides/first-run-for-beginners.md) | первый запуск с нуля |
+| [`docs/guides/quickstart-generate-bft.md`](docs/guides/quickstart-generate-bft.md) | путь от диктовки до опубликованного БФТ |
+| [`docs/guides/custdev-interview.md`](docs/guides/custdev-interview.md) | CustDev-интервью: шесть исходов, лестница от решения к проблеме, как вести встречу |
+| [`docs/guides/dsh-plugin-setup.md`](docs/guides/dsh-plugin-setup.md) | установка плагина для DeepSeek Harness |
+
 ## Пример: `/bft-custdev` от пробела до уточнённого БФТ
 
-Прогон целиком, на живых артефактах. Эпик — раздел закрывающих документов в личном кабинете
+Прогон целиком, на живых артефактах. Полный разбор возможностей —
+[`docs/guides/custdev-interview.md`](docs/guides/custdev-interview.md). Эпик — раздел закрывающих документов в личном кабинете
 юрлица; после `/bft-fast` в документе осталось пять точек `[УТОЧНИТЬ]` и пять ячеек
 `[ASIS не озвучен]`. Такой пробел закрывается не поиском, а разговором.
 
