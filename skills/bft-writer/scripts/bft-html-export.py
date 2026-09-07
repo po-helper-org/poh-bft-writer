@@ -271,6 +271,34 @@ def parse_blocks(body: str):
 
 # ---------- PlantUML -> Mermaid ----------
 
+# ---------- Wireloom (StepByStep-раскадровка UI, HowToDemo) ----------
+# Рендер — сосед-навык `bft-wireframing`: опциональный, ставится и вызывается
+# отдельно, bft-writer его не тянет как зависимость и не проверяет наличие
+# заранее. Есть по соседству — рендерит; нет — блок остаётся честным
+# `[УТОЧНИТЬ]`, документ всё равно собирается (тот же принцип деградации,
+# что у run_lint выше).
+
+WIRELOOM_UNC = '<p><mark class="unc">[УТОЧНИТЬ: {}]</mark></p>'
+
+
+def render_wireloom_storyboard(code: str, device: str) -> str:
+    """```wireloom-storyboard[:device]``` -> один составной SVG в рамке
+    браузера или телефона. Сама раскадровка и рендер экранов — зона
+    `../bft-wireframing/scripts/wireloom-render.py`; этот вызов — только
+    диспетчеризация по соседнему навыку."""
+    script = Path(__file__).resolve().parents[2] / "bft-wireframing" / "scripts" / "wireloom-render.py"
+    if not script.exists():
+        return WIRELOOM_UNC.format("навык bft-wireframing не установлен — раскадровка не отрендерена")
+    try:
+        res = subprocess.run(["python3", str(script), "--device", device],
+                              input=code, capture_output=True, text=True, timeout=60)
+    except Exception as e:
+        return WIRELOOM_UNC.format(f"bft-wireframing не запустился — {e}")
+    if res.returncode != 0:
+        return WIRELOOM_UNC.format(res.stderr.strip()[:200] or "ошибка рендера Wireloom")
+    return res.stdout
+
+
 def plantuml_to_mermaid(src: str) -> str:
     lines = [l.rstrip() for l in src.splitlines()]
     out = ["sequenceDiagram"]
@@ -531,6 +559,18 @@ def render_body(blocks, id_map, notes=None):
                 out.append(f'<pre class="mermaid">\n{htmlmod.escape(mermaid)}\n</pre>')
             elif lang == "mermaid":
                 out.append(f'<pre class="mermaid">\n{htmlmod.escape(code)}\n</pre>')
+            elif lang == "svg" and "<script" not in code.lower():
+                # Wireframe-раскадровка сценария: разметка отдаётся на страницу
+                # как есть — иначе фреймы приезжают текстом. Скрипт внутри блока
+                # закрывает эту ветку: рисунок обязан быть инертным.
+                out.append(f'<figure class="wireframe">{code}</figure>')
+            elif lang == "wireloom-storyboard" or lang.startswith("wireloom-storyboard:"):
+                # StepByStep-раскадровка HowToDemo (навык bft-wireframing,
+                # опционален). Суффикс после ":" — рамка кадра: browser (дефолт)
+                # или mobile. Нет навыка по соседству — честный [УТОЧНИТЬ], а не
+                # тихая пропажа картинки.
+                device = lang.split(":", 1)[1] if ":" in lang else "browser"
+                out.append(f'<figure class="wireframe">{render_wireloom_storyboard(code, device)}</figure>')
             else:
                 out.append(f'<pre><code>{htmlmod.escape(code)}</code></pre>')
         elif kind == "para":

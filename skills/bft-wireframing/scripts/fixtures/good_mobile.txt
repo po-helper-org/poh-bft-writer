@@ -1,0 +1,11 @@
+Открываю список найденных возможностей
+---
+window:
+  header large:
+    text "Возможности"
+  list:
+    slot "BLUM · dex-1" chevron:
+      text "допущен" accent=success
+  tabbar:
+    tabitem "Возможности" selected
+    tabitem "Журнал"

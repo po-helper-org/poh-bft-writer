@@ -1,0 +1,34 @@
+Включаю режим без отправки операций
+---
+window:
+  navbar:
+    leading:
+      text "MEV Dashboard" bold
+  row:
+    col 160:
+      list:
+        slot "Возможности" active
+        slot "Токены"
+    col:
+      panel:
+        text "Режимы работы" bold
+        radio "Только наблюдение" selected label-right
+        radio "Реальная торговля" label-right
+===
+Система сама находит токены и пулы
+---
+window:
+  navbar:
+    leading:
+      text "MEV Dashboard" bold
+  row:
+    col 160:
+      list:
+        slot "Возможности" active
+        slot "Токены"
+    col:
+      panel:
+        text "Найденные токены" bold
+        list:
+          slot "BLUM · dex-1" chevron:
+            text "допущен" accent=success

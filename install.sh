@@ -38,7 +38,7 @@ esac
 # Список явный, а не «всё из commands/»: снятая команда, уехавшая в воркспейс,
 # снова начнёт конкурировать за выбор навыка (issue #25). Архив в docs/archive/
 # не синкается вовсе.
-COMMANDS="bft-index bft-fast bft-recon bft-custdev bft-deep bft-draft bft-validate bft-html bft-deliver"
+COMMANDS="bft-index bft-fast bft-recon bft-custdev bft-deep bft-draft bft-validate bft-html bft-deliver bft-wireframe"
 mkdir -p "$ROOT/$CMD_DIR"
 for cmd in $COMMANDS; do
   if [ -f "$SRC/commands/$cmd.md" ]; then
