@@ -1,5 +1,5 @@
 ---
-description: 'Валидация черновика БФТ — hard gates + Светофор (роль: Validator, свежий взгляд)'
+description: 'Внутренняя команда контура /bft-deep (стадия 8) — валидация канона: hard gates + Светофор (роль: Validator, свежий взгляд). PO и ИИ-помощник руками не запускают'
 ---
 
 ## Использование
@@ -8,7 +8,7 @@ description: 'Валидация черновика БФТ — hard gates + Св
 /bft-validate <epic_code>
 ```
 
-Вход: финальный БФТ `.bft/documentation/<epic>/<epic>.md` (из `/bft-draft`). Выход: отчёт `artefacts/validation.md` + правки БФТ.
+**Внутренняя команда.** Вызывается оркестрацией `/bft-deep` (стадия 8) как валидатор канона; PO её руками не запускает. Вход: финальный БФТ `.bft/documentation/<epic>/<epic>.md` (текст канона от стадии 6). Выход: отчёт `artefacts/validation.md` + правки канона внутри прогона deep.
 
 ## Важно
 
