@@ -1,0 +1,56 @@
+{
+  "rules": [
+    {
+      "pattern": "https?://[a-z0-9.-]*jira\\.acme\\.example/browse/[A-Z][A-Z0-9]*-(\\d+)",
+      "replacement": "https://jira.example.com/browse/EPIC-$1",
+      "flags": "giu"
+    },
+    {
+      "pattern": "https?://[a-z0-9.-]*confluence\\.acme\\.example/[^\\s\"'<>),]*",
+      "replacement": "https://confluence.example.com/pages/viewpage.action?pageId=100",
+      "flags": "giu"
+    },
+    {
+      "pattern": "ACME[A-Z]*-(\\d+)",
+      "replacement": "EPIC-$1",
+      "word": true
+    },
+    {
+      "pattern": "Acme ?Shop|Акме",
+      "replacement": "Витрина A",
+      "word": true,
+      "flags": "giu"
+    },
+    {
+      "pattern": "ACME|Акме",
+      "replacement": "Компания",
+      "word": true,
+      "flags": "giu"
+    },
+    {
+      "pattern": "PartnerOne",
+      "replacement": "Партнёр A",
+      "word": true,
+      "flags": "giu"
+    }
+  ],
+  "forbidden": [
+    {
+      "pattern": "acme|акме",
+      "word": true
+    },
+    "jira\\.acme",
+    "confluence\\.acme",
+    "partnerone"
+  ],
+  "surnames": [
+    "Примеров",
+    "Образцова"
+  ],
+  "samples": [
+    "Продажа билетов Acme Shop через PartnerOne",
+    "Заказчик: Примеров Иван / Образцова Анна (Engineering)",
+    "https://confluence.acme.example/pages/viewpage.action?pageId=123456789, https://jira.acme.example/browse/ACME-1000",
+    "исполнители Примеров/Образцова, эпик ACME-1633"
+  ]
+}

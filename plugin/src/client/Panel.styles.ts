@@ -112,6 +112,48 @@ export const panelClassNames = {
   navFooterButtons: 'bft-nav-footer-buttons',
   navBadge: 'bft-nav-badge',
   navBadgeLabel: 'bft-nav-badge-label',
+  // Ручка изменения ширины панели (левая кромка) и страница формы сбора инициативы
+  // (FormPage.tsx): свой корень не заводит — это тот же .panel с другим телом, поэтому
+  // новых классов ровно три: обёртка айфрейма, сам айфрейм и плашка «встраивание запрещено».
+  panelGrip: 'bft-panel-grip',
+  formFrameWrap: 'bft-form-frame-wrap',
+  // Подвал формы на полноэкранной странице (вход с доски): кнопки естественной ширины у
+  // правого края, а не две растянутые на всю ширину экрана.
+  footerEnd: 'bft-footer-end',
+  formFrame: 'bft-form-frame',
+  formBlocked: 'bft-form-blocked',
+  // Карточка настроек раздела (SettingsCard.tsx). Живёт на чужой странице — вкладке
+  // «Плагины» настроек харнесса — и потому не может переиспользовать ни один класс панели:
+  // там своя геометрия. Правила ниже сняты с эталона того же слота внутри монорепозитория
+  // (harness-ui/packages/client/ui-settings-plugins/src/client/PluginCard.module.css и
+  // fields.module.css) — карточка обязана выглядеть как соседние, а импортировать их
+  // нельзя: пакет не экспортирует эти компоненты значением.
+  card: 'bft-card',
+  cardOpen: 'bft-card-open',
+  cardHeader: 'bft-card-header',
+  cardHeadText: 'bft-card-head-text',
+  cardName: 'bft-card-name',
+  cardDescription: 'bft-card-description',
+  cardPending: 'bft-card-pending',
+  cardChevron: 'bft-card-chevron',
+  cardChevronOpen: 'bft-card-chevron-open',
+  cardBody: 'bft-card-body',
+  cardReadOnly: 'bft-card-read-only',
+  cardFooter: 'bft-card-footer',
+  cardFailed: 'bft-card-failed',
+  cardDiscard: 'bft-card-discard',
+  cardSave: 'bft-card-save',
+  field: 'bft-field',
+  fieldHead: 'bft-field-head',
+  fieldLabel: 'bft-field-label',
+  fieldBadges: 'bft-field-badges',
+  fieldBadge: 'bft-field-badge',
+  fieldReset: 'bft-field-reset',
+  fieldInput: 'bft-field-input',
+  fieldTextarea: 'bft-field-textarea',
+  fieldInvalidInput: 'bft-field-input-invalid',
+  fieldHint: 'bft-field-hint',
+  fieldInvalid: 'bft-field-invalid',
 } as const
 
 const c = panelClassNames
@@ -602,5 +644,306 @@ export const panelStyleText = `
 .${c.navRail} .${c.navFooterButtons} {
   flex-direction: column;
   gap: 2px;
+}
+
+/* ——— Ручка ширины панели ——— */
+
+/* Панель прижата к правому краю, поэтому тянут её за левую кромку. Полоса шире самой линии
+   (6px против 0.5px рамки): в 0.5px курсором не попасть, а видимой полосы быть не должно —
+   подсветка появляется только под курсором и на время перетаскивания. */
+.${c.panelGrip} {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  z-index: 1;
+  cursor: col-resize;
+  background: transparent;
+  transition: background-color var(--ds-transition-duration-fast) ease;
+}
+@media (hover: hover) and (pointer: fine) {
+  .${c.panelGrip}:hover { background: var(--dsw-alias-border-l4); }
+}
+.${c.panelGrip}[data-dragging] { background: var(--dsw-alias-brand-primary); }
+
+/* ——— Форма сбора инициативы (FormPage.tsx) ——— */
+
+.${c.footerEnd} { justify-content: flex-end; }
+
+/* Обёртка нужна ровно затем, чтобы плашке отказа было к чему прижаться: она ложится ПОВЕРХ
+   айфрейма, а не подменяет его — медленная форма догрузится и уберёт плашку сама. */
+.${c.formFrameWrap} {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+.${c.formFrame} {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: var(--dsw-alias-bg-base);
+}
+
+/* Непрозрачная: под ней остаётся живой айфрейм, и просвечивающая наполовину загруженная
+   форма читалась бы как поломка вёрстки. */
+.${c.formBlocked} {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px;
+  text-align: center;
+  background: var(--dsw-specific-sidebar-fill);
+}
+
+/* ——— Карточка настроек раздела (SettingsCard.tsx) ———
+   Геометрия и токены — с эталона harness-ui/packages/client/ui-settings-plugins/src/client/
+   PluginCard.module.css и fields.module.css; карточка стоит в одном списке с соседними и
+   обязана быть от них неотличимой. */
+
+.${c.card} {
+  list-style: none;
+  border: 0.5px solid var(--dsw-alias-border-l4);
+  border-radius: 16px;
+  background: var(--dsw-alias-bg-layer-3);
+  transition: border-color .16s, background .16s;
+}
+@media (hover: hover) and (pointer: fine) {
+  .${c.card}:hover { border-color: var(--dsw-alias-label-dimmed); }
+}
+
+.${c.card}.${c.cardOpen} {
+  background: var(--dsw-alias-bg-layer-2);
+  border-color: var(--dsw-alias-label-dimmed);
+}
+
+.${c.cardHeader} {
+  width: 100%;
+  appearance: none;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 12px;
+}
+.${c.cardHeader}:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: -2px;
+}
+
+.${c.cardHeadText} {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.${c.cardName} {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--dsw-alias-label-primary);
+}
+
+.${c.cardDescription} {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* На шапке, а не в теле: свёрнутая карточка тоже должна говорить, что держит несохранённое. */
+.${c.cardPending} {
+  flex: none;
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 11px;
+  line-height: 17px;
+  font-weight: 500;
+  white-space: nowrap;
+  background: var(--dsw-alias-bg-module-platform);
+  color: var(--dsw-alias-label-secondary);
+}
+
+.${c.cardChevron} {
+  flex: none;
+  color: var(--dsw-alias-label-tertiary);
+  transition: transform .16s;
+}
+.${c.cardChevron}.${c.cardChevronOpen} { transform: rotate(180deg); }
+
+.${c.cardBody} {
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
+  margin: 0 16px;
+  padding-bottom: 8px;
+}
+
+.${c.cardReadOnly} {
+  margin: 12px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.${c.cardFooter} {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 0 4px;
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
+}
+
+.${c.cardFailed} {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--dsw-alias-label-error);
+}
+
+.${c.cardDiscard}, .${c.cardSave} {
+  appearance: none;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 5px 14px;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  cursor: pointer;
+}
+
+.${c.cardDiscard} {
+  border-color: var(--dsw-alias-border-l2);
+  background: none;
+  color: var(--dsw-alias-label-secondary);
+}
+@media (hover: hover) and (pointer: fine) {
+  .${c.cardDiscard}:hover:not(:disabled) {
+    color: var(--dsw-alias-label-primary);
+    border-color: var(--dsw-alias-label-dimmed);
+  }
+}
+
+.${c.cardSave} {
+  background: var(--dsw-alias-label-primary);
+  color: var(--dsw-alias-bg-layer-3);
+}
+
+.${c.cardDiscard}:disabled, .${c.cardSave}:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.${c.field} {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 0;
+}
+.${c.field} + .${c.field} { border-top: 0.5px solid var(--dsw-alias-border-l2); }
+
+.${c.fieldHead} {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.${c.fieldLabel} {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.5;
+  color: var(--dsw-alias-label-primary);
+}
+
+.${c.fieldBadges} {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.${c.fieldBadge} {
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 11px;
+  line-height: 17px;
+  white-space: nowrap;
+  font-weight: 500;
+  background: var(--dsw-alias-bg-module-platform);
+  color: var(--dsw-alias-label-secondary);
+}
+
+.${c.fieldReset} {
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+}
+@media (hover: hover) and (pointer: fine) {
+  .${c.fieldReset}:hover:not(:disabled) { color: var(--dsw-alias-label-primary); }
+}
+.${c.fieldReset}:disabled { cursor: default; }
+
+.${c.fieldInput}, .${c.fieldTextarea} {
+  padding: 8px 12px;
+  border: 0.5px solid var(--dsw-alias-border-l4);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-3);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--dsw-alias-label-primary);
+}
+.${c.fieldInput} { height: 34px; padding-top: 0; padding-bottom: 0; }
+
+/* Промт многострочный и правится руками: тянется по вертикали, но не вбок — горизонтальный
+   ресайз развалил бы раскладку карточки. */
+.${c.fieldTextarea} {
+  min-height: 84px;
+  resize: vertical;
+  font-family: var(--ds-font-family-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+
+.${c.fieldInput}:focus-visible, .${c.fieldTextarea}:focus-visible {
+  outline: none;
+  border-color: var(--dsw-alias-brand-primary);
+}
+.${c.fieldInput}:disabled, .${c.fieldTextarea}:disabled {
+  color: var(--dsw-alias-label-tertiary);
+  cursor: default;
+}
+.${c.fieldInvalidInput} { border-color: var(--dsw-alias-label-error); }
+
+.${c.fieldHint} {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.${c.fieldInvalid} {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--dsw-alias-label-error);
 }
 `

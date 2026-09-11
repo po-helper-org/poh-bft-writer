@@ -22,7 +22,7 @@
  */
 // Type-only: даёт слияние SlotMap с записью 'shell.overlay' — нужно PropsRuntime<'shell.overlay'> ниже.
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from 'react'
 import type { PropsStore } from '@deepseek-ai/dsh-client-store'
 // Реальные компонент кнопки и иконки харнесса (Task 4 визуального выравнивания) вместо
 // hand-drawn inline SVG и локальных .btn/.btnOutline: пакет внешний (см. CLIENT_EXTERNALS в
@@ -31,11 +31,13 @@ import type { PropsStore } from '@deepseek-ai/dsh-client-store'
 // из полного набора icons/index.tsx — точного «empty state» глифа там нет, см. отчёт задачи).
 // IconRefreshOutline16 и IconSearchOutline16/IconCloseOutline16 — прямое совпадение по смыслу.
 import {
-  Button, IconArchiveOutline20, IconCloseOutline16, IconRefreshOutline16, IconSearchOutline16, IconWarningOutline16,
+  Button, IconArchiveOutline20, IconCloseOutline16, IconPlusOutline16, IconRefreshOutline16,
+  IconSearchOutline16, IconWarningOutline16,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { DocumentRole } from '../bft-reader.js'
 import type { RpcResult } from '../channel.js'
+import type { BftSettings } from '../settings.js'
 import type { BftStage } from '../model.js'
 import { queueGroups, searchTasks, type BftGroup } from '../queue.js'
 // Type-only: PanelStoreHandle описывает форму стора, реальный хэндл создаётся в apply()
@@ -45,6 +47,7 @@ import type { PanelStoreHandle } from './index.js'
 // плоская карта «семантическое имя → класс», тот же текст инжектирует index.tsx в <style>.
 import { Board } from './Board.js'
 import { DetailPage } from './DetailPage.js'
+import { FormPage } from './FormPage.js'
 import { panelClassNames as css } from './Panel.styles.js'
 import { Preview } from './Preview.js'
 import { STAGE_TONE } from './stage-tone.js'
@@ -82,6 +85,14 @@ export interface RequirementsPanelInjected {
    * каких условиях, см. index.tsx.
    */
   openChatWithDraft(draft: string): Promise<void>
+  /**
+   * Настройки раздела (src/settings.ts) — ссылка на форму сбора, адрес таблицы и промт.
+   * Пара «снимок + подписка», а не разовое значение: PO правит их на соседней странице
+   * настроек, панель при этом смонтирована и должна узнать о правке без перезагрузки.
+   * Снимок обязан держать ссылку неизменной, пока настройки не сдвинулись (см. index.tsx).
+   */
+  getSettings(): BftSettings
+  subscribeSettings(listener: () => void): () => void
 }
 
 export type RequirementsPanelProps =
@@ -121,6 +132,31 @@ type PanelRoute =
   | { view: 'preview'; id: string }
   | { view: 'detail'; id: string; back: DetailBackRoute; doc?: DocumentRole }
   | { view: 'board' }
+  /**
+   * Форма сбора инициативы. `back` — откуда открыли и куда вернуться по «Назад»/«Готово»:
+   * из списка («+» в шапке) форма встаёт в панель, с доски («Добавить») — на полноэкранную
+   * страницу, чтобы PO не выкидывало из полноэкранного режима в узкую панель.
+   */
+  | { view: 'form'; back: 'list' | 'board' }
+
+/**
+ * Ширина панели: PO тянет её за левую кромку, значение переживает перезагрузку страницы.
+ * Одна на все маршруты панели — иначе список после формы прыгал бы обратно на 420.
+ */
+const PANEL_WIDTH_KEY = 'bft-panel-width'
+const DEFAULT_PANEL_WIDTH = 420
+/** Ниже этого список требований уже нечитаем: заголовки стадий схлопываются в столбик букв. */
+const MIN_PANEL_WIDTH = 320
+
+function readPanelWidth(): number {
+  try {
+    const stored = Number(window.localStorage.getItem(PANEL_WIDTH_KEY))
+    return Number.isFinite(stored) && stored >= MIN_PANEL_WIDTH ? stored : DEFAULT_PANEL_WIDTH
+  } catch {
+    // Приватное окно или запрет на хранилище — ширина по умолчанию, а не отказ открыться.
+    return DEFAULT_PANEL_WIDTH
+  }
+}
 
 /** Панель раздела. Возвращает null, пока закрыта — тогда в оверлее нет узла, перехватывать нечего. */
 export function RequirementsPanel({
@@ -133,6 +169,8 @@ export function RequirementsPanel({
   getHandoff,
   openSyncChat,
   openChatWithDraft,
+  getSettings,
+  subscribeSettings,
   t,
 }: RequirementsPanelProps) {
   const isOpen = useStore(state => state.open)
@@ -151,7 +189,16 @@ export function RequirementsPanel({
   const [collapsed, setCollapsed] = useState<ReadonlySet<BftStage>>(() => new Set())
   const [query, setQuery] = useState('')
   const [route, setRoute] = useState<PanelRoute>({ view: 'list' })
+  const [panelWidth, setPanelWidth] = useState(readPanelWidth)
+  const settings = useSyncExternalStore(subscribeSettings, getSettings)
   const controllerRef = useRef<AbortController | null>(null)
+
+  const commitPanelWidth = useCallback((width: number) => {
+    setPanelWidth(width)
+    try {
+      window.localStorage.setItem(PANEL_WIDTH_KEY, String(Math.round(width)))
+    } catch { /* см. readPanelWidth выше */ }
+  }, [])
 
   // silent=true — фоновое обновление кэша: не сбрасывает экран в 'loading' и не показывает
   // ошибку, если она случится (что уже показано — то и остаётся). Обычный вызов (retry,
@@ -196,6 +243,12 @@ export function RequirementsPanel({
     load({ silent: state.phase === 'ready' || state.phase === 'empty' })
     return () => { controllerRef.current?.abort() }
   }, [isOpen, load])
+
+  // Ссылку на форму могли стереть в настройках, пока форма открыта: показывать айфрейм в
+  // никуда незачем — возвращаемся к списку сами, не дожидаясь, пока PO нажмёт «Назад».
+  useEffect(() => {
+    if (route.view === 'form' && settings.formUrl.length === 0) setRoute({ view: route.back })
+  }, [route, settings.formUrl])
 
   // Свёрнутость групп и текст поиска — локальное состояние панели, не переживает закрытие:
   // при следующем открытии список должен снова быть развёрнут и без старого фильтра.
@@ -253,7 +306,12 @@ export function RequirementsPanel({
   // своя шапка со стрелкой «назад» вместо заголовка/бейджа/«Обновить» — см. Preview.tsx.
   if (route.view === 'preview') {
     return (
-      <aside className={css.panel} aria-label={t('previewHeaderTitle')}>
+      <PanelShell
+        label={t('previewHeaderTitle')}
+        width={panelWidth}
+        onWidth={commitPanelWidth}
+        resizeLabel={t('panelResize')}
+      >
         <Preview
           id={route.id}
           t={t}
@@ -264,7 +322,7 @@ export function RequirementsPanel({
           onBack={() => { setRoute({ view: 'list' }) }}
           onClose={() => { actions.close() }}
         />
-      </aside>
+      </PanelShell>
     )
   }
 
@@ -281,15 +339,73 @@ export function RequirementsPanel({
         listRequirements={listRequirements}
         onOpenDetail={(id) => { setRoute({ view: 'detail', id, back: { view: 'board' } }) }}
         onBack={() => { setRoute({ view: 'list' }) }}
+        canAdd={settings.formUrl.length > 0}
+        onAdd={() => { setRoute({ view: 'form', back: 'board' }) }}
       />
     )
   }
 
+  // Форма сбора инициативы: тот же корень панели, своё тело (FormPage.tsx). Не «второй
+  // сайдбар» — слот `sidebar` занимает одна запись, вторую панель рядом ставить некуда.
+  if (route.view === 'form') {
+    const back = route.back
+    const goBack = () => { setRoute({ view: back }) }
+    const form = (
+      <FormPage
+        url={settings.formUrl}
+        layout={back === 'board' ? 'page' : 'panel'}
+        t={t}
+        onBack={goBack}
+        onClose={() => { actions.close() }}
+        onDone={() => {
+          goBack()
+          // Отправленная форма попадает в таблицу, а в список — только после разбора
+          // агентом. Обновление здесь честнее, чем ничего: если разбор уже прошёл, PO
+          // увидит новую строку сразу, а если нет — список просто не изменится. Доска
+          // грузит список сама при монтировании (Board.tsx), ей отдельный вызов не нужен.
+          if (back === 'list') load({ silent: true })
+        }}
+      />
+    )
+    // С доски — тот же полноэкранный корень, что у самой доски и детальной страницы.
+    if (back === 'board') return <div className={css.detailPage}>{form}</div>
+    return (
+      <PanelShell
+        label={t('formHeaderTitle')}
+        width={panelWidth}
+        onWidth={commitPanelWidth}
+        resizeLabel={t('panelResize')}
+      >
+        {form}
+      </PanelShell>
+    )
+  }
+
+  const canOpenForm = settings.formUrl.length > 0
+
   return (
-    <aside className={css.panel} aria-label={t('panelTitle')}>
+    <PanelShell
+      label={t('panelTitle')}
+      width={panelWidth}
+      onWidth={commitPanelWidth}
+      resizeLabel={t('panelResize')}
+    >
       <div className={css.header}>
         <h2>{t('panelTitle')}</h2>
         {badgeCount !== undefined && <span className={css.badge}>{badgeCount}</span>}
+        {/* «+» слева от «обновить»: это единственная кнопка шапки, которая добавляет, а не
+            читает. Без ссылки на форму она не исчезает, а гаснет с подсказкой: пропавшая
+            кнопка выглядит как поломка, погасшая объясняет, чего не хватает. */}
+        <button
+          type="button"
+          className={css.iconButton}
+          aria-label={t('formOpen')}
+          title={canOpenForm ? t('formOpen') : t('formDisabledHint')}
+          disabled={!canOpenForm}
+          onClick={() => { setRoute({ view: 'form', back: 'list' }) }}
+        >
+          <IconPlusOutline16 size={16} />
+        </button>
         <button
           type="button"
           className={css.iconButton}
@@ -345,9 +461,88 @@ export function RequirementsPanel({
           {t('boardOpen')}
         </Button>
       </div>
+    </PanelShell>
+  )
+}
+
+/**
+ * Корень панели с ручкой изменения ширины на левой кромке.
+ *
+ * Общий для всех маршрутов панели (список, превью, форма), потому что ширина общая: панель,
+ * которую растянули под форму, не должна схлопываться обратно при возврате к списку.
+ *
+ * Во время перетаскивания ширина ставится прямо в стиль узла, а состояние React получает её
+ * один раз на отпускании: перерисовывать всю панель на каждое движение указателя незачем —
+ * между `pointermove` и кадром это десятки лишних рендеров списка требований.
+ */
+function PanelShell({ label, width, onWidth, resizeLabel, children }: {
+  label: string
+  width: number
+  /** Вызывается один раз, когда PO отпустил ручку. */
+  onWidth: (width: number) => void
+  resizeLabel: string
+  children: ReactNode
+}) {
+  const panelRef = useRef<HTMLElement>(null)
+  const gripRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const grip = gripRef.current
+    if (grip === null) return
+    let startX = 0
+    let startWidth = 0
+    let current = 0
+
+    const onMove = (event: PointerEvent) => {
+      // Панель прижата к правому краю: движение влево делает её шире.
+      current = Math.min(
+        window.innerWidth - 24,
+        Math.max(MIN_PANEL_WIDTH, startWidth + (startX - event.clientX)),
+      )
+      const panel = panelRef.current
+      if (panel !== null) panel.style.width = `${current}px`
+    }
+    const onUp = () => {
+      grip.removeAttribute('data-dragging')
+      document.body.style.userSelect = ''
+      document.removeEventListener('pointermove', onMove)
+      document.removeEventListener('pointerup', onUp)
+      if (current > 0) onWidth(current)
+    }
+    const onDown = (event: PointerEvent) => {
+      event.preventDefault()
+      startX = event.clientX
+      startWidth = panelRef.current?.getBoundingClientRect().width ?? 0
+      current = startWidth
+      grip.setAttribute('data-dragging', '')
+      // Иначе указатель выделяет текст списка, пока тянут ручку.
+      document.body.style.userSelect = 'none'
+      document.addEventListener('pointermove', onMove)
+      document.addEventListener('pointerup', onUp)
+    }
+
+    grip.addEventListener('pointerdown', onDown)
+    return () => {
+      grip.removeEventListener('pointerdown', onDown)
+      document.removeEventListener('pointermove', onMove)
+      document.removeEventListener('pointerup', onUp)
+    }
+  }, [onWidth])
+
+  return (
+    <aside ref={panelRef} className={css.panel} style={{ width: `${width}px` }} aria-label={label}>
+      <div
+        ref={gripRef}
+        className={css.panelGrip}
+        role="separator"
+        aria-orientation="vertical"
+        aria-label={resizeLabel}
+      />
+      {children}
     </aside>
   )
 }
+
 
 function SearchField({ value, onChange, placeholder, clearLabel }: {
   value: string
