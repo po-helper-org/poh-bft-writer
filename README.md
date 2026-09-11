@@ -184,6 +184,7 @@ bash <skills_path>/bft-writer/scripts/test-bft-custdev-export.sh
 | [`docs/guides/quickstart-generate-bft.md`](docs/guides/quickstart-generate-bft.md) | путь от диктовки до опубликованного БФТ |
 | [`docs/guides/custdev-interview.md`](docs/guides/custdev-interview.md) | CustDev-интервью: шесть исходов, лестница от решения к проблеме, как вести встречу |
 | [`docs/guides/dsh-plugin-setup.md`](docs/guides/dsh-plugin-setup.md) | установка плагина для DeepSeek Harness |
+| [`docs/guides/plugin-playbooks/`](docs/guides/plugin-playbooks/README.md) | плейбуки раздела «Управление требованиями»: шесть сценариев со скриншотами каждого шага |
 
 ## Пример: `/bft-custdev` от пробела до уточнённого БФТ
 

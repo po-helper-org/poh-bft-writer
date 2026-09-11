@@ -20,6 +20,11 @@ import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 // Type-only: даёт декларацию `ctx.locale` в `Context`.
 import type {} from '@deepseek-ai/dsh-client-locale/client'
+// Type-only: даёт декларацию `ctx.settingsScope` в `Context` и тип SettingsScope. Служба
+// не в export const inject ниже — раздел без настроек работает на умолчаниях (см. apply).
+import type { SettingsScope } from '@deepseek-ai/dsh-client-ui-settings/client'
+// Type-only: даёт слияние SlotMap с записью 'settings.plugin.item' — слотом карточки настроек.
+import type {} from '@deepseek-ai/dsh-client-ui-settings-plugins/client'
 // Type-only: даёт декларацию `ctx.sessions` в `Context` + ISessions (цепочка запуска чата,
 // docs/client-wiring.md §1.2-1.3). Не в export const inject ниже — служба ленивая (см. openChatWithDraft).
 import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
@@ -40,9 +45,14 @@ import { IconChecklistOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { defineStore, type PropsStore, type StoreHandle } from '@deepseek-ai/dsh-client-store'
 import type { DocumentRole } from '../bft-reader.js'
 import type { RpcResult } from '../channel.js'
+import {
+  BFT_SETTINGS_NS, DEFAULT_SETTINGS, buildSyncDraft, resolveSettings, type BftSettings,
+} from '../settings.js'
 import { ru, type BftLocaleKey } from './locales.js'
 import { RequirementsPanel, type RequirementsPanelInjected } from './Panel.js'
 import { panelClassNames as css, panelStyleText } from './Panel.styles.js'
+import { SettingsCard } from './SettingsCard.js'
+import { SettingsCardController } from './settings-card.js'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap { 'bft.requirements': BftLocaleKey }
@@ -59,12 +69,6 @@ const NS = 'bft.requirements'
  */
 const CHANNEL = '/bft'
 
-/**
- * Черновик команды синка, который кнопка «Обновить» подставляет в чат (docs/client-wiring.md,
- * «Выводы для реализации», п.1). Ровно текст — без автоотправки: Enter жмёт PO, submit()/
- * conversation.send() эта кнопка не зовёт ни при каких условиях.
- */
-const SYNC_COMMAND = '/bft-needed-list'
 
 export interface PanelState {
   open: boolean
@@ -201,8 +205,70 @@ export function apply(ctx: ClientContext): void {
     sessions.open(sessionId)
   }
 
-  /** Кнопка «Обновить»: та же цепочка, зафиксированный черновик синка. */
-  const openSyncChat = (): Promise<void> => openChatWithDraft(SYNC_COMMAND)
+  // ——— Настройки раздела (src/settings.ts) ———
+  //
+  // Служба настроек не в export const inject: без неё раздел обязан подниматься и работать
+  // на умолчаниях — ровно так, как работал до появления карточки. Поэтому скоуп берётся
+  // отложенной инъекцией, а до её срабатывания (и вообще навсегда, если службы нет)
+  // getSettings() отдаёт умолчания.
+  let settingsScope: SettingsScope<BftSettings> | undefined
+  const settingsListeners = new Set<() => void>()
+  const notifySettings = () => { for (const listener of settingsListeners) listener() }
+
+  /**
+   * Снимок настроек с неизменной ссылкой, пока значения не сдвинулись.
+   *
+   * Требование не стилистическое: снимок читает `useSyncExternalStore` в панели, и новый
+   * объект на каждый вызов означал бы бесконечную перерисовку.
+   */
+  let cachedSection: unknown
+  let cachedSettings: BftSettings = DEFAULT_SETTINGS
+  const getSettings = (): BftSettings => {
+    const section = settingsScope?.getSnapshot().value
+    if (section === cachedSection) return cachedSettings
+    cachedSection = section
+    cachedSettings = resolveSettings(section)
+    return cachedSettings
+  }
+  const subscribeSettings = (listener: () => void): (() => void) => {
+    settingsListeners.add(listener)
+    return () => { settingsListeners.delete(listener) }
+  }
+
+  ctx.inject(['settingsScope'], (scoped: ClientContext) => {
+    const scope = scoped.settingsScope.bind<BftSettings>({ namespace: BFT_SETTINGS_NS })
+    scoped.effect(() => {
+      settingsScope = scope
+      // Панель уже смонтирована и подписана: до этой строки она читала умолчания.
+      notifySettings()
+      const off = scope.subscribe(notifySettings)
+      return () => {
+        off()
+        settingsScope = undefined
+        notifySettings()
+      }
+    }, 'poh-bft-plugin: настройки раздела')
+
+    // Карточка на вкладке «Плагины» в настройках харнесса. Ключ записи — то же пространство
+    // имён, которое регистрирует node-половина (src/plugin.ts): вкладка сводит две ведомости
+    // — что отдаёт хост и какие карточки есть в браузере — именно по нему.
+    const card = new SettingsCardController(scope)
+    scoped.slots.inject('settings.plugin.item', () => scoped.slots.register(
+      { name: 'settings.plugin.item', key: BFT_SETTINGS_NS, locale: NS, inject: () => card.inject() },
+      SettingsCard,
+    ))
+  })
+
+  /**
+   * Кнопка «Обновить»: черновик собирается из промта настроек, `{sheet}` заменяется адресом
+   * таблицы. Адрес приходит уже слоённым — настройка PO поверх `BFT_INITIATIVES_SHEET_URL`
+   * из окружения (слой композиции, см. регистрацию пространства имён в src/plugin.ts).
+   * Отправки по-прежнему нет: цепочка только кладёт текст в композер.
+   */
+  const openSyncChat = (): Promise<void> => {
+    const settings = getSettings()
+    return openChatWithDraft(buildSyncDraft(settings.syncPrompt, settings.sheetUrl))
+  }
 
   ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register(
     { name: 'sidebar.footer.action', id: 'bft-requirements', locale: NS, store: panelStore },
@@ -223,6 +289,8 @@ export function apply(ctx: ClientContext): void {
         getHandoff,
         openSyncChat,
         openChatWithDraft,
+        getSettings,
+        subscribeSettings,
       }),
     },
     RequirementsPanel,

@@ -35,10 +35,13 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.client.json && tsdown",
-    "test": "tsc -p tsconfig.test.json && node --test lib-test/test/*.test.js"
+    "test": "tsc -p tsconfig.test.json && node --test lib-test/test/*.test.js",
+    "test:e2e": "tsc --noEmit -p tsconfig.e2e.json && playwright test",
+    "playbook:shots": "PLAYBOOK_SHOTS_DIR=../docs/guides/plugin-playbooks/screenshots pnpm test:e2e"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-api-remotes": "0.1.2-alpha.5",
     "@deepseek-ai/dsh-api-session-controller": "0.1.2-alpha.5",
     "@deepseek-ai/dsh-api-workspace-controller": "0.1.2-alpha.5",
     "@deepseek-ai/dsh-client-locale": "0.1.2-alpha.5",
@@ -47,13 +50,19 @@
     "@deepseek-ai/dsh-client-ui-layout": "0.1.2-alpha.5",
     "@deepseek-ai/dsh-client-ui-primitives": "0.1.2-alpha.5",
     "@deepseek-ai/dsh-client-ui-renderer": "0.1.2-alpha.5",
+    "@deepseek-ai/dsh-client-ui-settings": "0.1.2-alpha.5",
+    "@deepseek-ai/dsh-client-ui-settings-plugins": "0.1.2-alpha.5",
     "@deepseek-ai/dsh-client-ui-sidebar": "0.1.2-alpha.5",
     "@deepseek-ai/dsh-client-ui-slots": "0.1.2-alpha.5",
     "@deepseek-ai/dsh-client-ui-workspace": "0.1.2-alpha.5",
+    "@playwright/test": "1.59.1",
     "@types/node": "^22.10.2",
     "@types/react": "~18.3.31",
     "react": "^18.3.1",
     "tsdown": "^0.22.14",
     "typescript": "^5.7.2"
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "^3.16.5"
   }
 }

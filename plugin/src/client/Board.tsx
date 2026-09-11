@@ -26,7 +26,9 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 // Реальные компонент кнопки и иконки харнесса (Task 4 визуального выравнивания) вместо
 // hand-drawn inline SVG и локальных .btn/.btnOutline — см. Panel.tsx.
-import { Button, IconChevronLeftOutline14, IconWarningOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
+import {
+  Button, IconChevronLeftOutline14, IconPlusOutline16, IconWarningOutline16,
+} from '@deepseek-ai/dsh-client-ui-primitives'
 import type { RpcResult } from '../channel.js'
 import { boardColumns, type BftGroup } from '../queue.js'
 import type { BftLocaleKey } from './locales.js'
@@ -42,6 +44,13 @@ export interface BoardProps {
   onOpenDetail(id: string): void
   /** Стрелка «← Назад»: возвращает панель к списку. */
   onBack(): void
+  /**
+   * «Добавить» в правом углу шапки: открывает форму сбора инициативы полноэкранной страницей
+   * (FormPage.tsx, layout='page'). Без ссылки на форму в настройках кнопка гаснет с
+   * подсказкой — той же логикой, что «+» в шапке списка (Panel.tsx).
+   */
+  canAdd: boolean
+  onAdd(): void
 }
 
 type BoardState =
@@ -49,7 +58,7 @@ type BoardState =
   | { phase: 'ready'; groups: BftGroup[] }
   | { phase: 'error'; message: string }
 
-export function Board({ t, listRequirements, onOpenDetail, onBack }: BoardProps) {
+export function Board({ t, listRequirements, onOpenDetail, onBack, canAdd, onAdd }: BoardProps) {
   // Тот же кэш localStorage, что Panel.tsx (task-cache.ts) — общий плоский список, доска
   // строит из него boardColumns() вместо queueGroups(). Доска — отдельная ветка рендера
   // Panel.tsx, монтируется заново при каждом открытии (в отличие от самой панели), поэтому
@@ -108,6 +117,15 @@ export function Board({ t, listRequirements, onOpenDetail, onBack }: BoardProps)
           <IconChevronLeftOutline14 size={14} />
         </button>
         <h2>{t('boardHeaderTitle')}</h2>
+        <Button
+          variant="outline"
+          disabled={!canAdd}
+          title={canAdd ? t('formOpen') : t('formDisabledHint')}
+          onClick={onAdd}
+        >
+          <IconPlusOutline16 size={16} />
+          {t('boardAdd')}
+        </Button>
       </div>
 
       {state.phase !== 'ready' && (
