@@ -55,12 +55,20 @@ scope: plugin
 
 ## Шаг 0. Окружение
 
-Без него правки плагина не проверить на живом харнессе.
+Без него правки плагина не проверить на живом харнессе. **Выполнен 2026-09-12**: харнесс
+на 3082 грузит `poh-bft-plugin` (симлинк `harness-ui-plugins/poh-bft-plugin`, источник
+истины — `harness-ui-ops/config/bft-plugin.cordis.yml`), навыки в воркспейсе обновлены
+`install.sh`, раздел открывается, `PO-11` виден из доски, `ai-harness-ticketland-php` — из
+артефактов, отдельной строкой (та самая развилка шага 1).
 
 1. Профиль харнесса переключить на `poh-bft-plugin`. В
    `harness-ui/.dsh-data/profiles/web/package.json` заменить `dsh-plugin-bft` на
    `"poh-bft-plugin": "link:/абсолютный/путь/к/poh-bft-writer/plugin"` в `dependencies` и
-   в `dsh.profile.bundles`; `pnpm install --ignore-workspace` в каталоге профиля;
+   в `dsh.profile.bundles`; `pnpm install` в каталоге профиля — **без**
+   `--ignore-workspace`, если у профиля есть свой `pnpm-workspace.yaml` (харнесс кладёт
+   его сам, с `autoInstallPeers: false`): флаг заставляет pnpm игнорировать этот файл,
+   и установка падает на `@deepseek-ai/dsh-compact` (404 в npm) — пире
+   `dsh-result-only-view`, которого без файла pnpm пытается доставить;
    `pnpm build` в `plugin/`; перезапуск харнесса. В `cordis.patch.yml` профиля строка
    `id: bft-requirements` уже есть — добавить `entireBaseUrl` либо `BFT_ENTIRE_REQUIRED=0`
    в окружение, иначе раздел не стартует (см. `plugin/README.md` §«entire.io обязателен»).
@@ -84,6 +92,12 @@ scope: plugin
 `task view <id> --plain` по каждой задаче типа `bft` (перенести `parse-view.ts`
 прототипа; разбор `References:`). Вызовов столько, сколько задач; на доске десятки —
 приемлемо, но результат кэшировать на время одного `scan`.
+
+Попутно: `task list --plain` отдаёт и задачи **без типа** (в рабочем воркспейсе их 18 —
+`PO-1`, `PO-1.1`, …), а `parseTaskList` фильтрует тип «только если он в строке есть», и
+они попадают в очередь требований. Прототип такие строки отбрасывал. Брать список через
+`task list --type bft --plain`: фильтр делает сам CLI, точно по полю, а не по догадке о
+разметке.
 
 Слитая запись в `BftTask`: `id` — идентификатор задачи, новое поле `slug` — каталог
 эпика, стадия — старшая из двух по `CANON_ORDER` (`stageSource` говорит, чья взяла),
