@@ -44,3 +44,44 @@ test('пустой вывод — пустой список, а не паден�
   assert.deepEqual(parseTaskList(''), [])
   assert.deepEqual(parseTaskList('﻿To Do:\r\n  TASK-9 - С BOM и CRLF\r\n').map(t => t.id), ['TASK-9'])
 })
+
+// ── task list --json ──────────────────────────────────────────────────────────
+
+import { parseTaskListJson } from '../src/backlog-source.js'
+
+const JSON_OUT = JSON.stringify({
+  schemaVersion: 1,
+  kind: 'task-list',
+  tasks: [
+    { id: 'PO-7', title: 'БФТ: Проблема с билетами', status: 'To Do', type: 'bft', references: [] },
+    { id: 'PO-20', title: 'БФТ: Блокировка мест', status: 'FAST-DONE', type: 'bft', references: ['bft/documentation/po20/po20-fast.html', ''] },
+    { id: 'PO-1', title: 'Не БФТ', status: 'To Do', type: 'potask', references: [] },
+    { id: 'PO-2', title: 'Чужой статус', status: 'In Progress', type: 'bft', references: [] },
+    { id: 'PO-3', title: 'Без типа', status: 'To Do', references: [] },
+    { title: 'Без идентификатора', status: 'To Do', type: 'bft' },
+  ],
+})
+
+test('json: id, стадия и ссылки приходят одним вызовом', () => {
+  const tasks = parseTaskListJson(JSON_OUT)
+  assert.deepEqual(tasks.map(t => [t.id, t.stage, t.refs]), [
+    ['PO-7', 'To Do', []],
+    ['PO-20', 'FAST-DONE', ['bft/documentation/po20/po20-fast.html']],
+    ['PO-3', 'To Do', []],
+  ])
+  assert.equal(tasks[0].title, 'Проблема с билетами')
+  assert.ok(tasks.every(t => t.stageSource === 'backlog'))
+})
+
+test('json: статус вне канона и чужой тип не попадают в очередь', () => {
+  const ids = parseTaskListJson(JSON_OUT).map(t => t.id)
+  assert.ok(!ids.includes('PO-1'), 'чужой тип')
+  assert.ok(!ids.includes('PO-2'), 'статус вне канона')
+})
+
+test('json: чужая версия схемы или битый вывод — пустой список, не догадки', () => {
+  assert.deepEqual(parseTaskListJson('{"schemaVersion":2,"kind":"task-list","tasks":[{"id":"X-1","status":"To Do"}]}'), [])
+  assert.deepEqual(parseTaskListJson('{"schemaVersion":1,"kind":"task-view","task":{}}'), [])
+  assert.deepEqual(parseTaskListJson('не json'), [])
+  assert.deepEqual(parseTaskListJson(''), [])
+})

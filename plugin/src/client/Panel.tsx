@@ -144,6 +144,8 @@ type PanelRoute =
  * Одна на все маршруты панели — иначе список после формы прыгал бы обратно на 420.
  */
 const PANEL_WIDTH_KEY = 'bft-panel-width'
+/** Период тихого обновления открытой панели: один `task list --json` в полминуты — незаметно. */
+const PANEL_REFRESH_MS = 30_000
 const DEFAULT_PANEL_WIDTH = 420
 /** Ниже этого список требований уже нечитаем: заголовки стадий схлопываются в столбик букв. */
 const MIN_PANEL_WIDTH = 320
@@ -244,6 +246,16 @@ export function RequirementsPanel({
     return () => { controllerRef.current?.abort() }
   }, [isOpen, load])
 
+  // Пока панель открыта — тихое обновление раз в полминуты. Стадию двигает не PO, а
+  // агент в соседнем чате (документ появился — доска и очередь обновились на сервере), и
+  // ждать клика по «Обновить», чтобы это увидеть, незачем. Тихое: экран не мигает
+  // спиннером и не роняет уже показанный список из-за одной неудачной попытки.
+  useEffect(() => {
+    if (!isOpen) return
+    const timer = setInterval(() => { load({ silent: true }) }, PANEL_REFRESH_MS)
+    return () => { clearInterval(timer) }
+  }, [isOpen, load])
+
   // Ссылку на форму могли стереть в настройках, пока форма открыта: показывать айфрейм в
   // никуда незачем — возвращаемся к списку сами, не дожидаясь, пока PO нажмёт «Назад».
   useEffect(() => {
@@ -295,6 +307,7 @@ export function RequirementsPanel({
         getTask={getTask}
         findDocument={findDocument}
         doc={route.doc}
+        getHandoff={getHandoff}
         openChatWithDraft={openChatWithDraft}
         onBack={() => { setRoute(route.back) }}
         onClose={() => { actions.close() }}

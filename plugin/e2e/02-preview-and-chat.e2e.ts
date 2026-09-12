@@ -27,9 +27,12 @@ test('превью: открыть, уйти в чат с черновиком, 
   // 2. «Работать в чате»: чат открыт, черновик на месте, ничего не отправлено.
   await toChat.click()
   await expect(panel(page)).toBeHidden()
+  // Черновик приходит с сервера (подкоманда `handoff`) и зависит от состояния требования:
+  // документ есть — «Продолжи работу над БФТ …», документа нет — `/bft-fast <id> …` с
+  // источником из задачи доски. Обе формы называют идентификатор.
   const input = composer(page)
-  await expect(input).toContainText(`Продолжи работу над БФТ ${id}`)
-  await expect(input).toContainText(`mcp__backlog__task_view ${id}`)
+  await expect(input).toContainText(id)
+  await expect(input).toContainText(/Продолжи работу над БФТ|\/bft-fast /)
   await shot(page, SCENARIO, '02-chat-draft', input)
   await clearComposer(page)
 

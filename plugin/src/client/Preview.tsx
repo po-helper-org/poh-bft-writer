@@ -84,7 +84,7 @@ function toTask(value: unknown): BftTask | null {
  * черновика хуже, чем уйти с коротким.
  */
 /** Ответ подкоманды `handoff`. Провод есть провод: форму проверяем, а не верим. */
-function isHandoff(value: unknown): value is { prompt: string } {
+export function isHandoff(value: unknown): value is { prompt: string } {
   return typeof value === 'object' && value !== null
     && typeof (value as { prompt?: unknown }).prompt === 'string'
 }

@@ -86,7 +86,7 @@ check "название взято из H1 документа, а не из им
 check "ссылка на страницу ревью указывает на собранный экспортёром файл" \
       "[t for t in d['tasks'] if t['id']=='direct-faq'][0]['html'] == '.bft/documentation/direct-faq/direct-faq.html'"
 check "страница ревью fast распознана как своя, а не как страница deep" \
-      "[t for t in d['tasks'] if t['id']=='vibeapp'][0]['artifacts'] == {'fast': True, 'fastHtml': True, 'deep': False, 'deepHtml': False}"
+      "[t for t in d['tasks'] if t['id']=='vibeapp'][0]['artifacts'] == {'fast': True, 'fastHtml': True, 'deep': False, 'deepHtml': False, 'custdev': False, 'custdevHtml': False}"
 
 # Эталон deep собран, но не отгружен: страницы Confluence и эпика в нём нет.
 # Это ровно тот случай, который обязан вернуться в DEEP-REVIEW с объяснением.
@@ -100,6 +100,62 @@ d = json.load(open('$TMP/scan.json'))
 print([t for t in d['tasks'] if t['id']=='direct-faq'][0]['html'])")"
 if [ -f "$HTML" ]; then echo "ok    файл по этой ссылке действительно есть"; else
   echo "FAIL  ссылка ведёт в никуда: $HTML"; fails=$((fails + 1)); fi
+
+# ── Обратная запись в Backlog.md ──────────────────────────────────────────────
+# Настоящий `backlog` на настоящих файлах: задача доски, чья ссылка ведёт в папку
+# эпика, после сверки обязана получить стадию по артефактам и ссылку на страницу
+# ревью; задача, связанная только названием в H1, — тоже; задача без документа —
+# остаться как была. Повторная сверка ничего не пишет.
+if ! command -v backlog >/dev/null 2>&1; then
+  echo "skip  Backlog.md не установлен — обратная запись не проверена"
+else
+  ( cd "$TMP/ws" && git init -q . \
+      && backlog init contract --defaults --integration-mode none --auto-open-browser false >/dev/null 2>&1 \
+      && sed -i.bak 's/^statuses:.*/statuses: ["To Do", "FAST-DONE", "REVIEW-DONE", "DEEP-WORK", "DEEP-REVIEW", "DEEP-DONE", "Cancelled"]/' backlog/config.yml \
+      && sed -i.bak 's/^task_prefix:.*/task_prefix: "PO"/' backlog/config.yml \
+      && { grep -q '^types:' backlog/config.yml && sed -i.bak 's/^types:.*/types: ["task", "bft"]/' backlog/config.yml || printf 'types: ["task", "bft"]\n' >> backlog/config.yml; } \
+      && backlog task create "БФТ: Билеты в Vibe App" --type bft --plain >/dev/null \
+      && backlog task edit PO-1 --add-ref .bft/documentation/vibeapp/vibeapp-fast.md --plain >/dev/null \
+      && backlog task create "БФТ: Блок «Вопрос-ответ» на карточках Direct" --type bft --plain >/dev/null \
+      && backlog task create "БФТ: Без документа" --type bft --plain >/dev/null
+  ) || { echo "FAIL  не удалось поднять доску Backlog.md во временном воркспейсе"; fails=$((fails + 1)); }
+
+  reconcile() {
+    BFT_WORKSPACE_ROOT="$TMP/ws" BFT_ENTIRE_REQUIRED=0 node --input-type=module -e "
+import { BftReader, loadConfig } from '$REPO/plugin/lib/index.js'
+const { scan, edits } = await new BftReader(loadConfig(process.env)).reconcile()
+console.log(JSON.stringify({ edits, tasks: scan.tasks.map(t => ({ id: t.id, slug: t.slug, stage: t.stage, board: t.board })) }))
+"
+  }
+  reconcile > "$TMP/reconcile1.json" 2>"$TMP/reconcile.err" || { echo "FAIL  сверка упала:"; cat "$TMP/reconcile.err"; exit 1; }
+  reconcile > "$TMP/reconcile2.json" 2>"$TMP/reconcile.err" || { echo "FAIL  повторная сверка упала:"; cat "$TMP/reconcile.err"; exit 1; }
+  ( cd "$TMP/ws" && backlog task list --type bft --json ) > "$TMP/board.json" 2>/dev/null
+
+  bcheck() {
+    if python3 -c "
+import json, sys
+r1 = json.load(open('$TMP/reconcile1.json'))
+r2 = json.load(open('$TMP/reconcile2.json'))
+board = {t['id']: t for t in json.load(open('$TMP/board.json'))['tasks']}
+sys.exit(0 if ($2) else 1)
+" 2>/dev/null; then echo "ok    $1"; else echo "FAIL  $1"; fails=$((fails + 1)); fi
+  }
+
+  bcheck "задача со ссылкой в папку эпика связалась с ним и поднялась до FAST-DONE" \
+        "board['PO-1']['status'] == 'FAST-DONE'"
+  bcheck "ссылка на собранную страницу ревью записана в задачу" \
+        "'.bft/documentation/vibeapp/vibeapp-fast.html' in board['PO-1']['references']"
+  bcheck "задача, связанная названием в H1, получила стадию deep-документа и ссылку" \
+        "board['PO-2']['status'] == 'DEEP-REVIEW' and '.bft/documentation/direct-faq/direct-faq.html' in board['PO-2']['references']"
+  bcheck "задача без документа осталась в To Do и без ссылок" \
+        "board['PO-3']['status'] == 'To Do' and board['PO-3']['references'] == []"
+  bcheck "в очереди одна строка на требование: id задачи, слаг каталога" \
+        "sorted((t['id'], t.get('slug')) for t in r1['tasks']) == [('PO-1', 'vibeapp'), ('PO-2', 'direct-faq'), ('PO-3', None)]"
+  bcheck "все правки первой сверки прошли" \
+        "len(r1['edits']) == 2 and all(e['ok'] for e in r1['edits'])"
+  bcheck "повторная сверка ничего не пишет" \
+        "r2['edits'] == []"
+fi
 
 if [ "$fails" -eq 0 ]; then echo "Все проверки пройдены."; exit 0; fi
 echo "Провалов: $fails"; exit 1

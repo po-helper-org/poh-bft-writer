@@ -2,23 +2,27 @@
  * Сборка очереди требований из воркспейса.
  *
  * Единственный слой, который знает про диск, — и то через порты. Всё, что
- * решает «какая стадия», «какой файл показать», «что найдётся по запросу»,
- * лежит в чистых модулях рядом и проверяется без воркспейса.
+ * решает «какая стадия», «какой файл показать», «с какой задачей связан
+ * каталог», лежит в чистых модулях рядом и проверяется без воркспейса.
+ *
+ * Строка очереди — одна на требование, даже когда требование живёт в двух
+ * местах: задачей на доске Backlog.md и каталогом эпика в `docsPath`. Связку
+ * даёт `epic-link.ts`; стадия слитой строки — старшая из двух (доска знает про
+ * процесс больше, чем видно по файлам, а файлы не врут про то, что собрано),
+ * `stageSource` говорит, чья взяла.
  */
 import { join } from 'node:path'
+import { parseTaskList, parseTaskListJson, type BacklogTask } from './backlog-source.js'
 import { branchUrl, type BftPluginConfig } from './config.js'
+import { linkTaskToEpic, parseH1, type EpicCandidate } from './epic-link.js'
 import { parseFrontmatter, type Frontmatter } from './frontmatter.js'
-import type { BftLinks, BftTask } from './model.js'
+import { stageRank, type BftArtifacts, type BftLinks, type BftTask, type StageVerdict } from './model.js'
 import type { BftPorts } from './ports.js'
-import { parseTaskList } from './backlog-source.js'
 import { artifactsOf, stageFromArtifacts } from './stage.js'
 import { lastFinished, parseWorkLog, WORKLOG_FILE, type WorkLog } from './worklog.js'
 
 const JIRA_BROWSE = 'https://jira.mts.ru/browse/'
 const WIKI_PAGE = 'https://confluence.mts.ru/pages/viewpage.action?pageId='
-
-/** H1 документа: `# [БФТ] {slug}: {Название}`. Название — то, что после двоеточия. */
-const H1_RE = /^#\s*\[БФТ\]\s*[\w-]+:\s*(.+)$/m
 
 export interface WorkspaceScan {
   /** Каталог документов, который в итоге нашёлся (относительно корня воркспейса). */
@@ -26,6 +30,18 @@ export interface WorkspaceScan {
   tasks: BftTask[]
   /** Журнал работы. Пустой — истории ещё нет либо файл не читается. */
   workLog: WorkLog
+  /** Доска ответила. Нет — бинаря нет, доска выключена или CLI упал; очередь только из файлов. */
+  boardAvailable: boolean
+}
+
+/** Каталог эпика, как его видит скан: всё, что нужно и связке, и строке очереди. */
+interface EpicRecord {
+  slug: string
+  entries: string[]
+  artifacts: BftArtifacts
+  verdict: StageVerdict
+  frontmatter: Frontmatter
+  h1: { key: string; title: string } | null
 }
 
 /**
@@ -41,16 +57,9 @@ async function resolveDocsPath(config: BftPluginConfig, ports: BftPorts): Promis
   return config.docsPath
 }
 
-export async function scanWorkspace(config: BftPluginConfig, ports: BftPorts): Promise<WorkspaceScan> {
-  const docsPath = await resolveDocsPath(config, ports)
-  const workLog = parseWorkLog(
-    await ports.readTextFile(join(config.workspaceRoot, config.indexPath, WORKLOG_FILE)),
-  )
-  const root = join(config.workspaceRoot, docsPath)
-  const slugs = await ports.listDirectory(root)
-
-  const tasks: BftTask[] = []
-  for (const slug of slugs.sort()) {
+async function scanEpics(root: string, ports: BftPorts): Promise<EpicRecord[]> {
+  const epics: EpicRecord[] = []
+  for (const slug of (await ports.listDirectory(root)).sort()) {
     const entries = await ports.listDirectory(join(root, slug))
     // Каталог без единого файла эпиком не является: это может быть что угодно,
     // от artefacts/ до случайной папки, и заводить по нему требование — врать.
@@ -66,70 +75,115 @@ export async function scanWorkspace(config: BftPluginConfig, ports: BftPorts): P
       ? await ports.readTextFile(join(root, slug, `${slug}-fast.md`))
       : null
     const text = deepDocument ?? fastDocument ?? ''
-    const frontmatter = parseFrontmatter(text)
 
-    const verdict = stageFromArtifacts(slug, { entries, deepDocument })
-    tasks.push({
-      id: slug,
-      title: H1_RE.exec(text)?.[1]?.trim() || slug,
-      stage: verdict.stage,
-      stageSource: 'artifacts',
-      description: frontmatter.status ?? '',
-      howToDemo: [],
-      links: {
-        ...linksOf(frontmatter, docsPath, slug, entries),
-        // Ветка последнего закрытого отрезка: по ней продолжают, а не начинают.
-        entire: config.entire
-          ? branchUrl(config.entire, lastFinished(workLog, slug)?.contextRef)
-          : undefined,
-      },
+    epics.push({
+      slug,
+      entries,
       artifacts,
-      missing: verdict.missing,
+      verdict: stageFromArtifacts(slug, { entries, deepDocument }),
+      frontmatter: parseFrontmatter(text),
+      h1: parseH1(text),
     })
   }
-
-  return { docsPath, tasks: await withBacklog(tasks, config, ports), workLog }
+  return epics
 }
 
 /**
- * Дополняет очередь задачами доски Backlog.md.
+ * Задачи доски. `null` — доски нет: не задан бинарь, его нет в PATH или CLI
+ * упал. Это штатно, раздел работает по файлам.
  *
- * Доска необязательна: не задан бинарь или его нет в PATH — возвращается то же,
- * что было. Когда доска есть, она добавляет требования, заведённые раньше, чем
- * появился первый документ: иначе «агент завёл требование» ничем не кончается
- * до первого прогона /bft-fast.
- *
- * Объединение — по идентификатору. Связать задачу доски с её документом иначе,
- * чем по совпадению идентификатора со слагом эпика, пока нечем: `task list
- * --plain` ссылок задачи не отдаёт. Стадия документа при совпадении не
- * затирается доской — она выведена из того, что реально лежит на диске.
+ * Сначала `--json` (одним вызовом — статус и ссылки), для CLI без него —
+ * `--plain`, где ссылок нет и связка идёт только по слагу и H1.
  */
-async function withBacklog(
-  tasks: BftTask[],
-  config: BftPluginConfig,
-  ports: BftPorts,
-): Promise<BftTask[]> {
-  if (!config.backlogBin) return tasks
+async function readBoard(config: BftPluginConfig, ports: BftPorts): Promise<BacklogTask[] | null> {
+  if (!config.backlogBin) return null
 
-  const { stdout, code } = await ports.runCommand(
-    config.backlogBin, ['task', 'list', '--plain'], config.workspaceRoot,
+  const json = await ports.runCommand(
+    config.backlogBin, ['task', 'list', '--type', config.taskType, '--json'], config.workspaceRoot,
   )
-  if (code !== 0) return tasks
+  if (json.code === 0) {
+    const tasks = parseTaskListJson(json.stdout, config.taskType)
+    if (tasks.length || json.stdout.trim().startsWith('{')) return tasks
+  }
 
-  const known = new Set(tasks.map(task => task.id))
-  for (const summary of parseTaskList(stdout, config.taskType)) {
-    if (known.has(summary.id)) continue
+  const plain = await ports.runCommand(config.backlogBin, ['task', 'list', '--plain'], config.workspaceRoot)
+  if (plain.code !== 0) return null
+  return parseTaskList(plain.stdout, config.taskType)
+}
+
+export async function scanWorkspace(config: BftPluginConfig, ports: BftPorts): Promise<WorkspaceScan> {
+  const docsPath = await resolveDocsPath(config, ports)
+  const workLog = parseWorkLog(
+    await ports.readTextFile(join(config.workspaceRoot, config.indexPath, WORKLOG_FILE)),
+  )
+  const epics = await scanEpics(join(config.workspaceRoot, docsPath), ports)
+  const board = await readBoard(config, ports)
+
+  // Связка: каждой задаче доски — не больше одного каталога, каждому каталогу —
+  // не больше одной задачи. Второй претендент на тот же каталог остаётся
+  // отдельной строкой: угадывать, чей документ, значило бы показать неправду.
+  const candidates: EpicCandidate[] = epics.map(epic => ({
+    slug: epic.slug, h1Key: epic.h1?.key, h1Title: epic.h1?.title,
+  }))
+  const taskBySlug = new Map<string, BacklogTask>()
+  const unlinked: BacklogTask[] = []
+  for (const task of board ?? []) {
+    const link = linkTaskToEpic(task, candidates, docsPath)
+    if (link && !taskBySlug.has(link.slug)) taskBySlug.set(link.slug, task)
+    else unlinked.push(task)
+  }
+
+  const entire = (id: string): string | undefined => (config.entire
+    ? branchUrl(config.entire, lastFinished(workLog, id)?.contextRef)
+    : undefined)
+
+  const tasks: BftTask[] = []
+  for (const epic of epics) {
+    const task = taskBySlug.get(epic.slug)
+    const id = task?.id ?? epic.slug
+    const links = linksOf(epic.frontmatter, docsPath, epic.slug, epic.entries)
+    const row: BftTask = {
+      id,
+      slug: epic.slug,
+      title: epic.h1?.title || task?.title || epic.slug,
+      stage: epic.verdict.stage,
+      stageSource: 'artifacts',
+      artifactStage: epic.verdict.stage,
+      description: epic.frontmatter.status ?? '',
+      howToDemo: [],
+      // Ветка последнего закрытого отрезка: по ней продолжают, а не начинают.
+      links: { ...links, entire: entire(id) },
+      artifacts: epic.artifacts,
+      missing: epic.verdict.missing,
+    }
+    if (task) {
+      row.board = { stage: task.stage, refs: task.refs }
+      // Отмена терминальна и старше любого файла; иначе — кто дальше по процессу.
+      if (task.stage === 'Cancelled' || stageRank(task.stage) > stageRank(epic.verdict.stage)) {
+        row.stage = task.stage
+        row.stageSource = 'backlog'
+      }
+    }
+    tasks.push(row)
+  }
+
+  for (const task of unlinked) {
     tasks.push({
-      ...summary,
+      id: task.id,
+      title: task.title,
+      stage: task.stage,
+      stageSource: 'backlog',
+      board: { stage: task.stage, refs: task.refs },
       description: '',
       howToDemo: [],
-      links: { other: [] },
+      links: { other: [], entire: entire(task.id) },
       artifacts: { fast: false, fastHtml: false, deep: false, deepHtml: false, custdev: false, custdevHtml: false },
       // Документа ещё нет — до FAST-DONE не хватает именно его.
       missing: ['документ БФТ'],
     })
   }
-  return tasks
+
+  return { docsPath, tasks, workLog, boardAvailable: board !== null }
 }
 
 function linksOf(

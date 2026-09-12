@@ -30,7 +30,7 @@ import type { BftTask } from '../model.js'
 import type { BftLocaleKey } from './locales.js'
 import { markdownToPage } from './markdown-page.js'
 import { panelClassNames as css } from './Panel.styles.js'
-import { buildContinueDraft } from './Preview.js'
+import { buildContinueDraft, isHandoff } from './Preview.js'
 import { STAGE_TONE } from './stage-tone.js'
 
 export interface DetailPageProps {
@@ -51,6 +51,13 @@ export interface DetailPageProps {
    * переключатель внутри самой страницы.
    */
   doc?: DocumentRole
+  /**
+   * Канал `/bft`, подкоманда `handoff` — тот же, что у Preview.tsx. Для задачи без
+   * документа сервер отдаёт черновик создания (`/bft-fast` с источником из задачи доски и
+   * слагом по её идентификатору) и открывает отрезок в журнале работы; клиент шаблон
+   * черновика не держит — иначе он разошёлся бы с тем, по чему раздел потом узнаёт эпик.
+   */
+  getHandoff(id: string, signal: AbortSignal): Promise<RpcResult<unknown>>
   /** Обобщённая цепочка «уйти в чат с черновиком» (см. index.tsx). Отправки нет никогда. */
   openChatWithDraft(draft: string): Promise<void>
   /** Стрелка «← Назад»: возвращает панель к превью того же требования (см. Panel.tsx). */
@@ -104,7 +111,7 @@ function toFoundDocument(value: unknown): FoundDocument | null {
   return { path: doc.path, kind: doc.kind === 'markdown' ? 'markdown' : 'html', content: doc.content }
 }
 
-export function DetailPage({ id, t, getTask, findDocument, doc: initialDoc = 'requirement', openChatWithDraft, onBack, onClose }: DetailPageProps) {
+export function DetailPage({ id, t, getTask, findDocument, doc: initialDoc = 'requirement', getHandoff, openChatWithDraft, onBack, onClose }: DetailPageProps) {
   const [taskState, setTaskState] = useState<TaskState>({ phase: 'loading' })
   const taskControllerRef = useRef<AbortController | null>(null)
 
@@ -194,7 +201,21 @@ export function DetailPage({ id, t, getTask, findDocument, doc: initialDoc = 're
   }
 
   const handleCreateDocument = (task: BftTask) => {
-    sendChat(`/bft-fast ${task.id} «${task.title}»`)
+    setChatPending(true)
+    // Черновик создания приходит с сервера (см. getHandoff). Канал не ответил — уходим с
+    // коротким черновиком: без источника и слага, но уйти в чат без ничего хуже.
+    const controller = new AbortController()
+    void getHandoff(task.id, controller.signal)
+      .then(result => (result.ok && isHandoff(result.value) ? result.value.prompt : `/bft-fast ${task.id} «${task.title}»`))
+      .catch(() => `/bft-fast ${task.id} «${task.title}»`)
+      .then(draft => openChatWithDraft(draft))
+      .then(
+        () => { onClose() },
+        (error: unknown) => {
+          setChatPending(false)
+          console.error('[poh-bft-plugin] detail create:', error)
+        },
+      )
   }
 
   const handleMiniPrompt = (task: BftTask) => {

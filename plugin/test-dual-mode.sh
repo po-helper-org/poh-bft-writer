@@ -20,15 +20,23 @@ mkdir -p "$TMP/agent"
 cp -r "$REPO"/commands "$REPO"/skills "$REPO"/install.sh "$REPO"/bft-config.template.md "$TMP/agent/" 2>/dev/null
 ( cd "$TMP/agent" && bash install.sh >/dev/null 2>&1 </dev/null )
 
-cmds=$(ls -1 "$TMP/agent/.claude/commands" 2>/dev/null | wc -l)
-skls=$(ls -1 "$TMP/agent/.claude/skills" 2>/dev/null | wc -l)
-[ "$cmds" -eq 9 ] && ok "install.sh поставил девять команд контура" \
-  || fail "команд установлено $cmds, ожидалось 9"
-[ "$skls" -eq 6 ] && ok "install.sh поставил шесть навыков" \
-  || fail "навыков установлено $skls, ожидалось 6"
+# Ожидания выводятся из самого репозитория, а не зашиты числом: список команд
+# контура объявлен в install.sh, навык — каталог со SKILL.md. Иначе каждый новый
+# навык ронял бы проверку, которая про другое.
+want_cmds=$(sed -n 's/^COMMANDS="\(.*\)"$/\1/p' "$REPO/install.sh" | wc -w | tr -d ' ')
+want_skls=$(find "$REPO/skills" -mindepth 2 -maxdepth 2 -name SKILL.md | wc -l | tr -d ' ')
+cmds=$(ls -1 "$TMP/agent/.claude/commands" 2>/dev/null | wc -l | tr -d ' ')
+skls=$(ls -1 "$TMP/agent/.claude/skills" 2>/dev/null | wc -l | tr -d ' ')
+[ "$cmds" -eq "$want_cmds" ] && ok "install.sh поставил все команды контура ($cmds)" \
+  || fail "команд установлено $cmds, ожидалось $want_cmds"
+[ "$skls" -eq "$want_skls" ] && ok "install.sh поставил все навыки ($skls)" \
+  || fail "навыков установлено $skls, ожидалось $want_skls"
 
-# Главное: установка для IDE-агента не должна ничего знать о плагине.
-if find "$TMP/agent/.claude" -iname "*plugin*" -o -iname "*.ts" -o -iname "package.json" 2>/dev/null | grep -q .; then
+# Главное: установка для IDE-агента не должна ничего знать о плагине. Признаки —
+# то, что есть только у пакета плагина: его имя, патч композиции, браузерный
+# бандл и React-исходники. Голый `package.json` признаком не является: свой
+# рантайм с ним везёт и навык (bft-wireframing/scripts/wireloom-runtime).
+if find "$TMP/agent/.claude" \( -iname "*poh-bft-plugin*" -o -name "cordis.patch.yml" -o -name "client.js" -o -name "*.tsx" -o -name "tsdown.config.ts" \) 2>/dev/null | grep -q .; then
   fail "в установку скиллов затёк плагин — режимы перестали быть независимыми"
 else
   ok "в установке скиллов плагина нет: режимы независимы"
