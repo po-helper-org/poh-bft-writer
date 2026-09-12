@@ -161,7 +161,7 @@ export class BftReader {
 
     const details = await this.boardDetails(id)
     await this.startWork({ epic: id, stage: task.stage, startedAt: new Date().toISOString() })
-    return buildCreateDraft(task, details, scan.docsPath)
+    return buildCreateDraft(task, details)
   }
 
   /** Описание, приёмка и заметки задачи доски. Доски нет или CLI молчит — пустые детали, не ошибка. */

@@ -175,7 +175,7 @@ test('задача без документа: черновик — /bft-fast с 
   assert.equal(draft.continued, false)
   assert.match(draft.prompt, /^\/bft-fast PO-11 po-11\n/)
   assert.match(draft.prompt, /Название эпика \(дословно в H1\): AI Harness агент/)
-  assert.match(draft.prompt, /\.bft\/documentation\/po-11\/po-11-fast\.md/)
+  assert.match(draft.prompt, /<docs_path>\/po-11\/po-11-fast\.md по docs_path из bft-config\.md/)
   assert.match(draft.prompt, /Описание:\nЗаказчик: Иванов\. PoC агента\./)
   assert.match(draft.prompt, /Критерии приёмки:\n1\. Крит 1/)
 

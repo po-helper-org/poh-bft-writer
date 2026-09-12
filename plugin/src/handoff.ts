@@ -100,7 +100,7 @@ export function slugForTask(id: string): string {
  * не додумывает его. Название диктуется дословно, а слаг — идентификатором
  * задачи: по ним раздел потом узнаёт каталог эпика (`epic-link.ts`).
  */
-export function buildCreateDraft(task: BftTask, details: BoardTaskDetails, docsPath: string): Handoff {
+export function buildCreateDraft(task: BftTask, details: BoardTaskDetails): Handoff {
   const slug = slugForTask(task.id)
   const lines = [
     `/bft-fast ${task.id} ${slug}`,
@@ -110,7 +110,11 @@ export function buildCreateDraft(task: BftTask, details: BoardTaskDetails, docsP
       'чего в задаче нет — в «Открытые вопросы».',
     '',
     `Название эпика (дословно в H1): ${task.title}`,
-    `Слаг эпика: ${slug} — документ в ${docsPath}/${slug}/${slug}-fast.md, страница ревью рядом.`,
+    // Путь — через docs_path навыка, а не через docsPath плагина: корень воркспейса
+    // чата и корень раздела совпадают не всегда (чат может идти из родительского
+    // каталога), а bft-config.md воркспейса чата знает свой путь точно.
+    `Слаг эпика (epic_slug): ${slug}. Документ — <docs_path>/${slug}/${slug}-fast.md по docs_path из bft-config.md, ` +
+      `страница ревью ${slug}-fast.html рядом с ним.`,
   ]
   if (details.description) lines.push('', 'Описание:', details.description)
   if (details.acceptanceCriteria?.length) {
