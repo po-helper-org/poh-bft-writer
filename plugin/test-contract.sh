@@ -86,7 +86,7 @@ check "название взято из H1 документа, а не из им
 check "ссылка на страницу ревью указывает на собранный экспортёром файл" \
       "[t for t in d['tasks'] if t['id']=='direct-faq'][0]['html'] == '.bft/documentation/direct-faq/direct-faq.html'"
 check "страница ревью fast распознана как своя, а не как страница deep" \
-      "[t for t in d['tasks'] if t['id']=='vibeapp'][0]['artifacts'] == {'fast': True, 'fastHtml': True, 'deep': False, 'deepHtml': False}"
+      "[t for t in d['tasks'] if t['id']=='vibeapp'][0]['artifacts'] == {'fast': True, 'fastHtml': True, 'deep': False, 'deepHtml': False, 'custdev': False, 'custdevHtml': False}"
 
 # Эталон deep собран, но не отгружен: страницы Confluence и эпика в нём нет.
 # Это ровно тот случай, который обязан вернуться в DEEP-REVIEW с объяснением.
