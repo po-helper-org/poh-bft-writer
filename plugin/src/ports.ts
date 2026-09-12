@@ -27,7 +27,7 @@ export type RealPath = (path: string) => Promise<string>
  * отсутствие CLI, а не упасть вместе с ним, поэтому «не удалось запустить» —
  * это код возврата, а не исключение.
  */
-export type RunCommand = (bin: string, args: string[], cwd: string) => Promise<{ stdout: string; code: number }>
+export type RunCommand = (bin: string, args: string[], cwd: string) => Promise<{ stdout: string; stderr?: string; code: number }>
 
 export interface BftPorts {
   readTextFile: ReadTextFile
@@ -78,11 +78,13 @@ export const nodePorts: BftPorts = {
     return new Promise(resolve => {
       // Таймаут обязателен: висящий CLI иначе подвесит весь раздел, и PO увидит
       // бесконечную загрузку вместо списка требований.
-      execFile(bin, args, { cwd, timeout: 15_000, maxBuffer: 8 * 1024 * 1024 }, (error, stdout) => {
+      execFile(bin, args, { cwd, timeout: 15_000, maxBuffer: 8 * 1024 * 1024 }, (error, stdout, stderr) => {
         // Код -1 — программу не удалось запустить вовсе (нет бинаря, нет прав).
         // Это штатное состояние: Backlog.md необязателен.
         const code = error ? ((error as NodeJS.ErrnoException & { code?: number }).code ?? -1) : 0
-        resolve({ stdout: stdout ?? '', code: typeof code === 'number' ? code : -1 })
+        // stderr едет наверх ради причины отказа: `task edit` с неверной стадией
+        // объясняет её именно там, а панель обязана показать PO слово, не код.
+        resolve({ stdout: stdout ?? '', stderr: stderr ?? '', code: typeof code === 'number' ? code : -1 })
       })
     })
   },

@@ -38,6 +38,11 @@ export function isStage(value: string): value is BftStage {
   return (CANON_ORDER as readonly string[]).includes(value)
 }
 
+/** Позиция стадии в хронологии: чем больше, тем дальше по процессу. */
+export function stageRank(stage: BftStage): number {
+  return CANON_ORDER.indexOf(stage)
+}
+
 /** Ссылки требования, разложенные по видам. Нераспознанное не теряем — оно в `other`. */
 export interface BftLinks {
   confluence?: string
@@ -100,6 +105,20 @@ export interface StageVerdict {
 }
 
 export interface BftTask extends BftTaskSummary {
+  /**
+   * Каталог эпика в `docsPath`, когда документ есть. Идентификатор (`id`) и слаг
+   * совпадают только у документов, заведённых из раздела; у остальных связку
+   * даёт `epic-link.ts`. Нет документа — нет поля.
+   */
+  slug?: string
+  /** Стадия по составу артефактов, независимо от доски. Нет документа — нет поля. */
+  artifactStage?: BftStage
+  /**
+   * Задача доски Backlog.md, с которой слита строка: её стадия и ссылки как
+   * записаны. По ним `backlog-writer.ts` решает, что дописать. Нет доски или
+   * задача не связалась — поля нет.
+   */
+  board?: { stage: BftStage; refs: string[] }
   /** Заказчик инициативы: «ФИО (подразделение)». */
   customer?: string
   description: string

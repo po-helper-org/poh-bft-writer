@@ -7,12 +7,13 @@
  * проверяется без воркспейса.
  */
 import { isAbsolute, join, relative, resolve } from 'node:path'
+import { applyBacklogEdits, planBacklogEdits, type BacklogEditResult } from './backlog-writer.js'
 import type { BftPluginConfig } from './config.js'
 import { chooseCustdevDocument, chooseDocument, type DocumentKind } from './document-source.js'
 import {
   DocumentOutsideWorkspaceError, InvalidTaskIdError, TaskNotFoundError,
 } from './errors.js'
-import { buildHandoff, type Handoff } from './handoff.js'
+import { buildCreateDraft, buildHandoff, parseTaskViewJson, type Handoff } from './handoff.js'
 import type { BftTask } from './model.js'
 import { nodePorts, type BftPorts } from './ports.js'
 import { scanWorkspace, type WorkspaceScan } from './reader.js'
@@ -42,8 +43,43 @@ export class BftReader {
     return scanWorkspace(this.config, this.ports)
   }
 
+  /**
+   * Очередь для панели. Заодно приводит доску в соответствие с артефактами
+   * (`reconcile`): обновление списка — самый частый момент, когда PO смотрит на
+   * стадии, и показывать доску, отставшую от файлов, здесь хуже, чем потратить
+   * лишний вызов CLI.
+   */
   async listTasks(): Promise<BftTask[]> {
-    return (await this.scan()).tasks
+    return (await this.reconcile()).scan.tasks
+  }
+
+  /**
+   * Доска ← артефакты: стадия вверх и ссылка на страницу ревью, где их не
+   * хватает. Ничего не изменилось — ни одного вызова `task edit`. Поднятая
+   * стадия закрывает открытый отрезок журнала: заход, начатый кнопкой
+   * «Создать документ», кончился документом, и следующий стартует с этого.
+   */
+  async reconcile(): Promise<{ scan: WorkspaceScan; edits: BacklogEditResult[] }> {
+    const scan = await this.scan()
+    const edits = await applyBacklogEdits(planBacklogEdits(scan.tasks, scan.docsPath), this.config, this.ports)
+    if (!edits.length) return { scan, edits }
+
+    let log = await this.readWorkLog()
+    for (const edit of edits) {
+      if (!edit.ok || !edit.stage) continue
+      const task = scan.tasks.find(item => item.id === edit.id)
+      const page = task?.links.html ? `, страница ${task.links.html}` : ''
+      log = finishWork(log, edit.id, new Date().toISOString(), `${edit.stage}${page}`)
+    }
+    await this.saveLog(log)
+
+    const after = await this.scan()
+    for (const edit of edits) {
+      if (edit.ok) continue
+      const task = after.tasks.find(item => item.id === edit.id)
+      if (task) task.missing = [...task.missing, `доска не обновлена: ${edit.error ?? 'причина неизвестна'}`]
+    }
+    return { scan: after, edits }
   }
 
   async getTask(id: string): Promise<BftTask> {
@@ -96,22 +132,45 @@ export class BftReader {
     kind: DocumentRole = 'requirement',
   ): Promise<{ path: string; kind: DocumentKind; content: string } | null> {
     this.assertSlug(id)
-    const { docsPath } = await this.scan()
-    const dir = join(this.config.workspaceRoot, docsPath, id)
+    const { docsPath, tasks } = await this.scan()
+    // Идентификатор задачи и каталог эпика совпадают не всегда: связку знает скан.
+    const slug = tasks.find(item => item.id === id)?.slug ?? id
+    const dir = join(this.config.workspaceRoot, docsPath, slug)
     const entries = await this.ports.listDirectory(dir)
-    const choice = kind === 'custdev' ? chooseCustdevDocument(id, entries) : chooseDocument(id, entries)
+    const choice = kind === 'custdev' ? chooseCustdevDocument(slug, entries) : chooseDocument(slug, entries)
     if (!choice) return null
-    const path = `${docsPath}/${id}/${choice.name}`
+    const path = `${docsPath}/${slug}/${choice.name}`
     const content = await this.readDocument(path)
     return content && content.trim() !== '' ? { path, kind: choice.kind, content } : null
   }
 
-  /** Черновик для чата: продолжение с последнего закрытого отрезка. */
+  /**
+   * Черновик для чата.
+   *
+   * Документа ещё нет — это черновик создания: `/bft-fast` с источником из
+   * задачи доски и слагом по её идентификатору; заодно в журнале открывается
+   * отрезок, который закроет `reconcile`, когда документ появится. Документ
+   * есть — продолжение с последнего закрытого отрезка.
+   */
   async handoff(id: string): Promise<Handoff> {
+    this.assertSlug(id)
     const scan = await this.scan()
     const task = scan.tasks.find(item => item.id === id)
     if (!task) throw new TaskNotFoundError(id)
-    return buildHandoff(task, lastFinished(scan.workLog, id), this.config)
+    if (task.artifactStage !== undefined) return buildHandoff(task, lastFinished(scan.workLog, id), this.config)
+
+    const details = await this.boardDetails(id)
+    await this.startWork({ epic: id, stage: task.stage, startedAt: new Date().toISOString() })
+    return buildCreateDraft(task, details, scan.docsPath)
+  }
+
+  /** Описание, приёмка и заметки задачи доски. Доски нет или CLI молчит — пустые детали, не ошибка. */
+  private async boardDetails(id: string) {
+    if (!this.config.backlogBin) return {}
+    const { stdout, code } = await this.ports.runCommand(
+      this.config.backlogBin, ['task', 'view', id, '--json'], this.config.workspaceRoot,
+    )
+    return code === 0 ? parseTaskViewJson(stdout) : {}
   }
 
   async readWorkLog(): Promise<WorkLog> {
