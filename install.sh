@@ -3,8 +3,12 @@ set -e
 GREEN='\033[0;32m'; BLUE='\033[0;34m'; YELLOW='\033[1;33m'; NC='\033[0m'
 REPO_URL="https://github.com/po-helper-org/poh-bft-writer.git"
 
-# Источник: если запущено из клона — текущая папка; если через curl — клонируем
-if [ -d "./commands" ] && [ -d "./skills" ]; then
+# Источник: BFT_WRITER_SRC — заданный чекаут (так update.sh ставит навыки той же
+# версии, что и плагин); иначе текущая папка, если запущено из клона; иначе — клон main.
+TEMP_DIR=""
+if [ -n "${BFT_WRITER_SRC:-}" ] && [ -d "$BFT_WRITER_SRC/commands" ] && [ -d "$BFT_WRITER_SRC/skills" ]; then
+  SRC="$BFT_WRITER_SRC"
+elif [ -d "./commands" ] && [ -d "./skills" ]; then
   SRC="."
 else
   echo -e "${BLUE}Клонирую poh-bft-writer…${NC}"
@@ -13,13 +17,18 @@ else
   SRC="$TEMP_DIR"
 fi
 
+# Выбор IDE-агента: BFT_WRITER_AGENT=1..5 — без вопроса (для скриптов и ИИ-агентов),
+# иначе вопрос в терминале; без терминала — 1 (Claude Code).
 echo -e "${BLUE}Какой IDE-агент?${NC}"
 echo "  1) Claude Code   (.claude/)"
 echo "  2) Codex         (.agents/)"
 echo "  3) Cline         (.clinerules/)"
 echo "  4) DevX (МТС)    (.clinerules/)"
 echo "  5) Universal     (.agents/)"
-if [ -r /dev/tty ]; then
+if [ -n "${BFT_WRITER_AGENT:-}" ]; then
+  choice="$BFT_WRITER_AGENT"
+  echo "Выбор [1]: $choice (BFT_WRITER_AGENT)"
+elif [ -r /dev/tty ]; then
   read -rp "Выбор [1]: " choice < /dev/tty 2>/dev/null || choice=""
 else
   choice=""
@@ -38,7 +47,7 @@ esac
 # Список явный, а не «всё из commands/»: снятая команда, уехавшая в воркспейс,
 # снова начнёт конкурировать за выбор навыка (issue #25). Архив в docs/archive/
 # не синкается вовсе.
-COMMANDS="bft-index bft-fast bft-recon bft-custdev bft-deep bft-draft bft-validate bft-html bft-deliver bft-wireframe"
+COMMANDS="bft-index bft-fast bft-recon bft-custdev bft-deep bft-draft bft-validate bft-html bft-deliver bft-wireframe bft-update"
 mkdir -p "$ROOT/$CMD_DIR"
 for cmd in $COMMANDS; do
   if [ -f "$SRC/commands/$cmd.md" ]; then
@@ -69,7 +78,7 @@ done
 # Конфиг-шаблон в корень (если ещё нет)
 [ -f bft-config.md ] || cp "$SRC/bft-config.template.md" ./bft-config.template.md 2>/dev/null || true
 
-[ "$SRC" = "$TEMP_DIR" ] && rm -rf "$TEMP_DIR"
+[ -n "$TEMP_DIR" ] && [ "$SRC" = "$TEMP_DIR" ] && rm -rf "$TEMP_DIR"
 
 echo -e "${GREEN}✔ Установлено в $ROOT/${NC}"
 echo -e "Контур: ${GREEN}/bft-fast${NC} → ${GREEN}/bft-deep${NC} → ${GREEN}/bft-deliver${NC} (+ /bft-html для ревью)."

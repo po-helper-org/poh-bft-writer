@@ -61,11 +61,33 @@ pnpm install && pnpm build
 убеждается, что установка навыков не тянет плагин, плагин не знает про раскладку
 IDE-агента, а команды и навыки работают без него.
 
+**Обновление.** Обе половины в харнессе устаревают по отдельности: плагин — до
+`git pull` + `pnpm build` + перезапуска, навыки — до следующего `install.sh` в
+воркспейсе. Одна команда на всё, с проверкой HTTP 200 в конце:
+
+```sh
+bash update.sh --check                          # что отстало — ничего не меняет
+bash update.sh --workspace /путь/к/воркспейсу   # обновить до последнего main и перезапустить
+```
+
+Подробно — [`docs/guides/dsh-plugin-update.md`](docs/guides/dsh-plugin-update.md);
+в Claude Code — `/bft-update`.
+
 ## Для ИИ-помощника (bootstrap)
 Если пользователь просит «Установи bft-writer»: (1) запусти `curl -ksSL <repo>/install.sh | bash`
 или склонируй и запусти `install.sh`, выбрав IDE-агента пользователя; (2) после синка — сразу
 запусти `/bft-index` для первичной аналитики воркспейса; (3) покажи MANIFEST-покрытие и предложи
 `/bft-fast`.
+
+Если пользователь просит «Обнови bft-writer в харнессе» или спрашивает, последняя ли версия
+установлена: (1) из корня чекаута, который грузит харнесс, запусти `bash update.sh --check` и
+перескажи отчёт — что отстало (чекаут от `origin/main`, `plugin/lib`, навыки воркспейса);
+(2) отстало — `bash update.sh --workspace <корень воркспейса>`: `git pull --ff-only`, сборка
+плагина, `test-contract.sh`, навыки из того же чекаута, перезапуск, опрос до HTTP 200;
+(3) отчитайся строкой «Готово: bft-writer <коммит> в харнессе» из вывода; `FAIL` — процитируй
+причину и остановись. Не запускай из чата самого харнесса — перезапуск убьёт сессию. Ветка не
+`main` или незакоммиченные правки — спроси, не обходи. Полный разбор —
+[`docs/guides/dsh-plugin-update.md`](docs/guides/dsh-plugin-update.md).
 
 ## HowToDemo
 
@@ -184,6 +206,7 @@ bash <skills_path>/bft-writer/scripts/test-bft-custdev-export.sh
 | [`docs/guides/quickstart-generate-bft.md`](docs/guides/quickstart-generate-bft.md) | путь от диктовки до опубликованного БФТ |
 | [`docs/guides/custdev-interview.md`](docs/guides/custdev-interview.md) | CustDev-интервью: шесть исходов, лестница от решения к проблеме, как вести встречу |
 | [`docs/guides/dsh-plugin-setup.md`](docs/guides/dsh-plugin-setup.md) | установка плагина для DeepSeek Harness |
+| [`docs/guides/dsh-plugin-update.md`](docs/guides/dsh-plugin-update.md) | обновление плагина и навыков в харнессе до последнего `main`: `update.sh --check` / `update.sh` |
 | [`docs/guides/plugin-playbooks/`](docs/guides/plugin-playbooks/README.md) | плейбуки раздела «Управление требованиями»: шесть сценариев со скриншотами каждого шага |
 
 ## Пример: `/bft-custdev` от пробела до уточнённого БФТ
@@ -332,6 +355,7 @@ Agenda». Справа выезжает список вопросов с отм�
 | `/bft-custdev` | Методолог интервью | скрипт интервью `<epic>-custdev.md` + страница встречи `<epic>-custdev.html`. Собирается по свежайшему документу эпика: `deep`, если есть, иначе `fast` |
 | `/bft-deep` | Deep swarm | тот же документ, обогащённый каноном |
 | `/bft-wireframe` | Раскадровщик интерфейса (опционально) | блок(и) `wireloom-storyboard` в шапке — StepByStep-визуализация `How to demo` в рамке браузера/телефона. Не вызывается `/bft-fast`/`/bft-deep` — см. ниже |
+| `/bft-update` | Обслуживание установки | обновление навыков воркспейса и плагина DeepSeek Harness до последнего `main` (`update.sh`); `--check` — только отчёт |
 
 **Внутренние.** `/bft-draft` (генератор текста канона) и `/bft-validate` (прогон 22 гейтов) вызываются оркестрацией `/bft-deep`, руками их запускать не нужно; отдельный запуск `/bft-validate` остаётся возможным, когда нужно перепроверить готовый документ.
 
