@@ -51,6 +51,9 @@ import { FormPage } from './FormPage.js'
 import { panelClassNames as css } from './Panel.styles.js'
 import { Preview } from './Preview.js'
 import { STAGE_TONE } from './stage-tone.js'
+import type { BftLocaleKey } from './locales.js'
+import { SessionMark } from './SessionMark.js'
+import { describeSession, type LiveSession } from './session-view.js'
 import { readTaskCache, toTaskSummaries, writeTaskCache } from './task-cache.js'
 
 /** Собственный business-face панели: всё остальное (open/close) несёт общий со кнопкой стор. */
@@ -84,7 +87,16 @@ export interface RequirementsPanelInjected {
    * «Работать в чате» (Preview.tsx) и детальную страницу (DetailPage.tsx). Отправки нет ни при
    * каких условиях, см. index.tsx.
    */
-  openChatWithDraft(draft: string): Promise<void>
+  openChatWithDraft(draft: string, taskId?: string): Promise<void>
+  /**
+   * Живое состояние сессии харнесса по её идентификатору (см. index.tsx): существует ли,
+   * ходит ли агент, когда менялась. `undefined` — службы сессий нет, `null` — сессия удалена.
+   * Вместе с записью журнала (`task.session`) даёт точку состояния в строке и блок
+   * «Последняя сессия» в превью (session-view.ts).
+   */
+  sessionInfo(sessionId: string): LiveSession | null | undefined
+  /** «Открыть чат»: та же сессия, тот же контекст — не начинать заново. */
+  openSession(sessionId: string): void
   /**
    * Настройки раздела (src/settings.ts) — ссылка на форму сбора, адрес таблицы и промт.
    * Пара «снимок + подписка», а не разовое значение: PO правит их на соседней странице
@@ -171,6 +183,8 @@ export function RequirementsPanel({
   getHandoff,
   openSyncChat,
   openChatWithDraft,
+  sessionInfo,
+  openSession,
   getSettings,
   subscribeSettings,
   t,
@@ -309,6 +323,8 @@ export function RequirementsPanel({
         doc={route.doc}
         getHandoff={getHandoff}
         openChatWithDraft={openChatWithDraft}
+        sessionInfo={sessionInfo}
+        openSession={openSession}
         onBack={() => { setRoute(route.back) }}
         onClose={() => { actions.close() }}
       />
@@ -331,6 +347,8 @@ export function RequirementsPanel({
           getTask={getTask}
           getHandoff={getHandoff}
           openChatWithDraft={openChatWithDraft}
+          sessionInfo={sessionInfo}
+          openSession={openSession}
           onOpenDetail={(id, doc) => { setRoute({ view: 'detail', id, back: { view: 'preview', id }, doc }) }}
           onBack={() => { setRoute({ view: 'list' }) }}
           onClose={() => { actions.close() }}
@@ -350,6 +368,7 @@ export function RequirementsPanel({
       <Board
         t={t}
         listRequirements={listRequirements}
+        sessionInfo={sessionInfo}
         onOpenDetail={(id) => { setRoute({ view: 'detail', id, back: { view: 'board' } }) }}
         onBack={() => { setRoute({ view: 'list' }) }}
         canAdd={settings.formUrl.length > 0}
@@ -462,6 +481,8 @@ export function RequirementsPanel({
             collapsed={collapsed}
             onToggle={toggleGroup}
             onSelect={(id) => { setRoute({ view: 'preview', id }) }}
+            sessionInfo={sessionInfo}
+            t={t}
           />
         )}
       </div>
@@ -582,12 +603,14 @@ function SearchField({ value, onChange, placeholder, clearLabel }: {
   )
 }
 
-function GroupList({ groups, collapsed, onToggle, onSelect }: {
+function GroupList({ groups, collapsed, onToggle, onSelect, sessionInfo, t }: {
   groups: BftGroup[]
   collapsed: ReadonlySet<BftStage>
   onToggle: (stage: BftStage) => void
   /** Клик по строке требования — переключает панель в режим превью (Task 2, см. Preview.tsx). */
   onSelect: (id: string) => void
+  sessionInfo: (sessionId: string) => LiveSession | null | undefined
+  t: (key: BftLocaleKey) => string
 }) {
   return (
     <>
@@ -620,6 +643,7 @@ function GroupList({ groups, collapsed, onToggle, onSelect }: {
                     {task.title}
                     <span className={css.itemId}>{task.id}</span>
                   </div>
+                  <SessionMark session={describeSession(task.session, task.session ? sessionInfo(task.session.id) : undefined)} t={t} />
                 </button>
               ))}
             </div>

@@ -250,3 +250,71 @@ test('документ задачи находится по связке, а н�
   // Документ есть — черновик продолжает работу, а не создаёт документ заново.
   assert.match((await reader.handoff('PO-20')).prompt, /^Продолжи работу над БФТ PO-20/)
 })
+
+// ── Рабочее пространство чатов и сессии ──────────────────────────────────────
+
+test('рабочее пространство чатов — родитель каталога документов, с bft-config.md из корня и относительными путями', async () => {
+  const tree: Record<string, string[] | string> = {
+    '/ws/bft/documentation': ['alpha'],
+    '/ws/bft/documentation/alpha': ['alpha-fast.md'],
+    '/ws/bft-config.md': '# bft-config\n\n## docs_path\nbft/documentation\n\n## team_name\nGDS\n',
+  }
+  const reader = new BftReader(
+    loadConfig({ BFT_WORKSPACE_ROOT: '/ws', BFT_ENTIRE_REQUIRED: '0', BFT_INDEX_PATH: 'bft/index', BFT_SKILLS_PATH: 'agent/skills' }),
+    ports(tree),
+  )
+  assert.equal(await reader.sessionWorkspace(), '/ws/bft')
+  const config = tree['/ws/bft/bft-config.md']
+  assert.equal(typeof config, 'string')
+  assert.match(config as string, /## docs_path\ndocumentation\n/)
+  assert.match(config as string, /## index_path\nindex\n/)
+  assert.match(config as string, /## skills_path\n\.\.\/agent\/skills\n/)
+  assert.match(config as string, /## team_name\nGDS/)
+
+  // Повторный вызов не переписывает уже лежащий конфиг.
+  tree['/ws/bft/bft-config.md'] = 'мой конфиг'
+  await reader.sessionWorkspace()
+  assert.equal(tree['/ws/bft/bft-config.md'], 'мой конфиг')
+})
+
+test('привязка чатов выключена пустым sessionPath — null, ничего не пишется', async () => {
+  const tree: Record<string, string[] | string> = { '/ws/.bft/documentation': [] }
+  const reader = new BftReader(loadConfig({ BFT_WORKSPACE_ROOT: '/ws', BFT_ENTIRE_REQUIRED: '0', BFT_SESSION_PATH: '' }), ports(tree))
+  assert.equal(await reader.sessionWorkspace(), null)
+  assert.equal(Object.keys(tree).length, 1)
+})
+
+test('сессия чата записывается в журнал и возвращается в строке требования', async () => {
+  const tree: Record<string, string[] | string> = {
+    '/ws/.bft/documentation': ['alpha'],
+    '/ws/.bft/documentation/alpha': ['alpha-fast.md', 'alpha-fast.html'],
+  }
+  const reader = new BftReader(loadConfig({ BFT_WORKSPACE_ROOT: '/ws', BFT_ENTIRE_REQUIRED: '0' }), ports(tree))
+  await reader.attachSession('alpha', 'sess-1')
+  let task = await reader.getTask('alpha')
+  assert.deepEqual([task.session?.id, task.session?.state], ['sess-1', 'idle'])
+
+  await reader.touchSession('sess-1', 'running')
+  await reader.touchSession('other', 'running')
+  task = await reader.getTask('alpha')
+  assert.equal(task.session?.state, 'running')
+
+  await reader.markInterrupted()
+  task = await reader.getTask('alpha')
+  assert.equal(task.session?.state, 'failed')
+
+  await assert.rejects(() => reader.attachSession('nope', 'sess-9'), TaskNotFoundError)
+})
+
+test('параллельные правки журнала не теряются: записи идут через одну очередь', async () => {
+  const tree: Record<string, string[] | string> = {
+    '/ws/.bft/documentation': ['alpha', 'beta'],
+    '/ws/.bft/documentation/alpha': ['alpha-fast.md'],
+    '/ws/.bft/documentation/beta': ['beta-fast.md'],
+  }
+  const reader = new BftReader(loadConfig({ BFT_WORKSPACE_ROOT: '/ws', BFT_ENTIRE_REQUIRED: '0' }), ports(tree))
+  await Promise.all([reader.attachSession('alpha', 's-a'), reader.attachSession('beta', 's-b')])
+  await Promise.all([reader.touchSession('s-a', 'running'), reader.touchSession('s-b', 'failed')])
+  const log = await reader.readWorkLog()
+  assert.deepEqual(log.entries.map(e => [e.epic, e.sessionId, e.sessionState]).sort(), [['alpha', 's-a', 'running'], ['beta', 's-b', 'failed']])
+})

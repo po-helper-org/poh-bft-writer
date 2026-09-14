@@ -21,6 +21,16 @@ import type { BftStage } from './model.js'
 export const WORKLOG_FILE = 'bft-worklog.json'
 export const WORKLOG_VERSION = 1
 
+/**
+ * Состояние сессии харнесса, в которой шёл отрезок.
+ *
+ * `running` — агент ходит; `idle` — сессия ждёт PO (ответить, отправить следующий
+ * шаг); `failed` — агент упал или сессия оборвалась: была `running` на момент
+ * перезапуска харнесса; `gone` — сессию удалили. Это состояние работы, а не
+ * документа: стадия про артефакты, состояние — про то, идёт ли по ним кто-то.
+ */
+export type SessionState = 'running' | 'idle' | 'failed' | 'gone'
+
 export interface WorkEntry {
   epic: string
   /** Стадия на момент начала отрезка. */
@@ -32,6 +42,18 @@ export interface WorkEntry {
   summary?: string
   /** Ветка entire.io с контекстным чатом этого отрезка. */
   contextRef?: string
+  /** Сессия харнесса, в которой шёл отрезок: по ней PO возвращается в тот же чат. */
+  sessionId?: string
+  sessionState?: SessionState
+  /** Последнее движение в сессии — ход агента, отправка PO, открытие черновика. */
+  lastActivityAt?: string
+}
+
+/** Последняя сессия по требованию — то, что показывают в строке очереди и превью. */
+export interface TaskSession {
+  id: string
+  state: SessionState
+  lastActivityAt: string
 }
 
 export interface WorkLog {
@@ -96,6 +118,69 @@ export function openEntry(log: WorkLog, epic: string): WorkEntry | null {
 export function startWork(log: WorkLog, entry: WorkEntry): WorkLog {
   if (openEntry(log, entry.epic)) return log
   return { ...log, entries: [...log.entries, entry] }
+}
+
+/**
+ * Привязать сессию харнесса к работе по эпику.
+ *
+ * Открытый отрезок есть — сессия пишется в него: самый свежий чат и есть «где
+ * работали». Отрезка нет («Работать в чате» по требованию, у которого стадия не
+ * менялась) — открывается новый: чат по требованию — это отрезок работы.
+ */
+export function attachSession(
+  log: WorkLog,
+  epic: string,
+  stage: BftStage,
+  sessionId: string,
+  at: string,
+): WorkLog {
+  const open = openEntry(log, epic)
+  const patch = { sessionId, sessionState: 'idle' as const, lastActivityAt: at }
+  if (open) {
+    return { ...log, entries: log.entries.map(entry => (entry === open ? { ...entry, ...patch } : entry)) }
+  }
+  return { ...log, entries: [...log.entries, { epic, stage, startedAt: at, ...patch }] }
+}
+
+/**
+ * Состояние сессии изменилось. Сессия неизвестна журналу — журнал не меняется:
+ * чужие чаты раздел не отслеживает.
+ */
+export function touchSession(log: WorkLog, sessionId: string, state: SessionState, at: string): WorkLog {
+  if (!log.entries.some(entry => entry.sessionId === sessionId)) return log
+  return {
+    ...log,
+    entries: log.entries.map(entry => (entry.sessionId === sessionId
+      ? { ...entry, sessionState: state, lastActivityAt: at }
+      : entry)),
+  }
+}
+
+/**
+ * Харнесс поднялся заново: всё, что числилось «агент ходит», оборвалось на
+ * перезапуске. Ровно тот случай, который PO называет «сессия прервалась».
+ */
+export function markInterrupted(log: WorkLog, at: string): WorkLog {
+  if (!log.entries.some(entry => entry.sessionState === 'running')) return log
+  return {
+    ...log,
+    entries: log.entries.map(entry => (entry.sessionState === 'running'
+      ? { ...entry, sessionState: 'failed' as const, lastActivityAt: at }
+      : entry)),
+  }
+}
+
+/** Последняя сессия по эпику — по последнему движению, а не по началу отрезка. */
+export function lastSession(log: WorkLog, epic: string): TaskSession | null {
+  let best: WorkEntry | null = null
+  for (const entry of log.entries) {
+    if (entry.epic !== epic || !entry.sessionId) continue
+    const at = entry.lastActivityAt ?? entry.startedAt
+    const bestAt = best ? (best.lastActivityAt ?? best.startedAt) : ''
+    if (!best || at > bestAt) best = entry
+  }
+  if (!best?.sessionId) return null
+  return { id: best.sessionId, state: best.sessionState ?? 'idle', lastActivityAt: best.lastActivityAt ?? best.startedAt }
 }
 
 /** Закрыть отрезок эпика. Открытого нет — журнал не меняется. */

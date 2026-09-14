@@ -16,10 +16,13 @@ import {
 import { buildCreateDraft, buildHandoff, parseTaskViewJson, type Handoff } from './handoff.js'
 import type { BftTask } from './model.js'
 import { nodePorts, type BftPorts } from './ports.js'
-import { scanWorkspace, type WorkspaceScan } from './reader.js'
+import { resolveDocsPath, scanWorkspace, type WorkspaceScan } from './reader.js'
 import {
-  finishWork, lastFinished, parseWorkLog, serializeWorkLog, startWork,
-  WORKLOG_FILE, type WorkEntry, type WorkLog,
+  CONFIG_TEMPLATE, relativeConfigPaths, rewriteConfigPaths, sessionDirectory,
+} from './session-workspace.js'
+import {
+  attachSession, finishWork, lastFinished, markInterrupted, parseWorkLog, serializeWorkLog, startWork,
+  touchSession, WORKLOG_FILE, type SessionState, type WorkEntry, type WorkLog,
 } from './worklog.js'
 
 /** Какой документ эпика открывают: сам БФТ или скрипт CustDev-интервью. */
@@ -64,14 +67,15 @@ export class BftReader {
     const edits = await applyBacklogEdits(planBacklogEdits(scan.tasks, scan.docsPath), this.config, this.ports)
     if (!edits.length) return { scan, edits }
 
-    let log = await this.readWorkLog()
-    for (const edit of edits) {
-      if (!edit.ok || !edit.stage) continue
-      const task = scan.tasks.find(item => item.id === edit.id)
-      const page = task?.links.html ? `, страница ${task.links.html}` : ''
-      log = finishWork(log, edit.id, new Date().toISOString(), `${edit.stage}${page}`)
-    }
-    await this.saveLog(log)
+    await this.updateLog((log) => {
+      for (const edit of edits) {
+        if (!edit.ok || !edit.stage) continue
+        const task = scan.tasks.find(item => item.id === edit.id)
+        const page = task?.links.html ? `, страница ${task.links.html}` : ''
+        log = finishWork(log, edit.id, new Date().toISOString(), `${edit.stage}${page}`)
+      }
+      return log
+    })
 
     const after = await this.scan()
     for (const edit of edits) {
@@ -179,13 +183,78 @@ export class BftReader {
 
   /** Начать отрезок работы. Незакрытый по этому требованию уже есть — журнал не меняется. */
   async startWork(entry: WorkEntry): Promise<WorkLog> {
-    return this.saveLog(startWork(await this.readWorkLog(), entry))
+    return this.updateLog(log => startWork(log, entry))
   }
 
   async finishWork(id: string, summary: string, contextRef?: string): Promise<WorkLog> {
     this.assertSlug(id)
-    const log = finishWork(await this.readWorkLog(), id, new Date().toISOString(), summary, contextRef)
-    return this.saveLog(log)
+    return this.updateLog(log => finishWork(log, id, new Date().toISOString(), summary, contextRef))
+  }
+
+  /**
+   * Чат по требованию открыт: запомнить сессию, чтобы PO мог вернуться в неё, а
+   * не начинать заново. Стадия отрезка — текущая стадия требования.
+   */
+  async attachSession(id: string, sessionId: string): Promise<WorkLog> {
+    this.assertSlug(id)
+    const scan = await this.scan()
+    const task = scan.tasks.find(item => item.id === id)
+    if (!task) throw new TaskNotFoundError(id)
+    return this.updateLog(log => attachSession(log, id, task.stage, sessionId, new Date().toISOString()))
+  }
+
+  /** Сессия харнесса сменила состояние. Чужая сессия — журнал не меняется, файл не пишется. */
+  async touchSession(sessionId: string, state: SessionState): Promise<void> {
+    await this.updateLog(log => touchSession(log, sessionId, state, new Date().toISOString()))
+  }
+
+  /** Харнесс поднялся заново: всё, что числилось «агент ходит», оборвалось. */
+  async markInterrupted(): Promise<void> {
+    await this.updateLog(log => markInterrupted(log, new Date().toISOString()))
+  }
+
+  /**
+   * Рабочее пространство чатов по требованиям: абсолютный путь каталога, либо
+   * `null`, когда привязка выключена (`sessionPath: ''`).
+   *
+   * Каталог заводится, а в нём — `bft-config.md` с путями к документам,
+   * пересчитанными относительно каталога: навыки читают конфиг из корня
+   * рабочего пространства чата, и без него в каталоге `bft/` они не нашли бы
+   * ни документов, ни линтеров. Уже лежащий конфиг не трогается.
+   */
+  async sessionWorkspace(): Promise<string | null> {
+    if (this.config.sessionPath === '') return null
+    const docsPath = await resolveDocsPath(this.config, this.ports)
+    const dir = sessionDirectory(this.config.sessionPath, docsPath)
+    const absolute = resolve(this.config.workspaceRoot, dir)
+    if (isOutside(this.config.workspaceRoot, absolute)) throw new DocumentOutsideWorkspaceError(dir)
+
+    const configPath = join(absolute, 'bft-config.md')
+    if (await this.ports.readTextFile(configPath) === null) {
+      const base = (dir === '' ? null : await this.ports.readTextFile(join(this.config.workspaceRoot, 'bft-config.md')))
+        ?? CONFIG_TEMPLATE
+      const paths = relativeConfigPaths(dir, docsPath, this.config.indexPath, this.config.skillsPath)
+      await this.ports.writeTextFile(configPath, rewriteConfigPaths(base, paths))
+    }
+    return absolute
+  }
+
+  /**
+   * Все правки журнала идут через одну очередь: события харнесса приходят
+   * пачками (`agent/status` на каждый ход), и два параллельных
+   * «прочитал-изменил-записал» потеряли бы одно из изменений.
+   */
+  private logQueue: Promise<unknown> = Promise.resolve()
+
+  private updateLog(change: (log: WorkLog) => WorkLog): Promise<WorkLog> {
+    const next = this.logQueue.then(async () => {
+      const before = await this.readWorkLog()
+      const after = change(before)
+      if (after !== before) await this.saveLog(after)
+      return after
+    })
+    this.logQueue = next.catch(() => undefined)
+    return next
   }
 
   private async saveLog(log: WorkLog): Promise<WorkLog> {

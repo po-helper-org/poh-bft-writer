@@ -19,7 +19,7 @@ import { parseFrontmatter, type Frontmatter } from './frontmatter.js'
 import { stageRank, type BftArtifacts, type BftLinks, type BftTask, type StageVerdict } from './model.js'
 import type { BftPorts } from './ports.js'
 import { artifactsOf, stageFromArtifacts } from './stage.js'
-import { lastFinished, parseWorkLog, WORKLOG_FILE, type WorkLog } from './worklog.js'
+import { lastFinished, lastSession, parseWorkLog, WORKLOG_FILE, type WorkLog } from './worklog.js'
 
 const JIRA_BROWSE = 'https://jira.mts.ru/browse/'
 const WIKI_PAGE = 'https://confluence.mts.ru/pages/viewpage.action?pageId='
@@ -49,7 +49,7 @@ interface EpicRecord {
  * возвращается заданный, чтобы сообщение об ошибке называло ожидаемый путь, а
  * не последний перепробованный.
  */
-async function resolveDocsPath(config: BftPluginConfig, ports: BftPorts): Promise<string> {
+export async function resolveDocsPath(config: BftPluginConfig, ports: BftPorts): Promise<string> {
   for (const candidate of [config.docsPath, ...config.docsPathFallbacks]) {
     const entries = await ports.listDirectory(join(config.workspaceRoot, candidate))
     if (entries.length) return candidate
@@ -155,6 +155,7 @@ export async function scanWorkspace(config: BftPluginConfig, ports: BftPorts): P
       links: { ...links, entire: entire(id) },
       artifacts: epic.artifacts,
       missing: epic.verdict.missing,
+      session: lastSession(workLog, id) ?? undefined,
     }
     if (task) {
       row.board = { stage: task.stage, refs: task.refs }
@@ -180,6 +181,7 @@ export async function scanWorkspace(config: BftPluginConfig, ports: BftPorts): P
       artifacts: { fast: false, fastHtml: false, deep: false, deepHtml: false, custdev: false, custdevHtml: false },
       // Документа ещё нет — до FAST-DONE не хватает именно его.
       missing: ['документ БФТ'],
+      session: lastSession(workLog, task.id) ?? undefined,
     })
   }
 

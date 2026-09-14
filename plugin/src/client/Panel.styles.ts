@@ -47,6 +47,8 @@ export const panelClassNames = {
   item: 'bft-item',
   itemBody: 'bft-item-body',
   itemId: 'bft-item-id',
+  itemSession: 'bft-item-session',
+  sessionDot: 'bft-session-dot',
   // Утилитарные классы под настоящий <Button> из @deepseek-ai/dsh-client-ui-primitives (Task 4
   // визуального выравнивания): раньше нестандартная ширина/рост кнопки накручивались инлайн-style
   // поверх .bft-btn, Button принимает только className — эти два класса передаются туда же.
@@ -332,6 +334,31 @@ export const panelStyleText = `
 @media (hover: hover) and (pointer: fine) { .${c.item}:hover { background: var(--dsw-alias-interactive-bg-hover); } }
 .${c.itemBody} { flex: 1; min-width: 0; font-size: 13px; line-height: 19px; overflow-wrap: anywhere; }
 .${c.itemId} { display: block; margin-top: 2px; font: 11px/15px var(--ds-font-family-code); color: var(--dsw-alias-label-caption); }
+
+/* Сессия по требованию в строке: точка состояния и давность справа от текста. Состояние —
+   работа, не документ: стадию даёт полоса слева, сессию — точка справа, и они независимы.
+   Цвета — из тех же токенов кнопок, что и тона стадий (stage-tone.ts): своей палитры нет. */
+.${c.itemSession} {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 2px;
+  font: 11px/15px var(--ds-font-family-code);
+  color: var(--dsw-alias-label-caption);
+  white-space: nowrap;
+}
+.${c.sessionDot} {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1.5px solid var(--dsw-alias-label-caption);
+  box-sizing: border-box;
+}
+.${c.sessionDot}[data-state="running"] { background: var(--dsw-alias-button-info-fill); border-color: var(--dsw-alias-button-info-fill); }
+.${c.sessionDot}[data-state="idle"] { border-color: var(--dsw-alias-state-warn-primary); }
+.${c.sessionDot}[data-state="failed"] { background: var(--dsw-alias-state-error-primary); border-color: var(--dsw-alias-state-error-primary); }
+.${c.sessionDot}[data-state="gone"] { opacity: 0.45; }
 
 /* Кнопки-действия («Повторить», «Работать в чате», «Создать документ» и т.п.) — настоящий
    <Button> из @deepseek-ai/dsh-client-ui-primitives (Task 4 визуального выравнивания), не

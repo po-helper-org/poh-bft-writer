@@ -33,6 +33,8 @@ import type { RpcResult } from '../channel.js'
 import { boardColumns, type BftGroup } from '../queue.js'
 import type { BftLocaleKey } from './locales.js'
 import { panelClassNames as css } from './Panel.styles.js'
+import { SessionMark } from './SessionMark.js'
+import { describeSession, type LiveSession } from './session-view.js'
 import { STAGE_TONE } from './stage-tone.js'
 import { readTaskCache, toTaskSummaries, writeTaskCache } from './task-cache.js'
 
@@ -40,6 +42,8 @@ export interface BoardProps {
   t: (key: BftLocaleKey) => string
   /** Канал `/bft`, подкоманда `list` — тот же вызов, что грузит список панели (см. index.tsx). */
   listRequirements(signal: AbortSignal): Promise<RpcResult<unknown>>
+  /** Живое состояние сессии харнесса — точка и давность на карточке (см. SessionMark.tsx). */
+  sessionInfo(sessionId: string): LiveSession | null | undefined
   /** Открывает детальную страницу требования (Task 3) — переключает режим панели, живёт в Panel.tsx. */
   onOpenDetail(id: string): void
   /** Стрелка «← Назад»: возвращает панель к списку. */
@@ -58,7 +62,7 @@ type BoardState =
   | { phase: 'ready'; groups: BftGroup[] }
   | { phase: 'error'; message: string }
 
-export function Board({ t, listRequirements, onOpenDetail, onBack, canAdd, onAdd }: BoardProps) {
+export function Board({ t, listRequirements, sessionInfo, onOpenDetail, onBack, canAdd, onAdd }: BoardProps) {
   // Тот же кэш localStorage, что Panel.tsx (task-cache.ts) — общий плоский список, доска
   // строит из него boardColumns() вместо queueGroups(). Доска — отдельная ветка рендера
   // Panel.tsx, монтируется заново при каждом открытии (в отличие от самой панели), поэтому
@@ -148,7 +152,7 @@ export function Board({ t, listRequirements, onOpenDetail, onBack, canAdd, onAdd
       {state.phase === 'ready' && (
         <div className={css.boardRow}>
           {state.groups.map(group => (
-            <BoardColumn key={group.stage} group={group} onSelect={onOpenDetail} />
+            <BoardColumn key={group.stage} group={group} onSelect={onOpenDetail} sessionInfo={sessionInfo} t={t} />
           ))}
         </div>
       )}
@@ -164,7 +168,12 @@ export function Board({ t, listRequirements, onOpenDetail, onBack, canAdd, onAdd
  * `.itemBody`/`.itemId` списка панели (название + id, цветная полоса стадии слева через
  * `--tone`) — тот же приём, что `GroupList` в Panel.tsx, отдельного класса карточки не заводим.
  */
-function BoardColumn({ group, onSelect }: { group: BftGroup; onSelect: (id: string) => void }) {
+function BoardColumn({ group, onSelect, sessionInfo, t }: {
+  group: BftGroup
+  onSelect: (id: string) => void
+  sessionInfo: (sessionId: string) => LiveSession | null | undefined
+  t: (key: BftLocaleKey) => string
+}) {
   const tone = { '--tone': STAGE_TONE[group.stage] } as CSSProperties
   return (
     <section className={css.boardColumn}>
@@ -186,6 +195,7 @@ function BoardColumn({ group, onSelect }: { group: BftGroup; onSelect: (id: stri
               {task.title}
               <span className={css.itemId}>{task.id}</span>
             </div>
+            <SessionMark session={describeSession(task.session, task.session ? sessionInfo(task.session.id) : undefined)} t={t} />
           </button>
         ))}
       </div>

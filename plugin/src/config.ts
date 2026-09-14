@@ -53,6 +53,22 @@ export interface BftPluginConfig {
   /** Тип задач Backlog.md, который считается требованием БФТ. */
   taskType: string
   /**
+   * Каталог рабочего пространства чатов по требованиям, относительно корня
+   * воркспейса. Все чаты, которые раздел открывает по требованию, привязываются
+   * к нему: агент стартует там, где лежат документы, а сессии собираются
+   * отдельной группой. `undefined` — умолчание: родитель каталога документов
+   * (`bft` при `bft/documentation`). Пустая строка — «не привязывать», чат в
+   * текущем рабочем пространстве.
+   */
+  sessionPath?: string
+  /**
+   * Skill-root воркспейса относительно его корня — только чтобы записать
+   * `skills_path` в `bft-config.md` рабочего пространства чатов. Не задан —
+   * секция не пишется, навык ищет корень сам. Умолчания нет намеренно:
+   * раскладку IDE-агента плагин не угадывает.
+   */
+  skillsPath?: string
+  /**
    * Ветки контекстного чата entire.io. Раздел без него не поднимается: работа
    * над требованием обязана продолжаться с последнего контекста, а не начинаться
    * заново, и «не настроено» здесь означает молчаливую потерю этой истории.
@@ -111,8 +127,36 @@ export function loadConfig(env: Record<string, string | undefined>): BftPluginCo
     indexPath: value(env, 'BFT_INDEX_PATH') ?? DEFAULT_INDEX_PATH,
     backlogBin: backlogBin(env),
     taskType: value(env, 'BFT_TASK_TYPE') ?? 'bft',
+    sessionPath: sessionPath(env),
+    skillsPath: relativeInside(env, 'BFT_SKILLS_PATH'),
     entire: entireAccess(env),
   }
+}
+
+/**
+ * Пустая строка здесь — единственный случай, когда она значит не «не задано», а
+ * «выключено»: чаты по требованиям идут в текущее рабочее пространство. Путь
+ * обязан лежать внутри воркспейса — иначе чаты по требованиям привязались бы к
+ * чужому каталогу.
+ */
+function sessionPath(env: Record<string, string | undefined>): string | undefined {
+  if (env.BFT_SESSION_PATH === undefined) return undefined
+  if (env.BFT_SESSION_PATH.trim() === '') return ''
+  return relativeInside(env, 'BFT_SESSION_PATH')
+}
+
+/** Путь относительно корня воркспейса: без ведущего `./`, хвостового `/`, абсолютных и `..`. */
+function relativeInside(env: Record<string, string | undefined>, key: string): string | undefined {
+  const raw = value(env, key)
+  if (raw === undefined) return undefined
+  const trimmed = raw.replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/+$/, '')
+  if (trimmed === '' || trimmed.startsWith('/') || /^[A-Za-z]:/.test(trimmed) || trimmed.split('/').includes('..')) {
+    throw new ConfigError(
+      `${key}=«${raw}» ведёт за пределы воркспейса. Путь задаётся относительно корня воркспейса ` +
+        'и не может быть абсолютным или содержать «..».',
+    )
+  }
+  return trimmed
 }
 
 /**
@@ -168,6 +212,7 @@ export function describeConfig(config: BftPluginConfig): string[] {
     `индекс:         ${config.indexPath}`,
     `Backlog.md:     ${config.backlogBin || 'отключён — стадия выводится из артефактов'}`,
     `тип задач:      ${config.taskType}`,
+    `чаты:           ${config.sessionPath === '' ? 'в текущем рабочем пространстве' : config.sessionPath ?? 'рабочее пространство каталога документов'}`,
     `entire.io:      ${config.entire?.baseUrl ?? 'требование снято — истории работы не будет'}`,
   ]
 }
