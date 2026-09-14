@@ -41,3 +41,19 @@ test('пустая настройка доску не гасит: отказ п�
   })
   assert.equal(config.backlogBin, 'backlog')
 })
+
+// ── Рабочее пространство чатов ───────────────────────────────────────────────
+
+test('sessionPath: не задан — умолчание, пустой — выключено, иначе путь без ведущего ./ и хвостового /', () => {
+  const base = { BFT_WORKSPACE_ROOT: '/ws', BFT_ENTIRE_REQUIRED: '0' }
+  assert.equal(loadConfig(base).sessionPath, undefined)
+  assert.equal(loadConfig({ ...base, BFT_SESSION_PATH: '' }).sessionPath, '')
+  assert.equal(loadConfig({ ...base, BFT_SESSION_PATH: './chats/' }).sessionPath, 'chats')
+})
+
+test('sessionPath за пределами воркспейса отвергается', () => {
+  const base = { BFT_WORKSPACE_ROOT: '/ws', BFT_ENTIRE_REQUIRED: '0' }
+  for (const bad of ['../other', '/abs/path', 'a/../../b']) {
+    assert.throws(() => loadConfig({ ...base, BFT_SESSION_PATH: bad }), ConfigError, `принят «${bad}»`)
+  }
+})

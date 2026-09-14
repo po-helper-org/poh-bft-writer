@@ -30,6 +30,8 @@ import type { RpcResult } from '../channel.js'
 import type { BftTask } from '../model.js'
 import type { BftLocaleKey } from './locales.js'
 import { panelClassNames as css } from './Panel.styles.js'
+import { SessionSummary } from './SessionMark.js'
+import { describeSession, type LiveSession, type SessionView } from './session-view.js'
 import { STAGE_TONE } from './stage-tone.js'
 
 export interface PreviewProps {
@@ -47,7 +49,10 @@ export interface PreviewProps {
    * Обобщённая цепочка «уйти в чат с черновиком» (см. index.tsx: `openChatWithDraft`, была
    * `openSyncChat` до задачи 2). Отправки нет ни при каких условиях — Enter жмёт PO.
    */
-  openChatWithDraft(draft: string): Promise<void>
+  openChatWithDraft(draft: string, taskId?: string): Promise<void>
+  /** Живое состояние сессии харнесса и «Открыть чат» — см. RequirementsPanelInjected. */
+  sessionInfo(sessionId: string): LiveSession | null | undefined
+  openSession(sessionId: string): void
   /**
    * Открывает детальную страницу (Task 3, DetailPage.tsx) — переключает режим панели, живёт
    * локально в Panel.tsx (не в RequirementsPanelInjected: см. комментарий у route в Panel.tsx).
@@ -96,7 +101,7 @@ export function buildContinueDraft(task: BftTask): string {
   return lines.join('\n')
 }
 
-export function Preview({ id, t, getTask, getHandoff, openChatWithDraft, onOpenDetail, onBack, onClose }: PreviewProps) {
+export function Preview({ id, t, getTask, getHandoff, openChatWithDraft, sessionInfo, openSession, onOpenDetail, onBack, onClose }: PreviewProps) {
   const [state, setState] = useState<PreviewState>({ phase: 'loading' })
   const controllerRef = useRef<AbortController | null>(null)
   // Кнопка «Работать в чате» не отправляет ничего сама (см. openChatWithDraft) — busy нужен
@@ -143,7 +148,7 @@ export function Preview({ id, t, getTask, getHandoff, openChatWithDraft, onOpenD
     void getHandoff(task.id, controller.signal)
       .then(result => (result.ok && isHandoff(result.value) ? result.value.prompt : buildContinueDraft(task)))
       .catch(() => buildContinueDraft(task))
-      .then(draft => openChatWithDraft(draft))
+      .then(draft => openChatWithDraft(draft, task.id))
       .then(
         () => { onClose() },
         (error: unknown) => {
@@ -192,7 +197,13 @@ export function Preview({ id, t, getTask, getHandoff, openChatWithDraft, onOpenD
       )}
       {state.phase === 'ready' && (
         <>
-          <ReadyBody task={state.task} t={t} onOpenDetail={onOpenDetail} />
+          <ReadyBody
+            task={state.task}
+            t={t}
+            onOpenDetail={onOpenDetail}
+            session={describeSession(state.task.session, state.task.session ? sessionInfo(state.task.session.id) : undefined)}
+            onOpenSession={(sessionId) => { openSession(sessionId); onClose() }}
+          />
           <div className={css.previewFooter}>
             <Button
               variant="primary"
@@ -213,8 +224,14 @@ export function Preview({ id, t, getTask, getHandoff, openChatWithDraft, onOpenD
 }
 
 function ReadyBody(
-  { task, t, onOpenDetail }:
-  { task: BftTask; t: (key: BftLocaleKey) => string; onOpenDetail(id: string, doc?: DocumentRole): void },
+  { task, t, onOpenDetail, session, onOpenSession }:
+  {
+    task: BftTask
+    t: (key: BftLocaleKey) => string
+    onOpenDetail(id: string, doc?: DocumentRole): void
+    session: SessionView | null
+    onOpenSession(sessionId: string): void
+  },
 ) {
   const tone = { '--tone': STAGE_TONE[task.stage] } as CSSProperties
 
@@ -234,6 +251,12 @@ function ReadyBody(
           {task.stage}
         </span>
       ),
+    },
+    {
+      // Последняя сессия по требованию: где работали, идёт ли работа, когда трогали.
+      // «Открыть чат» ведёт в тот же чат — контекст не собирается заново.
+      label: t('previewSession'),
+      value: <SessionSummary session={session} t={t} onOpen={onOpenSession} />,
     },
     { label: t('previewDescription'), value: <p>{task.description}</p> },
     {

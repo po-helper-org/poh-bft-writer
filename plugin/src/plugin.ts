@@ -31,12 +31,20 @@ interface HarnessContext {
   effect(fn: () => (() => void | Promise<void>) | void, label?: string): void
   inject(names: string[], apply: (scoped: HarnessContext) => void): void
   /**
-   * Подписка на события композиции (`ctx.on` cordis). Из всех событий нужна одна —
-   * `agent/status`: агент закончил ход, и файлы эпика могли измениться. Форма
-   * структурная, как и остальное здесь: `{ status: 'idle' | 'running' }`
-   * (`packages/core/agent/src/runtime-types.ts` харнесса).
+   * Подписка на события композиции (`ctx.on` cordis). Формы структурные, как и
+   * остальное здесь, и взяты из `packages/core/agent/src/runtime-types.ts` и
+   * `packages/core/session/src/index.ts` харнесса: `agent/status` — агент начал
+   * или закончил ход (файлы эпика могли измениться, сессия сменила состояние),
+   * `agent/error` — агент упал, `session/disposed` — сессию удалили.
    */
-  on?(event: 'agent/status', listener: (payload: { status: 'idle' | 'running' }) => void): () => unknown
+  on?(event: 'agent/status', listener: (payload: { agent: AgentLike; status: 'idle' | 'running' }) => void): () => unknown
+  on?(event: 'agent/error', listener: (payload: { agent: AgentLike; error: unknown }) => void): () => unknown
+  on?(event: 'session/disposed', listener: (session: { id: string }) => void): () => unknown
+}
+
+/** Агент харнесса — нужна только его сессия: по ней журнал находит отрезок работы. */
+interface AgentLike {
+  session: { id: string }
 }
 
 /**
@@ -99,6 +107,24 @@ export function apply(ctx: HarnessContext, config: PluginConfig): void {
   // (один `task list --json`), а правка на доске случается только при расхождении.
   // Ошибка сверки — в консоль харнесса, не в его падение: раздел без доски жив.
   if (typeof ctx.on === 'function') {
+    // Харнесс поднялся: всё, что числилось «агент ходит», оборвалось на перезапуске.
+    reader.markInterrupted().catch((error: unknown) => { console.warn('[poh-bft-plugin] журнал работы:', error) })
+
+    // Состояние сессий по требованиям — из тех же событий. Чужие сессии журнал не
+    // знает и молча пропускает (touchSession ничего не пишет).
+    const track = (sessionId: string, state: 'running' | 'idle' | 'failed' | 'gone'): void => {
+      reader.touchSession(sessionId, state)
+        .catch((error: unknown) => { console.warn('[poh-bft-plugin] состояние сессии:', error) })
+    }
+    ctx.effect(() => {
+      const offs = [
+        ctx.on!('agent/status', ({ agent, status }) => { track(agent.session.id, status) }),
+        ctx.on!('agent/error', ({ agent }) => { track(agent.session.id, 'failed') }),
+        ctx.on!('session/disposed', (session) => { track(session.id, 'gone') }),
+      ]
+      return () => { for (const off of offs) off() }
+    }, 'poh-bft-plugin: состояние сессий по требованиям')
+
     let timer: ReturnType<typeof setTimeout> | undefined
     let running = false
     let again = false

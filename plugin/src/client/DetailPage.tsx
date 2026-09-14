@@ -31,6 +31,8 @@ import type { BftLocaleKey } from './locales.js'
 import { markdownToPage } from './markdown-page.js'
 import { panelClassNames as css } from './Panel.styles.js'
 import { buildContinueDraft, isHandoff } from './Preview.js'
+import { SessionSummary } from './SessionMark.js'
+import { describeSession, type LiveSession, type SessionView } from './session-view.js'
 import { STAGE_TONE } from './stage-tone.js'
 
 export interface DetailPageProps {
@@ -59,7 +61,10 @@ export interface DetailPageProps {
    */
   getHandoff(id: string, signal: AbortSignal): Promise<RpcResult<unknown>>
   /** Обобщённая цепочка «уйти в чат с черновиком» (см. index.tsx). Отправки нет никогда. */
-  openChatWithDraft(draft: string): Promise<void>
+  openChatWithDraft(draft: string, taskId?: string): Promise<void>
+  /** Живое состояние сессии харнесса и «Открыть чат» — см. RequirementsPanelInjected. */
+  sessionInfo(sessionId: string): LiveSession | null | undefined
+  openSession(sessionId: string): void
   /** Стрелка «← Назад»: возвращает панель к превью того же требования (см. Panel.tsx). */
   onBack(): void
   /** Панель целиком — зовётся после успешного ухода в чат, тот же приём, что в Preview.tsx. */
@@ -111,7 +116,7 @@ function toFoundDocument(value: unknown): FoundDocument | null {
   return { path: doc.path, kind: doc.kind === 'markdown' ? 'markdown' : 'html', content: doc.content }
 }
 
-export function DetailPage({ id, t, getTask, findDocument, doc: initialDoc = 'requirement', getHandoff, openChatWithDraft, onBack, onClose }: DetailPageProps) {
+export function DetailPage({ id, t, getTask, findDocument, doc: initialDoc = 'requirement', getHandoff, openChatWithDraft, sessionInfo, openSession, onBack, onClose }: DetailPageProps) {
   const [taskState, setTaskState] = useState<TaskState>({ phase: 'loading' })
   const taskControllerRef = useRef<AbortController | null>(null)
 
@@ -189,9 +194,9 @@ export function DetailPage({ id, t, getTask, findDocument, doc: initialDoc = 're
   // тот же приём, что chatPending в Preview.tsx.
   const [chatPending, setChatPending] = useState(false)
 
-  const sendChat = (draft: string) => {
+  const sendChat = (draft: string, taskId: string) => {
     setChatPending(true)
-    void openChatWithDraft(draft).then(
+    void openChatWithDraft(draft, taskId).then(
       () => { onClose() },
       (error: unknown) => {
         setChatPending(false)
@@ -208,7 +213,7 @@ export function DetailPage({ id, t, getTask, findDocument, doc: initialDoc = 're
     void getHandoff(task.id, controller.signal)
       .then(result => (result.ok && isHandoff(result.value) ? result.value.prompt : `/bft-fast ${task.id} «${task.title}»`))
       .catch(() => `/bft-fast ${task.id} «${task.title}»`)
-      .then(draft => openChatWithDraft(draft))
+      .then(draft => openChatWithDraft(draft, task.id))
       .then(
         () => { onClose() },
         (error: unknown) => {
@@ -222,7 +227,7 @@ export function DetailPage({ id, t, getTask, findDocument, doc: initialDoc = 're
     const text = promptText.trim()
     if (text === '') {
       // Пустое поле — тот же черновик, что «Работать в чате» в превью (buildContinueDraft).
-      sendChat(buildContinueDraft(task))
+      sendChat(buildContinueDraft(task), task.id)
       return
     }
     const docPath = task.links.html ?? '—'
@@ -230,7 +235,7 @@ export function DetailPage({ id, t, getTask, findDocument, doc: initialDoc = 're
     // мелкая правка — тот же заход по требованию, и начинать его с нуля незачем.
     const lines = [`По БФТ ${task.id} «${task.title}» (${docPath}): ${text}`, `Стадия: ${task.stage}.`]
     if (task.links.entire) lines.push(`Контекст прошлого захода: ${task.links.entire}`)
-    sendChat(lines.join('\n'))
+    sendChat(lines.join('\n'), task.id)
   }
 
   return (
@@ -337,6 +342,8 @@ export function DetailPage({ id, t, getTask, findDocument, doc: initialDoc = 're
             onPromptChange={setPromptText}
             chatPending={chatPending}
             onSend={() => { handleMiniPrompt(taskState.task) }}
+            session={describeSession(taskState.task.session, taskState.task.session ? sessionInfo(taskState.task.session.id) : undefined)}
+            onOpenSession={(sessionId) => { openSession(sessionId); onClose() }}
           />
         </div>
       )}
@@ -350,13 +357,15 @@ export function DetailPage({ id, t, getTask, findDocument, doc: initialDoc = 're
  * геометрии, переиспользованы классы), и мини-промт — короткий путь вместо полноценного
  * встроенного мини-чата (это следующий этап, см. план).
  */
-function DetailSidebar({ task, t, promptText, onPromptChange, chatPending, onSend }: {
+function DetailSidebar({ task, t, promptText, onPromptChange, chatPending, onSend, session, onOpenSession }: {
   task: BftTask
   t: (key: BftLocaleKey) => string
   promptText: string
   onPromptChange: (value: string) => void
   chatPending: boolean
   onSend: () => void
+  session: SessionView | null
+  onOpenSession: (sessionId: string) => void
 }) {
   const tone = { '--tone': STAGE_TONE[task.stage] } as CSSProperties
   return (
@@ -368,6 +377,12 @@ function DetailSidebar({ task, t, promptText, onPromptChange, chatPending, onSen
             <span className={css.groupDot} style={tone} aria-hidden="true" />
             {task.stage}
           </span>
+        </div>
+      </div>
+      <div className={css.previewField}>
+        <div className={css.previewFieldLabel}>{t('previewSession')}</div>
+        <div className={css.previewFieldValue}>
+          <SessionSummary session={session} t={t} onOpen={onOpenSession} />
         </div>
       </div>
       {task.links.confluence && (

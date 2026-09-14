@@ -15,6 +15,10 @@ export interface PluginConfig {
   entireBaseUrl?: string
   entireBranchUrl?: string
   entireRequired?: boolean
+  /** Каталог рабочего пространства чатов по требованиям; `''` — не привязывать. */
+  sessionPath?: string
+  /** Skill-root воркспейса — для `skills_path` в `bft-config.md` рабочего пространства чатов. */
+  skillsPath?: string
 }
 
 /**
@@ -44,5 +48,8 @@ export function toBftConfig(
     BFT_ENTIRE_BASE_URL: pick(plugin.entireBaseUrl, env.BFT_ENTIRE_BASE_URL),
     BFT_ENTIRE_BRANCH_URL: pick(plugin.entireBranchUrl, env.BFT_ENTIRE_BRANCH_URL),
     BFT_ENTIRE_REQUIRED: plugin.entireRequired === false ? '0' : env.BFT_ENTIRE_REQUIRED,
+    // Пустая строка здесь осмысленна («не привязывать»), поэтому не через pick().
+    BFT_SESSION_PATH: plugin.sessionPath !== undefined ? plugin.sessionPath : env.BFT_SESSION_PATH,
+    BFT_SKILLS_PATH: pick(plugin.skillsPath, env.BFT_SKILLS_PATH),
   })
 }

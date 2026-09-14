@@ -100,6 +100,20 @@ export async function dispatch(
       case 'worklog':
         return ok(await reader.readWorkLog())
 
+      // Чат по требованию открыт в сессии харнесса: запомнить её, чтобы вернуться.
+      case 'attachSession': {
+        const id = stringField(payload, 'id')
+        const sessionId = stringField(payload, 'sessionId')
+        if (!id) return fail('bad-request', 'не передан идентификатор требования')
+        if (!sessionId) return fail('bad-request', 'не передан идентификатор сессии')
+        await reader.attachSession(id, sessionId)
+        return ok(true)
+      }
+
+      // Рабочее пространство чатов по требованиям: абсолютный путь или null, если выключено.
+      case 'sessionWorkspace':
+        return ok(await reader.sessionWorkspace())
+
       // Закрытие отрезка: итог и ветка контекстного чата entire.io.
       case 'finishWork': {
         const id = stringField(payload, 'id')

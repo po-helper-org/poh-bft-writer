@@ -52,6 +52,7 @@ import { ru, type BftLocaleKey } from './locales.js'
 import { RequirementsPanel, type RequirementsPanelInjected } from './Panel.js'
 import { panelClassNames as css, panelStyleText } from './Panel.styles.js'
 import { SettingsCard } from './SettingsCard.js'
+import type { LiveSession } from './session-view.js'
 import { SettingsCardController } from './settings-card.js'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -59,6 +60,12 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 }
 
 const NS = 'bft.requirements'
+
+/**
+ * Идентификатор сессии — тип из контракта службы, а не импорт из `@deepseek-ai/dsh-session`:
+ * этого пакета нет среди зависимостей плагина, а `ISessions['open']` его форму уже несёт.
+ */
+type SessionId = Parameters<ISessions['open']>[0]
 
 /**
  * Имя канала RPC-узла (`src/channel.ts`, `BFT_CHANNEL`). Продублировано строкой, а не
@@ -178,7 +185,41 @@ export function apply(ctx: ClientContext): void {
   // осмыслен (список требований по-прежнему работает) — отсутствие любой из них должно
   // деградировать саму кнопку, а не весь boot (см. приём dsh-plugin-subscriptions/src/client/
   // index.ts:121-122 для `modelDirectories`).
-  const openChatWithDraft = async (draft: string): Promise<void> => {
+  /**
+   * Рабочее пространство чатов по требованиям — каталог рядом с документами
+   * (`sessionPath` узла, по умолчанию родитель каталога документов). Канал отдаёт абсолютный
+   * путь и заводит там `bft-config.md`, а `workspaces.create()` по пути идемпотентен: хост
+   * сперва ищет уже зарегистрированное рабочее пространство и заводит новое, только если
+   * его нет — повторные вызовы дубликатов не плодят, результат можно кэшировать на загрузку
+   * страницы. `null` в кэше — «спрашивали, ответа нет»: привязка выключена (`sessionPath: ''`)
+   * или каталог не удалось зарегистрировать; тогда чат идёт в текущее рабочее пространство,
+   * а причина — в консоль, чтобы деградация не была молчаливой.
+   */
+  let bftWorkspace: WorkspaceId | null | undefined
+  const resolveBftWorkspaceId = async (workspaces: IWorkspaces): Promise<WorkspaceId | undefined> => {
+    if (bftWorkspace !== undefined) return bftWorkspace ?? undefined
+    try {
+      const result = await connection.rpc.call(CHANNEL, 'sessionWorkspace', {})
+      if (!result.ok || typeof result.value !== 'string') {
+        bftWorkspace = null
+        return undefined
+      }
+      const workspace = await workspaces.create({ path: result.value })
+      bftWorkspace = workspace.workspaceId
+      return workspace.workspaceId
+    } catch (error: unknown) {
+      console.error('[poh-bft-plugin] рабочее пространство чатов недоступно, беру текущее:', error)
+      bftWorkspace = null
+      return undefined
+    }
+  }
+
+  /**
+   * `taskId` — требование, по которому открывается чат: сессия записывается в журнал работы
+   * (подкоманда `attachSession`), и PO потом возвращается в тот же чат из превью. Без
+   * `taskId` («Обновить») ничего не записывается.
+   */
+  const openChatWithDraft = async (draft: string, taskId?: string): Promise<void> => {
     const uiWorkspace = ctx.get('uiWorkspace')
     const sessions = ctx.get('sessions')
     const workspaces = ctx.get('workspaces')
@@ -188,7 +229,8 @@ export function apply(ctx: ClientContext): void {
         'poh-bft-plugin: chat unavailable — sessions/uiWorkspace/workspaces/conversation not provided',
       )
     }
-    const workspaceId = resolveWorkspaceId(sessions, workspaces)
+    const workspaceId = (taskId !== undefined ? await resolveBftWorkspaceId(workspaces) : undefined)
+      ?? resolveWorkspaceId(sessions, workspaces)
     if (workspaceId === undefined) {
       throw new Error('poh-bft-plugin: chat: no workspace to connect to')
     }
@@ -203,6 +245,33 @@ export function apply(ctx: ClientContext): void {
     }
     conversation.input.for(actx).setDraft(draft)
     sessions.open(sessionId)
+    if (taskId !== undefined) {
+      // Запись сессии — после открытия чата и без ожидания: чат уже у PO, а журнал догонит.
+      connection.rpc.call(CHANNEL, 'attachSession', { id: taskId, sessionId })
+        .then((result) => { if (!result.ok) console.error('[poh-bft-plugin] attachSession:', result.error.message) })
+        .catch((error: unknown) => { console.error('[poh-bft-plugin] attachSession:', error) })
+    }
+  }
+
+  /**
+   * Живое состояние сессии из списка харнесса — существует ли, ходит ли агент, когда
+   * менялась. `undefined` — службы сессий нет (список неизвестен), `null` — сессии в списке
+   * нет: удалена. Читается в момент рендера; список сессий — чужой стор, подписка на него
+   * здесь не заводится: тихое обновление панели раз в полминуты и клики PO перерисовывают.
+   */
+  const sessionInfo = (sessionId: string): LiveSession | null | undefined => {
+    const sessions = ctx.get('sessions')
+    if (sessions === undefined) return undefined
+    const summary = sessions.list.getSnapshot().byId[sessionId as SessionId]
+    if (summary === undefined) return null
+    return { title: summary.title ?? summary.displayTitle, running: summary.running, updatedAt: summary.updatedAt }
+  }
+
+  /** Вернуться в тот же чат: та же история, тот же контекст — не начинать заново. */
+  const openSession = (sessionId: string): void => {
+    const sessions = ctx.get('sessions')
+    if (sessions === undefined) throw new Error('poh-bft-plugin: sessions service not provided')
+    sessions.open(sessionId as SessionId)
   }
 
   // ——— Настройки раздела (src/settings.ts) ———
@@ -289,6 +358,8 @@ export function apply(ctx: ClientContext): void {
         getHandoff,
         openSyncChat,
         openChatWithDraft,
+        sessionInfo,
+        openSession,
         getSettings,
         subscribeSettings,
       }),

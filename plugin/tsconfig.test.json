@@ -11,5 +11,8 @@
   ],
   "exclude": [
     "src/client/**"
+  ],
+  "files": [
+    "src/client/session-view.ts"
   ]
 }

@@ -65,3 +65,55 @@ test('запись и чтение журнала обратимы', () => {
   const log = startWork(EMPTY_LOG, entry('a', '2026-09-01', { contextRef: 'br' }))
   assert.deepEqual(parseWorkLog(serializeWorkLog(log)), log)
 })
+
+// ── Сессии харнесса ──────────────────────────────────────────────────────────
+
+import { attachSession, lastSession, markInterrupted, touchSession } from '../src/worklog.js'
+
+test('сессия привязывается к открытому отрезку, а без него — открывает новый', () => {
+  const started = startWork(EMPTY_LOG, entry('a', '2026-09-01'))
+  const attached = attachSession(started, 'a', 'To Do', 'sess-1', '2026-09-02T10:00:00Z')
+  assert.equal(attached.entries.length, 1)
+  assert.deepEqual(
+    [attached.entries[0].sessionId, attached.entries[0].sessionState, attached.entries[0].lastActivityAt],
+    ['sess-1', 'idle', '2026-09-02T10:00:00Z'],
+  )
+
+  const fresh = attachSession(EMPTY_LOG, 'b', 'FAST-DONE', 'sess-2', '2026-09-03T10:00:00Z')
+  assert.deepEqual(fresh.entries.map(e => [e.epic, e.stage, e.startedAt, e.sessionId]), [['b', 'FAST-DONE', '2026-09-03T10:00:00Z', 'sess-2']])
+})
+
+test('новый чат по тому же требованию замещает сессию в открытом отрезке', () => {
+  const one = attachSession(EMPTY_LOG, 'a', 'To Do', 'sess-1', '2026-09-01T10:00:00Z')
+  const two = attachSession(one, 'a', 'To Do', 'sess-2', '2026-09-02T10:00:00Z')
+  assert.equal(two.entries.length, 1)
+  assert.equal(two.entries[0].sessionId, 'sess-2')
+})
+
+test('состояние сессии меняется только у своих отрезков; чужая сессия — журнал тот же объект', () => {
+  const log = attachSession(EMPTY_LOG, 'a', 'To Do', 'sess-1', '2026-09-01T10:00:00Z')
+  assert.equal(touchSession(log, 'unknown', 'running', '2026-09-01T11:00:00Z'), log)
+  const running = touchSession(log, 'sess-1', 'running', '2026-09-01T11:00:00Z')
+  assert.deepEqual([running.entries[0].sessionState, running.entries[0].lastActivityAt], ['running', '2026-09-01T11:00:00Z'])
+  const failed = touchSession(running, 'sess-1', 'failed', '2026-09-01T12:00:00Z')
+  assert.equal(failed.entries[0].sessionState, 'failed')
+})
+
+test('перезапуск харнесса: «агент ходит» становится «прервалась», остальное не трогается', () => {
+  let log = attachSession(EMPTY_LOG, 'a', 'To Do', 'sess-1', '2026-09-01T10:00:00Z')
+  log = touchSession(log, 'sess-1', 'running', '2026-09-01T11:00:00Z')
+  log = attachSession(log, 'b', 'To Do', 'sess-2', '2026-09-01T10:00:00Z')
+  const after = markInterrupted(log, '2026-09-02T08:00:00Z')
+  assert.deepEqual(after.entries.map(e => [e.epic, e.sessionState]), [['a', 'failed'], ['b', 'idle']])
+  assert.equal(markInterrupted(after, '2026-09-02T09:00:00Z'), after, 'без running журнал не меняется')
+})
+
+test('последняя сессия — по последнему движению, а не по началу отрезка', () => {
+  let log = attachSession(EMPTY_LOG, 'a', 'To Do', 'old', '2026-09-01T10:00:00Z')
+  log = finishWork(log, 'a', '2026-09-01T12:00:00Z', 'готово')
+  log = attachSession(log, 'a', 'FAST-DONE', 'new', '2026-09-03T10:00:00Z')
+  log = touchSession(log, 'old', 'idle', '2026-09-04T10:00:00Z')
+  assert.deepEqual(lastSession(log, 'a'), { id: 'old', state: 'idle', lastActivityAt: '2026-09-04T10:00:00Z' })
+  assert.equal(lastSession(log, 'nope'), null)
+  assert.equal(lastSession(startWork(EMPTY_LOG, entry('c', '2026-09-01')), 'c'), null, 'отрезок без сессии — не сессия')
+})
