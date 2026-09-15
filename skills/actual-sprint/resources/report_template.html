@@ -783,12 +783,6 @@
     link.textContent = o && o.lead ? triple(o.lead).replace(/<[^>]+>/g, '') : '—';
   }
 
-  function metricsTable(head, rows) {
-    return '<table class="m-table"><thead><tr>' +
-      head.map(function (h, i) { return '<th' + (i === 0 ? '' : '') + '>' + esc(h) + '</th>'; }).join('') +
-      '</tr></thead><tbody>' + rows.join('') + '</tbody></table>';
-  }
-
   // ------------------ Burndown текущего спринта ------------------
   // Показывает, сколько задач ещё не закрыто по дням спринта.
   // scope пересчитывается по changelog поля Sprint, поэтому внесённые и
@@ -928,7 +922,10 @@
         outliers.map(function (p) {
           return '<div class="outlier-row">' +
             '<a href="' + jiraUrl(p.key) + '" target="_blank" rel="noopener">' + esc(p.key) + ' — ' + esc(p.title) + '</a>' +
-            '<span class="age stale">' + fmt(p.cycle) + 'д</span></div>';
+            '<div class="meta-wrap">' +
+              '<span class="status ' + bucketClass(p.status, p.category) + '">' + esc(p.status) + '</span>' +
+              '<span class="age stale">' + fmt(p.cycle) + 'д</span>' +
+            '</div></div>';
         }).join('') + '</div>';
     }
 
@@ -1010,60 +1007,12 @@
 
     return '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMid meet">' +
       parts.join('') + '</svg>' +
-      '<div class="chart-legend">' + legend +
-        '<br>Левый столбец — запланировано (разложено по текущим статусам), правый — сделано. ' +
-        'Пунктир — среднее выполнение ' + fmt(v.avgDone) + ' ' + esc(v.unit || '') + ' за спринт.' +
-      '</div>';
+      '<div class="chart-legend">' + legend + '</div>';
   }
 
   function fillMetricsPanel() {
-    var o = METRICS.overall || {};
-    var sprints = METRICS.sprints || [];
     var html = '';
 
-    // 1. Производительность команды
-    html += '<div class="metrics-section"><h3>Производительность команды</h3>' +
-      metricsTable(['Спринт', 'Закрыто', 'Всего', 'Доля', ''], sprints.map(function (s) {
-        return '<tr>' +
-          '<td>' + esc(s.name) + '</td>' +
-          '<td class="accent">' + s.closed + '</td>' +
-          '<td class="m-muted">' + s.total + '</td>' +
-          '<td>' + s.throughputPct + '%</td>' +
-          '<td class="bar-cell"><span class="bar"><i style="width:' + s.throughputPct + '%"></i></span></td>' +
-        '</tr>';
-      }).concat([
-        '<tr><td class="accent">Итого</td><td class="accent">' + (o.closed || 0) + '</td>' +
-        '<td class="m-muted">' + (o.total || 0) + '</td><td class="accent">' +
-        (o.total ? Math.round(100 * o.closed / o.total) : 0) + '%</td><td></td></tr>'
-      ])) + '</div>';
-
-    // 2. Метрики управления
-    html += '<div class="metrics-section"><h3>Метрики управления</h3>' +
-      metricsTable(['Метрика', 'Среднее / медиана / кол-во'], [
-        '<tr><td>Lead Time — весь поток</td><td class="accent">' + triple(o.lead) + '</td></tr>',
-        '<tr><td>Cycle Time — от взятия в работу</td><td>' + triple(o.cycle) + '</td></tr>',
-        '<tr><td class="m-muted">Разница (время ожидания)</td><td class="m-muted">' +
-          (o.lead && o.cycle ? fmt(Math.round((o.lead.median - o.cycle.median) * 10) / 10) + ' дн. по медиане' : '—') +
-        '</td></tr>'
-      ]) + '</div>';
-
-    // 3. Lead Time для истории
-    html += '<div class="metrics-section"><h3>Lead Time — истории</h3>' +
-      metricsTable(['Спринт', 'Среднее / медиана / кол-во'], sprints.map(function (s) {
-        return '<tr><td>' + esc(s.name) + '</td><td>' + triple(s.leadStory) + '</td></tr>';
-      }).concat([
-        '<tr><td class="accent">За 3 спринта</td><td class="accent">' + triple(o.leadStory) + '</td></tr>'
-      ])) + '</div>';
-
-    // 4. Lead Time для задачи
-    html += '<div class="metrics-section"><h3>Lead Time — задачи</h3>' +
-      metricsTable(['Спринт', 'Среднее / медиана / кол-во'], sprints.map(function (s) {
-        return '<tr><td>' + esc(s.name) + '</td><td>' + triple(s.leadTask) + '</td></tr>';
-      }).concat([
-        '<tr><td class="accent">За 3 спринта</td><td class="accent">' + triple(o.leadTask) + '</td></tr>'
-      ])) + '</div>';
-
-    // 5. Графики
     html += '<div class="metrics-section"><h3>Burndown текущего спринта</h3>' + burndownChart() + '</div>';
     html += '<div class="metrics-section"><h3>Производительность: запланировано / сделано</h3>' + velocityChart() + '</div>';
     html += '<div class="metrics-section"><h3>Диаграмма управления</h3>' + controlChart() + '</div>';
