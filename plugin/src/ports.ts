@@ -71,12 +71,18 @@ function missing(error: unknown): boolean {
 /** Каталоги, где на macOS/Linux обычно лежат docker, uvx, npx и сам claude. */
 const USUAL_BIN_DIRS = ['/opt/homebrew/bin', '/usr/local/bin', join(homedir(), '.local/bin')]
 
+/** Системный минимум, когда PATH не задан вовсе: без него не найдутся ни sh, ни python3. */
+const SYSTEM_PATH = '/usr/bin:/bin:/usr/sbin:/sbin'
+
 /** PATH с дописанными обычными каталогами; уже присутствующие не дублируются. Чистая. */
 export function extendPath(current: string | undefined): string {
-  const parts = (current ?? '').split(delimiter).filter(Boolean)
+  const parts = (current ?? SYSTEM_PATH).split(delimiter).filter(Boolean)
   for (const dir of USUAL_BIN_DIRS) if (!parts.includes(dir)) parts.push(dir)
   return parts.join(delimiter)
 }
+
+/** Сколько ждать выхода по SIGTERM, прежде чем убить наверняка. */
+const KILL_GRACE_MS = 5000
 
 export const nodePorts: BftPorts = {
   async readTextFile(path) {
@@ -156,6 +162,15 @@ export const nodePorts: BftPorts = {
       child.stdin.on('error', () => {})
       child.stdin.end(input)
     }
-    return { kill() { child.kill() } }
+    return {
+      kill() {
+        // SIGTERM — вежливо; не вышел за отведённое время — SIGKILL: остановленный
+        // ход обязан действительно закончиться, иначе он правит файлы дальше, а
+        // раздел уже считает его завершённым.
+        child.kill()
+        const force = setTimeout(() => { if (!settled) child.kill('SIGKILL') }, KILL_GRACE_MS)
+        force.unref()
+      },
+    }
   },
 }

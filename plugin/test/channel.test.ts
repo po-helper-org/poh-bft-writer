@@ -97,3 +97,45 @@ test('добавить в OKR: плохая форма — bad-request слов�
   assert.equal(noBoard.ok, false)
   if (!noBoard.ok) assert.equal(noBoard.error.code, 'okr-handoff-failed')
 })
+
+test('чат Claude Code: без порта — chat-unavailable, пустые параметры — bad-request, статус отвечает available:false', async () => {
+  const r = reader()
+  assert.deepEqual(await dispatch(r, 'chatStatus', { id: 'alpha' }), { ok: true, value: { available: false, run: null } })
+  for (const [endpoint, payload] of [['chatStart', {}], ['chatStatus', {}], ['chatPoll', {}], ['chatStop', {}]] as const) {
+    const result = await dispatch(r, endpoint, payload)
+    assert.equal(result.ok, false, endpoint)
+    assert.equal((result as { error: { code: string } }).error.code, 'bad-request', endpoint)
+  }
+  for (const [endpoint, payload] of [['chatStart', { id: 'alpha' }], ['chatPoll', { runId: 'r', since: 0 }], ['chatStop', { runId: 'r' }]] as const) {
+    const result = await dispatch(r, endpoint, payload)
+    assert.equal((result as { error?: { code: string } }).error?.code, 'chat-unavailable', endpoint)
+  }
+})
+
+test('чат Claude Code: ход, опрос, неизвестный ход — chat-run-not-found', async () => {
+  const tree: Record<string, string[] | string> = {
+    '/ws/.bft/documentation': ['alpha'],
+    '/ws/.bft/documentation/alpha': ['alpha.md', 'alpha.html'],
+    '/ws/.bft/documentation/alpha/alpha.md': DOC,
+    '/ws/.bft/documentation/alpha/alpha.html': '<h1>Альфа</h1>',
+  }
+  const sinks: import('../src/ports.js').StreamSink[] = []
+  const ports: BftPorts = {
+    async listDirectory(p) { const e = tree[p]; return Array.isArray(e) ? e : [] },
+    async readTextFile(p) { const e = tree[p]; return typeof e === 'string' ? e : null },
+    async writeTextFile(p, c) { tree[p] = c },
+    async realPath(p) { return p },
+    async runCommand() { return { stdout: '', code: -1 } },
+    spawnStreaming(_bin, _args, _cwd, _input, sink) { sinks.push(sink); return { kill() { sink.exit(null) } } },
+  }
+  const r = new BftReader(loadConfig({ ...ENV, BFT_CLAUDE_BIN: '/opt/claude' }), ports)
+  const started = await dispatch(r, 'chatStart', { id: 'alpha', note: 'правка' })
+  assert.equal(started.ok, true)
+  const { runId } = (started as { value: { runId: string } }).value
+  const status = await dispatch(r, 'chatStatus', { id: 'alpha' })
+  assert.deepEqual((status as { value: { available: boolean; run: { runId: string; status: string } } }).value.run.runId, runId)
+  const poll = await dispatch(r, 'chatPoll', { runId, since: 0 })
+  assert.equal((poll as { value: { events: unknown[] } }).value.events.length, 1)
+  assert.equal((await dispatch(r, 'chatPoll', { runId: 'nope', since: 0 }) as { error: { code: string } }).error.code, 'chat-run-not-found')
+  assert.deepEqual(await dispatch(r, 'chatStop', { runId }), { ok: true, value: true })
+})

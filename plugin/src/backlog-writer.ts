@@ -21,6 +21,7 @@ import type { BftPluginConfig } from './config.js'
 import { normalizeDocsRef } from './epic-link.js'
 import { CANCELED_STAGE, stageRank, type BftStage, type BftTask } from './model.js'
 import type { BftPorts } from './ports.js'
+import { missingRefs } from './refs.js'
 
 export interface BacklogEdit {
   id: string
@@ -61,12 +62,8 @@ export function planBacklogEdits(tasks: readonly BftTask[], docsPath: string): B
       if (!known.some(ref => ref.toLowerCase() === html.toLowerCase())) addRefs.push(html)
     }
     // Эпик и страница Confluence появляются во frontmatter после `/bft-deliver`
-    // (ключи `jira`, `pageId`) — доска получает те же ссылки, что и превью. URL
-    // сравниваются как есть, без учёта регистра: это адреса, не пути документов.
-    const knownUrls = new Set(task.board.refs.map(ref => ref.trim().toLowerCase()))
-    for (const url of [task.links.epic, task.links.confluence]) {
-      if (url && !knownUrls.has(url.toLowerCase())) addRefs.push(url)
-    }
+    // (ключи `jira`, `pageId`) — доска получает те же ссылки, что и превью.
+    addRefs.push(...missingRefs(task.board.refs, [task.links.epic, task.links.confluence]))
     if (addRefs.length) edit.addRefs = addRefs
 
     if (edit.stage !== undefined || edit.addRefs !== undefined) edits.push(edit)

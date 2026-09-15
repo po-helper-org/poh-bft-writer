@@ -88,8 +88,8 @@ export interface BftPluginConfig {
   /**
    * Claude Code CLI для чата по требованию с детальной страницы (issue #41):
    * бинарь и аргументы прав/модели. `claudeBin: 'off'` выключает чат. Умолчания
-   * живут в claude-chat.ts — по той же причине, что и `DEFAULT_BACKLOG_BIN`:
-   * слой профиля заменяет конфиг пакета целиком.
+   * (`DEFAULT_CLAUDE_BIN`, `DEFAULT_CLAUDE_ARGS` выше) живут здесь — по той же
+   * причине, что и `DEFAULT_BACKLOG_BIN`: слой профиля заменяет конфиг пакета целиком.
    */
   claudeBin?: string
   claudeArgs: readonly string[]

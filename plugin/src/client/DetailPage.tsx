@@ -39,7 +39,7 @@ import type { BftTask } from '../model.js'
 import type { BftLocaleKey } from './locales.js'
 import { markdownToPage } from './markdown-page.js'
 import { panelClassNames as css } from './Panel.styles.js'
-import { DetailChat, POLL_MS, type ChatRunStatus, type ChatRunView } from './DetailChat.js'
+import { DetailChat, POLL_MS, POLL_RETRIES, type ChatRunStatus, type ChatRunView } from './DetailChat.js'
 import { buildContinueDraft, isHandoff } from './Preview.js'
 import { SessionSummary } from './SessionMark.js'
 import { describeSession, type LiveSession, type SessionView } from './session-view.js'
@@ -321,21 +321,31 @@ export function DetailPage({ id, t, getTask, findDocument, doc: initialDoc = 're
     pollControllerRef.current?.abort()
     const controller = new AbortController()
     pollControllerRef.current = controller
+    // Опрос оборвался — ход на узле от этого не кончился, а страница без опроса осталась
+    // бы с плёнкой на документе и запертой кнопкой навсегда. Поэтому ход теряется только
+    // когда узел сказал об этом сам (`chat-run-not-found`) или ответ нельзя разобрать;
+    // сбой провода (сеть, переподключение) — повторы с паузой, и лишь после них ход
+    // считается потерянным для страницы.
+    let failures = 0
+    const giveUp = (message: string) => {
+      setChatError(message)
+      setChatRun(run => (run && run.runId === runId ? { ...run, status: 'failed' } : run))
+    }
     const tick = (from: number) => {
       chat.poll(runId, from, controller.signal)
         .then((result) => {
           if (controller.signal.aborted) return
           if (!result.ok) {
             // Узел перезапустился и хода не помнит — прогон потерян, страница это говорит.
-            setChatError(result.error.code === 'chat-run-not-found' ? latestRef.current.t('detailChatLost') : result.error.message)
-            setChatRun(run => (run && run.runId === runId ? { ...run, status: 'failed' } : run))
+            giveUp(result.error.code === 'chat-run-not-found' ? latestRef.current.t('detailChatLost') : result.error.message)
             return
           }
           const poll = toPoll(result.value)
           if (!poll) {
-            setChatError(latestRef.current.t('previewParseError'))
+            giveUp(latestRef.current.t('previewParseError'))
             return
           }
+          failures = 0
           setChatRun(run => (run && run.runId === runId
             ? { ...run, status: poll.status, events: poll.events.length ? [...run.events, ...poll.events] : run.events, since: poll.total }
             : run))
@@ -348,7 +358,12 @@ export function DetailPage({ id, t, getTask, findDocument, doc: initialDoc = 're
         })
         .catch((error: unknown) => {
           if (controller.signal.aborted) return
-          setChatError(error instanceof Error ? error.message : String(error))
+          failures += 1
+          if (failures > POLL_RETRIES) {
+            giveUp(error instanceof Error ? error.message : String(error))
+            return
+          }
+          setTimeout(() => { if (!controller.signal.aborted) tick(from) }, POLL_MS * failures * 2)
         })
     }
     tick(since)

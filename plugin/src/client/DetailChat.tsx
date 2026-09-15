@@ -21,6 +21,8 @@ import { panelClassNames as css } from './Panel.styles.js'
 
 /** Интервал опроса узла, пока ход идёт: чаще — лишние вызовы, реже — поток дёргается. */
 export const POLL_MS = 700
+/** Сколько подряд сбоев провода опрос переживает (паузы растут) прежде чем счесть ход потерянным. */
+export const POLL_RETRIES = 5
 
 export type ChatRunStatus = 'running' | 'done' | 'failed' | 'stopped'
 
@@ -85,21 +87,23 @@ export function DetailChat({ t, available, run, starting, error, promptText, onP
   return (
     <div className={css.chat}>
       <div className={css.previewFieldLabel}>{t('detailChatLabel')}</div>
-      <div ref={logRef} className={css.chatLog} onScroll={onScroll} aria-live="polite" aria-busy={running || undefined}>
+      {/* aria-live не на всём журнале: поток дописывается каждые 700 мс, и читалка экрана
+          объявляла бы обрывки фраз без конца. Объявляются только смены состояния ниже. */}
+      <div ref={logRef} className={css.chatLog} onScroll={onScroll} aria-busy={running || undefined}>
         {lines.length === 0 && !running && (
           <p className={css.chatEmpty}>{available === false ? t('detailChatUnavailable') : t('detailChatEmpty')}</p>
         )}
         {lines.map(line => <ChatLineView key={line.key} line={line} t={t} />)}
-        {starting && <p className={css.chatStatus}>{t('detailChatSending')}</p>}
+        {starting && <p className={css.chatStatus} aria-live="polite">{t('detailChatSending')}</p>}
         {run?.status === 'running' && !starting && (
-          <p className={css.chatStatus}>
+          <p className={css.chatStatus} aria-live="polite">
             <span className={css.chatPulse} aria-hidden="true" />
             {t('detailChatWorking')}
           </p>
         )}
         {run && run.status !== 'running' && !starting && (
           <div className={css.chatResult} data-status={run.status}>
-            <p className={css.chatStatus}>
+            <p className={css.chatStatus} aria-live="polite">
               {run.status === 'done' ? t('detailChatDone') : run.status === 'stopped' ? t('detailChatStopped') : t('detailChatFailed')}
             </p>
             {(links?.epic || links?.confluence) && (

@@ -52,6 +52,10 @@ export interface ChatRun {
   status: ChatRunStatus
   /** Сессия Claude Code, как только CLI её назвал. */
   sessionId?: string
+  /** Ход продолжал прошлую сессию (`--resume`), а не открывал новую. */
+  resumed: boolean
+  /** PO нажал «Остановить»: процесс убивается, ход станет `stopped` по его выходу. */
+  stopping?: true
   events: ChatEvent[]
   startedAt: string
   finishedAt?: string
@@ -104,6 +108,7 @@ export class ClaudeChatService {
       taskId,
       status: 'running',
       sessionId: options.resume ?? options.newSessionId,
+      resumed: options.resume !== undefined,
       events: [{ kind: 'user', text: prompt }],
       startedAt: new Date().toISOString(),
     }
@@ -122,7 +127,9 @@ export class ClaudeChatService {
       exit: (code, error) => {
         push([error ? { kind: 'exit', code, error } : { kind: 'exit', code }])
         this.processes.delete(runId)
-        if (run.status === 'running') {
+        if (run.stopping) {
+          run.status = 'stopped'
+        } else {
           const result = run.events.find(event => event.kind === 'result')
           run.status = !error && code === 0 && result?.kind === 'result' && result.ok ? 'done' : 'failed'
         }
@@ -148,14 +155,23 @@ export class ClaudeChatService {
     }
   }
 
-  /** Остановить ход. Уже завершённый — ничего не происходит. */
+  /**
+   * Остановить ход. Уже завершённый — ничего не происходит. Ход остаётся
+   * `running` до выхода процесса: пока CLI жив, он всё ещё правит файлы, и
+   * второй ход по тому же требованию запускать нельзя (`activeFor`).
+   */
   stop(runId: string): boolean {
     const run = this.runs.get(runId)
     const child = this.processes.get(runId)
     if (!run || !child) return false
-    run.status = 'stopped'
+    run.stopping = true
     child.kill()
     return true
+  }
+
+  /** Раздел выгружается или харнесс останавливается: живые CLI не должны переживать узел. */
+  stopAll(): void {
+    for (const runId of [...this.processes.keys()]) this.stop(runId)
   }
 
   /** Идущий прогон по требованию — чтобы страница, открытая заново, подхватила его. */

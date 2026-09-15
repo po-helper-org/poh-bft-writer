@@ -107,7 +107,7 @@ describe('ClaudeChatService', () => {
     assert.equal(service.poll(c.runId, 0)!.status, 'failed')
   })
 
-  it('остановка: процесс убит, ход stopped, повторная остановка — false; неизвестный ход — null', () => {
+  it('остановка: процесс убит, ход stopped по выходу процесса, повторная остановка — false; неизвестный ход — null', () => {
     const { spawn, spawned } = fakeSpawn()
     const service = new ClaudeChatService(CONFIG, spawn)
     const run = service.start('A', 'x', '/ws')
@@ -117,6 +117,35 @@ describe('ClaudeChatService', () => {
     assert.equal(service.stop(run.runId), false)
     assert.equal(service.poll('nope', 0), null)
     assert.equal(service.activeFor('A'), undefined)
+  })
+
+  it('пока процесс после «Остановить» жив, ход остаётся running и второй по требованию не запускается', () => {
+    const spawned: Spawned[] = []
+    // Порт, чей kill не завершает процесс сразу: SIGTERM ещё в пути.
+    const spawn: SpawnStreaming = (bin, args, cwd, input, sink) => {
+      const record: Spawned = { bin, args, cwd, input, sink, killed: false }
+      spawned.push(record)
+      return { kill() { record.killed = true } }
+    }
+    const service = new ClaudeChatService(CONFIG, spawn)
+    const run = service.start('A', 'x', '/ws')
+    assert.equal(service.stop(run.runId), true)
+    assert.equal(service.poll(run.runId, 0)!.status, 'running')
+    assert.throws(() => service.start('A', 'y', '/ws'), ChatBusyError)
+    spawned[0].sink.exit(null)
+    assert.equal(service.poll(run.runId, 0)!.status, 'stopped')
+    assert.equal(service.activeFor('A'), undefined)
+  })
+
+  it('stopAll гасит все живые ходы; продолжение сессии помечает ход resumed', () => {
+    const { spawn, spawned } = fakeSpawn()
+    const finished: ChatRun[] = []
+    const service = new ClaudeChatService(CONFIG, spawn, run => finished.push(run))
+    service.start('A', 'x', '/ws', { resume: 'u-0' })
+    service.start('B', 'y', '/ws', { newSessionId: 'u-1' })
+    service.stopAll()
+    assert.deepEqual(spawned.map(item => item.killed), [true, true])
+    assert.deepEqual(finished.map(run => [run.taskId, run.status, run.resumed]), [['A', 'stopped', true], ['B', 'stopped', false]])
   })
 
   it('идентификатор сессии подхватывается из потока, когда до запуска его не было', () => {
@@ -136,6 +165,8 @@ describe('extendPath', () => {
     assert.ok(result.startsWith('/usr/bin:/bin:/usr/local/bin:'), result)
     assert.equal(result.split(':').filter(dir => dir === '/usr/local/bin').length, 1)
     assert.ok(result.split(':').includes('/opt/homebrew/bin'))
-    assert.ok(extendPath(undefined).split(':').includes('/opt/homebrew/bin'))
+    // PATH не задан вовсе — системный минимум впереди, иначе не найдутся sh и python3.
+    const bare = extendPath(undefined).split(':')
+    assert.ok(bare.includes('/usr/bin') && bare.includes('/bin') && bare.includes('/opt/homebrew/bin'), bare.join(':'))
   })
 })

@@ -64,6 +64,10 @@ export function parseStreamLine(line: string): ChatEvent[] {
   }
   const message = asRecord(raw)
   if (!message) return []
+  // Сообщения субагентов (Task) идут с `parent_tool_use_id`: их текст и инструменты —
+  // внутренняя кухня хода, а не ответ PO; в транскрипте они перебивали бы основной
+  // поток и закрывали бы его не там. Основной ход — `null` или без поля.
+  if (typeof message.parent_tool_use_id === 'string') return []
 
   switch (message.type) {
     case 'system': {

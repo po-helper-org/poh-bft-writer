@@ -18,6 +18,7 @@
  * заменяет список, повторный вызов ничего не дублирует.
  */
 import { OKR_ADDED_STAGE } from './model.js'
+import { missingRefs } from './refs.js'
 
 /** Фазы работы над KR — в порядке, в каком их планирует PO. Те же, что у плагина OKR. */
 export const OKR_PHASES = ['research', 'analyze', 'dev', 'qa', 'release'] as const
@@ -123,10 +124,7 @@ export function formatOkrPlan(handoff: OkrHandoff): string {
 export function okrHandoffArgs(id: string, handoff: OkrHandoff, knownRefs: readonly string[]): string[] {
   const args = ['task', 'edit', id, '-s', OKR_ADDED_STAGE, '--plan', formatOkrPlan(handoff)]
   if (handoff.comment !== '') args.push('--append-notes', `OKR: ${handoff.comment}`)
-  const known = new Set(knownRefs.map(ref => ref.trim().toLowerCase()))
-  for (const url of [handoff.confluence, handoff.epic]) {
-    if (!known.has(url.toLowerCase())) args.push('--add-ref', url)
-  }
+  for (const url of missingRefs(knownRefs, [handoff.confluence, handoff.epic])) args.push('--add-ref', url)
   args.push('--plain')
   return args
 }

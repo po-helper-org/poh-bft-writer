@@ -511,4 +511,47 @@ test('ход Claude Code: черновик в stdin, cwd — рабочее пр
   const third = await reader.chatStart('alpha')
   assert.equal(third.sessionId, started.sessionId)
   assert.ok(spawned[2].input.startsWith('/bft-deliver alpha\n'), spawned[2].input)
+  spawned[2].sink.exit(0)
+  await new Promise(resolve => setTimeout(resolve, 20))
+
+  // Сессии на диске больше нет: CLI упал, не назвав её в init, — журнал говорит «удалена»,
+  // следующий ход открывает новую сессию, а не бьётся в ту же ошибку.
+  await reader.chatStart('alpha', 'ещё')
+  spawned[3].sink.stderr('No conversation found with session ID: ' + started.sessionId)
+  spawned[3].sink.exit(1)
+  await new Promise(resolve => setTimeout(resolve, 20))
+  task = await reader.getTask('alpha')
+  assert.equal(task.session?.state, 'gone')
+  const fresh = await reader.chatStart('alpha', 'снова')
+  assert.notEqual(fresh.sessionId, started.sessionId)
+  assert.ok(spawned[4].args.includes('--session-id') && !spawned[4].args.includes('--resume'))
+  // Новая сессия — снова черновик навыка: правка к deep-документу — под /bft-deep.
+  assert.ok(spawned[4].input.startsWith('/bft-deep alpha\n'), spawned[4].input)
+  assert.match(spawned[4].input, /Правка PO к документу documentation\/alpha\/alpha\.md:\nснова/)
+
+  // «Остановить» — ход stopped, сессия ждёт PO, а не «прервалась».
+  assert.equal(reader.chatStop(fresh.runId), true)
+  await new Promise(resolve => setTimeout(resolve, 20))
+  assert.equal(reader.chatPoll(fresh.runId, 0).status, 'stopped')
+  task = await reader.getTask('alpha')
+  assert.equal(task.session?.state, 'idle')
+})
+
+test('сверки не идут параллельно: вторая ждёт первую', async () => {
+  const tree: Record<string, string[] | string> = { ...TREE }
+  let inFlight = 0
+  let overlap = 0
+  const base = ports(tree)
+  const reader = new BftReader(loadConfig({ BFT_WORKSPACE_ROOT: '/ws', BFT_ENTIRE_REQUIRED: '0', BFT_BACKLOG_BIN: '/opt/backlog' }), {
+    ...base,
+    async runCommand() {
+      inFlight += 1
+      if (inFlight > 1) overlap += 1
+      await new Promise(resolve => setTimeout(resolve, 5))
+      inFlight -= 1
+      return { stdout: '', code: -1 }
+    },
+  })
+  await Promise.all([reader.reconcile(), reader.reconcile(), reader.listTasks()])
+  assert.equal(overlap, 0)
 })

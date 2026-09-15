@@ -15,6 +15,15 @@ describe('parseStreamLine', () => {
     assert.deepEqual(parseStreamLine(line({ type: 'stream_event', event: { type: 'message_start' } })), [])
   })
 
+  it('сообщения субагентов (parent_tool_use_id) в транскрипт не идут', () => {
+    const sub = { parent_tool_use_id: 'toolu_task' }
+    assert.deepEqual(parseStreamLine(line({ type: 'assistant', ...sub, message: { content: [{ type: 'text', text: 'внутри' }] } })), [])
+    assert.deepEqual(parseStreamLine(line({ type: 'user', ...sub, message: { content: [{ type: 'tool_result', tool_use_id: 'x' }] } })), [])
+    assert.deepEqual(parseStreamLine(line({ type: 'stream_event', ...sub, event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'a' } } })), [])
+    // Основной ход: поле есть, но null.
+    assert.deepEqual(parseStreamLine(line({ type: 'stream_event', parent_tool_use_id: null, event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'a' } } })), [{ kind: 'delta', text: 'a' }])
+  })
+
   it('init — сессия Claude Code', () => {
     assert.deepEqual(parseStreamLine(line({ type: 'system', subtype: 'init', session_id: SID, cwd: '/x' })), [{ kind: 'init', sessionId: SID }])
   })

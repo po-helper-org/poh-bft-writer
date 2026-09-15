@@ -88,3 +88,11 @@ test('кварталы на выбор — текущий и следующие,
   assert.deepEqual(quarterOptions(new Date('2026-09-15T12:00:00Z'), 3), ['2026-Q3', '2026-Q4', '2027-Q1'])
   assert.deepEqual(quarterOptions(new Date('2026-01-02T12:00:00Z'), 2), ['2026-Q1', '2026-Q2'])
 })
+
+test('missingRefs: регистр и пробелы не различают, запятая — не ссылка для доски', async () => {
+  const { missingRefs } = await import('../src/refs.js')
+  assert.deepEqual(
+    missingRefs([' https://jira.mts.ru/browse/X-1 '], ['https://JIRA.mts.ru/browse/x-1', 'https://wiki/a', 'https://wiki/b,c', undefined, 'https://wiki/a']),
+    ['https://wiki/a'],
+  )
+})

@@ -9,6 +9,7 @@
 import { randomUUID } from 'node:crypto'
 import { isAbsolute, join, relative, resolve } from 'node:path'
 import { applyBacklogEdits, planBacklogEdits, type BacklogEditResult } from './backlog-writer.js'
+import type { ChatEvent } from './chat-events.js'
 import { ClaudeChatService, type ChatPoll, type ChatRun, type ChatRunStatus } from './claude-chat.js'
 import type { BftPluginConfig } from './config.js'
 import { chooseCustdevDocument, chooseDocument, type DocumentKind } from './document-source.js'
@@ -38,6 +39,22 @@ const SLUG_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
 function isOutside(root: string, target: string): boolean {
   const rel = relative(root, target)
   return rel !== '' && (rel.startsWith('..') || isAbsolute(rel))
+}
+
+/**
+ * Состояние сессии в журнале по исходу хода. `done` и остановка PO — «ждёт»;
+ * продолжение сессии, которой CLI не нашёл, — «удалена»: следующий ход откроет
+ * новую, а не будет биться в ту же ошибку. Признак — CLI запустился (не `error`
+ * порта), вышел с ненулевым кодом и не назвал сессию в `init` (снято с claude
+ * 2.1.236: `No conversation found with session ID`, exit 1, `result`
+ * error_during_execution без `init`). Остальные провалы — «прервалась».
+ */
+export function sessionStateAfter(run: ChatRun): SessionState {
+  if (run.status === 'done' || run.status === 'stopped') return 'idle'
+  const exit = run.events.find((event): event is Extract<ChatEvent, { kind: 'exit' }> => event.kind === 'exit')
+  const started = run.events.some(event => event.kind === 'init')
+  if (run.resumed && !started && exit && !exit.error && exit.code !== null && exit.code !== 0) return 'gone'
+  return 'failed'
 }
 
 /** Что детальная страница знает о ходе Claude Code по требованию. */
@@ -85,6 +102,17 @@ export class BftReader {
    * «Создать документ», кончился документом, и следующий стартует с этого.
    */
   async reconcile(): Promise<{ scan: WorkspaceScan; edits: BacklogEditResult[] }> {
+    // Сверки идут по одной: запрос списка, ход агента харнесса и выход CLI Claude Code
+    // зовут её независимо, а две параллельные спланировали бы одну и ту же правку
+    // (`task edit --add-ref`) и написали бы её дважды.
+    const next = this.reconcileChain.then(() => this.reconcileNow())
+    this.reconcileChain = next.catch(() => undefined)
+    return next
+  }
+
+  private reconcileChain: Promise<unknown> = Promise.resolve()
+
+  private async reconcileNow(): Promise<{ scan: WorkspaceScan; edits: BacklogEditResult[] }> {
     const scan = await this.scan()
     const edits = await applyBacklogEdits(planBacklogEdits(scan.tasks, scan.docsPath), this.config, this.ports)
     if (!edits.length) return { scan, edits }
@@ -185,14 +213,19 @@ export class BftReader {
     const scan = await this.scan()
     const task = scan.tasks.find(item => item.id === id)
     if (!task) throw new TaskNotFoundError(id)
+    return this.handoffFor(scan, task, note)
+  }
+
+  /** Черновик по уже сделанному скану: `chatStart` сканирует один раз, не трижды. */
+  private async handoffFor(scan: WorkspaceScan, task: BftTask, note?: string): Promise<Handoff> {
     if (task.artifactStage !== undefined) {
       // Пути в черновике — от каталога, из которого пойдёт чат (`sessionWorkspace`).
       const chatDir = sessionDirectory(this.config.sessionPath, scan.docsPath)
-      return buildHandoff(task, lastFinished(scan.workLog, id), this.config, { chatDir, note })
+      return buildHandoff(task, lastFinished(scan.workLog, task.id), this.config, { chatDir, note })
     }
 
-    const details = await this.boardDetails(id)
-    await this.startWork({ epic: id, stage: task.stage, startedAt: new Date().toISOString() })
+    const details = await this.boardDetails(task.id)
+    await this.startWork({ epic: task.id, stage: task.stage, startedAt: new Date().toISOString() })
     return buildCreateDraft(task, details, note)
   }
 
@@ -298,9 +331,9 @@ export class BftReader {
    * копия один раз собирается из шаблона и дальше не трогается: тогда она и
    * есть единственный конфиг, и правки PO в ней — его.
    */
-  async sessionWorkspace(): Promise<string | null> {
+  async sessionWorkspace(knownDocsPath?: string): Promise<string | null> {
     if (this.config.sessionPath === '') return null
-    const docsPath = await resolveDocsPath(this.config, this.ports)
+    const docsPath = knownDocsPath ?? await resolveDocsPath(this.config, this.ports)
     const dir = sessionDirectory(this.config.sessionPath, docsPath)
     const absolute = resolve(this.config.workspaceRoot, dir)
     if (isOutside(this.config.workspaceRoot, absolute)) throw new DocumentOutsideWorkspaceError(dir)
@@ -339,10 +372,11 @@ export class BftReader {
     const task = scan.tasks.find(item => item.id === id)
     if (!task) throw new TaskNotFoundError(id)
     const previous = lastSession(scan.workLog, id)
+    // `gone` — прошлую сессию CLI не нашёл (см. chatFinished): дальше новая, а не та же ошибка.
     const resume = previous?.kind === 'claude' && previous.state !== 'gone' ? previous.id : undefined
     const text = note?.trim()
-    const prompt = resume && text ? text : (await this.handoff(id, note)).prompt
-    const cwd = (await this.sessionWorkspace()) ?? this.config.workspaceRoot
+    const prompt = resume && text ? text : (await this.handoffFor(scan, task, note)).prompt
+    const cwd = (await this.sessionWorkspace(scan.docsPath)) ?? this.config.workspaceRoot
     const sessionId = resume ?? randomUUID()
     const started = chat.start(id, prompt, cwd, {
       resume,
@@ -381,6 +415,11 @@ export class BftReader {
     return this.chat
   }
 
+  /** Раздел выгружается: живые CLI гасятся, иначе они переживут узел и продолжат править файлы. */
+  dispose(): void {
+    this.chat?.stopAll()
+  }
+
   /**
    * CLI завершился: журнал — «ждёт» или «прервалась», доска — сверка по
    * артефактам, как после хода агента харнесса (там её зовёт `agent/status`,
@@ -388,7 +427,7 @@ export class BftReader {
    * ронять ответ клиенту нечем и незачем.
    */
   private chatFinished(run: ChatRun): void {
-    const state: SessionState = run.status === 'done' ? 'idle' : 'failed'
+    const state = sessionStateAfter(run)
     const sessionId = run.sessionId
     const log = sessionId ? this.touchSession(sessionId, state) : Promise.resolve()
     log
