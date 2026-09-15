@@ -54,6 +54,61 @@
   }
   .hero .metrics-link:hover { border-bottom-style: solid; border-bottom-color: var(--fg); }
 
+  .logs-btn {
+    position: fixed;
+    top: 20px;
+    right: 24px;
+    z-index: 9;
+    font: inherit;
+    font-size: 13px;
+    padding: 6px 14px;
+    border: 1px solid var(--fg);
+    background: var(--bg);
+    color: var(--fg);
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  .logs-btn:hover { background: var(--fg); color: var(--bg); }
+
+  /* лента изменений */
+  .log-filters { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; flex-shrink: 0; }
+  .log-chip {
+    font: inherit;
+    font-size: 12px;
+    padding: 3px 10px;
+    border: 1px solid var(--line);
+    background: var(--bg);
+    color: var(--muted);
+    border-radius: 12px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .log-chip:hover { border-color: var(--fg); color: var(--fg); }
+  .log-chip.active { background: var(--fg); border-color: var(--fg); color: var(--bg); }
+
+  .log-day { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;
+             color: var(--muted); margin: 16px 0 6px; font-weight: 600; }
+  .log-day:first-child { margin-top: 0; }
+
+  .log-item { display: flex; gap: 10px; padding: 9px 0; border-bottom: 1px solid #f0f0f0; font-size: 13px; }
+  .log-item:last-child { border-bottom: none; }
+  .log-who {
+    flex-shrink: 0; width: 28px; height: 28px; border-radius: 50%;
+    background: #f1f2f4; color: var(--muted);
+    font-size: 10px; font-weight: 600; letter-spacing: 0.03em;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .log-main { min-width: 0; flex: 1; }
+  .log-head { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
+  .log-author { font-weight: 600; }
+  .log-time { flex-shrink: 0; font-size: 11px; color: var(--muted); }
+  .log-move { margin: 2px 0 3px; display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+  .log-move .arrow { color: var(--c-zero); }
+  .log-issue { font-size: 12px; }
+  .log-issue a { color: var(--muted); text-decoration: none; }
+  .log-issue a:hover { color: var(--fg); text-decoration: underline; }
+  .log-empty { color: var(--muted); font-size: 13px; padding: 8px 0; }
+
   /* сводный отчёт за 3 спринта */
   .metrics-section + .metrics-section { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--line); }
   .metrics-section h3 {
@@ -422,6 +477,8 @@
 </head>
 <body>
 
+<button class="logs-btn" id="logsBtn" title="Кто что менял за последнюю неделю">Logs</button>
+
 <div class="hero">
   <div class="team">Команда</div>
   <h1>{{TEAM_NAME}}</h1>
@@ -507,6 +564,10 @@
 
   // VELOCITY: запланировано/сделано по спринтам, плановый столбец разбит по статусам.
   var VELOCITY = {{VELOCITY_JSON}};
+
+  // LOGS: смены статусов за последнюю неделю — кто что перевёл.
+  // { days, events: [{key,title,type,author,at,from,to,toCat}], authors: [[имя, кол-во]] }
+  var LOGS = {{LOGS_JSON}};
   // -------------------------------------------------------------------
 
   // Бакеты статусов. Порядок = порядок вывода счётчиков в строке эпика.
@@ -1020,6 +1081,108 @@
     return html;
   }
 
+  // ------------------ Лента изменений статусов ------------------
+  // Кто какую задачу куда перевёл за последнюю неделю. Фильтр по автору.
+  var logsFilter = null;
+
+  function relTime(iso) {
+    var diff = (Date.now() - new Date(iso).getTime()) / 1000;
+    if (diff < 3600) return Math.max(1, Math.round(diff / 60)) + ' мин назад';
+    if (diff < 86400) return Math.round(diff / 3600) + ' ч назад';
+    var d = new Date(iso);
+    return ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);
+  }
+
+  function dayLabel(iso) {
+    var d = new Date(iso), today = new Date();
+    var same = function (a, b) { return a.toDateString() === b.toDateString(); };
+    var yest = new Date(today.getTime() - 86400000);
+    if (same(d, today)) return 'Сегодня';
+    if (same(d, yest)) return 'Вчера';
+    return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
+  }
+
+  function initials(name) {
+    var parts = String(name || '').trim().split(/\s+/);
+    return parts.slice(0, 2).map(function (p) { return p.charAt(0).toUpperCase(); }).join('');
+  }
+
+  function renderLogs() {
+    var all = (LOGS && LOGS.events) || [];
+    var events = logsFilter ? all.filter(function (e) { return e.author === logsFilter; }) : all;
+
+    var chips = '<div class="log-filters">' +
+      '<button class="log-chip' + (logsFilter ? '' : ' active') + '" data-author="">Все · ' + all.length + '</button>' +
+      ((LOGS && LOGS.authors) || []).map(function (a) {
+        return '<button class="log-chip' + (logsFilter === a[0] ? ' active' : '') +
+          '" data-author="' + esc(a[0]) + '">' + esc(initials(a[0])) + ' ' + esc(a[0].split(' ')[0]) + ' · ' + a[1] + '</button>';
+      }).join('') + '</div>';
+
+    if (!events.length) {
+      storiesBody.innerHTML = chips + '<div class="log-empty">За период изменений нет.</div>';
+      bindLogChips();
+      return;
+    }
+
+    var html = chips, lastDay = null;
+    events.forEach(function (e) {
+      var day = dayLabel(e.at);
+      if (day !== lastDay) { html += '<div class="log-day">' + esc(day) + '</div>'; lastDay = day; }
+      html += '<div class="log-item">' +
+        '<div class="log-who" title="' + esc(e.author) + '">' + esc(initials(e.author)) + '</div>' +
+        '<div class="log-main">' +
+          '<div class="log-head"><span class="log-author">' + esc(e.author) + '</span>' +
+            '<span class="log-time">' + esc(relTime(e.at)) + '</span></div>' +
+          '<div class="log-move">' +
+            '<span class="status b-open">' + esc(e.from) + '</span>' +
+            '<span class="arrow">→</span>' +
+            '<span class="status ' + bucketClass(e.to, e.toCat) + '">' + esc(e.to) + '</span>' +
+          '</div>' +
+          '<div class="log-issue"><a href="' + jiraUrl(e.key) + '" target="_blank" rel="noopener">' +
+            esc(e.key) + ' — ' + esc(e.title) + '</a></div>' +
+        '</div></div>';
+    });
+
+    storiesBody.innerHTML = html;
+    bindLogChips();
+  }
+
+  function bindLogChips() {
+    storiesBody.querySelectorAll('.log-chip').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        logsFilter = btn.dataset.author || null;
+        renderLogs();
+      });
+    });
+  }
+
+  function openLogs() {
+    progLabel.textContent = 'Заметка';
+    storiesLabel.textContent = 'Изменения за неделю';
+    stackKey.textContent = 'Logs';
+    stackTitle.textContent = 'Кто что менял за последние ' + ((LOGS && LOGS.days) || 7) + ' дней';
+    stackLink.style.display = 'none';
+
+    progBody.innerHTML = '';
+    var storageKey = 'actual-sprint:' + REPORT_ID + ':note:__logs__';
+    var ta = document.createElement('textarea');
+    ta.className = 'note-area';
+    ta.placeholder = 'Заметки по активности команды…';
+    ta.value = localStorage.getItem(storageKey) || '';
+    ta.addEventListener('input', function () { localStorage.setItem(storageKey, ta.value); });
+    progBody.appendChild(ta);
+    var hint = document.createElement('div');
+    hint.className = 'note-hint';
+    hint.textContent = 'Сохраняется автоматически в этом браузере.';
+    progBody.appendChild(hint);
+
+    logsFilter = null;
+    renderLogs();
+
+    overlay.classList.add('open');
+    panelStack.classList.add('open');
+  }
+
   function openMetrics() {
     progLabel.textContent = 'Заметка';
     storiesLabel.textContent = 'Метрики';
@@ -1079,6 +1242,7 @@
 
   renderTable();
   renderMetricsLink();
+  document.getElementById('logsBtn').addEventListener('click', openLogs);
   document.getElementById('metricsLink').addEventListener('click', function (e) {
     e.preventDefault();
     openMetrics();
