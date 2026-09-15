@@ -1,0 +1,934 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Отчёт {{TEAM_NAME}} — {{SPRINT_NAME}}</title>
+<style>
+  :root {
+    --fg: #111;
+    --bg: #fff;
+    --muted: #666;
+    --line: #ddd;
+    --accent: #111;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    color: var(--fg);
+    background: var(--bg);
+    line-height: 1.5;
+  }
+  .hero {
+    padding: 48px 32px 32px;
+    border-bottom: 3px solid var(--fg);
+  }
+  .hero .team {
+    font-size: 13px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+  .hero h1 {
+    margin: 0 0 12px;
+    font-size: 32px;
+    font-weight: 700;
+  }
+  .hero .meta {
+    display: flex;
+    gap: 24px;
+    flex-wrap: wrap;
+    font-size: 14px;
+    color: var(--muted);
+  }
+  .hero .meta strong { color: var(--fg); }
+  .hero .board-link { color: var(--fg); text-decoration: none; border-bottom: 1px solid var(--line); }
+  .hero .board-link:hover { border-bottom-color: var(--fg); }
+  .hero .metrics-link {
+    color: var(--fg);
+    text-decoration: none;
+    border-bottom: 1px dashed var(--muted);
+    cursor: pointer;
+    font-variant-numeric: tabular-nums;
+  }
+  .hero .metrics-link:hover { border-bottom-style: solid; border-bottom-color: var(--fg); }
+
+  /* сводный отчёт за 3 спринта */
+  .metrics-section + .metrics-section { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--line); }
+  .metrics-section h3 {
+    margin: 0 0 12px;
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 600;
+  }
+  .m-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .m-table th, .m-table td {
+    padding: 7px 10px;
+    border-bottom: 1px solid #eee;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    vertical-align: middle;
+  }
+  .m-table th:first-child, .m-table td:first-child { text-align: left; }
+  .m-table thead th {
+    border-bottom: 1px solid var(--line);
+    font-size: 11px;
+    color: var(--muted);
+    font-weight: 600;
+    text-transform: none;
+    letter-spacing: 0;
+  }
+  .m-table tbody tr:last-child td { border-bottom: none; }
+  .m-table .accent { font-weight: 700; }
+  .m-muted { color: var(--muted); }
+
+  /* полоса производительности спринта */
+  .bar {
+    display: block;
+    height: 6px;
+    width: 100%;
+    min-width: 90px;
+    background: #eee;
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .bar > i { display: block; height: 100%; background: var(--c-done); }
+  td.bar-cell { width: 130px; }
+
+  /* диаграмма управления: точки Lead Time по спринтам */
+  .chart { width: 100%; height: 190px; display: block; }
+  .chart-legend { font-size: 11px; color: var(--muted); margin-top: 8px; line-height: 1.6; }
+  .chart-legend .swatch {
+    display: inline-block; width: 18px; height: 0; vertical-align: middle;
+    border-top: 2px solid var(--c-progress); margin-right: 5px;
+  }
+  .chart-legend .swatch.median { border-top-style: dashed; border-top-color: var(--c-done); }
+
+  main { padding: 32px; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+  }
+  th, td {
+    text-align: left;
+    padding: 12px;
+    border-bottom: 1px solid var(--line);
+    vertical-align: middle;
+  }
+  thead th {
+    border-bottom: 2px solid var(--fg);
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  /* вся строка кликабельна — открывает панель эпика */
+  tbody tr { cursor: pointer; }
+  tbody tr:hover { background: #fafafa; }
+  td.epic { font-weight: 600; }
+  td.epic .no-epic { color: var(--muted); }
+
+  /* цвета бакетов статусов */
+  :root {
+    --c-open: #6b7280;      /* серый  — открыто/бэклог */
+    --c-blocked: #dc2626;   /* красный — заблокировано */
+    --c-progress: #2563eb;  /* синий  — в работе */
+    --c-testing: #ca8a04;   /* жёлтый — тестирование */
+    --c-review: #ea580c;    /* оранжевый — ревью */
+    --c-done: #16a34a;      /* зелёный — готово */
+    --c-zero: #c9ccd1;      /* нули — приглушённые */
+  }
+
+  /* агрегированные счётчики: миниатюрный текст 2/0/0/0/1/3
+     ВАЖНО: класс ячейки (td.tally) и класс внутреннего бокса (.tally-box) разные.
+     Одинаковое имя делало td инлайн-блоком и ломало раскладку таблицы. */
+  td.tally { white-space: nowrap; width: 1%; text-align: right; padding-right: 20px; }
+  .tally-box {
+    position: relative;
+    display: inline-block;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.02em;
+    cursor: default;
+  }
+  .tally-box .n { font-weight: 600; }
+  .tally-box .n.zero { color: var(--c-zero); font-weight: 400; }
+  .tally-box .sep { color: var(--c-zero); margin: 0 1px; }
+  .n.b-open { color: var(--c-open); }
+  .n.b-blocked { color: var(--c-blocked); }
+  .n.b-progress { color: var(--c-progress); }
+  .n.b-testing { color: var(--c-testing); }
+  .n.b-review { color: var(--c-review); }
+  .n.b-done { color: var(--c-done); }
+
+  /* подсказка при наведении на счётчик; якорь справа — счётчики стоят у правого края,
+     при left:0 длинная подсказка уезжала за пределы экрана и обрезалась */
+  .tally-box .tip {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 6px);
+    z-index: 5;
+    background: #111;
+    color: #fff;
+    font-size: 12px;
+    font-weight: 400;
+    letter-spacing: normal;
+    line-height: 1.4;
+    padding: 6px 10px;
+    border-radius: 4px;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.12s ease;
+  }
+  .tally-box:hover .tip { opacity: 1; }
+
+  td.actions { white-space: nowrap; width: 1%; }
+  .action-btn {
+    font: inherit;
+    font-size: 13px;
+    padding: 5px 12px;
+    border: 1px solid var(--fg);
+    background: var(--bg);
+    color: var(--fg);
+    border-radius: 4px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .action-btn:hover { background: var(--fg); color: var(--bg); }
+  .action-btn.has-note { border-color: #111; font-weight: 600; }
+  .action-btn.has-note::after { content: " •"; }
+
+  /* сайдбары: два независимых панеля, один стек едет целиком */
+  .overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.25);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.15s ease;
+    z-index: 10;
+  }
+  .overlay.open { opacity: 1; pointer-events: auto; }
+
+  /* единая панель: одна рамка, одна тень, одна кнопка закрытия.
+     Внутри — две колонки (заметка + истории) без собственных теней. */
+  .panel-stack {
+    position: fixed;
+    top: 0;
+    right: 0;
+    height: 100%;
+    width: 1040px;
+    max-width: 100vw;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg);
+    border-left: 1px solid var(--line);
+    box-shadow: -8px 0 24px rgba(0,0,0,0.08);
+    z-index: 11;
+    transform: translateX(100%);
+    transition: transform 0.2s ease;
+    pointer-events: none;
+  }
+  .panel-stack.open { transform: translateX(0); pointer-events: auto; }
+
+  .stack-head {
+    padding: 20px 24px 16px;
+    border-bottom: 1px solid var(--line);
+    position: relative;
+    flex-shrink: 0;
+  }
+  .stack-head .eyebrow {
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 6px;
+  }
+  .stack-head h2 { margin: 0 0 6px; font-size: 17px; line-height: 1.35; padding-right: 32px; }
+  .stack-head a { font-size: 13px; color: var(--muted); }
+
+  .sidebar-close {
+    position: absolute;
+    top: 18px;
+    right: 20px;
+    border: none;
+    background: none;
+    font-size: 22px;
+    line-height: 1;
+    cursor: pointer;
+    color: var(--muted);
+  }
+  .sidebar-close:hover { color: var(--fg); }
+
+  .stack-body { display: flex; flex: 1; min-height: 0; }
+
+  .pane {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    padding: 16px 24px 20px;
+    overflow-y: auto;
+  }
+  #panelProgress { width: 320px; flex-shrink: 0; border-right: 1px solid var(--line); }
+  #panelStories { flex: 1; }
+
+  .pane-label {
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 10px;
+    flex-shrink: 0;
+  }
+
+  .sidebar-body { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+
+  .note-area {
+    flex: 1;
+    width: 100%;
+    min-height: 200px;
+    resize: vertical;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 12px;
+    font: inherit;
+    font-size: 13px;
+    color: var(--fg);
+    line-height: 1.6;
+  }
+  .note-area:focus { outline: none; border-color: var(--fg); }
+  .note-hint { font-size: 12px; color: var(--muted); margin-top: 8px; flex-shrink: 0; }
+
+  /* список историй эпика, с разворотом подзадач */
+  .story-item { border-bottom: 1px solid #eee; }
+  .story-item:last-child { border-bottom: none; }
+  .story-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    align-items: baseline;
+    padding: 10px 0;
+    font-size: 13px;
+  }
+  .story-row .story-title-wrap { display: flex; align-items: baseline; gap: 6px; min-width: 0; flex: 1; }
+  .story-row .meta-wrap, .sub-item .meta-wrap {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+
+  /* возраст статуса: сколько дней статус не менялся */
+  .age {
+    font-size: 11px;
+    color: var(--muted);
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+    min-width: 26px;
+    text-align: right;
+  }
+  .age.stale { color: var(--c-blocked); font-weight: 600; }
+  .age.done { color: var(--c-done); font-weight: 600; }
+
+  /* инициалы исполнителя слева от задачи; полное имя — в подсказке */
+  .who {
+    flex-shrink: 0;
+    width: 30px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+    cursor: default;
+  }
+  .who.none { color: var(--c-zero); font-weight: 400; }
+  .sub-item .age { font-size: 10px; }
+  .story-toggle {
+    flex-shrink: 0;
+    border: none;
+    background: none;
+    cursor: pointer;
+    font-size: 11px;
+    color: var(--muted);
+    padding: 0 4px 0 0;
+    width: 14px;
+    transform: rotate(0deg);
+    transition: transform 0.15s ease;
+  }
+  .story-toggle.open { transform: rotate(90deg); }
+  .story-toggle:disabled { visibility: hidden; }
+  .story-row a { color: var(--fg); text-decoration: none; }
+  .story-row a:hover { text-decoration: underline; }
+
+  /* базовый бейдж статуса — общий для историй и подзадач */
+  .status {
+    flex-shrink: 0;
+    padding: 2px 8px;
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    font-size: 11px;
+    white-space: nowrap;
+  }
+  .sub-item .status { font-size: 10px; padding: 1px 6px; }
+  .status.b-open { color: var(--c-open); border-color: var(--c-open); }
+  .status.b-blocked { color: var(--c-blocked); border-color: var(--c-blocked); }
+  .status.b-progress { color: var(--c-progress); border-color: var(--c-progress); }
+  .status.b-testing { color: var(--c-testing); border-color: var(--c-testing); }
+  .status.b-review { color: var(--c-review); border-color: var(--c-review); }
+  .status.b-done { color: var(--c-done); border-color: var(--c-done); font-weight: 600; }
+
+  .sub-list { display: none; padding: 0 0 10px 20px; }
+  .sub-list.open { display: block; }
+  .sub-item {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    align-items: baseline;
+    padding: 6px 0;
+    font-size: 12px;
+    border-top: 1px dashed #eee;
+  }
+  .sub-item:first-child { border-top: none; }
+  .sub-item a { color: var(--muted); text-decoration: none; flex: 1; min-width: 0; }
+  .sub-item a:hover { color: var(--fg); text-decoration: underline; }
+
+  .sidebar-empty { color: var(--muted); font-size: 13px; padding: 4px 0; }
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <div class="team">Команда</div>
+  <h1>{{TEAM_NAME}}</h1>
+  <div class="meta">
+    <div>Спринт: <strong>{{SPRINT_NAME}}</strong></div>
+    <div>Доска: <strong><a class="board-link" href="{{BOARD_URL}}" target="_blank" rel="noopener">{{BOARD_NAME}}</a></strong></div>
+    <div>Lead Time за 3 спринта:
+      <strong><a class="metrics-link" href="#" id="metricsLink" title="Среднее / медиана / количество закрытых запросов. Открыть сводный отчёт">—</a></strong>
+    </div>
+  </div>
+</div>
+
+<main>
+  <table>
+    <tbody id="tableBody"></tbody>
+  </table>
+</main>
+
+<div class="overlay" id="overlay"></div>
+<aside class="panel-stack" id="panelStack">
+  <!-- общая шапка: одна кнопка закрытия на всю панель -->
+  <div class="stack-head">
+    <button class="sidebar-close" data-close aria-label="Закрыть">&times;</button>
+    <div class="eyebrow" id="stackKey">—</div>
+    <h2 id="stackTitle">—</h2>
+    <a id="stackLink" href="#" target="_blank" rel="noopener">Открыть в JIRA →</a>
+  </div>
+
+  <div class="stack-body">
+    <!-- колонка 1: заметка о прогрессе эпика -->
+    <section class="pane" id="panelProgress">
+      <div class="pane-label" id="progLabel">Прогресс</div>
+      <div class="sidebar-body" id="progBody"></div>
+    </section>
+
+    <!-- колонка 2: истории эпика + их подзадачи -->
+    <section class="pane" id="panelStories">
+      <div class="pane-label" id="storiesLabel">Истории</div>
+      <div class="sidebar-body" id="storiesBody"></div>
+    </section>
+  </div>
+</aside>
+
+<script>
+  // -------------------------------------------------------------------
+  // REPORT_ID: уникальный префикс localStorage-заметок для ЭТОГО отчёта,
+  // чтобы заметки разных отчётов, открытых в одном браузере, не пересекались.
+  // Заполняется генератором навыка (team-slug + спринт), например "gds-live-2026q3s6".
+  var REPORT_ID = "{{REPORT_ID}}";
+
+  // JIRA_BASE: базовый URL для ссылок вида {JIRA_BASE}/browse/{key}
+  var JIRA_BASE = "{{JIRA_BASE_URL}}";
+
+  // EPICS: заполняется генератором навыка (см. resources/data_shape.md).
+  // Единица отчёта — ЭПИК. Каждый элемент:
+  // {
+  //   rowId, epicKey|null, epicTitle,   // epicKey=null -> псевдо-эпик "Без эпика"
+  //   stories: [
+  //     { key, title, status, category, statusChanged, assignee,  // statusChanged — ISO-дата смены статуса; assignee — ФИО
+  //       subtasks: [ { key, summary, status, category, statusChanged, assignee } ] }
+  //   ]
+  // }
+  var EPICS = [
+    // {{EPICS_JSON}}
+  ];
+
+  // METRICS: сводка за последние 3 спринта команды (см. resources/metrics.md).
+  // {
+  //   sprints: [ { name, total, closed, open, throughputPct,
+  //                lead:{mean,median,count}, cycle:{...}, leadStory:{...}, leadTask:{...},
+  //                points: [дни Lead Time каждой закрытой задачи] } ],
+  //   overall: { lead, cycle, leadStory, leadTask, total, closed }
+  // }
+  // Lead Time  = создание задачи -> переход в финальный статус.
+  // Cycle Time = первый переход в работу -> переход в финальный статус.
+  var METRICS = {{METRICS_JSON}};
+  // -------------------------------------------------------------------
+
+  // Бакеты статусов. Порядок = порядок вывода счётчиков в строке эпика.
+  // phrase — формулировка для подсказки при наведении («2 — в бэклоге»).
+  var BUCKETS = [
+    { id: 'open',     label: 'Открыто',       cls: 'b-open',     phrase: 'в бэклоге' },
+    { id: 'blocked',  label: 'Заблокировано', cls: 'b-blocked',  phrase: 'заблокировано' },
+    { id: 'progress', label: 'В работе',      cls: 'b-progress', phrase: 'в работе' },
+    { id: 'testing',  label: 'Тестирование',  cls: 'b-testing',  phrase: 'в тестировании' },
+    { id: 'review',   label: 'Ревью',         cls: 'b-review',   phrase: 'в ревью' },
+    { id: 'done',     label: 'Готово',        cls: 'b-done',     phrase: 'готово' }
+  ];
+
+  // Маппинг реального статуса JIRA -> бакет (см. resources/status_mapping.md).
+  // Порядок проверок важен и выверен регрессией по всем ~330 статусам инстанса.
+  var DONE_EXACT = [
+    'закрыт', 'закрыта', 'закрыто', 'готово', 'сделано', 'выполнено', 'выполнена',
+    'завершено', 'завершена', 'отменен', 'отменён', 'отменена', 'отменено',
+    'отклонен', 'отклонён', 'отклонена', 'отклонено', 'решён', 'решен', 'решена'
+  ];
+
+  function classifyBucket(status, category) {
+    var s = (status || '').trim().toLowerCase();
+
+    // 1. Категория JIRA "Выполнено" — авторитетный и единственный широкий признак готовности.
+    //    Подстрочный поиск по имени здесь недопустим: "Аналитика завершена", "Готово к закрытию",
+    //    "Ожидает решения КЦ" содержат done-подобные корни, но финальными НЕ являются.
+    if (category === 'Выполнено') return 'done';
+    if (DONE_EXACT.indexOf(s) !== -1) return 'done';
+
+    // 2. Блокировки и ожидания — раньше остальных: "Ожидает тестирование" это очередь, не тесты.
+    if (/блок|ожида|пауза|на паузе|hold|wait|отложен|приостановл/.test(s)) return 'blocked';
+
+    // 3. Тестирование раньше ревью: "Готово к тестированию" — про тесты.
+    if (/тест|qa/.test(s)) return 'testing';
+
+    // 4. Ревью / приёмка / согласование.
+    if (/ревью|review|проверк|приемк|приёмк|согласован|утвержд/.test(s)) return 'review';
+
+    // 5. Дефолт по категории JIRA.
+    if (category === 'К выполнению') return 'open';
+    return 'progress';
+  }
+
+  function bucketClass(status, category) {
+    var id = classifyBucket(status, category);
+    for (var i = 0; i < BUCKETS.length; i++) {
+      if (BUCKETS[i].id === id) return BUCKETS[i].cls;
+    }
+    return 'b-open';
+  }
+
+  // Агрегация по ВСЕЙ иерархии эпика: каждая история + каждая её подзадача = 1 единица.
+  function tallyEpic(epic) {
+    var counts = {};
+    BUCKETS.forEach(function (b) { counts[b.id] = 0; });
+
+    (epic.stories || []).forEach(function (story) {
+      counts[classifyBucket(story.status, story.category)]++;
+      (story.subtasks || []).forEach(function (sub) {
+        counts[classifyBucket(sub.status, sub.category)]++;
+      });
+    });
+
+    counts.total = BUCKETS.reduce(function (acc, b) { return acc + counts[b.id]; }, 0);
+    return counts;
+  }
+
+  function jiraUrl(key) { return JIRA_BASE + '/browse/' + key; }
+
+  // Сколько дней статус не менялся. Считается в браузере от текущей даты,
+  // поэтому страница не «протухает»: в данных лежит ISO-дата последней смены статуса.
+  // Больше STALE_DAYS дней без движения — подсвечиваем красным.
+  var STALE_DAYS = 3;
+
+  function statusAge(iso) {
+    if (!iso) return null;
+    var then = new Date(iso);
+    if (isNaN(then.getTime())) return null;
+    var days = Math.floor((Date.now() - then.getTime()) / 86400000);
+    if (days < 0) days = 0;
+    return days;
+  }
+
+  // Готовые задачи по определению стоят без движения — красить их «просрочкой» смысла нет,
+  // поэтому для бакета done возраст всегда зелёный и никогда не stale.
+  function ageHtml(iso, status, category) {
+    var isDone = classifyBucket(status, category) === 'done';
+    var days = statusAge(iso);
+    if (days === null) {
+      return '<span class="age' + (isDone ? ' done' : '') + '" title="Дата смены статуса неизвестна">—</span>';
+    }
+    var label = days + 'д';
+    var title = isDone
+      ? 'Закрыто ' + (days === 0 ? 'сегодня' : days + ' дн. назад')
+      : (days === 0 ? 'Статус изменён сегодня' : 'Статус не менялся ' + days + ' дн.');
+    var cls = isDone ? ' done' : (days > STALE_DAYS ? ' stale' : '');
+    return '<span class="age' + cls + '" title="' + esc(title) + '">' + label + '</span>';
+  }
+
+  // Инициалы исполнителя: "Ишманов Алексей Юрьевич" -> "ИА" (фамилия + имя).
+  // Полное имя показывается подсказкой при наведении.
+  function whoHtml(name) {
+    if (!name) return '<span class="who none" title="Исполнитель не назначен">—</span>';
+    var parts = String(name).trim().split(/\s+/);
+    var initials = parts.slice(0, 2).map(function (p) { return p.charAt(0).toUpperCase(); }).join('');
+    return '<span class="who" title="' + esc(name) + '">' + esc(initials) + '</span>';
+  }
+
+  function esc(s) {
+    var d = document.createElement('div');
+    d.textContent = s == null ? '' : s;
+    return d.innerHTML;
+  }
+
+  var tableBody = document.getElementById('tableBody');
+
+  // подсказка: только ненулевые бакеты, «2 — в бэклоге, 1 — в ревью»
+  function tallyTip(counts) {
+    var parts = BUCKETS
+      .filter(function (b) { return counts[b.id] > 0; })
+      .map(function (b) { return counts[b.id] + ' — ' + b.phrase; });
+    if (!parts.length) return 'Задач нет';
+    return parts.join(', ') + ' · всего ' + counts.total;
+  }
+
+  function tallyHtml(counts) {
+    var nums = BUCKETS.map(function (b) {
+      var n = counts[b.id];
+      return '<span class="n ' + b.cls + (n ? '' : ' zero') + '">' + n + '</span>';
+    }).join('<span class="sep">/</span>');
+    return '<span class="tally-box">' + nums + '<span class="tip">' + esc(tallyTip(counts)) + '</span></span>';
+  }
+
+  function renderTable() {
+
+    tableBody.innerHTML = EPICS.map(function (e) {
+      // название эпика — просто текст: ссылка на JIRA живёт в шапке панели,
+      // иначе клик по строке конфликтует с переходом по ссылке
+      var epicCell = e.epicKey
+        ? esc(e.epicTitle)
+        : '<span class="no-epic">' + esc(e.epicTitle || 'Без эпика') + '</span>';
+      return (
+        '<tr data-row="' + esc(e.rowId) + '">' +
+          '<td class="epic">' + epicCell + '</td>' +
+          '<td class="tally">' + tallyHtml(tallyEpic(e)) + '</td>' +
+          '<td class="actions"><button class="action-btn" data-open="' + esc(e.rowId) + '">Статус</button></td>' +
+        '</tr>'
+      );
+    }).join('');
+
+    // клик по любому месту строки открывает панель
+    tableBody.querySelectorAll('tr').forEach(function (tr) {
+      var rowId = tr.dataset.row;
+      refreshStatusButton(rowId);
+      tr.addEventListener('click', function () { openPanels(rowId); });
+    });
+  }
+
+  var overlay = document.getElementById('overlay');
+  var panelStack = document.getElementById('panelStack');
+  var stackKey = document.getElementById('stackKey');
+  var stackTitle = document.getElementById('stackTitle');
+  var stackLink = document.getElementById('stackLink');
+  var progBody = document.getElementById('progBody');
+  var progLabel = document.getElementById('progLabel');
+  var storiesLabel = document.getElementById('storiesLabel');
+  var storiesBody = document.getElementById('storiesBody');
+
+  function noteStorageKey(rowId) { return 'actual-sprint:' + REPORT_ID + ':note:' + rowId; }
+
+  // общая шапка панели — заполняется один раз на открытие, не дублируется по колонкам
+  function setStackHead(epic) {
+    stackKey.textContent = epic.epicKey || 'Без эпика';
+    stackTitle.textContent = epic.epicTitle || 'Без эпика';
+    if (epic.epicKey) { stackLink.href = jiraUrl(epic.epicKey); stackLink.style.display = ''; }
+    else { stackLink.style.display = 'none'; }
+  }
+
+  function fillProgressPanel(epic) {
+    progBody.innerHTML = '';
+
+    var storageKey = noteStorageKey(epic.rowId);
+    var textarea = document.createElement('textarea');
+    textarea.className = 'note-area';
+    textarea.placeholder = 'Заметка о прогрессе по эпику…';
+    textarea.value = localStorage.getItem(storageKey) || '';
+    textarea.addEventListener('input', function () {
+      localStorage.setItem(storageKey, textarea.value);
+      refreshStatusButton(epic.rowId);
+    });
+    progBody.appendChild(textarea);
+
+    var hint = document.createElement('div');
+    hint.className = 'note-hint';
+    hint.textContent = 'Сохраняется автоматически в этом браузере.';
+    progBody.appendChild(hint);
+  }
+
+  function fillStoriesPanel(epic) {
+    storiesBody.innerHTML = '';
+
+    if (!epic.stories || !epic.stories.length) {
+      var empty = document.createElement('div');
+      empty.className = 'sidebar-empty';
+      empty.textContent = 'Историй нет.';
+      storiesBody.appendChild(empty);
+      return;
+    }
+
+    epic.stories.forEach(function (story) {
+      var wrap = document.createElement('div');
+      wrap.className = 'story-item';
+
+      var hasSubtasks = story.subtasks && story.subtasks.length > 0;
+
+      var row = document.createElement('div');
+      row.className = 'story-row';
+      row.innerHTML =
+        '<div class="story-title-wrap">' +
+          '<button class="story-toggle" ' + (hasSubtasks ? '' : 'disabled') + '>▶</button>' +
+          whoHtml(story.assignee) +
+          '<a href="' + jiraUrl(story.key) + '" target="_blank" rel="noopener">' + esc(story.key) + ' — ' + esc(story.title) + '</a>' +
+        '</div>' +
+        '<div class="meta-wrap">' +
+          '<span class="status ' + bucketClass(story.status, story.category) + '">' + esc(story.status) + '</span>' +
+          ageHtml(story.statusChanged, story.status, story.category) +
+        '</div>';
+      wrap.appendChild(row);
+
+      var subList = document.createElement('div');
+      subList.className = 'sub-list';
+      if (hasSubtasks) {
+        story.subtasks.forEach(function (sub) {
+          var subRow = document.createElement('div');
+          subRow.className = 'sub-item';
+          subRow.innerHTML =
+            whoHtml(sub.assignee) +
+            '<a href="' + jiraUrl(sub.key) + '" target="_blank" rel="noopener">' + esc(sub.key) + ' — ' + esc(sub.summary) + '</a>' +
+            '<div class="meta-wrap">' +
+              '<span class="status ' + bucketClass(sub.status, sub.category) + '">' + esc(sub.status) + '</span>' +
+              ageHtml(sub.statusChanged, sub.status, sub.category) +
+            '</div>';
+          subList.appendChild(subRow);
+        });
+      }
+      wrap.appendChild(subList);
+
+      var toggleBtn = row.querySelector('.story-toggle');
+      if (hasSubtasks) {
+        toggleBtn.addEventListener('click', function () {
+          toggleBtn.classList.toggle('open');
+          subList.classList.toggle('open');
+        });
+      }
+
+      storiesBody.appendChild(wrap);
+    });
+  }
+
+  // ------------------------- сводный отчёт за 3 спринта -------------------------
+
+  function fmt(v) { return v === null || v === undefined ? '—' : String(v).replace('.', ','); }
+
+  // «среднее/медиана/количество» — формат шапки и всех ячеек сводки
+  function triple(s) {
+    if (!s) return '<span class="m-muted">—</span>';
+    return fmt(s.mean) + ' / ' + fmt(s.median) + ' / ' + s.count;
+  }
+
+  function renderMetricsLink() {
+    var link = document.getElementById('metricsLink');
+    var o = METRICS && METRICS.overall;
+    link.textContent = o && o.lead ? triple(o.lead).replace(/<[^>]+>/g, '') : '—';
+  }
+
+  function metricsTable(head, rows) {
+    return '<table class="m-table"><thead><tr>' +
+      head.map(function (h, i) { return '<th' + (i === 0 ? '' : '') + '>' + esc(h) + '</th>'; }).join('') +
+      '</tr></thead><tbody>' + rows.join('') + '</tbody></table>';
+  }
+
+  // Диаграмма управления: точки Lead Time закрытых задач по спринтам,
+  // горизонталью — среднее и медиана за весь период.
+  function controlChart() {
+    var sprints = METRICS.sprints || [];
+    var all = [];
+    sprints.forEach(function (s) { all = all.concat(s.points || []); });
+    if (!all.length) return '<div class="m-muted">Нет закрытых задач для диаграммы.</div>';
+
+    var W = 560, H = 190, padL = 34, padR = 12, padT = 12, padB = 26;
+    var maxY = Math.max.apply(null, all);
+    var o = METRICS.overall || {};
+    var mean = o.lead ? o.lead.mean : null;
+    var median = o.lead ? o.lead.median : null;
+    var yOf = function (v) { return padT + (H - padT - padB) * (1 - v / maxY); };
+    var bandW = (W - padL - padR) / sprints.length;
+
+    var parts = [];
+    // ось Y
+    [0, Math.round(maxY / 2), Math.round(maxY)].forEach(function (v) {
+      parts.push('<line x1="' + padL + '" y1="' + yOf(v) + '" x2="' + (W - padR) + '" y2="' + yOf(v) +
+        '" stroke="#eee" stroke-width="1"/>');
+      parts.push('<text x="4" y="' + (yOf(v) + 4) + '" font-size="10" fill="#666">' + v + '</text>');
+    });
+    // точки по спринтам
+    sprints.forEach(function (s, si) {
+      var x0 = padL + bandW * si;
+      (s.points || []).forEach(function (v, pi) {
+        var n = (s.points || []).length;
+        var x = x0 + bandW * ((pi + 0.5) / Math.max(n, 1));
+        parts.push('<circle cx="' + x.toFixed(1) + '" cy="' + yOf(v).toFixed(1) +
+          '" r="2.5" fill="#2563eb" fill-opacity="0.45"><title>' + esc(s.name + ': ' + fmt(v) + ' дн.') + '</title></circle>');
+      });
+      parts.push('<text x="' + (x0 + bandW / 2).toFixed(1) + '" y="' + (H - 8) +
+        '" font-size="10" fill="#666" text-anchor="middle">' + esc(s.name) + '</text>');
+    });
+    // линии среднего и медианы
+    if (mean !== null) {
+      parts.push('<line x1="' + padL + '" y1="' + yOf(mean) + '" x2="' + (W - padR) + '" y2="' + yOf(mean) +
+        '" stroke="#2563eb" stroke-width="2"/>');
+    }
+    if (median !== null) {
+      parts.push('<line x1="' + padL + '" y1="' + yOf(median) + '" x2="' + (W - padR) + '" y2="' + yOf(median) +
+        '" stroke="#16a34a" stroke-width="2" stroke-dasharray="5 4"/>');
+    }
+
+    return '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMid meet">' +
+      parts.join('') + '</svg>' +
+      '<div class="chart-legend">' +
+        '<span class="swatch"></span>среднее ' + fmt(mean) + ' дн. &nbsp; ' +
+        '<span class="swatch median"></span>медиана ' + fmt(median) + ' дн.<br>' +
+        'Точка — одна закрытая задача, по вертикали её Lead Time в днях.' +
+      '</div>';
+  }
+
+  function fillMetricsPanel() {
+    var o = METRICS.overall || {};
+    var sprints = METRICS.sprints || [];
+    var html = '';
+
+    // 1. Производительность команды
+    html += '<div class="metrics-section"><h3>Производительность команды</h3>' +
+      metricsTable(['Спринт', 'Закрыто', 'Всего', 'Доля', ''], sprints.map(function (s) {
+        return '<tr>' +
+          '<td>' + esc(s.name) + '</td>' +
+          '<td class="accent">' + s.closed + '</td>' +
+          '<td class="m-muted">' + s.total + '</td>' +
+          '<td>' + s.throughputPct + '%</td>' +
+          '<td class="bar-cell"><span class="bar"><i style="width:' + s.throughputPct + '%"></i></span></td>' +
+        '</tr>';
+      }).concat([
+        '<tr><td class="accent">Итого</td><td class="accent">' + (o.closed || 0) + '</td>' +
+        '<td class="m-muted">' + (o.total || 0) + '</td><td class="accent">' +
+        (o.total ? Math.round(100 * o.closed / o.total) : 0) + '%</td><td></td></tr>'
+      ])) + '</div>';
+
+    // 2. Метрики управления
+    html += '<div class="metrics-section"><h3>Метрики управления</h3>' +
+      metricsTable(['Метрика', 'Среднее / медиана / кол-во'], [
+        '<tr><td>Lead Time — весь поток</td><td class="accent">' + triple(o.lead) + '</td></tr>',
+        '<tr><td>Cycle Time — от взятия в работу</td><td>' + triple(o.cycle) + '</td></tr>',
+        '<tr><td class="m-muted">Разница (время ожидания)</td><td class="m-muted">' +
+          (o.lead && o.cycle ? fmt(Math.round((o.lead.median - o.cycle.median) * 10) / 10) + ' дн. по медиане' : '—') +
+        '</td></tr>'
+      ]) + '</div>';
+
+    // 3. Lead Time для истории
+    html += '<div class="metrics-section"><h3>Lead Time — истории</h3>' +
+      metricsTable(['Спринт', 'Среднее / медиана / кол-во'], sprints.map(function (s) {
+        return '<tr><td>' + esc(s.name) + '</td><td>' + triple(s.leadStory) + '</td></tr>';
+      }).concat([
+        '<tr><td class="accent">За 3 спринта</td><td class="accent">' + triple(o.leadStory) + '</td></tr>'
+      ])) + '</div>';
+
+    // 4. Lead Time для задачи
+    html += '<div class="metrics-section"><h3>Lead Time — задачи</h3>' +
+      metricsTable(['Спринт', 'Среднее / медиана / кол-во'], sprints.map(function (s) {
+        return '<tr><td>' + esc(s.name) + '</td><td>' + triple(s.leadTask) + '</td></tr>';
+      }).concat([
+        '<tr><td class="accent">За 3 спринта</td><td class="accent">' + triple(o.leadTask) + '</td></tr>'
+      ])) + '</div>';
+
+    // 5. Диаграмма управления
+    html += '<div class="metrics-section"><h3>Диаграмма управления</h3>' + controlChart() + '</div>';
+
+    return html;
+  }
+
+  function openMetrics() {
+    progLabel.textContent = 'Заметка';
+    storiesLabel.textContent = 'Метрики';
+    stackKey.textContent = 'Сводный отчёт';
+    stackTitle.textContent = 'Команда за последние 3 спринта';
+    stackLink.style.display = 'none';
+
+    progBody.innerHTML = '';
+    var storageKey = 'actual-sprint:' + REPORT_ID + ':note:__metrics__';
+    var ta = document.createElement('textarea');
+    ta.className = 'note-area';
+    ta.placeholder = 'Выводы по динамике команды…';
+    ta.value = localStorage.getItem(storageKey) || '';
+    ta.addEventListener('input', function () { localStorage.setItem(storageKey, ta.value); });
+    progBody.appendChild(ta);
+    var hint = document.createElement('div');
+    hint.className = 'note-hint';
+    hint.textContent = 'Сохраняется автоматически в этом браузере.';
+    progBody.appendChild(hint);
+
+    storiesBody.innerHTML = fillMetricsPanel();
+
+    overlay.classList.add('open');
+    panelStack.classList.add('open');
+  }
+
+  function openPanels(rowId) {
+    var epic = EPICS.find(function (e) { return e.rowId === rowId; });
+    if (!epic) return;
+
+    progLabel.textContent = 'Прогресс';
+    storiesLabel.textContent = 'Истории';
+    setStackHead(epic);
+    fillProgressPanel(epic);
+    fillStoriesPanel(epic);
+
+    overlay.classList.add('open');
+    panelStack.classList.add('open');
+  }
+
+  function refreshStatusButton(rowId) {
+    var btn = document.querySelector('[data-open="' + rowId + '"]');
+    if (!btn) return;
+    btn.classList.toggle('has-note', !!localStorage.getItem(noteStorageKey(rowId)));
+  }
+
+  function closePanels() {
+    overlay.classList.remove('open');
+    panelStack.classList.remove('open');
+  }
+
+  overlay.addEventListener('click', closePanels);
+  document.querySelectorAll('[data-close]').forEach(function (btn) {
+    btn.addEventListener('click', closePanels);
+  });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closePanels(); });
+
+  renderTable();
+  renderMetricsLink();
+  document.getElementById('metricsLink').addEventListener('click', function (e) {
+    e.preventDefault();
+    openMetrics();
+  });
+</script>
+
+</body>
+</html>
