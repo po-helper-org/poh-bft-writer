@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<title>Отчёт {{TEAM_NAME}} — {{SPRINT_NAME}}</title>
+<title>Отчёт по спринтам команд</title>
 <style>
   :root {
     --fg: #111;
@@ -43,6 +43,15 @@
     color: var(--muted);
   }
   .hero .meta strong { color: var(--fg); }
+  .team-switch { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 14px; }
+  .team-tab {
+    font: inherit; font-size: 13px; padding: 5px 14px;
+    border: 1px solid var(--line); background: var(--bg); color: var(--muted);
+    border-radius: 4px; cursor: pointer;
+  }
+  .team-tab:hover { border-color: var(--fg); color: var(--fg); }
+  .team-tab.active { background: var(--fg); border-color: var(--fg); color: var(--bg); font-weight: 600; }
+
   .hero .board-link { color: var(--fg); text-decoration: none; border-bottom: 1px solid var(--line); }
   .hero .board-link:hover { border-bottom-color: var(--fg); }
   .hero .metrics-link {
@@ -420,6 +429,8 @@
   }
   .age.stale { color: var(--c-blocked); font-weight: 600; }
   .age.done { color: var(--c-done); font-weight: 600; }
+  .age.risk { color: var(--c-testing); font-weight: 600; }
+  .outliers-head.risk { color: var(--c-testing); }
 
   /* инициалы исполнителя слева от задачи; полное имя — в подсказке */
   .who {
@@ -511,10 +522,11 @@
 
 <div class="hero">
   <div class="team">Команда</div>
-  <h1>{{TEAM_NAME}}</h1>
+  <h1 id="teamName">—</h1>
+  <div class="team-switch" id="teamSwitch"></div>
   <div class="meta">
-    <div>Спринт: <strong>{{SPRINT_NAME}}</strong></div>
-    <div>Доска: <strong><a class="board-link" href="{{BOARD_URL}}" target="_blank" rel="noopener">{{BOARD_NAME}}</a></strong></div>
+    <div>Спринт: <strong id="sprintName">—</strong></div>
+    <div>Доска: <strong><a class="board-link" id="boardLink" href="#" target="_blank" rel="noopener">—</a></strong></div>
     <div>Lead Time за 3 спринта:
       <strong><a class="metrics-link" href="#" id="metricsLink" title="Среднее / медиана / количество закрытых запросов. Открыть сводный отчёт">—</a></strong>
     </div>
@@ -554,50 +566,23 @@
 
 <script>
   // -------------------------------------------------------------------
-  // REPORT_ID: уникальный префикс localStorage-заметок для ЭТОГО отчёта,
-  // чтобы заметки разных отчётов, открытых в одном браузере, не пересекались.
-  // Заполняется генератором навыка (team-slug + спринт), например "gds-live-2026q3s6".
-  var REPORT_ID = "{{REPORT_ID}}";
+  // TEAMS: по одному объекту на команду (сборщик scripts/collect.py).
+  // Каждый — { slug, team, boardName, boardUrl, jiraBase, sprintName,
+  //            epics, metrics, burndown, control, velocity, logs }.
+  // Одна страница обслуживает все команды: переключатель в шапке.
+  var TEAMS = {{TEAMS_JSON}};
 
-  // JIRA_BASE: базовый URL для ссылок вида {JIRA_BASE}/browse/{key}
-  var JIRA_BASE = "{{JIRA_BASE_URL}}";
+  var team = TEAMS[0];
+  var REPORT_ID, JIRA_BASE, EPICS, METRICS, BURNDOWN, CONTROL, VELOCITY, LOGS;
 
-  // EPICS: заполняется генератором навыка (см. resources/data_shape.md).
-  // Единица отчёта — ЭПИК. Каждый элемент:
-  // {
-  //   rowId, epicKey|null, epicTitle,   // epicKey=null -> псевдо-эпик "Без эпика"
-  //   stories: [
-  //     { key, title, status, category, statusChanged, assignee,  // statusChanged — ISO-дата смены статуса; assignee — ФИО
-  //       subtasks: [ { key, summary, status, category, statusChanged, assignee } ] }
-  //   ]
-  // }
-  var EPICS = [
-    // {{EPICS_JSON}}
-  ];
-
-  // METRICS: сводка за последние 3 спринта команды (см. resources/metrics.md).
-  // {
-  //   sprints: [ { name, total, closed, open, throughputPct,
-  //                lead:{mean,median,count}, cycle:{...}, leadStory:{...}, leadTask:{...},
-  //                points: [дни Lead Time каждой закрытой задачи] } ],
-  //   overall: { lead, cycle, leadStory, leadTask, total, closed }
-  // }
-  // Lead Time  = создание задачи -> переход в финальный статус.
-  // Cycle Time = первый переход в работу -> переход в финальный статус.
-  var METRICS = {{METRICS_JSON}};
-
-  // BURNDOWN: остаток задач по дням текущего спринта (см. resources/metrics.md).
-  var BURNDOWN = {{BURNDOWN_JSON}};
-
-  // CONTROL: закрытые задачи за последние 30 дней для диаграммы управления.
-  var CONTROL = {{CONTROL_JSON}};
-
-  // VELOCITY: запланировано/сделано по спринтам, плановый столбец разбит по статусам.
-  var VELOCITY = {{VELOCITY_JSON}};
-
-  // LOGS: смены статусов за последнюю неделю — кто что перевёл.
-  // { days, events: [{key,title,type,author,at,from,to,toCat}], authors: [[имя, кол-во]] }
-  var LOGS = {{LOGS_JSON}};
+  function useTeam(slug) {
+    team = TEAMS.find(function (t) { return t.slug === slug; }) || TEAMS[0];
+    // REPORT_ID разводит localStorage-заметки: у каждой команды свои
+    REPORT_ID = team.slug;
+    JIRA_BASE = team.jiraBase;
+    EPICS = team.epics; METRICS = team.metrics; BURNDOWN = team.burndown;
+    CONTROL = team.control; VELOCITY = team.velocity; LOGS = team.logs;
+  }
   // -------------------------------------------------------------------
 
   // Бакеты статусов. Порядок = порядок вывода счётчиков в строке эпика.
@@ -952,9 +937,10 @@
   // X — дата закрытия, Y — Cycle Time задачи. Синяя линия — скользящее среднее,
   // светлая полоса — коридор ±σ, красная черта — порог выброса (среднее + σ).
   // Точки выше порога подсвечены и вынесены списком под графиком.
-  function controlChart() {
-    var c = CONTROL;
-    if (!c || !c.points || !c.points.length) return '<div class="m-muted">Нет закрытых задач за период.</div>';
+  function controlChart(c, label) {
+    if (!c || !c.points || !c.points.length) {
+      return '<div class="m-muted">Нет закрытых ' + esc(label) + ' за период.</div>';
+    }
 
     var pts = c.points;
     var W = 560, H = 210, padL = 34, padR = 14, padT = 12, padB = 30;
@@ -995,6 +981,20 @@
     parts.push('<line x1="' + padL + '" y1="' + yOf(c.limit).toFixed(1) + '" x2="' + (W - padR) +
       '" y2="' + yOf(c.limit).toFixed(1) + '" stroke="#dc2626" stroke-width="1.5"/>');
 
+    // задачи в зоне риска: ещё не закрыты, но в работе дольше медианы.
+    // Ставим их на «сегодня» — по вертикали столько, сколько уже длятся.
+    var risks = (c.risks || []).filter(function (r) { return r.elapsed <= maxY; });
+    var overflow = (c.risks || []).length - risks.length;
+    if (c.risks && c.risks.length) {
+      var xRisk = W - padR - 6;
+      risks.forEach(function (r) {
+        parts.push('<circle cx="' + xRisk.toFixed(1) + '" cy="' + yOf(r.elapsed).toFixed(1) +
+          '" r="4" fill="#ca8a04" fill-opacity="0.85" stroke="#ca8a04"><title>' +
+          esc(r.key + ' · в работе ' + fmt(r.elapsed) + ' дн. · ' + r.status + '\n' + r.title) +
+          '</title></circle>');
+      });
+    }
+
     // точки: выбросы крупнее и красные
     pts.forEach(function (p) {
       parts.push('<circle cx="' + xOf(p.doneAt).toFixed(1) + '" cy="' + yOf(p.cycle).toFixed(1) +
@@ -1013,7 +1013,7 @@
       .sort(function (a, b) { return b.cycle - a.cycle; });
     var listHtml = '';
     if (outliers.length) {
-      listHtml = '<div class="outliers"><div class="outliers-head">Выбиваются из коридора (' +
+      listHtml += '<div class="outliers"><div class="outliers-head">Выбиваются из коридора (' +
         outliers.length + ' из ' + pts.length + ')</div>' +
         outliers.map(function (p) {
           return '<div class="outlier-row">' +
@@ -1024,13 +1024,28 @@
             '</div></div>';
         }).join('') + '</div>';
     }
+    if (c.risks && c.risks.length) {
+      listHtml += '<div class="outliers"><div class="outliers-head risk">В зоне риска (' + c.risks.length +
+        ') — в работе дольше медианы ' + fmt(c.median) + ' дн.</div>' +
+        c.risks.map(function (r) {
+          return '<div class="outlier-row">' +
+            '<a href="' + jiraUrl(r.key) + '" target="_blank" rel="noopener">' + esc(r.key) + ' — ' + esc(r.title) + '</a>' +
+            '<div class="meta-wrap">' +
+              '<span class="status ' + bucketClass(r.status, r.category) + '">' + esc(r.status) + '</span>' +
+              '<span class="age risk">' + fmt(r.elapsed) + 'д</span>' +
+            '</div></div>';
+        }).join('') + '</div>';
+    }
 
     return '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMid meet">' +
       parts.join('') + '</svg>' +
       '<div class="chart-legend">' +
         '<span class="swatch"></span>скользящее среднее &nbsp; ' +
-        '<span class="swatch limit"></span>порог выброса ' + fmt(c.limit) + ' дн.<br>' +
-        'Точка — закрытая задача: по горизонтали дата закрытия, по вертикали Cycle Time. ' +
+        '<span class="swatch limit"></span>порог выброса ' + fmt(c.limit) + ' дн. &nbsp; ' +
+        '<span class="dot" style="background:var(--c-testing)"></span>в зоне риска' +
+        (overflow > 0 ? ' (' + overflow + ' выше шкалы)' : '') + '<br>' +
+        'Зелёная точка — закрытая задача: по горизонтали дата закрытия, по вертикали Cycle Time. ' +
+        'Жёлтая — ещё в работе, стоит у правого края на сегодня. ' +
         'За ' + c.days + ' дн.: медиана <b>' + fmt(c.median) + '</b> дн., среднее <b>' + fmt(c.mean) + '</b> дн., σ ' + fmt(c.sd) + '.' +
       '</div>' + listHtml;
   }
@@ -1111,7 +1126,10 @@
 
     html += '<div class="metrics-section"><h3>Burndown текущего спринта</h3>' + burndownChart() + '</div>';
     html += '<div class="metrics-section"><h3>Производительность: запланировано / сделано</h3>' + velocityChart() + '</div>';
-    html += '<div class="metrics-section"><h3>Диаграмма управления</h3>' + controlChart() + '</div>';
+    html += '<div class="metrics-section"><h3>Диаграмма управления — истории</h3>' +
+      controlChart(CONTROL.stories, 'историй') + '</div>';
+    html += '<div class="metrics-section"><h3>Диаграмма управления — подзадачи</h3>' +
+      controlChart(CONTROL.subtasks, 'подзадач') + '</div>';
 
     return html;
   }
@@ -1309,6 +1327,31 @@
   });
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closePanels(); });
 
+  function renderHero() {
+    document.getElementById('teamName').textContent = team.team;
+    document.getElementById('sprintName').textContent = team.sprintName;
+    var bl = document.getElementById('boardLink');
+    bl.textContent = team.boardName;
+    bl.href = team.boardUrl;
+    document.getElementById('teamSwitch').innerHTML = TEAMS.map(function (t) {
+      return '<button class="team-tab' + (t.slug === team.slug ? ' active' : '') +
+        '" data-team="' + esc(t.slug) + '">' + esc(t.team) + '</button>';
+    }).join('');
+    document.querySelectorAll('[data-team]').forEach(function (btn) {
+      btn.addEventListener('click', function () { switchTeam(btn.dataset.team); });
+    });
+  }
+
+  function switchTeam(slug) {
+    closePanels();
+    useTeam(slug);
+    renderHero();
+    renderTable();
+    renderMetricsLink();
+  }
+
+  useTeam(TEAMS[0].slug);
+  renderHero();
   renderTable();
   renderMetricsLink();
   document.getElementById('logsBtn').addEventListener('click', openLogs);
