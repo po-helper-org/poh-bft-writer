@@ -107,6 +107,16 @@
   .log-issue { font-size: 12px; }
   .log-issue a { color: var(--muted); text-decoration: none; }
   .log-issue a:hover { color: var(--fg); text-decoration: underline; }
+  .log-verb { color: var(--muted); font-size: 12px; }
+  .log-quote {
+    font-size: 12px;
+    color: var(--fg);
+    background: #fafafa;
+    border-left: 2px solid var(--line);
+    padding: 6px 9px;
+    margin: 2px 0 4px;
+    border-radius: 0 3px 3px 0;
+  }
   .log-empty { color: var(--muted); font-size: 13px; padding: 8px 0; }
 
   /* сводный отчёт за 3 спринта */
@@ -413,6 +423,7 @@
 
   /* инициалы исполнителя слева от задачи; полное имя — в подсказке */
   .who {
+    position: relative;
     flex-shrink: 0;
     width: 30px;
     font-size: 10px;
@@ -422,6 +433,25 @@
     cursor: default;
   }
   .who.none { color: var(--c-zero); font-weight: 400; }
+  /* нативный title показывается с задержкой в секунду — рисуем свою подсказку */
+  .who .who-tip {
+    position: absolute;
+    left: 0;
+    top: calc(100% + 4px);
+    z-index: 6;
+    background: #111;
+    color: #fff;
+    font-size: 11px;
+    font-weight: 400;
+    letter-spacing: normal;
+    padding: 5px 9px;
+    border-radius: 4px;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.12s ease;
+  }
+  .who:hover .who-tip { opacity: 1; }
   .sub-item .age { font-size: 10px; }
   .story-toggle {
     flex-shrink: 0;
@@ -671,10 +701,15 @@
   // Инициалы исполнителя: "Ишманов Алексей Юрьевич" -> "ИА" (фамилия + имя).
   // Полное имя показывается подсказкой при наведении.
   function whoHtml(name) {
-    if (!name) return '<span class="who none" title="Исполнитель не назначен">—</span>';
+    if (!name) {
+      return '<span class="who none">—<span class="who-tip">Исполнитель не назначен</span></span>';
+    }
     var parts = String(name).trim().split(/\s+/);
     var initials = parts.slice(0, 2).map(function (p) { return p.charAt(0).toUpperCase(); }).join('');
-    return '<span class="who" title="' + esc(name) + '">' + esc(initials) + '</span>';
+    // в подсказке — Имя Фамилия (JIRA отдаёт «Фамилия Имя Отчество»)
+    var full = parts.length >= 2 ? parts[1] + ' ' + parts[0] : name;
+    return '<span class="who" title="' + esc(name) + '">' + esc(initials) +
+      '<span class="who-tip">' + esc(full) + '</span></span>';
   }
 
   function esc(s) {
@@ -1107,12 +1142,48 @@
     return parts.slice(0, 2).map(function (p) { return p.charAt(0).toUpperCase(); }).join('');
   }
 
+  // Тип события определяет, что показываем в строке ленты.
+  var LOG_KINDS = [
+    { id: 'status',  label: 'Смена статуса' },
+    { id: 'comment', label: 'Комментарий' },
+    { id: 'created', label: 'Создание' }
+  ];
+
+  function logEventBody(e) {
+    if (e.kind === 'comment') {
+      return '<div class="log-move"><span class="log-verb">оставил комментарий</span></div>' +
+        '<div class="log-quote">' + esc(e.body || '') + '</div>';
+    }
+    if (e.kind === 'created') {
+      return '<div class="log-move"><span class="log-verb">создал</span>' +
+        '<span class="status b-open">' + esc(e.issueType || 'задачу') + '</span></div>';
+    }
+    return '<div class="log-move">' +
+      '<span class="status b-open">' + esc(e.from) + '</span>' +
+      '<span class="arrow">→</span>' +
+      '<span class="status ' + bucketClass(e.to, e.toCat) + '">' + esc(e.to) + '</span>' +
+    '</div>';
+  }
+
+  var logsKind = null;
+
   function renderLogs() {
     var all = (LOGS && LOGS.events) || [];
-    var events = logsFilter ? all.filter(function (e) { return e.author === logsFilter; }) : all;
+    var events = all.filter(function (e) {
+      if (logsFilter && e.author !== logsFilter) return false;
+      if (logsKind && e.kind !== logsKind) return false;
+      return true;
+    });
 
+    var kinds = (LOGS && LOGS.kinds) || {};
     var chips = '<div class="log-filters">' +
-      '<button class="log-chip' + (logsFilter ? '' : ' active') + '" data-author="">Все · ' + all.length + '</button>' +
+      '<button class="log-chip' + (logsKind ? '' : ' active') + '" data-kind="">Всё · ' + all.length + '</button>' +
+      LOG_KINDS.filter(function (k) { return kinds[k.id]; }).map(function (k) {
+        return '<button class="log-chip' + (logsKind === k.id ? ' active' : '') +
+          '" data-kind="' + k.id + '">' + esc(k.label) + ' · ' + kinds[k.id] + '</button>';
+      }).join('') + '</div>' +
+      '<div class="log-filters">' +
+      '<button class="log-chip' + (logsFilter ? '' : ' active') + '" data-author="">Все</button>' +
       ((LOGS && LOGS.authors) || []).map(function (a) {
         return '<button class="log-chip' + (logsFilter === a[0] ? ' active' : '') +
           '" data-author="' + esc(a[0]) + '">' + esc(initials(a[0])) + ' ' + esc(a[0].split(' ')[0]) + ' · ' + a[1] + '</button>';
@@ -1133,11 +1204,7 @@
         '<div class="log-main">' +
           '<div class="log-head"><span class="log-author">' + esc(e.author) + '</span>' +
             '<span class="log-time">' + esc(relTime(e.at)) + '</span></div>' +
-          '<div class="log-move">' +
-            '<span class="status b-open">' + esc(e.from) + '</span>' +
-            '<span class="arrow">→</span>' +
-            '<span class="status ' + bucketClass(e.to, e.toCat) + '">' + esc(e.to) + '</span>' +
-          '</div>' +
+          logEventBody(e) +
           '<div class="log-issue"><a href="' + jiraUrl(e.key) + '" target="_blank" rel="noopener">' +
             esc(e.key) + ' — ' + esc(e.title) + '</a></div>' +
         '</div></div>';
@@ -1150,7 +1217,8 @@
   function bindLogChips() {
     storiesBody.querySelectorAll('.log-chip').forEach(function (btn) {
       btn.addEventListener('click', function () {
-        logsFilter = btn.dataset.author || null;
+        if (btn.dataset.kind !== undefined) logsKind = btn.dataset.kind || null;
+        else logsFilter = btn.dataset.author || null;
         renderLogs();
       });
     });
@@ -1177,6 +1245,7 @@
     progBody.appendChild(hint);
 
     logsFilter = null;
+    logsKind = null;
     renderLogs();
 
     overlay.classList.add('open');
