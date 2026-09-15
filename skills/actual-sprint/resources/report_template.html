@@ -106,6 +106,28 @@
     border-top: 2px solid var(--c-progress); margin-right: 5px;
   }
   .chart-legend .swatch.median { border-top-style: dashed; border-top-color: var(--c-done); }
+  .chart-legend .swatch.ideal { border-top-color: #9ca3af; }
+  .chart-legend .swatch.actual { border-top-color: var(--c-blocked); }
+  .chart-legend .swatch.limit { border-top-color: var(--c-blocked); }
+  .chart-legend .dot {
+    display: inline-block; width: 9px; height: 9px; border-radius: 2px;
+    vertical-align: middle; margin-right: 4px;
+  }
+
+  /* список задач-выбросов под диаграммой управления */
+  .outliers { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+  .outliers-head {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--c-blocked); font-weight: 600; margin-bottom: 8px;
+  }
+  .outlier-row {
+    display: flex; justify-content: space-between; gap: 10px;
+    align-items: baseline; padding: 6px 0; font-size: 12px;
+    border-bottom: 1px solid #f0f0f0;
+  }
+  .outlier-row:last-child { border-bottom: none; }
+  .outlier-row a { color: var(--fg); text-decoration: none; }
+  .outlier-row a:hover { text-decoration: underline; }
 
   main { padding: 32px; }
 
@@ -476,6 +498,15 @@
   // Lead Time  = создание задачи -> переход в финальный статус.
   // Cycle Time = первый переход в работу -> переход в финальный статус.
   var METRICS = {{METRICS_JSON}};
+
+  // BURNDOWN: остаток задач по дням текущего спринта (см. resources/metrics.md).
+  var BURNDOWN = {{BURNDOWN_JSON}};
+
+  // CONTROL: закрытые задачи за последние 30 дней для диаграммы управления.
+  var CONTROL = {{CONTROL_JSON}};
+
+  // VELOCITY: запланировано/сделано по спринтам, плановый столбец разбит по статусам.
+  var VELOCITY = {{VELOCITY_JSON}};
   // -------------------------------------------------------------------
 
   // Бакеты статусов. Порядок = порядок вывода счётчиков в строке эпика.
@@ -758,57 +789,230 @@
       '</tr></thead><tbody>' + rows.join('') + '</tbody></table>';
   }
 
-  // Диаграмма управления: точки Lead Time закрытых задач по спринтам,
-  // горизонталью — среднее и медиана за весь период.
-  function controlChart() {
-    var sprints = METRICS.sprints || [];
-    var all = [];
-    sprints.forEach(function (s) { all = all.concat(s.points || []); });
-    if (!all.length) return '<div class="m-muted">Нет закрытых задач для диаграммы.</div>';
+  // ------------------ Burndown текущего спринта ------------------
+  // Показывает, сколько задач ещё не закрыто по дням спринта.
+  // scope пересчитывается по changelog поля Sprint, поэтому внесённые и
+  // вынесенные из спринта задачи видны как ступеньки серой линии объёма.
+  function burndownChart() {
+    var b = BURNDOWN;
+    if (!b || !b.days || !b.days.length) return '<div class="m-muted">Нет данных по спринту.</div>';
 
-    var W = 560, H = 190, padL = 34, padR = 12, padT = 12, padB = 26;
-    var maxY = Math.max.apply(null, all);
-    var o = METRICS.overall || {};
-    var mean = o.lead ? o.lead.mean : null;
-    var median = o.lead ? o.lead.median : null;
-    var yOf = function (v) { return padT + (H - padT - padB) * (1 - v / maxY); };
-    var bandW = (W - padL - padR) / sprints.length;
+    var days = b.days;
+    var W = 560, H = 210, padL = 34, padR = 14, padT = 12, padB = 30;
+    var maxY = Math.max.apply(null, days.map(function (d) { return d.scope; })) || 1;
+    var innerW = W - padL - padR, innerH = H - padT - padB;
+    var xOf = function (i) { return padL + innerW * (days.length > 1 ? i / (days.length - 1) : 0); };
+    var yOf = function (v) { return padT + innerH * (1 - v / maxY); };
 
     var parts = [];
-    // ось Y
-    [0, Math.round(maxY / 2), Math.round(maxY)].forEach(function (v) {
-      parts.push('<line x1="' + padL + '" y1="' + yOf(v) + '" x2="' + (W - padR) + '" y2="' + yOf(v) +
-        '" stroke="#eee" stroke-width="1"/>');
-      parts.push('<text x="4" y="' + (yOf(v) + 4) + '" font-size="10" fill="#666">' + v + '</text>');
+
+    // выходные — светлые полосы
+    days.forEach(function (d, i) {
+      if (!d.weekend) return;
+      var x1 = xOf(i) - innerW / (days.length - 1) / 2;
+      var x2 = xOf(i) + innerW / (days.length - 1) / 2;
+      parts.push('<rect x="' + Math.max(padL, x1).toFixed(1) + '" y="' + padT +
+        '" width="' + Math.max(0, Math.min(W - padR, x2) - Math.max(padL, x1)).toFixed(1) +
+        '" height="' + innerH + '" fill="#f4f4f5"/>');
     });
-    // точки по спринтам
-    sprints.forEach(function (s, si) {
-      var x0 = padL + bandW * si;
-      (s.points || []).forEach(function (v, pi) {
-        var n = (s.points || []).length;
-        var x = x0 + bandW * ((pi + 0.5) / Math.max(n, 1));
-        parts.push('<circle cx="' + x.toFixed(1) + '" cy="' + yOf(v).toFixed(1) +
-          '" r="2.5" fill="#2563eb" fill-opacity="0.45"><title>' + esc(s.name + ': ' + fmt(v) + ' дн.') + '</title></circle>');
+
+    // сетка и ось Y
+    [0, Math.round(maxY / 2), maxY].forEach(function (v) {
+      parts.push('<line x1="' + padL + '" y1="' + yOf(v).toFixed(1) + '" x2="' + (W - padR) +
+        '" y2="' + yOf(v).toFixed(1) + '" stroke="#eee"/>');
+      parts.push('<text x="4" y="' + (yOf(v) + 4).toFixed(1) + '" font-size="10" fill="#666">' + v + '</text>');
+    });
+
+    // идеальная линия: от объёма на старте до нуля в конце
+    parts.push('<line x1="' + xOf(0) + '" y1="' + yOf(days[0].scope).toFixed(1) +
+      '" x2="' + xOf(days.length - 1) + '" y2="' + yOf(0).toFixed(1) +
+      '" stroke="#9ca3af" stroke-width="2"/>');
+
+    // фактический остаток — только по сегодняшний день
+    var actual = days.filter(function (d) { return !d.future; });
+    if (actual.length) {
+      var path = actual.map(function (d, i) {
+        return (i ? 'L' : 'M') + xOf(i).toFixed(1) + ' ' + yOf(d.remaining).toFixed(1);
+      }).join(' ');
+      parts.push('<path d="' + path + '" fill="none" stroke="#dc2626" stroke-width="2"/>');
+      actual.forEach(function (d, i) {
+        parts.push('<circle cx="' + xOf(i).toFixed(1) + '" cy="' + yOf(d.remaining).toFixed(1) +
+          '" r="2.5" fill="#dc2626"><title>' + esc(d.date + ': осталось ' + d.remaining +
+          ' из ' + d.scope + ', закрыто ' + d.closed) + '</title></circle>');
       });
-      parts.push('<text x="' + (x0 + bandW / 2).toFixed(1) + '" y="' + (H - 8) +
-        '" font-size="10" fill="#666" text-anchor="middle">' + esc(s.name) + '</text>');
-    });
-    // линии среднего и медианы
-    if (mean !== null) {
-      parts.push('<line x1="' + padL + '" y1="' + yOf(mean) + '" x2="' + (W - padR) + '" y2="' + yOf(mean) +
-        '" stroke="#2563eb" stroke-width="2"/>');
     }
-    if (median !== null) {
-      parts.push('<line x1="' + padL + '" y1="' + yOf(median) + '" x2="' + (W - padR) + '" y2="' + yOf(median) +
-        '" stroke="#16a34a" stroke-width="2" stroke-dasharray="5 4"/>');
+
+    // подписи крайних дат
+    parts.push('<text x="' + padL + '" y="' + (H - 8) + '" font-size="10" fill="#666">' + esc(b.start) + '</text>');
+    parts.push('<text x="' + (W - padR) + '" y="' + (H - 8) +
+      '" font-size="10" fill="#666" text-anchor="end">' + esc(b.end) + '</text>');
+
+    var last = actual.length ? actual[actual.length - 1] : days[0];
+    return '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMid meet">' +
+      parts.join('') + '</svg>' +
+      '<div class="chart-legend">' +
+        '<span class="swatch ideal"></span>идеальный темп &nbsp; ' +
+        '<span class="swatch actual"></span>фактический остаток<br>' +
+        'Сейчас закрыто <b>' + last.closed + '</b> из <b>' + last.scope + '</b>, осталось <b>' +
+        last.remaining + '</b>. Серая ступенька — изменение объёма спринта.' +
+      '</div>';
+  }
+
+  // ------------------ Диаграмма управления ------------------
+  // X — дата закрытия, Y — Cycle Time задачи. Синяя линия — скользящее среднее,
+  // светлая полоса — коридор ±σ, красная черта — порог выброса (среднее + σ).
+  // Точки выше порога подсвечены и вынесены списком под графиком.
+  function controlChart() {
+    var c = CONTROL;
+    if (!c || !c.points || !c.points.length) return '<div class="m-muted">Нет закрытых задач за период.</div>';
+
+    var pts = c.points;
+    var W = 560, H = 210, padL = 34, padR = 14, padT = 12, padB = 30;
+    var innerW = W - padL - padR, innerH = H - padT - padB;
+    var maxY = Math.max.apply(null, pts.map(function (p) { return p.cycle; })) || 1;
+
+    var t0 = new Date(pts[0].doneAt).getTime();
+    var t1 = new Date(pts[pts.length - 1].doneAt).getTime();
+    var span = Math.max(t1 - t0, 1);
+    var xOf = function (iso) { return padL + innerW * ((new Date(iso).getTime() - t0) / span); };
+    var yOf = function (v) { return padT + innerH * (1 - v / maxY); };
+
+    var parts = [];
+    [0, Math.round(maxY / 2), Math.round(maxY)].forEach(function (v) {
+      parts.push('<line x1="' + padL + '" y1="' + yOf(v).toFixed(1) + '" x2="' + (W - padR) +
+        '" y2="' + yOf(v).toFixed(1) + '" stroke="#eee"/>');
+      parts.push('<text x="4" y="' + (yOf(v) + 4).toFixed(1) + '" font-size="10" fill="#666">' + v + '</text>');
+    });
+
+    // скользящее среднее по окну из 5 задач + коридор ±σ
+    var WIN = 5, avg = [], band = [];
+    pts.forEach(function (p, i) {
+      var from = Math.max(0, i - Math.floor(WIN / 2));
+      var win = pts.slice(from, from + WIN).map(function (q) { return q.cycle; });
+      var m = win.reduce(function (a, v) { return a + v; }, 0) / win.length;
+      var sd = Math.sqrt(win.reduce(function (a, v) { return a + (v - m) * (v - m); }, 0) / win.length);
+      avg.push({ x: xOf(p.doneAt), y: yOf(m) });
+      band.push({ x: xOf(p.doneAt), hi: yOf(Math.min(maxY, m + sd)), lo: yOf(Math.max(0, m - sd)) });
+    });
+
+    var bandPath = band.map(function (b, i) { return (i ? 'L' : 'M') + b.x.toFixed(1) + ' ' + b.hi.toFixed(1); }).join(' ') +
+      ' ' + band.slice().reverse().map(function (b) { return 'L' + b.x.toFixed(1) + ' ' + b.lo.toFixed(1); }).join(' ') + ' Z';
+    parts.push('<path d="' + bandPath + '" fill="#2563eb" fill-opacity="0.10"/>');
+    parts.push('<path d="' + avg.map(function (a, i) { return (i ? 'L' : 'M') + a.x.toFixed(1) + ' ' + a.y.toFixed(1); }).join(' ') +
+      '" fill="none" stroke="#2563eb" stroke-width="2"/>');
+
+    // порог выброса
+    parts.push('<line x1="' + padL + '" y1="' + yOf(c.limit).toFixed(1) + '" x2="' + (W - padR) +
+      '" y2="' + yOf(c.limit).toFixed(1) + '" stroke="#dc2626" stroke-width="1.5"/>');
+
+    // точки: выбросы крупнее и красные
+    pts.forEach(function (p) {
+      parts.push('<circle cx="' + xOf(p.doneAt).toFixed(1) + '" cy="' + yOf(p.cycle).toFixed(1) +
+        '" r="' + (p.outlier ? 4 : 3) + '" fill="' + (p.outlier ? '#dc2626' : '#16a34a') +
+        '" fill-opacity="' + (p.outlier ? 0.85 : 0.5) + '" stroke="' + (p.outlier ? '#dc2626' : '#16a34a') +
+        '" stroke-opacity="0.9"><title>' + esc(p.key + ' · ' + fmt(p.cycle) + ' дн. · ' + p.doneAt + '\n' + p.title) +
+        '</title></circle>');
+    });
+
+    parts.push('<text x="' + padL + '" y="' + (H - 8) + '" font-size="10" fill="#666">' + esc(pts[0].doneAt) + '</text>');
+    parts.push('<text x="' + (W - padR) + '" y="' + (H - 8) +
+      '" font-size="10" fill="#666" text-anchor="end">' + esc(pts[pts.length - 1].doneAt) + '</text>');
+
+    // список выбросов — то, ради чего диаграмма и нужна
+    var outliers = pts.filter(function (p) { return p.outlier; })
+      .sort(function (a, b) { return b.cycle - a.cycle; });
+    var listHtml = '';
+    if (outliers.length) {
+      listHtml = '<div class="outliers"><div class="outliers-head">Выбиваются из коридора (' +
+        outliers.length + ' из ' + pts.length + ')</div>' +
+        outliers.map(function (p) {
+          return '<div class="outlier-row">' +
+            '<a href="' + jiraUrl(p.key) + '" target="_blank" rel="noopener">' + esc(p.key) + ' — ' + esc(p.title) + '</a>' +
+            '<span class="age stale">' + fmt(p.cycle) + 'д</span></div>';
+        }).join('') + '</div>';
     }
 
     return '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMid meet">' +
       parts.join('') + '</svg>' +
       '<div class="chart-legend">' +
-        '<span class="swatch"></span>среднее ' + fmt(mean) + ' дн. &nbsp; ' +
-        '<span class="swatch median"></span>медиана ' + fmt(median) + ' дн.<br>' +
-        'Точка — одна закрытая задача, по вертикали её Lead Time в днях.' +
+        '<span class="swatch"></span>скользящее среднее &nbsp; ' +
+        '<span class="swatch limit"></span>порог выброса ' + fmt(c.limit) + ' дн.<br>' +
+        'Точка — закрытая задача: по горизонтали дата закрытия, по вертикали Cycle Time. ' +
+        'За ' + c.days + ' дн.: медиана <b>' + fmt(c.median) + '</b> дн., среднее <b>' + fmt(c.mean) + '</b> дн., σ ' + fmt(c.sd) + '.' +
+      '</div>' + listHtml;
+  }
+
+  // ------------------ Производительность: запланировано / сделано ------------------
+  // Плановый столбец разложен по текущим статусам — видно, где осело незакрытое.
+  function velocityChart() {
+    var v = VELOCITY;
+    if (!v || !v.sprints || !v.sprints.length) return '<div class="m-muted">Нет данных по спринтам.</div>';
+
+    var rows = v.sprints;
+    var W = 560, H = 210, padL = 34, padR = 14, padT = 12, padB = 30;
+    var innerW = W - padL - padR, innerH = H - padT - padB;
+    var maxY = Math.max.apply(null, rows.map(function (r) { return Math.max(r.planned, r.done); })) || 1;
+    var yOf = function (val) { return padT + innerH * (1 - val / maxY); };
+    var group = innerW / rows.length;
+    var barW = Math.min(38, group / 3);
+
+    var parts = [];
+    [0, Math.round(maxY / 2), maxY].forEach(function (val) {
+      parts.push('<line x1="' + padL + '" y1="' + yOf(val).toFixed(1) + '" x2="' + (W - padR) +
+        '" y2="' + yOf(val).toFixed(1) + '" stroke="#eee"/>');
+      parts.push('<text x="4" y="' + (yOf(val) + 4).toFixed(1) + '" font-size="10" fill="#666">' + val + '</text>');
+    });
+
+    var STACK = [
+      { id: 'open',     label: 'TODO',          color: 'var(--c-open)' },
+      { id: 'blocked',  label: 'Заблокировано', color: 'var(--c-blocked)' },
+      { id: 'progress', label: 'В работе',      color: 'var(--c-progress)' },
+      { id: 'testing',  label: 'Тестирование',  color: 'var(--c-testing)' },
+      { id: 'review',   label: 'Ревью',         color: 'var(--c-review)' },
+      { id: 'done',     label: 'Готово',        color: 'var(--c-done)' }
+    ];
+
+    rows.forEach(function (r, i) {
+      var cx = padL + group * i + group / 2;
+      var xPlan = cx - barW - 3, xDone = cx + 3;
+
+      // плановый столбец — стопка по статусам снизу вверх
+      var acc = 0;
+      STACK.forEach(function (seg) {
+        var n = (r.split && r.split[seg.id]) || 0;
+        if (!n) return;
+        var yTop = yOf(acc + n), yBot = yOf(acc);
+        parts.push('<rect x="' + xPlan.toFixed(1) + '" y="' + yTop.toFixed(1) +
+          '" width="' + barW.toFixed(1) + '" height="' + Math.max(0, yBot - yTop).toFixed(1) +
+          '" fill="' + seg.color + '" fill-opacity="0.85"><title>' +
+          esc(r.name + ' · ' + seg.label + ': ' + n) + '</title></rect>');
+        acc += n;
+      });
+
+      // столбец «сделано»
+      parts.push('<rect x="' + xDone.toFixed(1) + '" y="' + yOf(r.done).toFixed(1) +
+        '" width="' + barW.toFixed(1) + '" height="' + Math.max(0, yOf(0) - yOf(r.done)).toFixed(1) +
+        '" fill="var(--c-done)"><title>' + esc(r.name + ' · сделано: ' + r.done) + '</title></rect>');
+
+      parts.push('<text x="' + cx.toFixed(1) + '" y="' + (H - 8) +
+        '" font-size="10" fill="#666" text-anchor="middle">' + esc(r.name) + '</text>');
+    });
+
+    // линия среднего выполнения
+    if (v.avgDone) {
+      parts.push('<line x1="' + padL + '" y1="' + yOf(v.avgDone).toFixed(1) + '" x2="' + (W - padR) +
+        '" y2="' + yOf(v.avgDone).toFixed(1) + '" stroke="#111" stroke-width="1.5" stroke-dasharray="4 3"/>');
+    }
+
+    var legend = STACK.map(function (seg) {
+      return '<span class="dot" style="background:' + seg.color + '"></span>' + esc(seg.label);
+    }).join(' &nbsp; ');
+
+    return '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMid meet">' +
+      parts.join('') + '</svg>' +
+      '<div class="chart-legend">' + legend +
+        '<br>Левый столбец — запланировано (разложено по текущим статусам), правый — сделано. ' +
+        'Пунктир — среднее выполнение ' + fmt(v.avgDone) + ' ' + esc(v.unit || '') + ' за спринт.' +
       '</div>';
   }
 
@@ -859,7 +1063,9 @@
         '<tr><td class="accent">За 3 спринта</td><td class="accent">' + triple(o.leadTask) + '</td></tr>'
       ])) + '</div>';
 
-    // 5. Диаграмма управления
+    // 5. Графики
+    html += '<div class="metrics-section"><h3>Burndown текущего спринта</h3>' + burndownChart() + '</div>';
+    html += '<div class="metrics-section"><h3>Производительность: запланировано / сделано</h3>' + velocityChart() + '</div>';
     html += '<div class="metrics-section"><h3>Диаграмма управления</h3>' + controlChart() + '</div>';
 
     return html;
