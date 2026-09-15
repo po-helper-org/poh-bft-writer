@@ -1,0 +1,262 @@
+{
+  "_comment": "Образец ОДНОГО элемента массива TEAMS — то, что отдаёт scripts/collect.py на команду. Реальный срез GDS/Live, укорочен до трёх эпиков. Тяжёлые наборы (metrics, burndown, control, velocity, logs) показаны формой, а не полными данными.",
+  "slug": "gds-live",
+  "team": "GDS / Live",
+  "boardId": 16383,
+  "boardName": "Scrum Board GDS",
+  "boardUrl": "https://jira.mts.ru/secure/RapidBoard.jspa?rapidView=16383",
+  "jiraBase": "https://jira.mts.ru",
+  "sprintName": "2026Q3-S6",
+  "epics": [
+    {
+      "rowId": "GDSLV-1737",
+      "epicKey": "GDSLV-1737",
+      "epicTitle": "AI Harness (Bartello)",
+      "stories": [
+        {
+          "key": "GDSLV-1919",
+          "title": "Harness DEV агент",
+          "status": "Бэклог",
+          "category": "К выполнению",
+          "subtasks": []
+        },
+        {
+          "key": "GDSLV-1798",
+          "title": "AI-тематика от Васи (архитектура Харнесса под Юру и Егора)",
+          "status": "Бэклог",
+          "category": "К выполнению",
+          "subtasks": []
+        }
+      ]
+    },
+    {
+      "rowId": "GDSLV-1610",
+      "epicKey": "GDSLV-1610",
+      "epicTitle": "FAQ из Direct",
+      "stories": [
+        {
+          "key": "GDSLV-1870",
+          "title": "FAQ MVP на события",
+          "status": "Тестирование",
+          "category": "В работе",
+          "subtasks": [
+            {
+              "key": "GDSLV-1881",
+              "summary": "[FAQ] Direct: новый таб FAQ на страницах",
+              "status": "Ревью",
+              "category": "В работе"
+            },
+            {
+              "key": "GDSLV-1896",
+              "summary": "[FAQ] E2E-контур локального тестирования FAQ MVP",
+              "status": "Закрыт",
+              "category": "Выполнено"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "rowId": "no-epic",
+      "epicKey": null,
+      "epicTitle": "Без эпика",
+      "stories": [
+        {
+          "key": "GDSLV-1921",
+          "title": "Спека Тбанк: переход на схему Яндекса",
+          "status": "Бэклог",
+          "category": "К выполнению",
+          "subtasks": []
+        },
+        {
+          "key": "GDSLV-1928",
+          "title": "extapigo: отключение фискализации (Т-Банк)",
+          "status": "В работе",
+          "category": "В работе",
+          "subtasks": []
+        }
+      ]
+    }
+  ],
+  "metrics": {
+    "sprints": [
+      {
+        "name": "2026Q3-S6",
+        "total": 86,
+        "closed": 20,
+        "open": 66,
+        "throughputPct": 23,
+        "lead": {
+          "mean": 21.1,
+          "median": 10.5,
+          "count": 20
+        },
+        "cycle": {
+          "mean": 6.2,
+          "median": 3.1,
+          "count": 17
+        },
+        "leadStory": {
+          "mean": 42.6,
+          "median": 43.7,
+          "count": 3
+        },
+        "leadTask": {
+          "mean": 18.4,
+          "median": 10.7,
+          "count": 9
+        },
+        "points": [
+          0.2,
+          1.4,
+          10.5,
+          43.7
+        ]
+      }
+    ],
+    "overall": {
+      "lead": {
+        "mean": 23.1,
+        "median": 14.0,
+        "count": 129
+      },
+      "cycle": {
+        "mean": 8.8,
+        "median": 4.1,
+        "count": 111
+      },
+      "leadStory": {
+        "mean": 27.6,
+        "median": 17.1,
+        "count": 20
+      },
+      "leadTask": {
+        "mean": 18.4,
+        "median": 10.7,
+        "count": 60
+      },
+      "total": 236,
+      "closed": 129
+    }
+  },
+  "burndown": {
+    "sprintName": "2026Q3-S6",
+    "start": "2026-09-08",
+    "end": "2026-09-22",
+    "days": [
+      {
+        "date": "2026-09-08",
+        "scope": 81,
+        "remaining": 72,
+        "closed": 9,
+        "weekend": false,
+        "future": false
+      }
+    ]
+  },
+  "control": {
+    "days": 30,
+    "stories": {
+      "days": 30,
+      "mean": 12.0,
+      "median": 5.1,
+      "sd": 19.1,
+      "limit": 31.11,
+      "outliers": 3,
+      "today": "2026-09-15",
+      "points": [
+        {
+          "key": "GDSLV-1365",
+          "title": "Переключить трафик в ExtapiGo",
+          "status": "Закрыт",
+          "category": "Выполнено",
+          "doneAt": "2026-09-02",
+          "cycle": 109.81,
+          "outlier": true
+        }
+      ],
+      "risks": [
+        {
+          "key": "GDSLV-1468",
+          "title": "Customer Order Service",
+          "status": "В работе",
+          "category": "В работе",
+          "assignee": "Ковальчук Вячеслав Васильевич",
+          "elapsed": 40.25
+        }
+      ]
+    },
+    "subtasks": {
+      "days": 30,
+      "mean": 5.4,
+      "median": 3.0,
+      "sd": 7.2,
+      "limit": 12.6,
+      "outliers": 5,
+      "today": "2026-09-15",
+      "points": [],
+      "risks": []
+    }
+  },
+  "velocity": {
+    "unit": "задач",
+    "avgDone": 43.0,
+    "sprints": [
+      {
+        "name": "2026Q3-S6",
+        "planned": 86,
+        "done": 20,
+        "split": {
+          "open": 28,
+          "blocked": 11,
+          "progress": 14,
+          "testing": 1,
+          "review": 12,
+          "done": 20
+        }
+      }
+    ]
+  },
+  "logs": {
+    "days": 7,
+    "kinds": {
+      "status": 80,
+      "comment": 64,
+      "created": 8
+    },
+    "authors": [
+      [
+        "Гимранов Тимур Серикович",
+        52
+      ]
+    ],
+    "events": [
+      {
+        "kind": "status",
+        "key": "GDSLV-1931",
+        "title": "[SA] ADR по идентификаторам",
+        "author": "Ананьев Дмитрий Сергеевич",
+        "at": "2026-09-15T09:58:00+03:00",
+        "from": "Backlog",
+        "to": "In progress",
+        "toCat": "В работе"
+      },
+      {
+        "kind": "comment",
+        "key": "GDSLV-1926",
+        "title": "Доработки Direct",
+        "author": "Гимранов Тимур Серикович",
+        "at": "2026-09-15T12:09:00+03:00",
+        "body": "MR создан: ветка feature/GDSLV-1926 → master"
+      },
+      {
+        "kind": "created",
+        "key": "GDSLV-1933",
+        "title": "Фрейм организатора",
+        "author": "Гимранов Тимур Серикович",
+        "at": "2026-09-15T15:29:00+03:00",
+        "issueType": "Задача"
+      }
+    ]
+  }
+}
