@@ -18,11 +18,11 @@
  * Чего именно не хватило, вердикт называет: «вернулось в DEEP-REVIEW» без этого
  * не отвечает на вопрос «что чинить».
  *
- * `DEEP-WORK`, `REVIEW-DONE` и `Cancelled` по артефактам не отличаются от
+ * `NEED-CUSTDEV`, `OKR-ADDED` и `BFT-CANCELED` по артефактам не отличаются от
  * соседей — это состояния процесса, а не документа, и их даёт только доска.
  */
 import { hasEpicKey, isPublished, parseFrontmatter, type Frontmatter } from './frontmatter.js'
-import type { BftArtifacts, StageVerdict } from './model.js'
+import type { BftArtifacts, BftStage, StageVerdict } from './model.js'
 
 export interface EpicFiles {
   /** Имена файлов в каталоге эпика. */
@@ -75,4 +75,37 @@ export function stageFromArtifacts(slug: string, files: EpicFiles): StageVerdict
 
   const gaps = fastGaps(artifacts)
   return gaps.length ? { stage: 'To Do', missing: gaps } : { stage: 'FAST-DONE', missing: [] }
+}
+
+/**
+ * Чего на диске не хватает до стадии, которую называет доска.
+ *
+ * Доска бывает выше артефактов, и это не всегда ошибка доски: PO мог сбросить
+ * эпик до чистого `/bft-fast`, удалив deep-файлы, а стадия вниз не двигается
+ * (`backlog-writer.ts`). Тогда вердикт по артефактам молчит — по нему всё на
+ * месте, — а PO видит `DEEP-REVIEW` без единого намёка, что deep-документа
+ * нет. Здесь нехватка считается от заявленной стадии: для deep-стадий это
+ * прежде всего сам единый документ, для fast — документ и его страница.
+ *
+ * `To Do` и `BFT-CANCELED` ничего не требуют; `NEED-CUSTDEV` и `OKR-ADDED` —
+ * состояния процесса, меряются требованиями соседней стадии по файлам.
+ */
+export function gapsToward(stage: BftStage, slug: string, files: EpicFiles): string[] {
+  const artifacts = artifactsOf(slug, files.entries)
+  const frontmatter = parseFrontmatter(files.deepDocument ?? '')
+  switch (stage) {
+    case 'DEEP-REVIEW':
+    case 'DEEP-DONE':
+    case 'OKR-ADDED': {
+      if (!artifacts.deep || frontmatter.stage !== 'deep') {
+        return [`единый документ ${slug}.md со stage: deep`, ...deepGaps(artifacts, frontmatter)]
+      }
+      return deepGaps(artifacts, frontmatter)
+    }
+    case 'FAST-DONE':
+    case 'NEED-CUSTDEV':
+      return fastGaps(artifacts)
+    default:
+      return []
+  }
 }

@@ -11,25 +11,29 @@ const TASKS = [
   task('PO-21', 'FAST-DONE', 'Vibeapp — фильтровать заказы с возвратом'),
   task('PO-22', 'DEEP-REVIEW', 'Билеты в кино в Vibe App'),
   task('PO-1', 'DEEP-DONE', 'Отгружено'),
-  task('PO-2', 'Cancelled', 'Отменено'),
+  task('PO-2', 'BFT-CANCELED', 'Отменено'),
+  task('PO-3', 'OKR-ADDED', 'В квартальном плане'),
+  task('PO-8', 'NEED-CUSTDEV', 'Нужно интервью'),
 ]
 
 test('очередь идёт от почти готового к нетронутому', () => {
-  assert.deepEqual(queueGroups(TASKS).map(g => g.stage), ['DEEP-REVIEW', 'FAST-DONE', 'To Do'])
+  assert.deepEqual(queueGroups(TASKS).map(g => g.stage), ['DEEP-REVIEW', 'FAST-DONE', 'NEED-CUSTDEV', 'To Do'])
 })
 
 test('пустые стадии в панели не показываются', () => {
   assert.deepEqual(queueGroups([task('PO-7', 'To Do')]).map(g => g.stage), ['To Do'])
 })
 
-test('завершённые и отменённые в счётчик очереди не идут', () => {
-  assert.equal(queueSize(TASKS), 3)
+test('завершённые, переданные в OKR и отменённые в счётчик очереди не идут', () => {
+  assert.equal(queueSize(TASKS), 4)
 })
 
 test('доска сохраняет пустые колонки — «сюда ничего не дошло» тоже смысл', () => {
-  const columns = boardColumns(TASKS)
+  const columns = boardColumns([task('PO-7', 'To Do')])
   assert.equal(columns.length, 7)
-  assert.deepEqual(columns.find(c => c.stage === 'DEEP-WORK')?.tasks, [])
+  assert.deepEqual(columns.map(c => c.stage),
+    ['To Do', 'NEED-CUSTDEV', 'FAST-DONE', 'DEEP-REVIEW', 'DEEP-DONE', 'OKR-ADDED', 'BFT-CANCELED'])
+  assert.deepEqual(columns.find(c => c.stage === 'DEEP-REVIEW')?.tasks, [])
 })
 
 test('поиск не различает регистр и вид дефиса', () => {

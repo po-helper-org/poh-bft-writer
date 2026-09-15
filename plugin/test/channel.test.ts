@@ -83,3 +83,17 @@ test('вид документа проверяется на проводе, а �
   const old = await dispatch(reader(), 'findDocument', { id: 'alpha' })
   assert.equal(old.ok, true)
 })
+
+test('добавить в OKR: плохая форма — bad-request словами, отказ доски — свой код', async () => {
+  const noId = await dispatch(reader(), 'addToOkr', { confluence: 'https://c', epic: 'https://j', quarter: '2026-Q4' })
+  assert.deepEqual(noId, { ok: false, error: { code: 'bad-request', message: 'не передан идентификатор требования', details: {} } })
+
+  const noQuarter = await dispatch(reader(), 'addToOkr', { id: 'alpha', confluence: 'https://c', epic: 'https://j' })
+  assert.equal(noQuarter.ok, false)
+  if (!noQuarter.ok) assert.deepEqual([noQuarter.error.code, noQuarter.error.message], ['bad-request', 'квартал задаётся в виде 2026-Q3'])
+
+  // Форма цела, но доски нет (runCommand отвечает -1): ошибка предметной области, не internal.
+  const noBoard = await dispatch(reader(), 'addToOkr', { id: 'alpha', confluence: 'https://c', epic: 'https://j', quarter: '2026-Q4' })
+  assert.equal(noBoard.ok, false)
+  if (!noBoard.ok) assert.equal(noBoard.error.code, 'okr-handoff-failed')
+})

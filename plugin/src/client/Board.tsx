@@ -7,7 +7,7 @@
  *
  * Список — свой запрос по каналу `/bft` (подкоманда `list`, тот же `listRequirements`, которым
  * грузится список панели, см. index.tsx), не переиспользует React-состояние панели: тело панели
- * хранит `queueGroups()` — хронологию очереди без Cancelled/DEEP-DONE и без пустых колонок, а
+ * хранит `queueGroups()` — хронологию очереди без завершённых стадий и без пустых колонок, а
  * доске нужны все семь стадий из `boardColumns()` (src/queue.ts), включая пустые — разная
  * группировка одного и того же плоского списка. Общий у них только кэш localStorage
  * (task-cache.ts): что panel, что доска читают его при монтировании (мгновенный первый рендер,
@@ -30,8 +30,11 @@ import {
   Button, IconChevronLeftOutline14, IconPlusOutline16, IconWarningOutline16,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { RpcResult } from '../channel.js'
+import { OKR_READY_STAGE } from '../model.js'
+import type { OkrHandoff } from '../okr-handoff.js'
 import { boardColumns, type BftGroup } from '../queue.js'
 import type { BftLocaleKey } from './locales.js'
+import { OkrDialog } from './OkrDialog.js'
 import { panelClassNames as css } from './Panel.styles.js'
 import { SessionMark } from './SessionMark.js'
 import { describeSession, type LiveSession } from './session-view.js'
@@ -42,6 +45,10 @@ export interface BoardProps {
   t: (key: BftLocaleKey) => string
   /** Канал `/bft`, подкоманда `list` — тот же вызов, что грузит список панели (см. index.tsx). */
   listRequirements(signal: AbortSignal): Promise<RpcResult<unknown>>
+  /** Полное требование для окна «Добавить в OKR» (OkrDialog.tsx): ссылки Confluence/эпик. */
+  getTask(id: string, signal: AbortSignal): Promise<RpcResult<unknown>>
+  /** «Добавить в OKR»: канал `/bft`, подкоманда `addToOkr` — стадия OKR-ADDED и план на доске. */
+  addToOkr(payload: OkrHandoff & { id: string }, signal: AbortSignal): Promise<RpcResult<unknown>>
   /** Живое состояние сессии харнесса — точка и давность на карточке (см. SessionMark.tsx). */
   sessionInfo(sessionId: string): LiveSession | null | undefined
   /** Открывает детальную страницу требования (Task 3) — переключает режим панели, живёт в Panel.tsx. */
@@ -62,7 +69,9 @@ type BoardState =
   | { phase: 'ready'; groups: BftGroup[] }
   | { phase: 'error'; message: string }
 
-export function Board({ t, listRequirements, sessionInfo, onOpenDetail, onBack, canAdd, onAdd }: BoardProps) {
+export function Board({
+  t, listRequirements, getTask, addToOkr, sessionInfo, onOpenDetail, onBack, canAdd, onAdd,
+}: BoardProps) {
   // Тот же кэш localStorage, что Panel.tsx (task-cache.ts) — общий плоский список, доска
   // строит из него boardColumns() вместо queueGroups(). Доска — отдельная ветка рендера
   // Panel.tsx, монтируется заново при каждом открытии (в отличие от самой панели), поэтому
@@ -72,6 +81,8 @@ export function Board({ t, listRequirements, sessionInfo, onOpenDetail, onBack, 
     return cached === undefined ? { phase: 'loading' } : { phase: 'ready', groups: boardColumns(cached) }
   })
   const controllerRef = useRef<AbortController | null>(null)
+  // Требование, для которого открыто окно «Добавить в OKR»; null — окна нет.
+  const [okrTarget, setOkrTarget] = useState<string | null>(null)
 
   // silent — тот же приём, что в Panel.tsx: не сбрасывает экран в 'loading', ошибка фонового
   // обновления не перекрывает уже показанный кэш, только логируется.
@@ -152,9 +163,32 @@ export function Board({ t, listRequirements, sessionInfo, onOpenDetail, onBack, 
       {state.phase === 'ready' && (
         <div className={css.boardRow}>
           {state.groups.map(group => (
-            <BoardColumn key={group.stage} group={group} onSelect={onOpenDetail} sessionInfo={sessionInfo} t={t} />
+            <BoardColumn
+              key={group.stage}
+              group={group}
+              onSelect={onOpenDetail}
+              onAddToOkr={setOkrTarget}
+              sessionInfo={sessionInfo}
+              t={t}
+            />
           ))}
         </div>
+      )}
+
+      {okrTarget !== null && (
+        <OkrDialog
+          id={okrTarget}
+          t={t}
+          getTask={getTask}
+          addToOkr={addToOkr}
+          onClose={() => { setOkrTarget(null) }}
+          onDone={() => {
+            setOkrTarget(null)
+            // Стадия сменилась на доске — перечитать список, чтобы карточка уехала в
+            // OKR-ADDED; кэш с прошлой стадией не показываем как «загрузка», доска уже на экране.
+            load({ silent: true })
+          }}
+        />
       )}
     </div>
   )
@@ -164,17 +198,21 @@ export function Board({ t, listRequirements, sessionInfo, onOpenDetail, onBack, 
  * Одна колонка стадии: заголовок (та же геометрия точки/подписи/счётчика, что и `.groupHeader`
  * списка панели — `.groupDot`/`.groupLabel`/`.badge` переиспользованы как есть) прилипает
  * сверху естественным образом — он вне скроллящегося тела колонки (`flex: none` над `flex: 1;
- * overflow-y: auto`), а не через `position: sticky`. Карточки — существующие `.item`/
- * `.itemBody`/`.itemId` списка панели (название + id, цветная полоса стадии слева через
- * `--tone`) — тот же приём, что `GroupList` в Panel.tsx, отдельного класса карточки не заводим.
+ * overflow-y: auto`), а не через `position: sticky`. Карточка — обёртка `.boardCard` (полоса
+ * стадии слева через `--tone`) вокруг существующей строки `.item`/`.itemBody`/`.itemId` списка
+ * панели (название + id) — тот же приём, что `GroupList` в Panel.tsx. Обёртка нужна ради ряда
+ * действий под строкой: у DEEP-DONE это «Добавить в OKR», а кнопку внутрь <button> строки
+ * положить нельзя.
  */
-function BoardColumn({ group, onSelect, sessionInfo, t }: {
+function BoardColumn({ group, onSelect, onAddToOkr, sessionInfo, t }: {
   group: BftGroup
   onSelect: (id: string) => void
+  onAddToOkr: (id: string) => void
   sessionInfo: (sessionId: string) => LiveSession | null | undefined
   t: (key: BftLocaleKey) => string
 }) {
   const tone = { '--tone': STAGE_TONE[group.stage] } as CSSProperties
+  const okrReady = group.stage === OKR_READY_STAGE
   return (
     <section className={css.boardColumn}>
       <div className={css.boardColumnHeader}>
@@ -184,19 +222,26 @@ function BoardColumn({ group, onSelect, sessionInfo, t }: {
       </div>
       <div className={css.boardColumnBody}>
         {group.tasks.map(task => (
-          <button
-            key={task.id}
-            type="button"
-            className={css.item}
-            style={tone}
-            onClick={() => { onSelect(task.id) }}
-          >
-            <div className={css.itemBody}>
-              {task.title}
-              <span className={css.itemId}>{task.id}</span>
-            </div>
-            <SessionMark session={describeSession(task.session, task.session ? sessionInfo(task.session.id) : undefined)} t={t} />
-          </button>
+          <div key={task.id} className={css.boardCard} style={tone}>
+            <button
+              type="button"
+              className={css.item}
+              onClick={() => { onSelect(task.id) }}
+            >
+              <div className={css.itemBody}>
+                {task.title}
+                <span className={css.itemId}>{task.id}</span>
+              </div>
+              <SessionMark session={describeSession(task.session, task.session ? sessionInfo(task.session.id) : undefined)} t={t} />
+            </button>
+            {okrReady && (
+              <div className={css.boardCardActions}>
+                <Button variant="outline" size="sm" onClick={() => { onAddToOkr(task.id) }}>
+                  {t('boardAddToOkr')}
+                </Button>
+              </div>
+            )}
+          </div>
         ))}
       </div>
     </section>

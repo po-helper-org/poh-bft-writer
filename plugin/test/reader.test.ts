@@ -126,7 +126,7 @@ test('задача доски и каталог эпика сливаются в
     '/ws/.bft/documentation/legacy/legacy-fast.md': fastDoc('legacy', 'Блокировка мест'),
   }, boardJson([
     { id: 'PO-11', title: 'БФТ: Из раздела', status: 'To Do' },
-    { id: 'PO-20', title: 'БФТ: Блокировка мест', status: 'REVIEW-DONE' },
+    { id: 'PO-20', title: 'БФТ: Блокировка мест', status: 'DEEP-REVIEW' },
     { id: 'PO-99', title: 'БФТ: Без документа', status: 'To Do' },
   ]))
   const { tasks, boardAvailable } = await scanWorkspace(loadConfig(ENV_BOARD), ports)
@@ -134,14 +134,18 @@ test('задача доски и каталог эпика сливаются в
   assert.equal(boardAvailable, true)
   // Каталоги идут по алфавиту слагов, задачи без документа — после них.
   assert.deepEqual(tasks.map(t => [t.id, t.slug, t.stage, t.stageSource]), [
-    // Связь по названию в H1: доска впереди файлов (REVIEW-DONE ставит PO) — берётся доска.
-    ['PO-20', 'legacy', 'REVIEW-DONE', 'backlog'],
+    // Связь по названию в H1: доска впереди файлов (DEEP-REVIEW ставит PO) — берётся доска.
+    ['PO-20', 'legacy', 'DEEP-REVIEW', 'backlog'],
     // Слаг равен id: артефакты уже FAST-DONE, доска отстала — берётся стадия по файлам.
     ['PO-11', 'po-11', 'FAST-DONE', 'artifacts'],
     // Документа нет — строка доски как есть.
     ['PO-99', undefined, 'To Do', 'backlog'],
   ])
-  assert.deepEqual(tasks[0].missing, ['страница ревью'], 'нехватка — всегда по артефактам')
+  // Стадия взята с доски — нехватка считается от неё: deep-документа на диске нет, и
+  // «страница ревью» одна не объяснила бы, почему DEEP-REVIEW не закрыт.
+  assert.deepEqual(tasks[0].missing, [
+    'единый документ legacy.md со stage: deep', 'страница ревью', 'ссылка на страницу Confluence', 'ссылка на эпик JIRA',
+  ])
   assert.deepEqual(tasks[1].board, { stage: 'To Do', refs: [] })
   assert.equal(tasks[1].artifactStage, 'FAST-DONE')
   assert.equal(tasks[1].links.html, '.bft/documentation/po-11/po-11-fast.html')
@@ -153,9 +157,9 @@ test('отмена на доске старше любого файла', async 
     '/ws/.bft/documentation': ['po-5'],
     '/ws/.bft/documentation/po-5': ['po-5-fast.md', 'po-5-fast.html'],
     '/ws/.bft/documentation/po-5/po-5-fast.md': fastDoc('po-5', 'Отменённая'),
-  }, boardJson([{ id: 'PO-5', title: 'Отменённая', status: 'Cancelled' }]))
+  }, boardJson([{ id: 'PO-5', title: 'Отменённая', status: 'BFT-CANCELED' }]))
   const { tasks } = await scanWorkspace(loadConfig(ENV_BOARD), ports)
-  assert.deepEqual(tasks.map(t => [t.id, t.stage, t.stageSource]), [['PO-5', 'Cancelled', 'backlog']])
+  assert.deepEqual(tasks.map(t => [t.id, t.stage, t.stageSource]), [['PO-5', 'BFT-CANCELED', 'backlog']])
 })
 
 test('два претендента на один каталог: связывается первый, второй остаётся отдельной строкой', async () => {
@@ -197,4 +201,37 @@ test('CLI без --json падает на запасной --plain; нет CLI �
   const noCli = await scanWorkspace(loadConfig(ENV_BOARD), fakePorts(tree))
   assert.deepEqual(noCli.tasks.map(t => t.id), ['alpha'])
   assert.equal(noCli.boardAvailable, false)
+})
+
+test('шапка документа попадает в строку очереди: SMART-цель, шаги демо, заказчик', async () => {
+  const head = [
+    '## Шапка (сутевое описание запроса)', '', '### Цель', '',
+    '| SMART | Значение |', '|---|---|',
+    '| S (Specific) | Вывод кино на афишу |', '| M (Measurable) | Кино видно |',
+    '', '### How to demo', '', '1. Открываю приложение.', '2. Вижу кино.', '',
+    '### Общая информация', '', '| Поле | Значение |', '|---|---|',
+    '| Ответственный за продукт | Геворгян Виктория (коммерция) |',
+  ].join('\n')
+  const ports = fakePorts({
+    '/ws/.bft/documentation': ['kino'],
+    '/ws/.bft/documentation/kino': ['kino-fast.md', 'kino-fast.html'],
+    '/ws/.bft/documentation/kino/kino-fast.md': `${fastDoc('kino', 'Кино')}\n${head}\n`,
+  })
+  const { tasks } = await scanWorkspace(loadConfig(ENV_BOARD), ports)
+  assert.equal(tasks[0].smart, 'S (Specific): Вывод кино на афишу\nM (Measurable): Кино видно')
+  assert.deepEqual(tasks[0].howToDemo, ['Открываю приложение.', 'Вижу кино.'])
+  assert.equal(tasks[0].customer, 'Геворгян Виктория (коммерция)')
+})
+
+test('эпик сброшен до fast, доска осталась на DEEP-REVIEW: стадия с доски, нехватка называет deep-документ', async () => {
+  const ports = boardPorts({
+    '/ws/.bft/documentation': ['po-22'],
+    '/ws/.bft/documentation/po-22': ['po-22-fast.md', 'po-22-fast.html', 'letter.md'],
+    '/ws/.bft/documentation/po-22/po-22-fast.md': fastDoc('po-22', 'Кино'),
+  }, boardJson([{ id: 'PO-22', title: 'БФТ: Кино', status: 'DEEP-REVIEW' }]))
+  const { tasks } = await scanWorkspace(loadConfig(ENV_BOARD), ports)
+  assert.equal(tasks[0].stage, 'DEEP-REVIEW')
+  assert.equal(tasks[0].stageSource, 'backlog')
+  assert.equal(tasks[0].artifactStage, 'FAST-DONE')
+  assert.equal(tasks[0].missing[0], 'единый документ po-22.md со stage: deep')
 })

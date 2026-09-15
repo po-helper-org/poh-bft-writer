@@ -16,7 +16,7 @@
  * Заполненные необязательные поля (заказчик, Confluence, эпик, OKR, HTML, SMART, HowToDemo)
  * показаны отдельными строками; отсутствующие среди них не рисуются пустыми — сворачиваются
  * в одну строку «Не заполнено: …» внизу блока полей. Причина отмены — бонусом, только когда
- * задача в стадии Cancelled и причина действительно есть; в «Не заполнено» не попадает — это
+ * задача в стадии BFT-CANCELED и причина действительно есть; в «Не заполнено» не попадает — это
  * не универсальное поле, у остальных стадий её в принципе не бывает (см. parse-view.ts).
  */
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
@@ -27,7 +27,7 @@ import {
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { DocumentRole } from '../bft-reader.js'
 import type { RpcResult } from '../channel.js'
-import type { BftTask } from '../model.js'
+import { CANCELED_STAGE, type BftTask } from '../model.js'
 import type { BftLocaleKey } from './locales.js'
 import { panelClassNames as css } from './Panel.styles.js'
 import { SessionSummary } from './SessionMark.js'
@@ -44,7 +44,7 @@ export interface PreviewProps {
    * Канал `/bft`, подкоманда `handoff` — черновик с продолжением последнего
    * закрытого отрезка работы. Собирается на сервере: он видит журнал, клиент нет.
    */
-  getHandoff(id: string, signal: AbortSignal): Promise<RpcResult<unknown>>
+  getHandoff(id: string, signal: AbortSignal, note?: string): Promise<RpcResult<unknown>>
   /**
    * Обобщённая цепочка «уйти в чат с черновиком» (см. index.tsx: `openChatWithDraft`, была
    * `openSyncChat` до задачи 2). Отправки нет ни при каких условиях — Enter жмёт PO.
@@ -242,13 +242,19 @@ function ReadyBody(
   // (`.previewMeta` ниже), это не «раздел», а подпись рядом с id, так было и раньше.
   const EMPTY = '—'
 
+  // Стадия с доски выше стадии по файлам — PO обязан видеть обе: `DEEP-REVIEW`
+  // без deep-документа иначе читается как «deep собран».
+  const artifactsBehind = task.stageSource === 'backlog'
+    && task.artifactStage !== undefined && task.artifactStage !== task.stage
+
   const fields: Array<{ label: string; value: ReactNode }> = [
     {
       label: t('previewStage'),
       value: (
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
           <span className={css.groupDot} style={tone} aria-hidden="true" />
           {task.stage}
+          {artifactsBehind && <span className={css.previewStageHint}>{t('previewStageByArtifacts')} {task.artifactStage}</span>}
         </span>
       ),
     },
@@ -302,7 +308,22 @@ function ReadyBody(
           )
         : EMPTY,
     },
-    { label: t('previewLinksHtml'), value: task.links.html ?? EMPTY },
+    {
+      // Путь страницы ревью относительный — ссылкой в браузере ему не стать, локальный файл
+      // браузер сам не откроет. Открывает её кнопка: детальная страница читает документ по
+      // каналу и показывает в рамке (тот же приём, что у скрипта интервью ниже).
+      label: t('previewLinksHtml'),
+      value: task.links.html
+        ? (
+          <>
+            <p>{task.links.html}</p>
+            <button type="button" className={css.previewLinkButton} onClick={() => { onOpenDetail(task.id) }}>
+              {t('previewOpenHtml')}
+            </button>
+          </>
+          )
+        : EMPTY,
+    },
     {
       // Путь скрипта интервью показан как есть — он относительный, ссылкой в браузере ему
       // не стать. Открывает его кнопка: детальная страница умеет читать документ эпика по
@@ -319,7 +340,17 @@ function ReadyBody(
           )
         : EMPTY,
     },
-    { label: t('previewSmart'), value: task.smart ? <p>{task.smart}</p> : EMPTY },
+    {
+      // SMART-таблица цели: пять строк `S (Specific): …` из шапки документа (см. head.ts).
+      label: t('previewSmart'),
+      value: task.smart
+        ? (
+          <ul className={css.previewList}>
+            {task.smart.split('\n').map((line, index) => <li key={index}>{line}</li>)}
+          </ul>
+          )
+        : EMPTY,
+    },
     {
       label: t('previewHowToDemo'),
       value: task.howToDemo.length > 0
@@ -332,10 +363,10 @@ function ReadyBody(
     },
   ]
 
-  // Причина отмены — не универсальное поле (бывает только у Cancelled, см. parse-view.ts):
+  // Причина отмены — не универсальное поле (бывает только у BFT-CANCELED, см. parse-view.ts):
   // строка появляется только у отменённых требований, а не всегда с прочерком у остальных —
-  // у DEEP-WORK её отсутствие не пробел, это поле в принципе не про эту стадию.
-  if (task.stage === 'Cancelled' && task.cancelReason) {
+  // у DEEP-REVIEW её отсутствие не пробел, это поле в принципе не про эту стадию.
+  if (task.stage === CANCELED_STAGE && task.cancelReason) {
     fields.push({ label: t('previewCancelReason'), value: <p>{task.cancelReason}</p> })
   }
 
