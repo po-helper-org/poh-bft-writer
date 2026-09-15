@@ -170,7 +170,15 @@ DSH_HOME="$PWD/.dsh-data" pnpm dsh web --no-open --port 3082
 4. Внизу сайдбара — **«Открыть доску требований»**, она открывает полноэкранную
    доску со всеми семью колонками (`To Do`, `NEED-CUSTDEV`, `FAST-DONE`,
    `DEEP-REVIEW`, `DEEP-DONE`, `OKR-ADDED`, `BFT-CANCELED`). Все семь должны
-   быть в `backlog/config.yml → statuses` воркспейса.
+   быть в `backlog/config.yml → statuses` воркспейса — иначе `task edit -s`
+   с новой стадией отвечает «Invalid status», и «Добавить в OKR» откажет:
+
+   ```yaml
+   statuses: ["To Do", "NEED-CUSTDEV", "FAST-DONE", "DEEP-REVIEW", "DEEP-DONE", "OKR-ADDED", "BFT-CANCELED"]
+   ```
+
+   Статусы других типов задач (`In Progress`, `Done`, …) оставь рядом — список
+   общий на воркспейс.
 5. Задачи, заведённые агентом через MCP Backlog, появляются в `To Do`.
 6. Клик по требованию в сайдбаре раскрывает карточку: стадия, чего не хватает до
    следующей, ссылки, ветка контекста, блок «Последняя сессия» — состояние, давность
