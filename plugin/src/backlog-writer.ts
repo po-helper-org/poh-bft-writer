@@ -1,16 +1,16 @@
 /**
- * Обратная запись в Backlog.md: стадия и ссылка на страницу ревью по факту
- * артефактов.
+ * Обратная запись в Backlog.md: стадия и ссылки — на страницу ревью, на эпик
+ * JIRA и на страницу Confluence — по факту артефактов.
  *
  * Навык пишет файлы, плагин их видит и приводит доску в соответствие — PO
  * больше не ходит руками за `backlog task edit` после каждого `/bft-fast`.
  *
  * Инварианты, которые здесь важнее удобства:
  * - стадия двигается только вверх по `CANON_ORDER`. Вниз — никогда: доска знает
- *   про процесс больше, чем видно по файлам (`REVIEW-DONE`, `DEEP-WORK` ставит
- *   PO), и «понизить» значило бы стереть его решение;
- * - `Cancelled` не трогается ни в какую сторону: отмена — решение PO, а не факт
- *   на диске;
+ *   про процесс больше, чем видно по файлам (`NEED-CUSTDEV` ставит PO,
+ *   `OKR-ADDED` — кнопка с доски), и «понизить» значило бы стереть его решение;
+ * - `BFT-CANCELED` не трогается ни в какую сторону: отмена — решение PO, а не
+ *   факт на диске;
  * - правка только при расхождении: повторный проход по неизменному воркспейсу
  *   ничего не вызывает.
  *
@@ -19,15 +19,16 @@
  */
 import type { BftPluginConfig } from './config.js'
 import { normalizeDocsRef } from './epic-link.js'
-import { stageRank, type BftStage, type BftTask } from './model.js'
+import { CANCELED_STAGE, stageRank, type BftStage, type BftTask } from './model.js'
 import type { BftPorts } from './ports.js'
+import { missingRefs } from './refs.js'
 
 export interface BacklogEdit {
   id: string
   /** Новая стадия; нет — стадия доски уже не ниже стадии по артефактам. */
   stage?: BftStage
-  /** Ссылка, которой у задачи ещё нет. */
-  addRef?: string
+  /** Ссылки, которых у задачи ещё нет: страница ревью, эпик JIRA, страница Confluence. */
+  addRefs?: string[]
 }
 
 export interface BacklogEditResult extends BacklogEdit {
@@ -47,20 +48,25 @@ export function planBacklogEdits(tasks: readonly BftTask[], docsPath: string): B
   const edits: BacklogEdit[] = []
   for (const task of tasks) {
     if (!task.board || task.artifactStage === undefined) continue
-    if (task.board.stage === 'Cancelled') continue
+    if (task.board.stage === CANCELED_STAGE) continue
 
     const edit: BacklogEdit = { id: task.id }
     if (stageRank(task.artifactStage) > stageRank(task.board.stage)) edit.stage = task.artifactStage
 
+    const addRefs: string[] = []
     const html = task.links.html
     if (html) {
       const known = task.board.refs
         .map(ref => normalizeDocsRef(ref, docsPath))
         .filter((ref): ref is string => ref !== null)
-      if (!known.some(ref => ref.toLowerCase() === html.toLowerCase())) edit.addRef = html
+      if (!known.some(ref => ref.toLowerCase() === html.toLowerCase())) addRefs.push(html)
     }
+    // Эпик и страница Confluence появляются во frontmatter после `/bft-deliver`
+    // (ключи `jira`, `pageId`) — доска получает те же ссылки, что и превью.
+    addRefs.push(...missingRefs(task.board.refs, [task.links.epic, task.links.confluence]))
+    if (addRefs.length) edit.addRefs = addRefs
 
-    if (edit.stage !== undefined || edit.addRef !== undefined) edits.push(edit)
+    if (edit.stage !== undefined || edit.addRefs !== undefined) edits.push(edit)
   }
   return edits
 }
@@ -81,7 +87,7 @@ export async function applyBacklogEdits(
   for (const edit of edits) {
     const args = ['task', 'edit', edit.id]
     if (edit.stage !== undefined) args.push('-s', edit.stage)
-    if (edit.addRef !== undefined) args.push('--add-ref', edit.addRef)
+    for (const ref of edit.addRefs ?? []) args.push('--add-ref', ref)
     args.push('--plain')
     const { stdout, stderr, code } = await ports.runCommand(config.backlogBin, args, config.workspaceRoot)
     if (code === 0) {

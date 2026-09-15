@@ -57,3 +57,13 @@ test('sessionPath за пределами воркспейса отвергае�
     assert.throws(() => loadConfig({ ...base, BFT_SESSION_PATH: bad }), ConfigError, `принят «${bad}»`)
   }
 })
+
+test('claudeArgs профиля: список, строка через пробел или ничего — apply не падает на скаляре', async () => {
+  const { toBftConfig } = await import('../src/plugin-config.js')
+  const base = { workspaceRoot: '/ws', entireRequired: false }
+  assert.deepEqual(toBftConfig({ ...base, claudeArgs: ['--model', 'opus'] }, {}).claudeArgs, ['--model', 'opus'])
+  assert.deepEqual(toBftConfig({ ...base, claudeArgs: '--model opus' }, {}).claudeArgs, ['--model', 'opus'])
+  assert.deepEqual(toBftConfig({ ...base, claudeArgs: [] }, { BFT_CLAUDE_ARGS: '--x' }).claudeArgs, ['--x'])
+  assert.equal(toBftConfig({ ...base, claudeBin: 'off' }, {}).claudeBin, undefined)
+  assert.equal(toBftConfig(base, {}).claudeBin, 'claude')
+})

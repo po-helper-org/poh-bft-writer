@@ -45,9 +45,11 @@ import { IconChecklistOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { defineStore, type PropsStore, type StoreHandle } from '@deepseek-ai/dsh-client-store'
 import type { DocumentRole } from '../bft-reader.js'
 import type { RpcResult } from '../channel.js'
+import type { OkrHandoff } from '../okr-handoff.js'
 import {
   BFT_SETTINGS_NS, DEFAULT_SETTINGS, buildSyncDraft, resolveSettings, type BftSettings,
 } from '../settings.js'
+import type { DetailChatChannel } from './DetailPage.js'
 import { ru, type BftLocaleKey } from './locales.js'
 import { RequirementsPanel, type RequirementsPanelInjected } from './Panel.js'
 import { panelClassNames as css, panelStyleText } from './Panel.styles.js'
@@ -154,6 +156,10 @@ export function apply(ctx: ClientContext): void {
     connection.rpc.call(CHANNEL, 'list', {}, signal)
   const getTask = (id: string, signal: AbortSignal): Promise<RpcResult<unknown>> =>
     connection.rpc.call(CHANNEL, 'task', { id }, signal)
+  // «Добавить в OKR» с доски (Board.tsx → OkrDialog.tsx): форма целиком едет на сервер, он
+  // пишет стадию и план в задачу Backlog.md (okr-handoff.ts) — клиент CLI не зовёт.
+  const addToOkr = (payload: OkrHandoff & { id: string }, signal: AbortSignal): Promise<RpcResult<unknown>> =>
+    connection.rpc.call(CHANNEL, 'addToOkr', payload, signal)
   // Детальная страница (Task 3, DetailPage.tsx): документ требования, путь — из links.html.
   const getDocument = (path: string, signal: AbortSignal): Promise<RpcResult<unknown>> =>
     connection.rpc.call(CHANNEL, 'document', { path }, signal)
@@ -165,8 +171,17 @@ export function apply(ctx: ClientContext): void {
   // Черновик для чата собирает сервер: он знает журнал работы и подставляет
   // продолжение с последнего закрытого отрезка со ссылкой на ветку контекста.
   // Клиент журнала не видит и построить это не может.
-  const getHandoff = (id: string, signal: AbortSignal): Promise<RpcResult<unknown>> =>
-    connection.rpc.call(CHANNEL, 'handoff', { id }, signal)
+  const getHandoff = (id: string, signal: AbortSignal, note?: string): Promise<RpcResult<unknown>> =>
+    connection.rpc.call(CHANNEL, 'handoff', note === undefined ? { id } : { id, note }, signal)
+  // Чат через Claude Code CLI на детальной странице (issue #41, DetailPage.tsx / DetailChat.tsx):
+  // ход идёт на узле, страница только запускает, опрашивает и останавливает его. Один объект
+  // на всё время жизни раздела — его идентичность держит эффект подхвата хода на странице.
+  const chat: DetailChatChannel = {
+    status: (id, signal) => connection.rpc.call(CHANNEL, 'chatStatus', { id }, signal),
+    start: (id, note, signal) => connection.rpc.call(CHANNEL, 'chatStart', note === undefined ? { id } : { id, note }, signal),
+    poll: (runId, since, signal) => connection.rpc.call(CHANNEL, 'chatPoll', { runId, since }, signal),
+    stop: runId => connection.rpc.call(CHANNEL, 'chatStop', { runId }),
+  }
 
   // Цепочка «Обновить»/«Работать в чате» (docs/client-wiring.md, §1.3 и «Выводы для
   // реализации», п.1): uiWorkspace.connectWorkspace → sessions.scope →
@@ -353,9 +368,11 @@ export function apply(ctx: ClientContext): void {
       inject: (): RequirementsPanelInjected => ({
         listRequirements,
         getTask,
+        addToOkr,
         getDocument,
         findDocument,
         getHandoff,
+        chat,
         openSyncChat,
         openChatWithDraft,
         sessionInfo,

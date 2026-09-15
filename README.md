@@ -20,6 +20,10 @@ curl -ksSL https://raw.githubusercontent.com/po-helper-org/poh-bft-writer/main/i
 команды и навыки в нужный корень. После установки запусти `/bft-index` — навык проведёт
 первичную аналитику воркспейса и построит себе контекст.
 
+Чтобы `/bft-fast` принимал запись встречи (диктофон iPhone, Telegram, Zoom), нужны `ffmpeg` и
+whisper.cpp — `brew install ffmpeg whisper-cpp`; модель распознавания подтянется при первом
+прогоне. Без них всё остальное работает как прежде — источником остаются текст и Summary.
+
 ## В DeepSeek Harness
 
 Репозиторий работает в харнессе двумя независимыми способами. Один не отменяет
@@ -37,7 +41,9 @@ curl -ksSL https://raw.githubusercontent.com/po-helper-org/poh-bft-writer/main/i
 
 **Способ 2 — плагин `plugin/`.** Даёт то, чего скиллы дать не могут: раздел
 «Управление требованиями» в сайдбаре — очередь БФТ по стадиям с поиском,
-превью требования, детальную страницу с собранным HTML-документом и доску.
+превью требования, детальную страницу с собранным HTML-документом и чатом с
+Claude Code рядом с ним (правки, уточняющие вопросы, отгрузка `/bft-deliver` в
+JIRA и Confluence — не уходя со страницы) и доску.
 
 ```sh
 cd plugin
@@ -45,8 +51,9 @@ pnpm install && pnpm build
 ```
 
 Дальше пакет подключается в профиль харнесса; обязателен один параметр —
-`workspaceRoot` (по строке `id: bft-requirements`). Пошаговая установка, разбор
-граблей профиля и что должно получиться на экране —
+`workspaceRoot` (по строке `id: bft-requirements`); для чата на детальной
+странице нужен Claude Code CLI на машине харнесса (`claudeBin`). Пошаговая
+установка, разбор граблей профиля и что должно получиться на экране —
 [`docs/guides/dsh-plugin-setup.md`](docs/guides/dsh-plugin-setup.md). Устройство
 раздела, переменные окружения и таблица «артефакты → стадия» —
 [`plugin/README.md`](plugin/README.md).
@@ -170,6 +177,15 @@ python3 <skills_path>/bft-writer/scripts/bft-paths-lint.py
 python3 <skills_path>/bft-writer/scripts/bft-env-lint.py .mcp.json
 bash <skills_path>/bft-writer/scripts/test-bft-env-lint.sh
 bash <skills_path>/bft-writer/scripts/test-bft-html-export.sh
+```
+
+Запись встречи с диктофона `/bft-fast` распознаёт локально (`bft-transcribe.py`: `ffmpeg` +
+`whisper-cli` из whisper.cpp, модель кэшируется в `~/.cache/whisper-cpp`). Нужны `brew install
+ffmpeg whisper-cpp`; самотест конвейера идёт со стабом распознавателя и модель не тянет:
+
+```bash
+python3 <skills_path>/bft-writer/scripts/bft-transcribe.py <запись.m4a>
+bash <skills_path>/bft-writer/scripts/test-bft-transcribe.sh
 ```
 
 Карту контекста `/bft-recon` проверяет свой линтер (гейт 20) — находка без ссылки
@@ -350,7 +366,8 @@ Agenda». Справа выезжает список вопросов с отм�
 | `/bft-index` | Context Builder | `.bft/index/` (пакеты знаний) |
 | `/bft-deliver` | Deliverer | публикация: JIRA Эпик + **одна** страница Confluence + связи |
 | `/bft-html` | Ревью в браузере | `<epic>.html` рядом с документом — диаграмма, якоря на ID, панель `[УТОЧНИТЬ]`, комментарии → промт. **Обычно вызывать не нужно:** страницу собирают сами `/bft-fast` и `/bft-deep` (ЗМ-033), команда — ручная пересборка |
-| `/bft-fast` | Fast lane | письмо + csv-вложения + документ-шапка `<epic>-fast.md`. Наружу не ходит: ни JIRA, ни Confluence, ни индекс — публикует `/bft-deliver` |
+| `/bft-fast` | Fast lane | письмо + csv-вложения + документ-шапка `<epic>-fast.md`. Источник — Summary, транскрипт, задача Backlog.md или **запись встречи** (`.m4a`/`.mp3`/`.ogg`/`.mp4`… — распознаётся локально перед проходом). Наружу не ходит: ни JIRA, ни Confluence, ни индекс — публикует `/bft-deliver` |
+| `/bft-transcribe` | Транскрибатор | `<запись>.transcript.md` — текст записи встречи, распознанный whisper.cpp на этой машине (аудио никуда не уходит). **Обычно вызывать не нужно:** `/bft-fast <запись>` делает это сам; команда — ручной путь: прочитать текст до генерации, пересобрать другой моделью |
 | `/bft-recon` | Разведка контекста | `context_map.md` — карта находок JIRA/Confluence со ссылками |
 | `/bft-custdev` | Методолог интервью | скрипт интервью `<epic>-custdev.md` + страница встречи `<epic>-custdev.html`. Собирается по свежайшему документу эпика: `deep`, если есть, иначе `fast` |
 | `/bft-deep` | Deep swarm | тот же документ, обогащённый каноном |

@@ -55,7 +55,9 @@ fi
   && ok "плагин собирается" || fail "плагин не собрался"
 
 # Плагин не должен зависеть от раскладки агента: он читает воркспейс, а не .claude.
-if grep -rn "\.claude\|\.agents\|\.clinerules" "$REPO/plugin/src" >/dev/null 2>&1; then
+# Ищутся каталоги (`.claude/`, `.claude'`), а не свойства вроде `config.claudeBin`
+# (чат через Claude Code CLI, issue #41): после точки — не буква идентификатора.
+if grep -rn "\.\(claude\|agents\|clinerules\)\([^A-Za-z0-9_]\|$\)" "$REPO/plugin/src" >/dev/null 2>&1; then
   fail "плагин ссылается на раскладку IDE-агента — это связало бы режимы"
 else
   ok "плагин не знает про раскладку IDE-агента"

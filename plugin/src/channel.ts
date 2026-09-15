@@ -7,9 +7,10 @@
  */
 import { BftReader } from './bft-reader.js'
 import {
-  DocumentOutsideWorkspaceError, DocumentUnreadableError, InvalidTaskIdError,
-  TaskNotFoundError, WorkLogWriteError,
+  ChatBusyError, ChatRunNotFoundError, ChatUnavailableError, DocumentOutsideWorkspaceError,
+  DocumentUnreadableError, InvalidTaskIdError, OkrHandoffError, TaskNotFoundError, WorkLogWriteError,
 } from './errors.js'
+import { parseOkrHandoff } from './okr-handoff.js'
 
 export const BFT_CHANNEL = '/bft'
 
@@ -24,6 +25,10 @@ const CODES: ReadonlyArray<[new (...args: never[]) => Error, string]> = [
   [DocumentUnreadableError, 'document-unreadable'],
   [DocumentOutsideWorkspaceError, 'document-outside-workspace'],
   [WorkLogWriteError, 'worklog-write-failed'],
+  [OkrHandoffError, 'okr-handoff-failed'],
+  [ChatBusyError, 'chat-busy'],
+  [ChatRunNotFoundError, 'chat-run-not-found'],
+  [ChatUnavailableError, 'chat-unavailable'],
 ]
 
 function ok<T>(value: T): RpcResult<T> {
@@ -54,6 +59,12 @@ function stringField(payload: unknown, field: string): string | null {
   if (typeof payload !== 'object' || payload === null) return null
   const value = (payload as Record<string, unknown>)[field]
   return typeof value === 'string' && value !== '' ? value : null
+}
+
+function numberField(payload: unknown, field: string): number | null {
+  if (typeof payload !== 'object' || payload === null) return null
+  const value = (payload as Record<string, unknown>)[field]
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
 }
 
 export async function dispatch(
@@ -90,11 +101,12 @@ export async function dispatch(
         return ok(await reader.findDocument(id, kind ?? 'requirement'))
       }
 
-      // Черновик для чата: продолжение с последнего закрытого отрезка работы.
+      // Черновик для чата: команда следующего навыка и продолжение с последнего
+      // закрытого отрезка работы. `note` — правка PO к документу, необязательна.
       case 'handoff': {
         const id = stringField(payload, 'id')
         if (!id) return fail('bad-request', 'не передан идентификатор требования')
-        return ok(await reader.handoff(id))
+        return ok(await reader.handoff(id, stringField(payload, 'note') ?? undefined))
       }
 
       case 'worklog':
@@ -121,6 +133,42 @@ export async function dispatch(
         if (!id) return fail('bad-request', 'не передан идентификатор требования')
         if (!summary) return fail('bad-request', 'не передан итог отрезка работы')
         return ok(await reader.finishWork(id, summary, stringField(payload, 'contextRef') ?? undefined))
+      }
+
+      // Чат по требованию через Claude Code CLI (issue #41): ход, опрос, остановка,
+      // состояние последнего хода — для детальной страницы.
+      case 'chatStart': {
+        const id = stringField(payload, 'id')
+        if (!id) return fail('bad-request', 'не передан идентификатор требования')
+        return ok(await reader.chatStart(id, stringField(payload, 'note') ?? undefined))
+      }
+
+      case 'chatPoll': {
+        const runId = stringField(payload, 'runId')
+        if (!runId) return fail('bad-request', 'не передан идентификатор хода')
+        return ok(reader.chatPoll(runId, numberField(payload, 'since') ?? 0))
+      }
+
+      case 'chatStop': {
+        const runId = stringField(payload, 'runId')
+        if (!runId) return fail('bad-request', 'не передан идентификатор хода')
+        return ok(reader.chatStop(runId))
+      }
+
+      case 'chatStatus': {
+        const id = stringField(payload, 'id')
+        if (!id) return fail('bad-request', 'не передан идентификатор требования')
+        return ok({ available: reader.chatAvailable(), run: reader.chatStatus(id) })
+      }
+
+      // «Добавить в OKR» с доски: форма разбирается здесь, чтобы плохое тело
+      // отвечало bad-request словами, а не падало внутри записи на доску.
+      case 'addToOkr': {
+        const id = stringField(payload, 'id')
+        if (!id) return fail('bad-request', 'не передан идентификатор требования')
+        const parsed = parseOkrHandoff(payload)
+        if (!parsed.ok) return fail('bad-request', parsed.error)
+        return ok(await reader.addToOkr(id, parsed.value))
       }
 
       default:

@@ -12,6 +12,8 @@ function row(opts: {
   board?: { stage: BftStage; refs: string[] }
   artifactStage?: BftStage
   html?: string
+  epic?: string
+  confluence?: string
 }): BftTask {
   return {
     id: opts.id,
@@ -22,7 +24,7 @@ function row(opts: {
     artifactStage: opts.artifactStage,
     description: '',
     howToDemo: [],
-    links: { other: [], html: opts.html },
+    links: { other: [], html: opts.html, epic: opts.epic, confluence: opts.confluence },
     artifacts: { fast: false, fastHtml: false, deep: false, deepHtml: false, custdev: false, custdevHtml: false },
     missing: [],
   }
@@ -32,19 +34,31 @@ test('стадия по артефактам выше — доска подни�
   const edits = planBacklogEdits([
     row({ id: 'PO-11', board: { stage: 'To Do', refs: [] }, artifactStage: 'FAST-DONE', html: 'bft/documentation/po-11/po-11-fast.html' }),
   ], DOCS)
-  assert.deepEqual(edits, [{ id: 'PO-11', stage: 'FAST-DONE', addRef: 'bft/documentation/po-11/po-11-fast.html' }])
+  assert.deepEqual(edits, [{ id: 'PO-11', stage: 'FAST-DONE', addRefs: ['bft/documentation/po-11/po-11-fast.html'] }])
+})
+
+test('после отгрузки доска получает ссылки на эпик JIRA и страницу Confluence; уже записанные не дублируются', () => {
+  const jira = 'https://jira.mts.ru/browse/GDSLV-1610'
+  const wiki = 'https://confluence.mts.ru/pages/viewpage.action?pageId=123'
+  const edits = planBacklogEdits([
+    row({ id: 'PO-1', board: { stage: 'DEEP-REVIEW', refs: ['bft/documentation/a/a.html'] }, artifactStage: 'DEEP-DONE', html: 'bft/documentation/a/a.html', epic: jira, confluence: wiki }),
+    row({ id: 'PO-2', board: { stage: 'DEEP-DONE', refs: ['bft/documentation/b/b.html', jira.toUpperCase(), wiki] }, artifactStage: 'DEEP-DONE', html: 'bft/documentation/b/b.html', epic: jira, confluence: wiki }),
+  ], DOCS)
+  assert.deepEqual(edits, [{ id: 'PO-1', stage: 'DEEP-DONE', addRefs: [jira, wiki] }])
 })
 
 test('вниз никогда: доска знает про процесс больше, чем видно по файлам', () => {
   const edits = planBacklogEdits([
-    row({ id: 'PO-1', board: { stage: 'DEEP-WORK', refs: ['bft/documentation/a/a-fast.html'] }, artifactStage: 'FAST-DONE', html: 'bft/documentation/a/a-fast.html' }),
+    row({ id: 'PO-1', board: { stage: 'DEEP-REVIEW', refs: ['bft/documentation/a/a-fast.html'] }, artifactStage: 'FAST-DONE', html: 'bft/documentation/a/a-fast.html' }),
+    // OKR-ADDED — выше DEEP-DONE по артефактам: стадию не трогаем, только ссылку.
+    row({ id: 'PO-2', board: { stage: 'OKR-ADDED', refs: ['bft/documentation/b/b.html'] }, artifactStage: 'DEEP-DONE', html: 'bft/documentation/b/b.html' }),
   ], DOCS)
   assert.deepEqual(edits, [])
 })
 
-test('Cancelled не трогается ни в какую сторону', () => {
+test('BFT-CANCELED не трогается ни в какую сторону', () => {
   const edits = planBacklogEdits([
-    row({ id: 'PO-1', board: { stage: 'Cancelled', refs: [] }, artifactStage: 'DEEP-DONE', html: 'bft/documentation/a/a.html' }),
+    row({ id: 'PO-1', board: { stage: 'BFT-CANCELED', refs: [] }, artifactStage: 'DEEP-DONE', html: 'bft/documentation/a/a.html' }),
   ], DOCS)
   assert.deepEqual(edits, [])
 })
@@ -69,13 +83,13 @@ test('запись: одна команда на задачу, аргумент�
   const calls: string[][] = []
   const ports = fakePorts(async (_bin, args) => { calls.push(args); return { stdout: 'Status: ○ FAST-DONE', code: 0 } })
   const results = await applyBacklogEdits(
-    [{ id: 'PO-11', stage: 'FAST-DONE', addRef: 'bft/documentation/po-11/po-11-fast.html' }, { id: 'PO-12', addRef: 'x' }],
+    [{ id: 'PO-11', stage: 'FAST-DONE', addRefs: ['bft/documentation/po-11/po-11-fast.html'] }, { id: 'PO-12', addRefs: ['x', 'https://jira.mts.ru/browse/X-1'] }],
     loadConfig({ BFT_WORKSPACE_ROOT: '/ws', BFT_ENTIRE_REQUIRED: '0', BFT_BACKLOG_BIN: '/opt/backlog' }),
     ports,
   )
   assert.deepEqual(calls, [
     ['task', 'edit', 'PO-11', '-s', 'FAST-DONE', '--add-ref', 'bft/documentation/po-11/po-11-fast.html', '--plain'],
-    ['task', 'edit', 'PO-12', '--add-ref', 'x', '--plain'],
+    ['task', 'edit', 'PO-12', '--add-ref', 'x', '--add-ref', 'https://jira.mts.ru/browse/X-1', '--plain'],
   ])
   assert.ok(results.every(r => r.ok))
 })

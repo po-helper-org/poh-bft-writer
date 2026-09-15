@@ -89,6 +89,10 @@ const Settings: z<BftSettings> = z.object({
  */
 export function apply(ctx: HarnessContext, config: PluginConfig): void {
   const reader = new BftReader(toBftConfig(config, process.env))
+  // Выгрузка раздела или остановка харнесса гасит живые ходы Claude Code: дочерний
+  // `claude -p` иначе переживёт узел и продолжит править документы, а раздел после
+  // перезапуска будет считать сессию прерванной и разрешит второй ход по тому же файлу.
+  ctx.effect(() => () => { reader.dispose() }, 'poh-bft-plugin: остановка ходов Claude Code')
 
   ctx.inject(['connection'], (scoped: HarnessContext) => {
     const connection = scoped.get('connection') as ConnectionLike
@@ -134,7 +138,7 @@ export function apply(ctx: HarnessContext, config: PluginConfig): void {
       reader.reconcile()
         .then(({ edits }) => {
           for (const edit of edits) {
-            if (edit.ok) console.info(`[poh-bft-plugin] доска обновлена: ${edit.id} ${edit.stage ?? ''} ${edit.addRef ?? ''}`.trim())
+            if (edit.ok) console.info(`[poh-bft-plugin] доска обновлена: ${edit.id} ${edit.stage ?? ''} ${(edit.addRefs ?? []).join(' ')}`.trim())
             else console.warn(`[poh-bft-plugin] доска не обновлена: ${edit.id}: ${edit.error ?? ''}`)
           }
         })

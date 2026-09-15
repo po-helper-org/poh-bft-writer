@@ -38,6 +38,15 @@ Glob-паттерны локальных источников для индек�
 ## index_path
 Куда класть индекс. Дефолт: `.bft/index`.
 
+## transcribe_model
+Модель whisper.cpp для распознавания записи встречи (`/bft-fast <запись>`, `/bft-transcribe`):
+`large-v3-turbo` (дефолт, лучшая для русской речи, ~1,6 ГБ), `medium`, `small`, `base` — или путь к
+`ggml-*.bin`. Модель кэшируется в `~/.cache/whisper-cpp` (`$WHISPER_CPP_MODEL_DIR`), запись
+распознаётся локально и никуда не отправляется. Пусто → `large-v3-turbo`.
+
+## transcribe_language
+Язык речи на записи (`ru`, `en`, …; `auto` — автоопределение). Пусто → `ru`.
+
 ## plantuml_render
 Как публиковать PlantUML-диаграммы «Плана демонстрации» в Confluence (ЗМ-015):
 - `image` (дефолт) — пре-рендер в PNG + вложение + `<ac:image>`. Рендерится без плагина, в любом пространстве.

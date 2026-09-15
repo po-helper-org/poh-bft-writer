@@ -8,11 +8,13 @@
  *
  * Функции чистые, чтобы проверяться без React и без харнесса.
  */
-import type { SessionState } from '../worklog.js'
+import type { SessionKind, SessionState } from '../worklog.js'
 
 /** Что журнал сказал о последней сессии требования (`BftTaskSummary.session`). */
 export interface RecordedSession {
   id: string
+  /** Чей чат: харнесса или Claude Code с детальной страницы. Нет — старая запись, харнесса. */
+  kind?: SessionKind
   state: SessionState
   lastActivityAt: string
 }
@@ -26,6 +28,7 @@ export interface LiveSession {
 
 export interface SessionView {
   id: string
+  kind: SessionKind
   state: SessionState
   /** Название чата, когда харнесс его уже дал. */
   title?: string
@@ -43,10 +46,17 @@ export function describeSession(
   now: number = Date.now(),
 ): SessionView | null {
   if (!recorded) return null
+  const kind = recorded.kind ?? 'harness'
+  // Сессия Claude Code харнессу неизвестна: её состояние ведёт узел раздела
+  // (запуск и завершение CLI), в списке сессий харнесса её нет и открывать там
+  // нечего — чат живёт на детальной странице.
+  if (kind === 'claude') {
+    return { id: recorded.id, kind, state: recorded.state, days: daysSince(recorded.lastActivityAt, undefined, now), canOpen: false }
+  }
   // `undefined` — списка сессий нет (служба не поднята): верим журналу как есть.
   // `null` — список есть, сессии в нём нет: её удалили.
   if (live === null) {
-    return { id: recorded.id, state: 'gone', days: daysSince(recorded.lastActivityAt, undefined, now), canOpen: false }
+    return { id: recorded.id, kind, state: 'gone', days: daysSince(recorded.lastActivityAt, undefined, now), canOpen: false }
   }
   const state: SessionState = live?.running
     ? 'running'
@@ -55,6 +65,7 @@ export function describeSession(
       : 'idle'
   return {
     id: recorded.id,
+    kind,
     state,
     title: live?.title,
     days: daysSince(recorded.lastActivityAt, live?.updatedAt, now),

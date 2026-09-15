@@ -113,7 +113,21 @@ test('последняя сессия — по последнему движен
   log = finishWork(log, 'a', '2026-09-01T12:00:00Z', 'готово')
   log = attachSession(log, 'a', 'FAST-DONE', 'new', '2026-09-03T10:00:00Z')
   log = touchSession(log, 'old', 'idle', '2026-09-04T10:00:00Z')
-  assert.deepEqual(lastSession(log, 'a'), { id: 'old', state: 'idle', lastActivityAt: '2026-09-04T10:00:00Z' })
+  assert.deepEqual(lastSession(log, 'a'), { id: 'old', kind: 'harness', state: 'idle', lastActivityAt: '2026-09-04T10:00:00Z' })
   assert.equal(lastSession(log, 'nope'), null)
   assert.equal(lastSession(startWork(EMPTY_LOG, entry('c', '2026-09-01')), 'c'), null, 'отрезок без сессии — не сессия')
+})
+
+test('сессия Claude Code: вид и состояние пишутся при привязке, старые записи — харнесса', () => {
+  const log = attachSession(EMPTY_LOG, 'a', 'To Do', 'cc-1', '2026-09-05T10:00:00Z', 'claude', 'running')
+  assert.deepEqual(
+    [log.entries[0].sessionKind, log.entries[0].sessionState],
+    ['claude', 'running'],
+  )
+  assert.deepEqual(lastSession(log, 'a'), { id: 'cc-1', kind: 'claude', state: 'running', lastActivityAt: '2026-09-05T10:00:00Z' })
+  const idle = touchSession(log, 'cc-1', 'idle', '2026-09-05T10:30:00Z')
+  assert.equal(lastSession(idle, 'a')?.state, 'idle')
+  // Запись без вида — до появления Claude Code, то есть сессия харнесса.
+  const legacy = { version: 1, entries: [{ epic: 'b', stage: 'To Do' as const, startedAt: '2026-09-01T10:00:00Z', sessionId: 'h-1' }] }
+  assert.equal(lastSession(legacy, 'b')?.kind, 'harness')
 })

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { artifactsOf, stageFromArtifacts } from '../src/stage.js'
+import { artifactsOf, gapsToward, stageFromArtifacts } from '../src/stage.js'
 
 const deepDoc = (opts: { stage?: string; pageId?: string; jira?: string } = {}) =>
   `---\npageId: ${opts.pageId ?? 'pending'}\njira: "${opts.jira ?? '[СОЗДАТЬ эпик]'}"\n` +
@@ -88,4 +88,28 @@ test('артефакты интервью видны отдельно и ста�
   assert.deepEqual(stageFromArtifacts('epic', { entries }), { stage: 'FAST-DONE', missing: [] })
   assert.deepEqual(stageFromArtifacts('epic', { entries: ['epic-fast.md', 'epic-fast.html'] }),
     { stage: 'FAST-DONE', missing: [] })
+})
+
+test('нехватка от стадии доски: DEEP-REVIEW без deep-документа называет прежде всего сам документ', () => {
+  const gaps = gapsToward('DEEP-REVIEW', 'alpha', { entries: ['alpha-fast.md', 'alpha-fast.html'] })
+  assert.deepEqual(gaps, [
+    'единый документ alpha.md со stage: deep',
+    'страница ревью',
+    'ссылка на страницу Confluence',
+    'ссылка на эпик JIRA',
+  ])
+})
+
+test('нехватка от стадии доски: deep-документ есть — только его пробелы, как у вердикта', () => {
+  const entries = ['alpha.md', 'alpha.html']
+  const deep = '---\nstage: deep\npageId: 2272447498\njira: "[СОЗДАТЬ эпик]"\n---\n'
+  assert.deepEqual(gapsToward('DEEP-DONE', 'alpha', { entries, deepDocument: deep }), ['ссылка на эпик JIRA'])
+  assert.deepEqual(gapsToward('OKR-ADDED', 'alpha', { entries, deepDocument: deep }), ['ссылка на эпик JIRA'])
+})
+
+test('нехватка от стадии доски: fast-стадии меряются документом и страницей, To Do и отмена — ничем', () => {
+  assert.deepEqual(gapsToward('FAST-DONE', 'alpha', { entries: ['alpha-fast.md'] }), ['страница ревью'])
+  assert.deepEqual(gapsToward('NEED-CUSTDEV', 'alpha', { entries: [] }), ['документ БФТ'])
+  assert.deepEqual(gapsToward('To Do', 'alpha', { entries: [] }), [])
+  assert.deepEqual(gapsToward('BFT-CANCELED', 'alpha', { entries: [] }), [])
 })

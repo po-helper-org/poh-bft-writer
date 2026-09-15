@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test'
 import { openHarness, openPanel, panel, requireHarness, shot } from './support/harness.ts'
 
 const SCENARIO = '04-board'
-const STAGES = ['To Do', 'FAST-DONE', 'REVIEW-DONE', 'DEEP-WORK', 'DEEP-REVIEW', 'DEEP-DONE', 'Cancelled']
+const STAGES = ['To Do', 'NEED-CUSTDEV', 'FAST-DONE', 'DEEP-REVIEW', 'DEEP-DONE', 'OKR-ADDED', 'BFT-CANCELED']
 
 test.describe.configure({ mode: 'serial' })
 

@@ -19,6 +19,10 @@ export interface PluginConfig {
   sessionPath?: string
   /** Skill-root воркспейса — для `skills_path` в `bft-config.md` рабочего пространства чатов. */
   skillsPath?: string
+  /** Claude Code CLI для чата с детальной страницы: бинарь (`off` — выключить) и аргументы. */
+  claudeBin?: string
+  /** Список аргументов; строка через пробел тоже принимается — профиль схемой не проверяется. */
+  claudeArgs?: string[] | string
 }
 
 /**
@@ -51,5 +55,15 @@ export function toBftConfig(
     // Пустая строка здесь осмысленна («не привязывать»), поэтому не через pick().
     BFT_SESSION_PATH: plugin.sessionPath !== undefined ? plugin.sessionPath : env.BFT_SESSION_PATH,
     BFT_SKILLS_PATH: pick(plugin.skillsPath, env.BFT_SKILLS_PATH),
+    BFT_CLAUDE_BIN: pick(plugin.claudeBin, env.BFT_CLAUDE_BIN),
+    // Список профиля — в строку через пробел: тот же разбор, что у переменной окружения.
+    // Строка профиля не проверяется схемой, и скаляр вместо списка (`claudeArgs: '--model
+    // opus'`) не должен ронять apply() — а с ним и весь харнесс; строка принимается как есть.
+    BFT_CLAUDE_ARGS: pick(claudeArgsLine(plugin.claudeArgs), env.BFT_CLAUDE_ARGS),
   })
+}
+
+function claudeArgsLine(value: unknown): string | undefined {
+  if (Array.isArray(value)) return value.filter((item): item is string => typeof item === 'string').join(' ')
+  return typeof value === 'string' ? value : undefined
 }

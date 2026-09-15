@@ -35,6 +35,23 @@ export const INDEX_PATH_FALLBACKS = ['bft/index'] as const
  */
 export const DEFAULT_BACKLOG_BIN = 'backlog'
 
+/** Умолчание Claude Code CLI: `claude` из PATH. У launchd свой PATH — профиль задаёт абсолютный путь. */
+export const DEFAULT_CLAUDE_BIN = 'claude'
+
+/**
+ * Права CLI по умолчанию: правки файлов без вопросов (`acceptEdits`), скрипты
+ * навыков (`python3 …/bft-lint.py`, `bft-html-export.py`), доска (`backlog`) и
+ * пауза до подключения MCP (`sleep`, см. MCP_ENVIRONMENT в handoff.ts). Спросить
+ * PO из неинтерактивного прогона некому, поэтому всё, что навык делает штатно,
+ * разрешено заранее; остальное CLI откажет сам, и отказ виден в чате. Инструменты
+ * Jira/Confluence (`mcp__<сервер>`) сюда не входят: имя сервера своё у каждой
+ * установки — его добавляет профиль через `claudeArgs`.
+ */
+export const DEFAULT_CLAUDE_ARGS: readonly string[] = [
+  '--permission-mode', 'acceptEdits',
+  '--allowedTools', 'Bash(python3:*)', 'Bash(backlog:*)', 'Bash(sleep:*)',
+]
+
 export interface BftPluginConfig {
   /** Корень воркспейса. Без него плагин не стартует: угадывать чужой воркспейс опаснее, чем упасть сразу. */
   workspaceRoot: string
@@ -68,6 +85,14 @@ export interface BftPluginConfig {
    * раскладку IDE-агента плагин не угадывает.
    */
   skillsPath?: string
+  /**
+   * Claude Code CLI для чата по требованию с детальной страницы (issue #41):
+   * бинарь и аргументы прав/модели. `claudeBin: 'off'` выключает чат. Умолчания
+   * (`DEFAULT_CLAUDE_BIN`, `DEFAULT_CLAUDE_ARGS` выше) живут здесь — по той же
+   * причине, что и `DEFAULT_BACKLOG_BIN`: слой профиля заменяет конфиг пакета целиком.
+   */
+  claudeBin?: string
+  claudeArgs: readonly string[]
   /**
    * Ветки контекстного чата entire.io. Раздел без него не поднимается: работа
    * над требованием обязана продолжаться с последнего контекста, а не начинаться
@@ -129,8 +154,28 @@ export function loadConfig(env: Record<string, string | undefined>): BftPluginCo
     taskType: value(env, 'BFT_TASK_TYPE') ?? 'bft',
     sessionPath: sessionPath(env),
     skillsPath: relativeInside(env, 'BFT_SKILLS_PATH'),
+    claudeBin: claudeBin(env),
+    claudeArgs: claudeArgs(env),
     entire: entireAccess(env),
   }
+}
+
+/** Как `backlogBin`: включён, пока не выключен словом; умолчание — `claude` из PATH. */
+function claudeBin(env: Record<string, string | undefined>): string | undefined {
+  const raw = value(env, 'BFT_CLAUDE_BIN')
+  if (raw === undefined) return DEFAULT_CLAUDE_BIN
+  return ['off', '0', 'false'].includes(raw.toLowerCase()) ? undefined : raw
+}
+
+/**
+ * Аргументы CLI — через пробел, как в командной строке; кавычек и экранирования
+ * нет намеренно: значения вроде `Bash(python3:*)` пробелов не содержат, а
+ * разбор кавычек здесь стал бы второй оболочкой. Не задано — права по умолчанию.
+ */
+function claudeArgs(env: Record<string, string | undefined>): readonly string[] {
+  const raw = value(env, 'BFT_CLAUDE_ARGS')
+  if (raw === undefined) return DEFAULT_CLAUDE_ARGS
+  return raw.split(/\s+/).filter(Boolean)
 }
 
 /**

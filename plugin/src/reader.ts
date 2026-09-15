@@ -16,9 +16,10 @@ import { parseTaskList, parseTaskListJson, type BacklogTask } from './backlog-so
 import { branchUrl, type BftPluginConfig } from './config.js'
 import { linkTaskToEpic, parseH1, type EpicCandidate } from './epic-link.js'
 import { parseFrontmatter, type Frontmatter } from './frontmatter.js'
-import { stageRank, type BftArtifacts, type BftLinks, type BftTask, type StageVerdict } from './model.js'
+import { parseDocumentHead, type DocumentHead } from './head.js'
+import { CANCELED_STAGE, stageRank, type BftArtifacts, type BftLinks, type BftTask, type StageVerdict } from './model.js'
 import type { BftPorts } from './ports.js'
-import { artifactsOf, stageFromArtifacts } from './stage.js'
+import { artifactsOf, gapsToward, stageFromArtifacts } from './stage.js'
 import { lastFinished, lastSession, parseWorkLog, WORKLOG_FILE, type WorkLog } from './worklog.js'
 
 const JIRA_BROWSE = 'https://jira.mts.ru/browse/'
@@ -41,7 +42,11 @@ interface EpicRecord {
   artifacts: BftArtifacts
   verdict: StageVerdict
   frontmatter: Frontmatter
+  /** Шапка документа: SMART-цель, шаги демо, заказчик — то, что превью показывает без страницы. */
+  head: DocumentHead
   h1: { key: string; title: string } | null
+  /** Текст единого документа, если он есть: нужен, чтобы мерить нехватку от стадии доски. */
+  deepDocument: string | null
 }
 
 /**
@@ -82,7 +87,9 @@ async function scanEpics(root: string, ports: BftPorts): Promise<EpicRecord[]> {
       artifacts,
       verdict: stageFromArtifacts(slug, { entries, deepDocument }),
       frontmatter: parseFrontmatter(text),
+      head: parseDocumentHead(text),
       h1: parseH1(text),
+      deepDocument,
     })
   }
   return epics
@@ -150,7 +157,9 @@ export async function scanWorkspace(config: BftPluginConfig, ports: BftPorts): P
       stageSource: 'artifacts',
       artifactStage: epic.verdict.stage,
       description: epic.frontmatter.status ?? '',
-      howToDemo: [],
+      customer: epic.head.customer,
+      smart: epic.head.smart,
+      howToDemo: epic.head.howToDemo,
       // Ветка последнего закрытого отрезка: по ней продолжают, а не начинают.
       links: { ...links, entire: entire(id) },
       artifacts: epic.artifacts,
@@ -160,9 +169,12 @@ export async function scanWorkspace(config: BftPluginConfig, ports: BftPorts): P
     if (task) {
       row.board = { stage: task.stage, refs: task.refs }
       // Отмена терминальна и старше любого файла; иначе — кто дальше по процессу.
-      if (task.stage === 'Cancelled' || stageRank(task.stage) > stageRank(epic.verdict.stage)) {
+      if (task.stage === CANCELED_STAGE || stageRank(task.stage) > stageRank(epic.verdict.stage)) {
         row.stage = task.stage
         row.stageSource = 'backlog'
+        // Стадия взята с доски — и нехватка считается от неё, а не от файлов:
+        // иначе `DEEP-REVIEW` без deep-документа показывал бы «всё на месте».
+        row.missing = gapsToward(task.stage, epic.slug, { entries: epic.entries, deepDocument: epic.deepDocument })
       }
     }
     tasks.push(row)

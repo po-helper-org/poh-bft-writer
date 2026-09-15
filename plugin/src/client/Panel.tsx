@@ -39,6 +39,7 @@ import type { DocumentRole } from '../bft-reader.js'
 import type { RpcResult } from '../channel.js'
 import type { BftSettings } from '../settings.js'
 import type { BftStage } from '../model.js'
+import type { OkrHandoff } from '../okr-handoff.js'
 import { queueGroups, searchTasks, type BftGroup } from '../queue.js'
 // Type-only: PanelStoreHandle описывает форму стора, реальный хэндл создаётся в apply()
 // (src/client/index.tsx) и сюда не импортируется — только тип, значение не пересекает границу.
@@ -46,7 +47,7 @@ import type { PanelStoreHandle } from './index.js'
 // Не CSS-модуль (сборка стороннего плагина его не поддерживает — см. Panel.styles.ts):
 // плоская карта «семантическое имя → класс», тот же текст инжектирует index.tsx в <style>.
 import { Board } from './Board.js'
-import { DetailPage } from './DetailPage.js'
+import { DetailPage, type DetailChatChannel } from './DetailPage.js'
 import { FormPage } from './FormPage.js'
 import { panelClassNames as css } from './Panel.styles.js'
 import { Preview } from './Preview.js'
@@ -61,6 +62,11 @@ export interface RequirementsPanelInjected {
   listRequirements(signal: AbortSignal): Promise<RpcResult<unknown>>
   /** Превью требования: канал `/bft`, подкоманда `task`, см. Preview.tsx. */
   getTask(id: string, signal: AbortSignal): Promise<RpcResult<unknown>>
+  /**
+   * «Добавить в OKR» с доски (Board.tsx → OkrDialog.tsx): канал `/bft`, подкоманда
+   * `addToOkr`. Пишет стадию OKR-ADDED и план в задачу Backlog.md, см. okr-handoff.ts.
+   */
+  addToOkr(payload: OkrHandoff & { id: string }, signal: AbortSignal): Promise<RpcResult<unknown>>
   /** Документ требования: канал `/bft`, подкоманда `document`, см. DetailPage.tsx (Task 3). */
   getDocument(path: string, signal: AbortSignal): Promise<RpcResult<unknown>>
   /**
@@ -73,7 +79,9 @@ export interface RequirementsPanelInjected {
    * Черновик для чата: канал `/bft`, подкоманда `handoff`. Собирается на сервере,
    * потому что опирается на журнал работы — клиенту он не виден.
    */
-  getHandoff(id: string, signal: AbortSignal): Promise<RpcResult<unknown>>
+  getHandoff(id: string, signal: AbortSignal, note?: string): Promise<RpcResult<unknown>>
+  /** Чат через Claude Code CLI на детальной странице (issue #41): см. DetailPage.tsx. */
+  chat: DetailChatChannel
   /**
    * Кнопка «Обновить»: цепочка connectWorkspace → scope → setDraft → open, собранная в
    * src/client/index.tsx (docs/client-wiring.md, §1.3). Открывает чат с подставленной
@@ -178,9 +186,11 @@ export function RequirementsPanel({
   actions,
   listRequirements,
   getTask,
+  addToOkr,
   getDocument,
   findDocument,
   getHandoff,
+  chat,
   openSyncChat,
   openChatWithDraft,
   sessionInfo,
@@ -323,6 +333,7 @@ export function RequirementsPanel({
         doc={route.doc}
         getHandoff={getHandoff}
         openChatWithDraft={openChatWithDraft}
+        chat={chat}
         sessionInfo={sessionInfo}
         openSession={openSession}
         onBack={() => { setRoute(route.back) }}
@@ -362,12 +373,14 @@ export function RequirementsPanel({
   // смонтированного slot-компонента, а не второй слой оверлеев). Список требований доска
   // грузит сама (см. комментарий в шапке Board.tsx) — состояние панели (state.groups) ей не
   // передаём: там уже отфильтрованная под очередь панели группировка (queueGroups, без
-  // Cancelled/DEEP-DONE, без пустых колонок), а доске нужны все семь стадий (boardColumns).
+  // завершённых стадий, без пустых колонок), а доске нужны все семь стадий (boardColumns).
   if (route.view === 'board') {
     return (
       <Board
         t={t}
         listRequirements={listRequirements}
+        getTask={getTask}
+        addToOkr={addToOkr}
         sessionInfo={sessionInfo}
         onOpenDetail={(id) => { setRoute({ view: 'detail', id, back: { view: 'board' } }) }}
         onBack={() => { setRoute({ view: 'list' }) }}

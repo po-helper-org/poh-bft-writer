@@ -6,18 +6,33 @@
  * доской при первом же переименовании.
  */
 
-/** Стадии проработки БФТ. Порядок объявления — хронологический. */
+/**
+ * Стадии проработки БФТ. Порядок объявления — хронологический.
+ *
+ * `NEED-CUSTDEV` — процессное состояние, а не факт на диске: скрипт интервью
+ * стадию не двигает (см. `BftArtifacts.custdev`), и ставит его PO. `OKR-ADDED`
+ * — БФТ передан в планирование OKR: ставится кнопкой «Добавить в OKR» с доски
+ * (см. `okr-handoff.ts`), выше него стадии нет. `BFT-CANCELED` — терминальная
+ * отмена решением PO, в хронологию не входит и объявлена последней.
+ */
 export const CANON_ORDER = [
   'To Do',
+  'NEED-CUSTDEV',
   'FAST-DONE',
-  'REVIEW-DONE',
-  'DEEP-WORK',
   'DEEP-REVIEW',
   'DEEP-DONE',
-  'Cancelled',
+  'OKR-ADDED',
+  'BFT-CANCELED',
 ] as const
 
 export type BftStage = (typeof CANON_ORDER)[number]
+
+/** Терминальная отмена: старше любого файла, не трогается ни в какую сторону. */
+export const CANCELED_STAGE: BftStage = 'BFT-CANCELED'
+
+/** Стадия, с которой БФТ передаётся в OKR, и стадия после передачи. */
+export const OKR_READY_STAGE: BftStage = 'DEEP-DONE'
+export const OKR_ADDED_STAGE: BftStage = 'OKR-ADDED'
 
 /**
  * Порядок в панели: ближе к финалу — выше, чтобы PO дожимал почти готовое.
@@ -25,14 +40,13 @@ export type BftStage = (typeof CANON_ORDER)[number]
  */
 export const QUEUE_ORDER = [
   'DEEP-REVIEW',
-  'DEEP-WORK',
-  'REVIEW-DONE',
   'FAST-DONE',
+  'NEED-CUSTDEV',
   'To Do',
 ] as const
 
 /** В очередь не попадают: работа по ним закончена. */
-export const HIDDEN_IN_QUEUE: ReadonlySet<BftStage> = new Set<BftStage>(['DEEP-DONE', 'Cancelled'])
+export const HIDDEN_IN_QUEUE: ReadonlySet<BftStage> = new Set<BftStage>(['DEEP-DONE', 'OKR-ADDED', 'BFT-CANCELED'])
 
 export function isStage(value: string): value is BftStage {
   return (CANON_ORDER as readonly string[]).includes(value)
@@ -91,11 +105,12 @@ export interface BftTaskSummary {
   /** Откуда взялась стадия. Видно в интерфейсе: догадка и факт — разное. */
   stageSource: 'backlog' | 'artifacts'
   /**
-   * Последняя сессия харнесса по требованию (журнал работы): идёт ли работа,
-   * ждёт ли PO, оборвалась ли — и когда трогали в последний раз. Нет —
+   * Последняя сессия по требованию (журнал работы): идёт ли работа, ждёт ли PO,
+   * оборвалась ли — и когда трогали в последний раз. `kind` — чей это чат:
+   * харнесса («Открыть чат») или Claude Code с детальной страницы. Нет —
    * из раздела по требованию ещё не работали.
    */
-  session?: { id: string; state: 'running' | 'idle' | 'failed' | 'gone'; lastActivityAt: string }
+  session?: { id: string; kind: 'harness' | 'claude'; state: 'running' | 'idle' | 'failed' | 'gone'; lastActivityAt: string }
 }
 
 /** Полное требование: то, что показывают превью и детальная страница. */

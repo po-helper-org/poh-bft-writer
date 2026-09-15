@@ -6,23 +6,28 @@
  * логика, которая может быть неверной, лежит в чистых модулях рядом и
  * проверяется без воркспейса.
  */
+import { randomUUID } from 'node:crypto'
 import { isAbsolute, join, relative, resolve } from 'node:path'
 import { applyBacklogEdits, planBacklogEdits, type BacklogEditResult } from './backlog-writer.js'
+import type { ChatEvent } from './chat-events.js'
+import { ClaudeChatService, type ChatPoll, type ChatRun, type ChatRunStatus } from './claude-chat.js'
 import type { BftPluginConfig } from './config.js'
 import { chooseCustdevDocument, chooseDocument, type DocumentKind } from './document-source.js'
 import {
-  DocumentOutsideWorkspaceError, InvalidTaskIdError, TaskNotFoundError,
+  ChatRunNotFoundError, ChatUnavailableError, DocumentOutsideWorkspaceError, InvalidTaskIdError,
+  OkrHandoffError, TaskNotFoundError,
 } from './errors.js'
 import { buildCreateDraft, buildHandoff, parseTaskViewJson, type Handoff } from './handoff.js'
-import type { BftTask } from './model.js'
+import { OKR_READY_STAGE, type BftTask } from './model.js'
+import { okrHandoffArgs, type OkrHandoff } from './okr-handoff.js'
 import { nodePorts, type BftPorts } from './ports.js'
 import { resolveDocsPath, scanWorkspace, type WorkspaceScan } from './reader.js'
 import {
   CONFIG_TEMPLATE, relativeConfigPaths, rewriteConfigPaths, sessionDirectory,
 } from './session-workspace.js'
 import {
-  attachSession, finishWork, lastFinished, markInterrupted, parseWorkLog, serializeWorkLog, startWork,
-  touchSession, WORKLOG_FILE, type SessionState, type WorkEntry, type WorkLog,
+  attachSession, finishWork, lastFinished, lastSession, markInterrupted, parseWorkLog, serializeWorkLog,
+  startWork, touchSession, WORKLOG_FILE, type SessionState, type WorkEntry, type WorkLog,
 } from './worklog.js'
 
 /** Какой документ эпика открывают: сам БФТ или скрипт CustDev-интервью. */
@@ -36,11 +41,45 @@ function isOutside(root: string, target: string): boolean {
   return rel !== '' && (rel.startsWith('..') || isAbsolute(rel))
 }
 
+/**
+ * Состояние сессии в журнале по исходу хода. `done` и остановка PO — «ждёт»;
+ * продолжение сессии, которой CLI не нашёл, — «удалена»: следующий ход откроет
+ * новую, а не будет биться в ту же ошибку. Признак — CLI запустился (не `error`
+ * порта), вышел с ненулевым кодом и не назвал сессию в `init` (снято с claude
+ * 2.1.236: `No conversation found with session ID`, exit 1, `result`
+ * error_during_execution без `init`). Остальные провалы — «прервалась».
+ */
+export function sessionStateAfter(run: ChatRun): SessionState {
+  if (run.status === 'done' || run.status === 'stopped') return 'idle'
+  const exit = run.events.find((event): event is Extract<ChatEvent, { kind: 'exit' }> => event.kind === 'exit')
+  const started = run.events.some(event => event.kind === 'init')
+  if (run.resumed && !started && exit && !exit.error && exit.code !== null && exit.code !== 0) return 'gone'
+  return 'failed'
+}
+
+/** Что детальная страница знает о ходе Claude Code по требованию. */
+export interface ChatStatus {
+  runId: string
+  status: ChatRunStatus
+  sessionId?: string
+}
+
 export class BftReader {
+  /**
+   * Чат через Claude Code CLI (issue #41). `null` — выключен: нет порта запуска
+   * процессов (тесты, среда без CLI) или `claudeBin: off` в профиле.
+   */
+  private readonly chat: ClaudeChatService | null
+
   constructor(
     private readonly config: BftPluginConfig,
     private readonly ports: BftPorts = nodePorts,
-  ) {}
+  ) {
+    const spawn = ports.spawnStreaming
+    this.chat = spawn && config.claudeBin
+      ? new ClaudeChatService({ bin: config.claudeBin, args: config.claudeArgs }, spawn, (run) => { this.chatFinished(run) })
+      : null
+  }
 
   private scan(): Promise<WorkspaceScan> {
     return scanWorkspace(this.config, this.ports)
@@ -63,6 +102,17 @@ export class BftReader {
    * «Создать документ», кончился документом, и следующий стартует с этого.
    */
   async reconcile(): Promise<{ scan: WorkspaceScan; edits: BacklogEditResult[] }> {
+    // Сверки идут по одной: запрос списка, ход агента харнесса и выход CLI Claude Code
+    // зовут её независимо, а две параллельные спланировали бы одну и ту же правку
+    // (`task edit --add-ref`) и написали бы её дважды.
+    const next = this.reconcileChain.then(() => this.reconcileNow())
+    this.reconcileChain = next.catch(() => undefined)
+    return next
+  }
+
+  private reconcileChain: Promise<unknown> = Promise.resolve()
+
+  private async reconcileNow(): Promise<{ scan: WorkspaceScan; edits: BacklogEditResult[] }> {
     const scan = await this.scan()
     const edits = await applyBacklogEdits(planBacklogEdits(scan.tasks, scan.docsPath), this.config, this.ports)
     if (!edits.length) return { scan, edits }
@@ -154,18 +204,70 @@ export class BftReader {
    * Документа ещё нет — это черновик создания: `/bft-fast` с источником из
    * задачи доски и слагом по её идентификатору; заодно в журнале открывается
    * отрезок, который закроет `reconcile`, когда документ появится. Документ
-   * есть — продолжение с последнего закрытого отрезка.
+   * есть — слэш-команда следующего навыка по артефактам и продолжение с
+   * последнего закрытого отрезка. `note` — правка PO из мини-промта детальной
+   * страницы: уходит в черновик обратной связью к документу.
    */
-  async handoff(id: string): Promise<Handoff> {
+  async handoff(id: string, note?: string): Promise<Handoff> {
     this.assertSlug(id)
     const scan = await this.scan()
     const task = scan.tasks.find(item => item.id === id)
     if (!task) throw new TaskNotFoundError(id)
-    if (task.artifactStage !== undefined) return buildHandoff(task, lastFinished(scan.workLog, id), this.config)
+    return this.handoffFor(scan, task, note)
+  }
 
-    const details = await this.boardDetails(id)
-    await this.startWork({ epic: id, stage: task.stage, startedAt: new Date().toISOString() })
-    return buildCreateDraft(task, details)
+  /** Черновик по уже сделанному скану: `chatStart` сканирует один раз, не трижды. */
+  private async handoffFor(scan: WorkspaceScan, task: BftTask, note?: string): Promise<Handoff> {
+    if (task.artifactStage !== undefined) {
+      // Пути в черновике — от каталога, из которого пойдёт чат (`sessionWorkspace`).
+      const chatDir = sessionDirectory(this.config.sessionPath, scan.docsPath)
+      return buildHandoff(task, lastFinished(scan.workLog, task.id), this.config, { chatDir, note })
+    }
+
+    const details = await this.boardDetails(task.id)
+    await this.startWork({ epic: task.id, stage: task.stage, startedAt: new Date().toISOString() })
+    return buildCreateDraft(task, details, note)
+  }
+
+  /**
+   * «Добавить в OKR»: готовый БФТ уходит в квартальное планирование.
+   *
+   * Пишется только на доску — стадия `OKR-ADDED`, план, комментарий, ссылки
+   * (см. `okr-handoff.ts`); файлы эпика не трогаются, по ним эта стадия не
+   * выводится. Условия жёсткие и названы словами: задача доски есть, стадия
+   * ровно `DEEP-DONE`. Не `>=`: из `OKR-ADDED` повторная передача перезаписала
+   * бы план, который PO мог уже править в плагине OKR.
+   *
+   * Успех записывается в журнал итогом «OKR-ADDED, квартал …» — тем же
+   * приёмом, каким `reconcile` записывает поднятую стадию. Открытый отрезок
+   * (чат по требованию) закрывается этим итогом; нет открытого — отрезок
+   * заводится и закрывается сразу: передача в OKR — событие, и следующий
+   * заход должен видеть, с чего он начинается.
+   */
+  async addToOkr(id: string, handoff: OkrHandoff): Promise<BftTask> {
+    this.assertSlug(id)
+    if (!this.config.backlogBin) throw new OkrHandoffError(id, 'доска Backlog.md выключена в настройках раздела')
+    const scan = await this.scan()
+    const task = scan.tasks.find(item => item.id === id)
+    if (!task) throw new TaskNotFoundError(id)
+    if (!task.board) throw new OkrHandoffError(id, 'у требования нет задачи на доске Backlog.md')
+    if (task.stage !== OKR_READY_STAGE) {
+      throw new OkrHandoffError(id, `в OKR передаётся только ${OKR_READY_STAGE}, а требование в стадии ${task.stage}`)
+    }
+
+    const args = okrHandoffArgs(id, handoff, task.board.refs)
+    const { stdout, stderr, code } = await this.ports.runCommand(this.config.backlogBin, args, this.config.workspaceRoot)
+    if (code !== 0) {
+      const first = `${stderr ?? ''}\n${stdout}`.split('\n').map(line => line.trim()).find(line => line !== '')
+      throw new OkrHandoffError(id, first ?? `backlog task edit: код ${code}`)
+    }
+
+    await this.updateLog((log) => {
+      const now = new Date().toISOString()
+      const opened = startWork(log, { epic: id, stage: task.stage, startedAt: now })
+      return finishWork(opened, id, now, `OKR-ADDED, квартал ${handoff.quarter}`)
+    })
+    return this.getTask(id)
   }
 
   /** Описание, приёмка и заметки задачи доски. Доски нет или CLI молчит — пустые детали, не ошибка. */
@@ -220,23 +322,122 @@ export class BftReader {
    * Каталог заводится, а в нём — `bft-config.md` с путями к документам,
    * пересчитанными относительно каталога: навыки читают конфиг из корня
    * рабочего пространства чата, и без него в каталоге `bft/` они не нашли бы
-   * ни документов, ни линтеров. Уже лежащий конфиг не трогается.
+   * ни документов, ни линтеров.
+   *
+   * Копия — производная от конфига корня воркспейса и следует за ним: PO
+   * дописал `wiki_space` или `tracker_projects` в корне — следующий ход по
+   * требованию видит их (`/bft-deliver` без них спрашивает каждый раз). Поэтому
+   * править нужно корневой файл, копию не редактируют. Корневого конфига нет —
+   * копия один раз собирается из шаблона и дальше не трогается: тогда она и
+   * есть единственный конфиг, и правки PO в ней — его.
    */
-  async sessionWorkspace(): Promise<string | null> {
+  async sessionWorkspace(knownDocsPath?: string): Promise<string | null> {
     if (this.config.sessionPath === '') return null
-    const docsPath = await resolveDocsPath(this.config, this.ports)
+    const docsPath = knownDocsPath ?? await resolveDocsPath(this.config, this.ports)
     const dir = sessionDirectory(this.config.sessionPath, docsPath)
     const absolute = resolve(this.config.workspaceRoot, dir)
     if (isOutside(this.config.workspaceRoot, absolute)) throw new DocumentOutsideWorkspaceError(dir)
 
     const configPath = join(absolute, 'bft-config.md')
-    if (await this.ports.readTextFile(configPath) === null) {
-      const base = (dir === '' ? null : await this.ports.readTextFile(join(this.config.workspaceRoot, 'bft-config.md')))
-        ?? CONFIG_TEMPLATE
-      const paths = relativeConfigPaths(dir, docsPath, this.config.indexPath, this.config.skillsPath)
-      await this.ports.writeTextFile(configPath, rewriteConfigPaths(base, paths))
-    }
+    const root = dir === '' ? null : await this.ports.readTextFile(join(this.config.workspaceRoot, 'bft-config.md'))
+    const current = await this.ports.readTextFile(configPath)
+    if (root === null && current !== null) return absolute
+    const paths = relativeConfigPaths(dir, docsPath, this.config.indexPath, this.config.skillsPath)
+    const next = rewriteConfigPaths(root ?? CONFIG_TEMPLATE, paths)
+    if (next !== current) await this.ports.writeTextFile(configPath, next)
     return absolute
+  }
+
+  // ——— Чат по требованию через Claude Code CLI (issue #41) ———
+
+  /**
+   * Ход по требованию. Сессия Claude Code известна до запуска: прошлая — из
+   * журнала (`--resume`), новая — сгенерированный UUID (`--session-id`); так
+   * журнал и «Последняя сессия» не ждут первого события. cwd — рабочее
+   * пространство чатов, где лежит `bft-config.md`; корень воркспейса открыт CLI
+   * через `--add-dir`, потому что документы и навыки лежат выше.
+   *
+   * Что уходит CLI. Новая сессия — черновик навыка (`handoff`, тот же, что
+   * раньше шёл в композер харнесса), с текстом PO как правкой к документу.
+   * Сессия продолжается — текст PO идёт **как есть**: это ответ в тот же
+   * диалог («ок» на сухой прогон отгрузки, значения на уточняющие вопросы,
+   * следующая правка), и заворачивать его в черновик значило бы задавать модели
+   * вопрос заново вместо ответа. Пустое поле в продолжаемой сессии — черновик
+   * следующего шага по артефактам (например, `/bft-deliver` после deep).
+   */
+  async chatStart(id: string, note?: string): Promise<ChatStatus> {
+    const chat = this.requireChat()
+    this.assertSlug(id)
+    const scan = await this.scan()
+    const task = scan.tasks.find(item => item.id === id)
+    if (!task) throw new TaskNotFoundError(id)
+    const previous = lastSession(scan.workLog, id)
+    // `gone` — прошлую сессию CLI не нашёл (см. chatFinished): дальше новая, а не та же ошибка.
+    const resume = previous?.kind === 'claude' && previous.state !== 'gone' ? previous.id : undefined
+    const text = note?.trim()
+    const prompt = resume && text ? text : (await this.handoffFor(scan, task, note)).prompt
+    const cwd = (await this.sessionWorkspace(scan.docsPath)) ?? this.config.workspaceRoot
+    const sessionId = resume ?? randomUUID()
+    const started = chat.start(id, prompt, cwd, {
+      resume,
+      newSessionId: resume ? undefined : sessionId,
+      addDir: cwd === this.config.workspaceRoot ? undefined : this.config.workspaceRoot,
+    })
+    await this.updateLog(log => attachSession(log, id, task.stage, sessionId, new Date().toISOString(), 'claude', 'running'))
+    return { runId: started.runId, status: 'running', sessionId }
+  }
+
+  /** Хвост событий хода с позиции `since` — для опроса с детальной страницы. */
+  chatPoll(runId: string, since: number): ChatPoll {
+    const poll = this.requireChat().poll(runId, since)
+    if (!poll) throw new ChatRunNotFoundError(runId)
+    return poll
+  }
+
+  chatStop(runId: string): boolean {
+    return this.requireChat().stop(runId)
+  }
+
+  /** Последний ход по требованию — идущий подхватывается страницей, открытой заново. */
+  chatStatus(id: string): ChatStatus | null {
+    this.assertSlug(id)
+    const run = this.chat?.latestFor(id)
+    return run ? { runId: run.runId, status: run.status, sessionId: run.sessionId } : null
+  }
+
+  /** Есть ли чат через Claude Code в этой среде — страница показывает поле ввода только тогда. */
+  chatAvailable(): boolean {
+    return this.chat !== null
+  }
+
+  private requireChat(): ClaudeChatService {
+    if (!this.chat) throw new ChatUnavailableError()
+    return this.chat
+  }
+
+  /** Раздел выгружается: живые CLI гасятся, иначе они переживут узел и продолжат править файлы. */
+  dispose(): void {
+    this.chat?.stopAll()
+  }
+
+  /**
+   * CLI завершился: журнал — «ждёт» или «прервалась», доска — сверка по
+   * артефактам, как после хода агента харнесса (там её зовёт `agent/status`,
+   * которого у внешнего процесса нет). Ошибки — в консоль: ход уже завершён,
+   * ронять ответ клиенту нечем и незачем.
+   */
+  private chatFinished(run: ChatRun): void {
+    const state = sessionStateAfter(run)
+    const sessionId = run.sessionId
+    const log = sessionId ? this.touchSession(sessionId, state) : Promise.resolve()
+    log
+      .then(() => this.reconcile())
+      .then(({ edits }) => {
+        for (const edit of edits) {
+          if (!edit.ok) console.warn(`[poh-bft-plugin] доска не обновлена: ${edit.id}: ${edit.error ?? ''}`)
+        }
+      })
+      .catch((error: unknown) => { console.warn('[poh-bft-plugin] после хода Claude Code:', error) })
   }
 
   /**
