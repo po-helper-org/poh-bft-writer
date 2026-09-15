@@ -65,7 +65,8 @@ export function SessionSummary(
             {t('previewSessionOpen')}
           </button>
           )
-        : <p>{t('previewSessionGone')}</p>}
+        // Сессия Claude Code в харнессе не открывается — её чат на детальной странице.
+        : <p>{t(session.kind === 'claude' ? 'previewSessionClaude' : 'previewSessionGone')}</p>}
     </>
   )
 }

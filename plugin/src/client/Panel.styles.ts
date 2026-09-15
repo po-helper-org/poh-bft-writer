@@ -77,6 +77,7 @@ export const panelClassNames = {
   previewFieldValue: 'bft-preview-field-value',
   previewLink: 'bft-preview-link',
   previewLinkButton: 'bft-preview-link-button',
+  previewStageHint: 'bft-preview-stage-hint',
   previewList: 'bft-preview-list',
   previewFooter: 'bft-preview-footer',
   // Детальная страница (Task 3): полноэкранная поверх приложения, тот же приём соседней панели
@@ -90,6 +91,25 @@ export const panelClassNames = {
   detailFrame: 'bft-detail-frame',
   detailDocSwitch: 'bft-detail-doc-switch',
   detailTextarea: 'bft-detail-textarea',
+  // Чат с Claude Code на детальной странице (issue #41, DetailChat.tsx) и анимация
+  // проработки поверх документа, пока ход идёт.
+  chat: 'bft-chat',
+  chatLog: 'bft-chat-log',
+  chatLine: 'bft-chat-line',
+  chatText: 'bft-chat-text',
+  chatTool: 'bft-chat-tool',
+  chatToolState: 'bft-chat-tool-state',
+  chatEmpty: 'bft-chat-empty',
+  chatStatus: 'bft-chat-status',
+  chatResult: 'bft-chat-result',
+  chatError: 'bft-chat-error',
+  chatActions: 'bft-chat-actions',
+  chatHint: 'bft-chat-hint',
+  chatLinks: 'bft-chat-links',
+  chatPulse: 'bft-chat-pulse',
+  docWorking: 'bft-doc-working',
+  docWorkingBar: 'bft-doc-working-bar',
+  docWorkingPill: 'bft-doc-working-pill',
   // Футер списка панели (Task 4): держит кнопку «Статус проработки» вне скроллящегося
   // .body — сама кнопка теперь настоящий <Button variant="outline"> (Task 4 визуального
   // выравнивания, см. Panel.tsx), здесь только контейнер-полоска.
@@ -102,6 +122,16 @@ export const panelClassNames = {
   boardColumn: 'bft-board-column',
   boardColumnHeader: 'bft-board-column-header',
   boardColumnBody: 'bft-board-column-body',
+  boardCard: 'bft-board-card',
+  boardCardActions: 'bft-board-card-actions',
+  // Окно «Добавить в OKR» (OkrDialog.tsx) поверх доски.
+  okrDialog: 'bft-okr-dialog',
+  okrContent: 'bft-okr-content',
+  okrSectionTitle: 'bft-okr-section-title',
+  okrPlanTable: 'bft-okr-plan-table',
+  okrPlanRow: 'bft-okr-plan-row',
+  okrPhaseLabel: 'bft-okr-phase-label',
+  okrComment: 'bft-okr-comment',
   // Кнопка раздела в подвале сайдбара (sidebar.footer.action, index.tsx: RequirementsButton) —
   // геометрия и имена классов скопированы 1:1 с эталона того же слота, соседнего плагина
   // харнесса ui-cordis: harness-ui/packages/extensions/ui-cordis/src/client/CordisPanel.tsx
@@ -440,6 +470,9 @@ export const panelStyleText = `
   font: inherit; color: var(--dsw-alias-button-info-fill); text-decoration: underline;
 }
 @media (hover: hover) and (pointer: fine) { .${c.previewLinkButton}:hover { text-decoration: none; } }
+/* Стадия с доски выше стадии по файлам: подпись «по артефактам: …» рядом со стадией,
+   тем же кеглем подписи поля — это уточнение, а не второе значение. */
+.${c.previewStageHint} { font-size: 11px; line-height: 15px; color: var(--dsw-alias-label-caption); }
 
 .${c.previewList} {
   margin: 0;
@@ -492,9 +525,12 @@ export const panelStyleText = `
 }
 
 .${c.detailLeft} {
+  /* position: relative — якорь для плёнки проработки (.docWorking), которая накрывает документ. */
+  position: relative;
   flex: 3 1 480px;
   min-width: 320px;
   min-height: 320px;
+  max-height: 100%;
   display: flex;
   flex-direction: column;
   border-radius: 14px;
@@ -502,14 +538,184 @@ export const panelStyleText = `
   box-shadow: 0 0 0 0.5px var(--dsw-alias-border-l2);
 }
 
+/* Правая колонка шире прежней (380px): в ней теперь живёт транскрипт чата, а не только
+   стадия и поле ввода. Прокручивается сам транскрипт (.chatLog), не колонка — для этого
+   колонке нужен потолок: .detailBody переносит колонки (flex-wrap), а у многострочного
+   flex-контейнера высота строки — по содержимому, не по контейнеру, и без max-height
+   транскрипт растил колонку до 1300px, унося поле ввода за край (проверено вживую). */
 .${c.detailRight} {
-  flex: 1 1 280px;
-  min-width: 260px;
-  max-width: 380px;
+  flex: 1 1 320px;
+  min-width: 280px;
+  max-width: 460px;
+  max-height: 100%;
   display: flex;
   flex-direction: column;
   gap: 14px;
+  min-height: 0;
+}
+
+/* ——— Чат с Claude Code (issue #41, DetailChat.tsx) ——— */
+
+.${c.chat} {
+  flex: 1;
+  min-height: 240px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.${c.chatLog} {
+  flex: 1;
+  min-height: 120px;
   overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-base);
+  box-shadow: 0 0 0 0.5px var(--dsw-alias-border-l2);
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.${c.chatLine} { display: flex; flex-direction: column; gap: 4px; max-width: 100%; }
+.${c.chatLine}[data-kind="user"] {
+  align-self: flex-end;
+  max-width: 92%;
+  padding: 6px 10px;
+  border-radius: 12px 12px 4px 12px;
+  background: var(--dsw-specific-selector);
+}
+/* Черновик длинный (команда навыка, стадия, правка): показываем целиком, но не даём ему
+   вытеснить ответ — ограниченная высота с прокруткой внутри пузыря. */
+.${c.chatLine}[data-kind="user"] .${c.chatText} { max-height: 160px; overflow: auto; }
+.${c.chatLine}[data-kind="assistant"] { align-self: stretch; padding: 2px 0; }
+.${c.chatLine}[data-kind="assistant"][data-streaming] .${c.chatText}::after {
+  content: '▍';
+  color: var(--dsw-alias-label-caption);
+  animation: bft-chat-caret 1s steps(2, start) infinite;
+}
+.${c.chatLine}[data-kind="error"] { color: var(--dsw-alias-state-error-primary); }
+.${c.chatLine}[data-kind="tool"] {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--dsw-alias-label-caption);
+}
+.${c.chatLine}[data-kind="tool"][data-failed] { color: var(--dsw-alias-state-error-primary); }
+.${c.chatLine}[data-kind="tool"][data-running] .${c.chatTool} { animation: bft-panel-skeleton-pulse 1.2s ease-in-out infinite; }
+
+.${c.chatText} {
+  margin: 0;
+  font: inherit;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.${c.chatTool} {
+  font-family: var(--dsw-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: var(--dsw-specific-selector);
+}
+.${c.chatToolState} { font-size: 11px; }
+
+.${c.chatEmpty}, .${c.chatStatus} {
+  margin: 0;
+  color: var(--dsw-alias-label-caption);
+  font-size: 12px;
+}
+.${c.chatStatus} { display: inline-flex; align-items: center; gap: 6px; }
+.${c.chatResult} {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding-top: 6px;
+  border-top: 0.5px solid var(--dsw-alias-border-l1);
+}
+.${c.chatResult}[data-status="failed"] .${c.chatStatus} { color: var(--dsw-alias-state-error-primary); }
+.${c.chatError} {
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--dsw-alias-state-error-primary);
+}
+.${c.chatActions} { display: flex; gap: 8px; flex: none; }
+.${c.chatHint} { margin: -4px 0 0; font-size: 11px; line-height: 14px; color: var(--dsw-alias-label-caption); }
+/* Ссылки итога (эпик, страница) — по одной в строке, длинный URL переносится. */
+.${c.chatLinks} { margin: 0; display: flex; flex-direction: column; gap: 4px; font-size: 12px; overflow-wrap: anywhere; }
+
+/* Пульсирующая точка «идёт работа»: та же точка, что у сессии, только живая. */
+.${c.chatPulse} {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--dsw-alias-button-info-fill);
+  animation: bft-chat-pulse 1.2s ease-in-out infinite;
+  flex: none;
+}
+
+/* Плёнка проработки поверх документа: документ читается сквозь неё, полоса бежит сверху,
+   подпись держится по центру. pointer-events: none — PO может прокручивать документ. */
+.${c.docWorking} {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--dsw-alias-bg-base) 35%, transparent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.${c.docWorkingBar} {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  overflow: hidden;
+  background: var(--dsw-alias-border-l1);
+}
+.${c.docWorkingBar}::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 35%;
+  border-radius: 2px;
+  background: var(--dsw-alias-button-info-fill);
+  animation: bft-doc-working-bar 1.4s ease-in-out infinite;
+}
+.${c.docWorkingPill} {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  font-size: 13px;
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-bg-layer-3);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.12), 0 0 0 0.5px var(--dsw-alias-border-l2);
+}
+
+@keyframes bft-chat-pulse {
+  0%, 100% { transform: scale(0.8); opacity: 0.5; }
+  50% { transform: scale(1.15); opacity: 1; }
+}
+@keyframes bft-chat-caret {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+@keyframes bft-doc-working-bar {
+  0% { left: -35%; }
+  100% { left: 100%; }
 }
 
 .${c.detailFrame} { flex: 1; width: 100%; height: 100%; border: none; }
@@ -595,6 +801,65 @@ export const panelStyleText = `
   display: flex;
   flex-direction: column;
 }
+
+/* Карточка доски: строка требования (.item, как в списке панели) и под ней — ряд действий,
+   который есть только у DEEP-DONE («Добавить в OKR», Board.tsx). Кнопка внутри <button>
+   недопустима, поэтому строка и действия — соседи в одной обёртке; полоса стадии слева
+   рисуется на обёртке целиком, а не на строке (иначе под кнопкой она обрывалась бы). */
+.${c.boardCard} {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+.${c.boardCard} + .${c.boardCard} { border-top: 0.5px solid var(--dsw-alias-border-l1); }
+.${c.boardCard}::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--tone); }
+.${c.boardCard} > .${c.item}::before { content: none; }
+.${c.boardCardActions} { display: flex; padding: 0 10px 9px 14px; }
+
+/* Окно «Добавить в OKR» (OkrDialog.tsx): само окно — Modal харнесса, здесь только ширина
+   под таблицу планирования и прокрутка тела, чтобы на низком экране кнопки подвала не
+   уезжали за край. Секции и таблица фаз — та же геометрия, что у карточки KR плагина OKR. */
+.${c.okrDialog} {
+  width: min(640px, 100%);
+  max-height: calc(100vh - 48px);
+}
+.${c.okrContent} {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+.${c.okrSectionTitle} {
+  margin: 8px 0 0;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--dsw-alias-label-primary);
+}
+.${c.okrPlanTable} { display: flex; flex-direction: column; gap: 6px; padding: 8px 0; }
+.${c.okrPlanRow} {
+  display: grid;
+  grid-template-columns: 88px 1fr 1fr;
+  gap: 8px;
+  align-items: center;
+}
+.${c.okrPhaseLabel} {
+  font: 11px/15px var(--ds-font-family-code);
+  letter-spacing: 0.04em;
+  color: var(--dsw-alias-label-caption);
+}
+.${c.okrComment} {
+  min-height: 72px;
+  padding: 8px 12px;
+  border: 0.5px solid var(--dsw-alias-border-l4);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-3);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--dsw-alias-label-primary);
+  resize: vertical;
+}
+.${c.okrComment}:focus-visible { outline: none; border-color: var(--dsw-alias-brand-primary); }
 
 /* Кнопка раздела в подвале сайдбара (sidebar.footer.action, index.tsx: RequirementsButton).
    Значения — дословно с эталона того же слота, соседнего плагина харнесса ui-cordis:
@@ -839,7 +1104,7 @@ export const panelStyleText = `
   margin: 0;
   font-size: 12px;
   line-height: 1.5;
-  color: var(--dsw-alias-label-error);
+  color: var(--dsw-alias-state-error-primary);
 }
 
 .${c.cardDiscard}, .${c.cardSave} {
@@ -958,7 +1223,7 @@ export const panelStyleText = `
   color: var(--dsw-alias-label-tertiary);
   cursor: default;
 }
-.${c.fieldInvalidInput} { border-color: var(--dsw-alias-label-error); }
+.${c.fieldInvalidInput} { border-color: var(--dsw-alias-state-error-primary); }
 
 .${c.fieldHint} {
   margin: 0;
@@ -971,6 +1236,6 @@ export const panelStyleText = `
   margin: 0;
   font-size: 12px;
   line-height: 1.5;
-  color: var(--dsw-alias-label-error);
+  color: var(--dsw-alias-state-error-primary);
 }
 `

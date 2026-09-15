@@ -28,6 +28,12 @@
 # skill-root воркспейса (например `.claude/skills`), только чтобы записать
 # `skills_path` в bft-config.md рабочего пространства чатов; умолчания нет.
 #
+# claudeBin / claudeArgs — чат по требованию с детальной страницы через Claude Code
+# CLI (issue #41). Умолчание `claude` из PATH и права acceptEdits + Bash(python3:*) +
+# Bash(backlog:*) живут в коде (src/config.ts) по той же причине, что backlogBin;
+# профиль под launchd задаёт абсолютный путь. `claudeBin: off` выключает чат — «В чат»
+# тогда кладёт черновик в композер харнесса.
+#
 # Секретов здесь быть не должно: файл лежит в репозитории.
 - insert:
     - id: bft-requirements

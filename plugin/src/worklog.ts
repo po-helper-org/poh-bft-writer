@@ -31,6 +31,14 @@ export const WORKLOG_VERSION = 1
  */
 export type SessionState = 'running' | 'idle' | 'failed' | 'gone'
 
+/**
+ * Где живёт сессия: `harness` — чат самого DeepSeek Harness (по нему PO
+ * возвращается кнопкой «Открыть чат»); `claude` — сессия Claude Code CLI, которую
+ * раздел ведёт сам с детальной страницы (issue #41) и продолжает `--resume`.
+ * Отсутствие — записи до появления второго вида, все они харнесса.
+ */
+export type SessionKind = 'harness' | 'claude'
+
 export interface WorkEntry {
   epic: string
   /** Стадия на момент начала отрезка. */
@@ -42,8 +50,9 @@ export interface WorkEntry {
   summary?: string
   /** Ветка entire.io с контекстным чатом этого отрезка. */
   contextRef?: string
-  /** Сессия харнесса, в которой шёл отрезок: по ней PO возвращается в тот же чат. */
+  /** Сессия, в которой шёл отрезок: по ней PO возвращается в тот же чат. */
   sessionId?: string
+  sessionKind?: SessionKind
   sessionState?: SessionState
   /** Последнее движение в сессии — ход агента, отправка PO, открытие черновика. */
   lastActivityAt?: string
@@ -52,6 +61,7 @@ export interface WorkEntry {
 /** Последняя сессия по требованию — то, что показывают в строке очереди и превью. */
 export interface TaskSession {
   id: string
+  kind: SessionKind
   state: SessionState
   lastActivityAt: string
 }
@@ -133,9 +143,11 @@ export function attachSession(
   stage: BftStage,
   sessionId: string,
   at: string,
+  kind: SessionKind = 'harness',
+  state: SessionState = 'idle',
 ): WorkLog {
   const open = openEntry(log, epic)
-  const patch = { sessionId, sessionState: 'idle' as const, lastActivityAt: at }
+  const patch = { sessionId, sessionKind: kind, sessionState: state, lastActivityAt: at }
   if (open) {
     return { ...log, entries: log.entries.map(entry => (entry === open ? { ...entry, ...patch } : entry)) }
   }
@@ -180,7 +192,12 @@ export function lastSession(log: WorkLog, epic: string): TaskSession | null {
     if (!best || at > bestAt) best = entry
   }
   if (!best?.sessionId) return null
-  return { id: best.sessionId, state: best.sessionState ?? 'idle', lastActivityAt: best.lastActivityAt ?? best.startedAt }
+  return {
+    id: best.sessionId,
+    kind: best.sessionKind ?? 'harness',
+    state: best.sessionState ?? 'idle',
+    lastActivityAt: best.lastActivityAt ?? best.startedAt,
+  }
 }
 
 /** Закрыть отрезок эпика. Открытого нет — журнал не меняется. */
