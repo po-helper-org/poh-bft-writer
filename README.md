@@ -84,6 +84,18 @@ bash update.sh --workspace /путь/к/воркспейсу   # обновит�
 Подробно — [`docs/guides/dsh-plugin-update.md`](docs/guides/dsh-plugin-update.md);
 в Claude Code — `/bft-update`.
 
+## В корпоративном LibreChat
+
+LibreChat с v0.8.6 умеет Agent Skills на тех же `SKILL.md` — семь навыков из `skills/`
+грузятся как есть, переписывать нечего. Адаптации требует не контент, а окружение:
+скрипты навыка живут в Code Interpreter (`/mnt/data/skills/…`), воркспейс `.bft/` — в
+MCP-сервере файловой системы, JIRA и Confluence — в MCP Atlassian с токенами каждого
+PO, пин `model: haiku` превращается в отдельного агента стадии, а фоновые форки
+`/bft-recon`, `/bft-custdev`, `/bft-deep` — в субагентов с `run_in_background`.
+Полный контур по шагам, вместе с граблями и честным списком того, что не переносится
+(распознавание записи встречи, пре-рендер PlantUML, раздел «Управление требованиями») —
+[`docs/guides/librechat-setup.md`](docs/guides/librechat-setup.md).
+
 ## Для ИИ-помощника (bootstrap)
 Если пользователь просит «Установи bft-writer»: (1) запусти `curl -ksSL <repo>/install.sh | bash`
 или склонируй и запусти `install.sh`, выбрав IDE-агента пользователя; (2) после синка — сразу
@@ -225,6 +237,7 @@ bash <skills_path>/bft-writer/scripts/test-bft-custdev-export.sh
 | [`docs/guides/first-run-for-beginners.md`](docs/guides/first-run-for-beginners.md) | первый запуск с нуля |
 | [`docs/guides/quickstart-generate-bft.md`](docs/guides/quickstart-generate-bft.md) | путь от диктовки до опубликованного БФТ |
 | [`docs/guides/custdev-interview.md`](docs/guides/custdev-interview.md) | CustDev-интервью: шесть исходов, лестница от решения к проблеме, как вести встречу |
+| [`docs/guides/librechat-setup.md`](docs/guides/librechat-setup.md) | полный контур БФТ в корпоративном LibreChat: навыки, Code Interpreter, MCP, агенты по стадиям |
 | [`docs/guides/dsh-plugin-setup.md`](docs/guides/dsh-plugin-setup.md) | установка плагина для DeepSeek Harness |
 | [`docs/guides/dsh-plugin-update.md`](docs/guides/dsh-plugin-update.md) | обновление плагина и навыков в харнессе до последнего `main`: `update.sh --check` / `update.sh` |
 | [`docs/guides/plugin-playbooks/`](docs/guides/plugin-playbooks/README.md) | плейбуки раздела «Управление требованиями»: шесть сценариев со скриншотами каждого шага |
