@@ -18,6 +18,9 @@ PROFILE="$SRC/docs/guides/librechat/agent-profile.md"
 command -v zip >/dev/null || { echo "Нужен zip: brew install zip / apt install zip"; exit 1; }
 
 mkdir -p "$OUT"
+# Абсолютный путь обязателен: бандл архивируется из $SRC/skills (иначе SKILL.md ляжет
+# слишком глубоко), и относительный $OUT резолвился бы уже от него.
+OUT="$(cd "$OUT" && pwd)"
 echo -e "${BLUE}Собираю в $OUT${NC}"
 
 for skill_src in "$SRC"/skills/*/; do
