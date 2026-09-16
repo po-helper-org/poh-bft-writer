@@ -37,9 +37,11 @@ for skill_src in "$SRC"/skills/*/; do
     awk 'BEGIN{fm=0} NR==1 && /^---$/ {fm=1; next} fm==1 && /^---$/ {fm=0; next} fm==0 {print}' "$skill_src/SKILL.md"
   } > "$OUT/instructions-$name.md"
 
-  printf "  %-16s %6s КБ zip  %6s симв. инструкция\n" "$name" \
-    "$(( ($(wc -c < "$OUT/$name.zip") + 1023) / 1024 ))" \
-    "$(wc -m < "$OUT/instructions-$name.md" | tr -d ' ')"
+  # Размеры — в килобайтах: wc -m без UTF-8-локали считает байты, а не символы,
+  # и на кириллице завышает вдвое.
+  printf "  %-16s %4s КБ zip   %4s КБ инструкция\n" "$name" \
+    "$(( ($(wc -c < "$OUT/$name.zip") + 512) / 1024 ))" \
+    "$(( ($(wc -c < "$OUT/instructions-$name.md") + 512) / 1024 ))"
 done
 
 echo -e "${GREEN}✔ Готово${NC}"
