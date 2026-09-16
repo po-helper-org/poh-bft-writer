@@ -28,6 +28,9 @@ description: Генератор БФТ (бизнес-функциональны�
 ```
 /bft-fast <источник>   → письмо в чат + personas.csv + requirements.csv
                          + документ-шапка <epic>-fast.md              [СТОП: PO ревьюит]
+                         (источник — Summary, транскрипт, задача Backlog.md
+                          или запись встречи: аудио распознаётся локально,
+                          bft-transcribe.py / ручной путь /bft-transcribe)
         ↓                (фоном форкаются /bft-recon и /bft-deep)
 /bft-deep <epic>       → аудит шапки против трекера/вики/индекса,
                          вопросы к PO, затем канон MTS в <epic>.md    [СТОП: ответы PO]
