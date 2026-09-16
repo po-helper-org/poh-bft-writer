@@ -96,6 +96,11 @@ PO, пин `model: haiku` превращается в отдельного аг�
 (распознавание записи встречи, пре-рендер PlantUML, раздел «Управление требованиями») —
 [`docs/guides/librechat-setup.md`](docs/guides/librechat-setup.md).
 
+Прав администратора нет — рабочее место с подключёнными MCP JIRA и Confluence и
+больше ничем? Навыки ставятся мышкой за 10 минут: `bash librechat-pack.sh` собирает
+архивы навыков и готовые инструкции для агента, дальше — по
+[`docs/guides/librechat-user-setup.md`](docs/guides/librechat-user-setup.md).
+
 ## Для ИИ-помощника (bootstrap)
 Если пользователь просит «Установи bft-writer»: (1) запусти `curl -ksSL <repo>/install.sh | bash`
 или склонируй и запусти `install.sh`, выбрав IDE-агента пользователя; (2) после синка — сразу
@@ -237,6 +242,7 @@ bash <skills_path>/bft-writer/scripts/test-bft-custdev-export.sh
 | [`docs/guides/first-run-for-beginners.md`](docs/guides/first-run-for-beginners.md) | первый запуск с нуля |
 | [`docs/guides/quickstart-generate-bft.md`](docs/guides/quickstart-generate-bft.md) | путь от диктовки до опубликованного БФТ |
 | [`docs/guides/custdev-interview.md`](docs/guides/custdev-interview.md) | CustDev-интервью: шесть исходов, лестница от решения к проблеме, как вести встречу |
+| [`docs/guides/librechat-user-setup.md`](docs/guides/librechat-user-setup.md) | LibreChat глазами обычного пользователя: без прав админа, за 10 минут, `librechat-pack.sh` |
 | [`docs/guides/librechat-setup.md`](docs/guides/librechat-setup.md) | полный контур БФТ в корпоративном LibreChat: навыки, Code Interpreter, MCP, агенты по стадиям |
 | [`docs/guides/dsh-plugin-setup.md`](docs/guides/dsh-plugin-setup.md) | установка плагина для DeepSeek Harness |
 | [`docs/guides/dsh-plugin-update.md`](docs/guides/dsh-plugin-update.md) | обновление плагина и навыков в харнессе до последнего `main`: `update.sh --check` / `update.sh` |
