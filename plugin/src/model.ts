@@ -10,10 +10,13 @@
  * Стадии проработки БФТ. Порядок объявления — хронологический.
  *
  * `NEED-CUSTDEV` — процессное состояние, а не факт на диске: скрипт интервью
- * стадию не двигает (см. `BftArtifacts.custdev`), и ставит его PO. `OKR-ADDED`
- * — БФТ передан в планирование OKR: ставится кнопкой «Добавить в OKR» с доски
- * (см. `okr-handoff.ts`), выше него стадии нет. `BFT-CANCELED` — терминальная
- * отмена решением PO, в хронологию не входит и объявлена последней.
+ * стадию не двигает (см. `BftArtifacts.custdev`), и ставит его PO. Всё после
+ * `DEEP-DONE` — тоже состояния процесса, их ставят кнопки доски
+ * (`okr-handoff.ts`, `board-transition.ts`), по файлам они не выводятся:
+ * `OKR-ADDED` — БФТ передан в планирование OKR; `OKR-DONE` — реализован в
+ * рамках OKR; `OKR-VLET` — взят в работу влётом, минуя квартальный план.
+ * `BFT-CANCELED` — терминальная отмена решением PO, в хронологию не входит и
+ * объявлена последней.
  */
 export const CANON_ORDER = [
   'To Do',
@@ -22,6 +25,8 @@ export const CANON_ORDER = [
   'DEEP-REVIEW',
   'DEEP-DONE',
   'OKR-ADDED',
+  'OKR-DONE',
+  'OKR-VLET',
   'BFT-CANCELED',
 ] as const
 
@@ -30,9 +35,13 @@ export type BftStage = (typeof CANON_ORDER)[number]
 /** Терминальная отмена: старше любого файла, не трогается ни в какую сторону. */
 export const CANCELED_STAGE: BftStage = 'BFT-CANCELED'
 
-/** Стадия, с которой БФТ передаётся в OKR, и стадия после передачи. */
+/** Стадия, с которой БФТ передаётся в OKR (или влётом), и стадия после передачи. */
 export const OKR_READY_STAGE: BftStage = 'DEEP-DONE'
 export const OKR_ADDED_STAGE: BftStage = 'OKR-ADDED'
+/** Инициатива реализована в рамках OKR — ставится кнопкой «Готово» с карточки OKR-ADDED. */
+export const OKR_DONE_STAGE: BftStage = 'OKR-DONE'
+/** Инициатива взята влётом, минуя квартальный план, — кнопкой «Оформить влётом» с DEEP-DONE. */
+export const OKR_VLET_STAGE: BftStage = 'OKR-VLET'
 
 /**
  * Порядок в панели: ближе к финалу — выше, чтобы PO дожимал почти готовое.
@@ -46,7 +55,9 @@ export const QUEUE_ORDER = [
 ] as const
 
 /** В очередь не попадают: работа по ним закончена. */
-export const HIDDEN_IN_QUEUE: ReadonlySet<BftStage> = new Set<BftStage>(['DEEP-DONE', 'OKR-ADDED', 'BFT-CANCELED'])
+export const HIDDEN_IN_QUEUE: ReadonlySet<BftStage> = new Set<BftStage>([
+  'DEEP-DONE', 'OKR-ADDED', 'OKR-DONE', 'OKR-VLET', 'BFT-CANCELED',
+])
 
 export function isStage(value: string): value is BftStage {
   return (CANON_ORDER as readonly string[]).includes(value)

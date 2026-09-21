@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { BftReader } from '../src/bft-reader.js'
 import { loadConfig } from '../src/config.js'
-import { ChatBusyError, ChatRunNotFoundError, ChatUnavailableError, DocumentOutsideWorkspaceError, InvalidTaskIdError, OkrHandoffError, TaskNotFoundError } from '../src/errors.js'
+import { ChatBusyError, ChatRunNotFoundError, ChatUnavailableError, DocumentOutsideWorkspaceError, InvalidTaskIdError, OkrHandoffError, StageTransitionError, TaskNotFoundError } from '../src/errors.js'
 import type { BftPorts, StreamSink } from '../src/ports.js'
 
 const ENV = { BFT_WORKSPACE_ROOT: '/ws', BFT_ENTIRE_BASE_URL: 'https://entire.io/t' }
@@ -554,4 +554,69 @@ test('сверки не идут параллельно: вторая ждёт �
   })
   await Promise.all([reader.reconcile(), reader.reconcile(), reader.listTasks()])
   assert.equal(overlap, 0)
+})
+
+// ── Переходы с доски: влёт, готово, отказ ─────────────────────────────────────
+
+test('отказ: стадия BFT-CANCELED и «Причина:» в заметках, отрезок закрыт итогом', async () => {
+  const tree: Record<string, string[] | string> = { ...DEEP_TREE }
+  const board = [{ id: 'PO-140', title: 'БФТ: Признак заказа', status: 'DEEP-DONE', references: ['.bft/documentation/po-140/po-140.html'] }]
+  const calls: string[][] = []
+  const reader = new BftReader(loadConfig(ENV_BOARD), boardPorts(tree, board, calls))
+
+  const task = await reader.transition('PO-140', { kind: 'cancel', who: 'Иванов', comment: 'заказчик отозвал' })
+  assert.equal(task.stage, 'BFT-CANCELED')
+  assert.equal(task.stageSource, 'backlog')
+  assert.deepEqual(calls.find(c => c[1] === 'edit'), [
+    'task', 'edit', 'PO-140', '-s', 'BFT-CANCELED', '--append-notes', 'Причина: Иванов — заказчик отозвал', '--plain',
+  ])
+  const log = await reader.readWorkLog()
+  assert.deepEqual(log.entries.map(e => [e.epic, e.stage, e.summary]), [['PO-140', 'DEEP-DONE', 'BFT-CANCELED, Причина: Иванов — заказчик отозвал']])
+
+  // Отмена терминальна: сверка после неё доску не трогает даже ради ссылки на эпик.
+  const { edits } = await reader.reconcile()
+  assert.deepEqual(edits, [])
+})
+
+test('влёт с DEEP-DONE и готово с OKR-ADDED; из другой стадии — отказ словами', async () => {
+  // Доска-подделка применяет правки к переданному списку — каждому запуску свой список.
+  const deepDone = () => [{ id: 'PO-140', title: 'X', status: 'DEEP-DONE', references: [] }]
+  const added = () => [{ id: 'PO-140', title: 'X', status: 'OKR-ADDED', references: [] }]
+
+  const vlet = await new BftReader(loadConfig(ENV_BOARD), boardPorts({ ...DEEP_TREE }, deepDone())).transition('PO-140', { kind: 'vlet', who: '', comment: '' })
+  assert.equal(vlet.stage, 'OKR-VLET')
+
+  const done = await new BftReader(loadConfig(ENV_BOARD), boardPorts({ ...DEEP_TREE }, added())).transition('PO-140', { kind: 'okrDone', who: '', comment: 'выкатили' })
+  assert.equal(done.stage, 'OKR-DONE')
+
+  // Готово — только из OKR-ADDED; отказ — только из DEEP-DONE.
+  await assert.rejects(
+    () => new BftReader(loadConfig(ENV_BOARD), boardPorts({ ...DEEP_TREE }, deepDone())).transition('PO-140', { kind: 'okrDone', who: '', comment: '' }),
+    (error: unknown) => error instanceof StageTransitionError && /OKR-ADDED, а требование в стадии DEEP-DONE/.test(error.message),
+  )
+  await assert.rejects(
+    () => new BftReader(loadConfig(ENV_BOARD), boardPorts({ ...DEEP_TREE }, added())).transition('PO-140', { kind: 'cancel', who: 'Иванов', comment: 'x' }),
+    (error: unknown) => error instanceof StageTransitionError && /DEEP-DONE, а требование в стадии OKR-ADDED/.test(error.message),
+  )
+  // Документ без задачи доски и выключенная доска — как у addToOkr.
+  await assert.rejects(
+    () => new BftReader(loadConfig(ENV_BOARD), boardPorts({ ...DEEP_TREE }, [])).transition('po-140', { kind: 'vlet', who: '', comment: '' }),
+    (error: unknown) => error instanceof StageTransitionError && /нет задачи на доске/.test(error.message),
+  )
+  await assert.rejects(
+    () => new BftReader(loadConfig({ ...ENV_BOARD, BFT_BACKLOG_BIN: 'off' }), ports({ ...DEEP_TREE })).transition('po-140', { kind: 'vlet', who: '', comment: '' }),
+    (error: unknown) => error instanceof StageTransitionError && /выключена/.test(error.message),
+  )
+})
+
+test('снимок каталога обновляется каждым сканом и отдаётся синхронно', async () => {
+  const board = [{ id: 'PO-140', title: 'X', status: 'DEEP-DONE', references: [] }]
+  const reader = new BftReader(loadConfig(ENV_BOARD), boardPorts({ ...DEEP_TREE }, board))
+  assert.equal(reader.catalogSnapshotSync(), null)
+  const snapshot = await reader.catalogSnapshot()
+  assert.equal(snapshot.rows.length, 1)
+  assert.equal(snapshot.rows[0].id, 'PO-140')
+  assert.equal(snapshot.rows[0].stage, 'DEEP-DONE')
+  assert.equal(snapshot.rows[0].jira, 'https://jira.mts.ru/browse/GDSLV-1409')
+  assert.equal(reader.catalogSnapshotSync(), snapshot)
 })

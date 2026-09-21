@@ -18,8 +18,9 @@
  * Чего именно не хватило, вердикт называет: «вернулось в DEEP-REVIEW» без этого
  * не отвечает на вопрос «что чинить».
  *
- * `NEED-CUSTDEV`, `OKR-ADDED` и `BFT-CANCELED` по артефактам не отличаются от
- * соседей — это состояния процесса, а не документа, и их даёт только доска.
+ * `NEED-CUSTDEV`, `OKR-ADDED`, `OKR-DONE`, `OKR-VLET` и `BFT-CANCELED` по
+ * артефактам не отличаются от соседей — это состояния процесса, а не документа,
+ * и их даёт только доска.
  */
 import { hasEpicKey, isPublished, parseFrontmatter, type Frontmatter } from './frontmatter.js'
 import type { BftArtifacts, BftStage, StageVerdict } from './model.js'
@@ -87,8 +88,8 @@ export function stageFromArtifacts(slug: string, files: EpicFiles): StageVerdict
  * нет. Здесь нехватка считается от заявленной стадии: для deep-стадий это
  * прежде всего сам единый документ, для fast — документ и его страница.
  *
- * `To Do` и `BFT-CANCELED` ничего не требуют; `NEED-CUSTDEV` и `OKR-ADDED` —
- * состояния процесса, меряются требованиями соседней стадии по файлам.
+ * `To Do` и `BFT-CANCELED` ничего не требуют; `NEED-CUSTDEV` и стадии после
+ * `DEEP-DONE` — состояния процесса, меряются требованиями соседней стадии по файлам.
  */
 export function gapsToward(stage: BftStage, slug: string, files: EpicFiles): string[] {
   const artifacts = artifactsOf(slug, files.entries)
@@ -96,7 +97,9 @@ export function gapsToward(stage: BftStage, slug: string, files: EpicFiles): str
   switch (stage) {
     case 'DEEP-REVIEW':
     case 'DEEP-DONE':
-    case 'OKR-ADDED': {
+    case 'OKR-ADDED':
+    case 'OKR-DONE':
+    case 'OKR-VLET': {
       if (!artifacts.deep || frontmatter.stage !== 'deep') {
         return [`единый документ ${slug}.md со stage: deep`, ...deepGaps(artifacts, frontmatter)]
       }

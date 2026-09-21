@@ -8,13 +8,13 @@
  * Список — свой запрос по каналу `/bft` (подкоманда `list`, тот же `listRequirements`, которым
  * грузится список панели, см. index.tsx), не переиспользует React-состояние панели: тело панели
  * хранит `queueGroups()` — хронологию очереди без завершённых стадий и без пустых колонок, а
- * доске нужны все семь стадий из `boardColumns()` (src/queue.ts), включая пустые — разная
+ * доске нужны все стадии из `boardColumns()` (src/queue.ts), включая пустые — разная
  * группировка одного и того же плоского списка. Общий у них только кэш localStorage
  * (task-cache.ts): что panel, что доска читают его при монтировании (мгновенный первый рендер,
  * если кто-то из них уже грузил список в этой сессии браузера) и перезаписывают при каждой
  * успешной загрузке. Тот же приём, каким уже пользуются Preview.tsx и DetailPage.tsx для
  * собственной загрузки: `useState` + `useEffect` + `AbortController`, три состояния
- * loading/ready/error — отдельного «пусто» не заводим, доска и так показывает семь колонок с
+ * loading/ready/error — отдельного «пусто» не заводим, доска и так показывает все колонки с
  * нулевыми счётчиками, когда задач нет.
  *
  * Карточка несёт только `BftTaskSummary` (id/title/stage/priority) — этого достаточно для
@@ -29,8 +29,9 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties } from 're
 import {
   Button, IconChevronLeftOutline14, IconPlusOutline16, IconWarningOutline16,
 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { TRANSITION_RULES, type BoardTransition, type TransitionRequest } from '../board-transition.js'
 import type { RpcResult } from '../channel.js'
-import { OKR_READY_STAGE } from '../model.js'
+import { OKR_READY_STAGE, type BftStage } from '../model.js'
 import type { OkrHandoff } from '../okr-handoff.js'
 import { boardColumns, type BftGroup } from '../queue.js'
 import type { BftLocaleKey } from './locales.js'
@@ -40,6 +41,7 @@ import { SessionMark } from './SessionMark.js'
 import { describeSession, type LiveSession } from './session-view.js'
 import { STAGE_TONE } from './stage-tone.js'
 import { readTaskCache, toTaskSummaries, writeTaskCache } from './task-cache.js'
+import { TransitionDialog } from './TransitionDialog.js'
 
 export interface BoardProps {
   t: (key: BftLocaleKey) => string
@@ -49,6 +51,8 @@ export interface BoardProps {
   getTask(id: string, signal: AbortSignal): Promise<RpcResult<unknown>>
   /** «Добавить в OKR»: канал `/bft`, подкоманда `addToOkr` — стадия OKR-ADDED и план на доске. */
   addToOkr(payload: OkrHandoff & { id: string }, signal: AbortSignal): Promise<RpcResult<unknown>>
+  /** Переходы одной кнопкой (TransitionDialog.tsx): канал `/bft`, подкоманда `transition`. */
+  transition(payload: TransitionRequest & { id: string }, signal: AbortSignal): Promise<RpcResult<unknown>>
   /** Живое состояние сессии харнесса — точка и давность на карточке (см. SessionMark.tsx). */
   sessionInfo(sessionId: string): LiveSession | null | undefined
   /** Открывает детальную страницу требования (Task 3) — переключает режим панели, живёт в Panel.tsx. */
@@ -70,7 +74,7 @@ type BoardState =
   | { phase: 'error'; message: string }
 
 export function Board({
-  t, listRequirements, getTask, addToOkr, sessionInfo, onOpenDetail, onBack, canAdd, onAdd,
+  t, listRequirements, getTask, addToOkr, transition, sessionInfo, onOpenDetail, onBack, canAdd, onAdd,
 }: BoardProps) {
   // Тот же кэш localStorage, что Panel.tsx (task-cache.ts) — общий плоский список, доска
   // строит из него boardColumns() вместо queueGroups(). Доска — отдельная ветка рендера
@@ -83,6 +87,9 @@ export function Board({
   const controllerRef = useRef<AbortController | null>(null)
   // Требование, для которого открыто окно «Добавить в OKR»; null — окна нет.
   const [okrTarget, setOkrTarget] = useState<string | null>(null)
+  // Требование и вид перехода для окна TransitionDialog; null — окна нет. Два состояния,
+  // а не одно с видом окна: у окон разные пропсы, и общий union читался бы хуже.
+  const [transitionTarget, setTransitionTarget] = useState<{ id: string; kind: BoardTransition } | null>(null)
 
   // silent — тот же приём, что в Panel.tsx: не сбрасывает экран в 'loading', ошибка фонового
   // обновления не перекрывает уже показанный кэш, только логируется.
@@ -168,6 +175,7 @@ export function Board({
               group={group}
               onSelect={onOpenDetail}
               onAddToOkr={setOkrTarget}
+              onTransition={(id, kind) => { setTransitionTarget({ id, kind }) }}
               sessionInfo={sessionInfo}
               t={t}
             />
@@ -190,8 +198,37 @@ export function Board({
           }}
         />
       )}
+
+      {transitionTarget !== null && (
+        <TransitionDialog
+          id={transitionTarget.id}
+          kind={transitionTarget.kind}
+          t={t}
+          transition={transition}
+          onClose={() => { setTransitionTarget(null) }}
+          onDone={() => {
+            setTransitionTarget(null)
+            // Тот же перечит, что после «Добавить в OKR»: карточка уезжает в новую колонку.
+            load({ silent: true })
+          }}
+        />
+      )}
     </div>
   )
+}
+
+/**
+ * Кнопки перехода под карточкой — по стадии колонки, из тех же правил, что проверяет
+ * сервер (`TRANSITION_RULES.from`): DEEP-DONE — влёт и отказ (рядом с «Добавить в OKR»),
+ * OKR-ADDED — готово. Список выводится из правил, а не перечислен здесь второй раз:
+ * иначе новый переход в board-transition.ts не появился бы на доске.
+ */
+const TRANSITION_LABEL: Record<BoardTransition, BftLocaleKey> = {
+  vlet: 'boardVlet', okrDone: 'boardOkrDone', cancel: 'boardCancel',
+}
+
+function transitionsFrom(stage: BftStage): BoardTransition[] {
+  return (Object.keys(TRANSITION_RULES) as BoardTransition[]).filter(kind => TRANSITION_RULES[kind].from === stage)
 }
 
 /**
@@ -201,18 +238,21 @@ export function Board({
  * overflow-y: auto`), а не через `position: sticky`. Карточка — обёртка `.boardCard` (полоса
  * стадии слева через `--tone`) вокруг существующей строки `.item`/`.itemBody`/`.itemId` списка
  * панели (название + id) — тот же приём, что `GroupList` в Panel.tsx. Обёртка нужна ради ряда
- * действий под строкой: у DEEP-DONE это «Добавить в OKR», а кнопку внутрь <button> строки
- * положить нельзя.
+ * действий под строкой: у DEEP-DONE это «Добавить в OKR», «Оформить влётом» и «Отказ», у
+ * OKR-ADDED — «Готово», а кнопку внутрь <button> строки положить нельзя.
  */
-function BoardColumn({ group, onSelect, onAddToOkr, sessionInfo, t }: {
+function BoardColumn({ group, onSelect, onAddToOkr, onTransition, sessionInfo, t }: {
   group: BftGroup
   onSelect: (id: string) => void
   onAddToOkr: (id: string) => void
+  onTransition: (id: string, kind: BoardTransition) => void
   sessionInfo: (sessionId: string) => LiveSession | null | undefined
   t: (key: BftLocaleKey) => string
 }) {
   const tone = { '--tone': STAGE_TONE[group.stage] } as CSSProperties
   const okrReady = group.stage === OKR_READY_STAGE
+  const transitions = transitionsFrom(group.stage)
+  const hasActions = okrReady || transitions.length > 0
   return (
     <section className={css.boardColumn}>
       <div className={css.boardColumnHeader}>
@@ -234,11 +274,18 @@ function BoardColumn({ group, onSelect, onAddToOkr, sessionInfo, t }: {
               </div>
               <SessionMark session={describeSession(task.session, task.session ? sessionInfo(task.session.id) : undefined)} t={t} />
             </button>
-            {okrReady && (
+            {hasActions && (
               <div className={css.boardCardActions}>
-                <Button variant="outline" size="sm" onClick={() => { onAddToOkr(task.id) }}>
-                  {t('boardAddToOkr')}
-                </Button>
+                {okrReady && (
+                  <Button variant="outline" size="sm" onClick={() => { onAddToOkr(task.id) }}>
+                    {t('boardAddToOkr')}
+                  </Button>
+                )}
+                {transitions.map(kind => (
+                  <Button key={kind} variant="outline" size="sm" onClick={() => { onTransition(task.id, kind) }}>
+                    {t(TRANSITION_LABEL[kind])}
+                  </Button>
+                ))}
               </div>
             )}
           </div>

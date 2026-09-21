@@ -45,6 +45,7 @@ import { IconChecklistOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { defineStore, type PropsStore, type StoreHandle } from '@deepseek-ai/dsh-client-store'
 import type { DocumentRole } from '../bft-reader.js'
 import type { RpcResult } from '../channel.js'
+import type { TransitionRequest } from '../board-transition.js'
 import type { OkrHandoff } from '../okr-handoff.js'
 import {
   BFT_SETTINGS_NS, DEFAULT_SETTINGS, buildSyncDraft, resolveSettings, type BftSettings,
@@ -160,6 +161,10 @@ export function apply(ctx: ClientContext): void {
   // пишет стадию и план в задачу Backlog.md (okr-handoff.ts) — клиент CLI не зовёт.
   const addToOkr = (payload: OkrHandoff & { id: string }, signal: AbortSignal): Promise<RpcResult<unknown>> =>
     connection.rpc.call(CHANNEL, 'addToOkr', payload, signal)
+  // Переходы одной кнопкой с доски (Board.tsx → TransitionDialog.tsx): влёт, готово, отказ —
+  // стадия и строка заметок пишутся на сервере (board-transition.ts).
+  const transition = (payload: TransitionRequest & { id: string }, signal: AbortSignal): Promise<RpcResult<unknown>> =>
+    connection.rpc.call(CHANNEL, 'transition', payload, signal)
   // Детальная страница (Task 3, DetailPage.tsx): документ требования, путь — из links.html.
   const getDocument = (path: string, signal: AbortSignal): Promise<RpcResult<unknown>> =>
     connection.rpc.call(CHANNEL, 'document', { path }, signal)
@@ -369,6 +374,7 @@ export function apply(ctx: ClientContext): void {
         listRequirements,
         getTask,
         addToOkr,
+        transition,
         getDocument,
         findDocument,
         getHandoff,
