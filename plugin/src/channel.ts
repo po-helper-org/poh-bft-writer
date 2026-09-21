@@ -8,8 +8,10 @@
 import { BftReader } from './bft-reader.js'
 import {
   ChatBusyError, ChatRunNotFoundError, ChatUnavailableError, DocumentOutsideWorkspaceError,
-  DocumentUnreadableError, InvalidTaskIdError, OkrHandoffError, TaskNotFoundError, WorkLogWriteError,
+  DocumentUnreadableError, InvalidTaskIdError, OkrHandoffError, StageTransitionError, TaskNotFoundError,
+  WorkLogWriteError,
 } from './errors.js'
+import { parseTransition } from './board-transition.js'
 import { parseOkrHandoff } from './okr-handoff.js'
 
 export const BFT_CHANNEL = '/bft'
@@ -26,6 +28,7 @@ const CODES: ReadonlyArray<[new (...args: never[]) => Error, string]> = [
   [DocumentOutsideWorkspaceError, 'document-outside-workspace'],
   [WorkLogWriteError, 'worklog-write-failed'],
   [OkrHandoffError, 'okr-handoff-failed'],
+  [StageTransitionError, 'stage-transition-failed'],
   [ChatBusyError, 'chat-busy'],
   [ChatRunNotFoundError, 'chat-run-not-found'],
   [ChatUnavailableError, 'chat-unavailable'],
@@ -170,6 +173,21 @@ export async function dispatch(
         if (!parsed.ok) return fail('bad-request', parsed.error)
         return ok(await reader.addToOkr(id, parsed.value))
       }
+
+      // Переходы одной кнопкой с доски: влёт, готово по OKR, отказ (board-transition.ts).
+      // Разбор здесь — по той же причине, что у addToOkr.
+      case 'transition': {
+        const id = stringField(payload, 'id')
+        if (!id) return fail('bad-request', 'не передан идентификатор требования')
+        const parsed = parseTransition(payload)
+        if (!parsed.ok) return fail('bad-request', parsed.error)
+        return ok(await reader.transition(id, parsed.value))
+      }
+
+      // Снимок каталога для стража дублей (catalog-guard.ts) — тот же текст, что уходит
+      // в системный промпт; клиенту не нужен, но полезен для диагностики из консоли.
+      case 'catalog':
+        return ok(await reader.catalogSnapshot())
 
       default:
         return fail('bad-request', `неизвестная подкоманда «${endpoint}»`)

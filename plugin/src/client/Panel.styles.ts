@@ -814,7 +814,7 @@ export const panelStyleText = `
 .${c.boardCard} + .${c.boardCard} { border-top: 0.5px solid var(--dsw-alias-border-l1); }
 .${c.boardCard}::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--tone); }
 .${c.boardCard} > .${c.item}::before { content: none; }
-.${c.boardCardActions} { display: flex; padding: 0 10px 9px 14px; }
+.${c.boardCardActions} { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 10px 9px 14px; }
 
 /* Окно «Добавить в OKR» (OkrDialog.tsx): само окно — Modal харнесса, здесь только ширина
    под таблицу планирования и прокрутка тела, чтобы на низком экране кнопки подвала не

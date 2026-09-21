@@ -84,6 +84,28 @@ test('вид документа проверяется на проводе, а �
   assert.equal(old.ok, true)
 })
 
+test('переход с доски: плохая форма — bad-request словами, отказ доски — свой код', async () => {
+  const noId = await dispatch(reader(), 'transition', { kind: 'vlet' })
+  assert.deepEqual(noId, { ok: false, error: { code: 'bad-request', message: 'не передан идентификатор требования', details: {} } })
+
+  const noWho = await dispatch(reader(), 'transition', { id: 'alpha', kind: 'cancel', comment: 'закрыто' })
+  assert.equal(noWho.ok, false)
+  assert.equal((noWho as { error: { message: string } }).error.message, 'укажите, кто отменил')
+
+  // Доска в этой подделке выключена (runCommand отвечает -1) — отказ приходит своим кодом.
+  const noBoard = await dispatch(reader(), 'transition', { id: 'alpha', kind: 'vlet' })
+  assert.equal(noBoard.ok, false)
+  assert.equal((noBoard as { error: { code: string } }).error.code, 'stage-transition-failed')
+})
+
+test('снимок каталога отдаётся значением', async () => {
+  const result = await dispatch(reader(), 'catalog', {})
+  assert.equal(result.ok, true)
+  const value = (result as { value: { at: string; rows: Array<{ id: string }> } }).value
+  assert.equal(value.rows.length, 1)
+  assert.equal(value.rows[0].id, 'alpha')
+})
+
 test('добавить в OKR: плохая форма — bad-request словами, отказ доски — свой код', async () => {
   const noId = await dispatch(reader(), 'addToOkr', { confluence: 'https://c', epic: 'https://j', quarter: '2026-Q4' })
   assert.deepEqual(noId, { ok: false, error: { code: 'bad-request', message: 'не передан идентификатор требования', details: {} } })

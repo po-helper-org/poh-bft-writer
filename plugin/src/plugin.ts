@@ -9,6 +9,7 @@
  */
 import z from '@deepseek-ai/schemastery'
 import { BftReader } from './bft-reader.js'
+import { CATALOG_GUARD_ORDER, CATALOG_GUARD_SECTION, catalogGuardText, isStale } from './catalog-guard.js'
 import { BFT_CHANNEL, dispatch, type RpcResult } from './channel.js'
 import { toBftConfig, type PluginConfig } from './plugin-config.js'
 import { BFT_SETTINGS_NS, DEFAULT_SYNC_PROMPT, type BftSettings } from './settings.js'
@@ -53,6 +54,14 @@ interface AgentLike {
  * значило бы дёргать `backlog` десятки раз ради одного результата.
  */
 const RECONCILE_DEBOUNCE_MS = 1500
+
+/**
+ * Форма реестра системного промпта (`ctx.systemPrompt`, @deepseek-ai/dsh-system-prompt):
+ * одна регистрация секции, текст — провайдер на каждую сборку. Структурно, как остальное.
+ */
+interface SystemPromptLike {
+  section(section: { name: string; order: number; text: string | (() => string) }): () => void
+}
 
 /**
  * Форма службы настроек харнесса (`ctx.settings`, @deepseek-ai/dsh-settings), которой нам
@@ -159,6 +168,38 @@ export function apply(ctx: HarnessContext, config: PluginConfig): void {
         off()
       }
     }, 'poh-bft-plugin: сверка доски после хода агента')
+  }
+
+  // Страж дублей (catalog-guard.ts): секция промпта с каталогом инициатив. Реестр промпта
+  // берётся отложенной инъекцией — композиция без агентов его не поднимает, и раздел без него
+  // жив. Провайдер текста синхронный по контракту реестра, поэтому он отдаёт последний снимок
+  // скана и лишь заказывает новый, когда снимок стар: первый ход после перезапуска увидит
+  // каталог, если стартовый скан ниже успел, иначе — инструкцию свериться через CLI.
+  if (config.catalogGuard !== false) {
+    let refreshing = false
+    const refresh = (): void => {
+      if (refreshing) return
+      refreshing = true
+      reader.catalogSnapshot()
+        .catch((error: unknown) => { console.warn('[poh-bft-plugin] снимок каталога:', error) })
+        .finally(() => { refreshing = false })
+    }
+    refresh()
+    ctx.inject(['systemPrompt'], (scoped: HarnessContext) => {
+      const systemPrompt = scoped.get('systemPrompt') as SystemPromptLike
+      scoped.effect(
+        () => systemPrompt.section({
+          name: CATALOG_GUARD_SECTION,
+          order: CATALOG_GUARD_ORDER,
+          text: () => {
+            const snapshot = reader.catalogSnapshotSync()
+            if (isStale(snapshot?.at, Date.now())) refresh()
+            return catalogGuardText(snapshot)
+          },
+        }),
+        'poh-bft-plugin: страж дублей каталога БФТ',
+      )
+    })
   }
 
   // Служба настроек тоже необязательна: без неё раздел работает на умолчаниях, как и до

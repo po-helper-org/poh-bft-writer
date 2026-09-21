@@ -39,6 +39,7 @@ import type { DocumentRole } from '../bft-reader.js'
 import type { RpcResult } from '../channel.js'
 import type { BftSettings } from '../settings.js'
 import type { BftStage } from '../model.js'
+import type { TransitionRequest } from '../board-transition.js'
 import type { OkrHandoff } from '../okr-handoff.js'
 import { queueGroups, searchTasks, type BftGroup } from '../queue.js'
 // Type-only: PanelStoreHandle описывает форму стора, реальный хэндл создаётся в apply()
@@ -67,6 +68,11 @@ export interface RequirementsPanelInjected {
    * `addToOkr`. Пишет стадию OKR-ADDED и план в задачу Backlog.md, см. okr-handoff.ts.
    */
   addToOkr(payload: OkrHandoff & { id: string }, signal: AbortSignal): Promise<RpcResult<unknown>>
+  /**
+   * Переходы одной кнопкой с доски (Board.tsx → TransitionDialog.tsx): канал `/bft`,
+   * подкоманда `transition`. Влёт и отказ с DEEP-DONE, готово с OKR-ADDED, см. board-transition.ts.
+   */
+  transition(payload: TransitionRequest & { id: string }, signal: AbortSignal): Promise<RpcResult<unknown>>
   /** Документ требования: канал `/bft`, подкоманда `document`, см. DetailPage.tsx (Task 3). */
   getDocument(path: string, signal: AbortSignal): Promise<RpcResult<unknown>>
   /**
@@ -187,6 +193,7 @@ export function RequirementsPanel({
   listRequirements,
   getTask,
   addToOkr,
+  transition,
   getDocument,
   findDocument,
   getHandoff,
@@ -373,7 +380,7 @@ export function RequirementsPanel({
   // смонтированного slot-компонента, а не второй слой оверлеев). Список требований доска
   // грузит сама (см. комментарий в шапке Board.tsx) — состояние панели (state.groups) ей не
   // передаём: там уже отфильтрованная под очередь панели группировка (queueGroups, без
-  // завершённых стадий, без пустых колонок), а доске нужны все семь стадий (boardColumns).
+  // завершённых стадий, без пустых колонок), а доске нужны все стадии (boardColumns).
   if (route.view === 'board') {
     return (
       <Board
@@ -381,6 +388,7 @@ export function RequirementsPanel({
         listRequirements={listRequirements}
         getTask={getTask}
         addToOkr={addToOkr}
+        transition={transition}
         sessionInfo={sessionInfo}
         onOpenDetail={(id) => { setRoute({ view: 'detail', id, back: { view: 'board' } }) }}
         onBack={() => { setRoute({ view: 'list' }) }}

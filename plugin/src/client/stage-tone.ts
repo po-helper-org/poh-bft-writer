@@ -7,7 +7,8 @@
  * а не полагается на то, что порядок вычисления модулей его как-нибудь перетерпит.
  *
  * Палитра по стадиям: серый — ещё не тронуто или снято с процесса, красный — нужен CustDev,
- * синий — быстрый проход, жёлтый — на ревью, зелёный — готово, брендовый — ушло в OKR.
+ * синий — быстрый проход, жёлтый — на ревью, зелёный — готово (БФТ или инициатива в OKR),
+ * брендовый — ушло в OKR, жёлтый — влёт: работа идёт мимо квартального плана.
  */
 import type { BftStage } from '../model.js'
 
@@ -18,5 +19,7 @@ export const STAGE_TONE: Record<BftStage, string> = {
   'DEEP-REVIEW': 'var(--dsw-alias-state-warn-primary)',
   'DEEP-DONE': 'var(--dsw-alias-state-success-primary)',
   'OKR-ADDED': 'var(--dsw-alias-brand-primary)',
+  'OKR-DONE': 'var(--dsw-alias-state-success-primary)',
+  'OKR-VLET': 'var(--dsw-alias-state-warn-primary)',
   'BFT-CANCELED': 'var(--dsw-alias-label-caption)',
 }
