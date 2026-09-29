@@ -41,10 +41,11 @@ import type { Context as ClientContext } from '@deepseek-ai/cordis'
 // выравнивания) — пакет внешний (см. CLIENT_EXTERNALS в tsdown.config.ts), берётся у хоста
 // в рантайме, его CSS хост уже гарантированно загрузил (Button/иконки используются по всему
 // харнессу).
-import { IconChecklistOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconChecklistOutline14 } from './icons.js'
 import { defineStore, type PropsStore, type StoreHandle } from '@deepseek-ai/dsh-client-store'
 import type { DocumentRole } from '../bft-reader.js'
 import type { RpcResult } from '../channel.js'
+import { BFT_API_PREFIX } from '../api-route.js'
 import type { OkrHandoff } from '../okr-handoff.js'
 import {
   BFT_SETTINGS_NS, DEFAULT_SETTINGS, buildSyncDraft, resolveSettings, type BftSettings,
@@ -53,7 +54,7 @@ import type { DetailChatChannel } from './DetailPage.js'
 import { ru, type BftLocaleKey } from './locales.js'
 import { RequirementsPanel, type RequirementsPanelInjected } from './Panel.js'
 import { panelClassNames as css, panelStyleText } from './Panel.styles.js'
-import { SettingsCard } from './SettingsCard.js'
+import { SettingsCard, SettingsPage } from './SettingsCard.js'
 import type { LiveSession } from './session-view.js'
 import { SettingsCardController } from './settings-card.js'
 
@@ -147,10 +148,28 @@ export function apply(ctx: ClientContext): void {
   // полный клиентский handle (см. dsh-plugin-subscriptions/src/client/index.ts:81-83 — тот же
   // приём). Здесь берём только то, что реально нужно — .rpc.call — не заводя типовой
   // зависимости от @deepseek-ai/dsh-api-remotes, которого нет среди devDependencies пакета.
-  const connection = ctx.get('connection') as unknown as {
+  type RpcCall = (channel: string, endpoint: string, payload: unknown, signal?: AbortSignal) => Promise<RpcResult<unknown>>
+  const host = ctx.get('connection') as unknown as { rpc: { call: RpcCall } }
+  // Ядро 0.1.7+ обслуживает раздел маршрутами `/api/bft.<подкоманда>` (src/api-route.ts), 0.1.2 —
+  // собственным каналом `/bft`. Версию ядра клиент не знает: первый вызов идёт в `/api`, и только
+  // 404/405 на нём (маршрута нет) переводит раздел на старый канал — один раз и насовсем.
+  let route: 'api' | 'channel' | undefined
+  const connection: { rpc: { call: RpcCall } } = {
     rpc: {
-      call(channel: string, endpoint: string, payload: unknown, signal?: AbortSignal): Promise<RpcResult<unknown>>
-    }
+      call: async (channel, endpoint, payload, signal) => {
+        if (route !== 'channel') {
+          try {
+            const result = await host.rpc.call('/api', `${BFT_API_PREFIX}${endpoint}`, payload, signal)
+            route = 'api'
+            return result
+          } catch (error) {
+            if (route === 'api' || !/HTTP 40[45]\b/.test(String(error))) throw error
+            route = 'channel'
+          }
+        }
+        return host.rpc.call(channel, endpoint, payload, signal)
+      },
+    },
   }
   const listRequirements = (signal: AbortSignal): Promise<RpcResult<unknown>> =>
     connection.rpc.call(CHANNEL, 'list', {}, signal)
@@ -290,6 +309,8 @@ export function apply(ctx: ClientContext): void {
   }
 
   // ——— Настройки раздела (src/settings.ts) ———
+  /** Id записи профиля: под ним ядро 0.1.7 отдаёт форму настроек раздела. */
+  const BFT_ENTRY_ID = 'bft-requirements'
   //
   // Служба настроек не в export const inject: без неё раздел обязан подниматься и работать
   // на умолчаниях — ровно так, как работал до появления карточки. Поэтому скоуп берётся
@@ -319,8 +340,10 @@ export function apply(ctx: ClientContext): void {
     return () => { settingsListeners.delete(listener) }
   }
 
-  ctx.inject(['settingsScope'], (scoped: ClientContext) => {
-    const scope = scoped.settingsScope.bind<BftSettings>({ namespace: BFT_SETTINGS_NS })
+  // Скоуп настроек и карточка — общие для обоих ядер: форма ядра 0.1.7 (`configForms.get`)
+  // отдаёт тот же снимок value/base/user/status/writable и тот же mutate(ops), что и
+  // `settingsScope.bind` ядра 0.1.2, поэтому SettingsCardController не различает их.
+  const attachSettings = (scoped: ClientContext, scope: SettingsScope<BftSettings>): void => {
     scoped.effect(() => {
       settingsScope = scope
       // Панель уже смонтирована и подписана: до этой строки она читала умолчания.
@@ -332,15 +355,48 @@ export function apply(ctx: ClientContext): void {
         notifySettings()
       }
     }, 'poh-bft-plugin: настройки раздела')
+  }
 
-    // Карточка на вкладке «Плагины» в настройках харнесса. Ключ записи — то же пространство
-    // имён, которое регистрирует node-половина (src/plugin.ts): вкладка сводит две ведомости
-    // — что отдаёт хост и какие карточки есть в браузере — именно по нему.
+  // Ядро 0.1.2: пространство имён `bft`, карточка в слоте `settings.plugin.item`.
+  ctx.inject(['settingsScope'], (scoped: ClientContext) => {
+    if (typeof scoped.settingsScope?.bind !== 'function') return
+    const scope = scoped.settingsScope.bind<BftSettings>({ namespace: BFT_SETTINGS_NS })
+    attachSettings(scoped, scope)
     const card = new SettingsCardController(scope)
     scoped.slots.inject('settings.plugin.item', () => scoped.slots.register(
       { name: 'settings.plugin.item', key: BFT_SETTINGS_NS, locale: NS, inject: () => card.inject() },
       SettingsCard,
     ))
+  })
+
+  // Ядро 0.1.7: volatile-поля Config записи `bft-requirements`, страница в «Настройках →
+  // Плагины» (слот `plugins.item`) — пока хост отдаёт эту запись. Типы слота и службы —
+  // структурные: devDependencies пакета на 0.1.2, где их ещё нет.
+  ctx.inject(['configForms'] as never, (scoped: ClientContext) => {
+    const forms = (scoped as unknown as { get(name: string): unknown }).get('configForms') as {
+      get(entryId: string): unknown
+      whileServed(namespaces: readonly string[], register: () => () => void): () => void
+    } | undefined
+    if (forms === undefined || typeof forms.get !== 'function') return
+    const scope = forms.get(BFT_ENTRY_ID) as SettingsScope<BftSettings>
+    attachSettings(scoped, scope)
+    const card = new SettingsCardController(scope)
+    const t = (scoped as unknown as { locale: { bind(ns: string): (key: string) => string } }).locale.bind(NS)
+    const slots = scoped.slots as unknown as {
+      inject(name: string, register: () => () => void): () => void
+      register(options: Record<string, unknown>, component: unknown): () => void
+    }
+    scoped.effect(() => forms.whileServed([BFT_ENTRY_ID], () => slots.inject('plugins.item', () => slots.register(
+      {
+        name: 'plugins.item',
+        id: BFT_ENTRY_ID,
+        order: 50,
+        label: () => t('settingsTitle'),
+        locale: NS,
+        inject: () => card.inject(),
+      },
+      SettingsPage,
+    ))), 'poh-bft-plugin: страница настроек')
   })
 
   /**

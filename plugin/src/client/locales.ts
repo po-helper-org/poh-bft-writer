@@ -130,6 +130,7 @@ export const en = {
   settingsUnsaved: 'unsaved',
   settingsSaveFailed: 'Could not save — the settings document changed, reopen the card',
   settingsReadOnly: 'The settings document is read-only',
+  settingsUnavailable: 'The requirements section is not loaded, so it cannot be configured right now.',
   settingsExpand: 'Expand',
   settingsCollapse: 'Collapse',
 } satisfies Record<string, string>
@@ -260,6 +261,7 @@ export const ru = {
   settingsUnsaved: 'есть правки',
   settingsSaveFailed: 'Не удалось сохранить — документ настроек изменился, открой карточку заново',
   settingsReadOnly: 'Документ настроек только для чтения',
+  settingsUnavailable: 'Раздел требований сейчас не загружен — настроить его нельзя.',
   settingsExpand: 'Развернуть',
   settingsCollapse: 'Свернуть',
 } satisfies Record<keyof typeof en, string>

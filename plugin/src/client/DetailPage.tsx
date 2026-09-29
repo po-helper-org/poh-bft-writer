@@ -30,9 +30,8 @@ import type { ChatEvent } from '../chat-events.js'
 // hand-drawn inline SVG и локальных .btn/.btnOutline/.btnPrimary — см. Panel.tsx. IconCodeOutline16
 // для «нет документа»: наш документ требования — HTML-артефакт (links.html), а в наборе икон нет
 // прямого «пустой документ» глифа — код-иконка ближе всего к «здесь мог бы быть HTML» смыслу.
-import {
-  Button, IconChevronLeftOutline14, IconCodeOutline16, IconWarningOutline16,
-} from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconChevronLeftOutline14, IconCodeOutline16, IconWarningOutline16 } from './icons.js'
 import type { DocumentRole } from '../bft-reader.js'
 import type { RpcResult } from '../channel.js'
 import type { BftTask } from '../model.js'
