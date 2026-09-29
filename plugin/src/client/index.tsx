@@ -51,6 +51,7 @@ import {
   BFT_SETTINGS_NS, DEFAULT_SETTINGS, buildSyncDraft, resolveSettings, type BftSettings,
 } from '../settings.js'
 import type { DetailChatChannel } from './DetailPage.js'
+import { createHarnessChat, type HarnessSessionsLike } from './harness-chat.js'
 import { ru, type BftLocaleKey } from './locales.js'
 import { RequirementsPanel, type RequirementsPanelInjected } from './Panel.js'
 import { panelClassNames as css, panelStyleText } from './Panel.styles.js'
@@ -195,11 +196,83 @@ export function apply(ctx: ClientContext): void {
   // Чат через Claude Code CLI на детальной странице (issue #41, DetailPage.tsx / DetailChat.tsx):
   // ход идёт на узле, страница только запускает, опрашивает и останавливает его. Один объект
   // на всё время жизни раздела — его идентичность держит эффект подхвата хода на странице.
-  const chat: DetailChatChannel = {
+  const serverChat: DetailChatChannel = {
     status: (id, signal) => connection.rpc.call(CHANNEL, 'chatStatus', { id }, signal),
     start: (id, note, signal) => connection.rpc.call(CHANNEL, 'chatStart', note === undefined ? { id } : { id, note }, signal),
     poll: (runId, since, signal) => connection.rpc.call(CHANNEL, 'chatPoll', { runId, since }, signal),
     stop: runId => connection.rpc.call(CHANNEL, 'chatStop', { runId }),
+  }
+  // Тот же чат через агента харнесса — где Claude Code на узле выключен (`claudeBin: off`)
+  // или невозможен. Сессия — своя на требование, в рабочем пространстве чатов (см.
+  // harness-chat.ts); текст хода — тот же черновик узла (`handoff`), что уходил в композер.
+  const harnessChat = createHarnessChat({
+    sessions: () => ctx.get('sessions') as unknown as HarnessSessionsLike | undefined,
+    workspaceId: async () => {
+      const workspaces = ctx.get('workspaces')
+      const sessions = ctx.get('sessions')
+      if (workspaces === undefined) return undefined
+      return (await resolveBftWorkspaceId(workspaces)) ?? (sessions !== undefined ? resolveWorkspaceId(sessions, workspaces) : undefined)
+    },
+    lastSession: async (id, signal) => {
+      const result = await getTask(id, signal)
+      if (!result.ok) return undefined
+      const session = (result.value as { session?: { id?: unknown; kind?: unknown } } | null)?.session
+      return session && session.kind === 'harness' && typeof session.id === 'string' ? session.id : undefined
+    },
+    prompt: async (id, note, signal) => {
+      const result = await getHandoff(id, signal, note)
+      if (!result.ok) throw new Error(result.error.message)
+      const prompt = (result.value as { prompt?: unknown } | null)?.prompt
+      if (typeof prompt !== 'string' || prompt.trim() === '') throw new Error('handoff: узел не вернул черновик')
+      return prompt
+    },
+    attach: (id, sessionId) => {
+      connection.rpc.call(CHANNEL, 'attachSession', { id, sessionId })
+        .then((result) => { if (!result.ok) console.error('[poh-bft-plugin] attachSession:', result.error.message) })
+        .catch((error: unknown) => { console.error('[poh-bft-plugin] attachSession:', error) })
+    },
+  })
+  ctx.effect(() => () => { harnessChat.dispose() }, 'poh-bft-plugin: чат харнесса')
+  /** Узловой чат есть в этой среде (CLI настроен и не выключен в профиле). */
+  const serverChatAvailable = async (id: string, signal: AbortSignal): Promise<RpcResult<unknown> | null> => {
+    try {
+      const result = await serverChat.status(id, signal)
+      return result.ok && (result.value as { available?: unknown } | null)?.available === true ? result : null
+    } catch {
+      return null
+    }
+  }
+  // Кто ведёт чат по требованию: узел (Claude Code), если он здесь есть, иначе агент харнесса.
+  const chat: DetailChatChannel = {
+    status: async (id, signal) => {
+      const server = await serverChatAvailable(id, signal)
+      if (server) return server
+      return harnessChat.available() ? harnessChat.status(id) : serverChat.status(id, signal)
+    },
+    start: async (id, note, signal) => {
+      if (await serverChatAvailable(id, signal)) return serverChat.start(id, note, signal)
+      return harnessChat.start(id, note, signal)
+    },
+    poll: (runId, since, signal) => (harnessChat.owns(runId) ? Promise.resolve(harnessChat.poll(runId, since)) : serverChat.poll(runId, since, signal)),
+    stop: runId => (harnessChat.owns(runId) ? harnessChat.stop(runId) : serverChat.stop(runId)),
+  }
+
+  /**
+   * Открыть сессию в чате харнесса. Ядро 0.1.2 — `sessions.open`, в 0.1.7 его нет:
+   * навигация ушла в `uiWorkspace.openSession`.
+   */
+  const navigateToSession = (sessionId: string): void => {
+    const sessions = ctx.get('sessions') as unknown as { open?: (id: SessionId) => void } | undefined
+    if (typeof sessions?.open === 'function') {
+      sessions.open(sessionId as SessionId)
+      return
+    }
+    const uiWorkspace = ctx.get('uiWorkspace') as unknown as { openSession?: (id: string) => void } | undefined
+    if (typeof uiWorkspace?.openSession === 'function') {
+      uiWorkspace.openSession(sessionId)
+      return
+    }
+    throw new Error('poh-bft-plugin: harness has neither sessions.open nor uiWorkspace.openSession')
   }
 
   // Цепочка «Обновить»/«Работать в чате» (docs/client-wiring.md, §1.3 и «Выводы для
@@ -271,14 +344,26 @@ export function apply(ctx: ClientContext): void {
     // Только connectWorkspace возвращает SessionId — startSession() не годится, он ничего
     // не отдаёт (docs/client-wiring.md, §1.3, п.1).
     const sessionId = await uiWorkspace.connectWorkspace(workspaceId)
-    const actx = sessions.scope(sessionId)
+    let actx = sessions.scope(sessionId)
+    // Ядро 0.1.7: скоуп есть только у удержанной сессии — держим её, пока черновик ставится и
+    // чат открывается (дальше её удерживает сам экран чата).
+    let release: (() => void) | undefined
+    if (actx === undefined) {
+      const retain = (sessions as unknown as { retain?: (id: string, options: { source: string }) => { ready: Promise<{ ctx: unknown }>; release(): void } }).retain
+      if (typeof retain === 'function') {
+        const reference = retain.call(sessions, sessionId, { source: 'pohBftChat' })
+        actx = (await reference.ready).ctx as typeof actx
+        release = () => { reference.release() }
+      }
+    }
     // sessions.scope(id) отдаёт undefined для сессии, которой нет ни в списке, ни в скопах
     // (contract/sessions.ts:103) — ветку обрабатываем, не проваливаемся в input.for() с ней.
     if (actx === undefined) {
       throw new Error(`poh-bft-plugin: chat: sessions.scope(${sessionId}) returned no scope`)
     }
     conversation.input.for(actx).setDraft(draft)
-    sessions.open(sessionId)
+    navigateToSession(sessionId)
+    if (release) window.setTimeout(release, 5000)
     if (taskId !== undefined) {
       // Запись сессии — после открытия чата и без ожидания: чат уже у PO, а журнал догонит.
       connection.rpc.call(CHANNEL, 'attachSession', { id: taskId, sessionId })
@@ -303,9 +388,7 @@ export function apply(ctx: ClientContext): void {
 
   /** Вернуться в тот же чат: та же история, тот же контекст — не начинать заново. */
   const openSession = (sessionId: string): void => {
-    const sessions = ctx.get('sessions')
-    if (sessions === undefined) throw new Error('poh-bft-plugin: sessions service not provided')
-    sessions.open(sessionId as SessionId)
+    navigateToSession(sessionId)
   }
 
   // ——— Настройки раздела (src/settings.ts) ———
