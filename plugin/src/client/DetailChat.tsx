@@ -13,7 +13,8 @@
  * документ заново — то же, что открыть страницу свежей.
  */
 import { useEffect, useMemo, useRef, type KeyboardEvent, type ReactNode } from 'react'
-import { Button, IconWarningOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconWarningOutline16 } from './icons.js'
 import { projectTranscript, type ChatEvent, type ChatLine } from '../chat-events.js'
 import type { BftLinks } from '../model.js'
 import type { BftLocaleKey } from './locales.js'

@@ -186,6 +186,44 @@ export const panelClassNames = {
   fieldInvalidInput: 'bft-field-input-invalid',
   fieldHint: 'bft-field-hint',
   fieldInvalid: 'bft-field-invalid',
+  // Детальная страница: чат + документ, заметки к разделам (DetailPage, VoiceNoteSheet).
+  mDetail: 'bft-m-detail',
+  mDocCard: 'bft-m-doc-card',
+  mDocIcon: 'bft-m-doc-icon',
+  mDocText: 'bft-m-doc-text',
+  mDocTitle: 'bft-m-doc-title',
+  mDocStage: 'bft-m-doc-stage',
+  mDocSub: 'bft-m-doc-sub',
+  mChat: 'bft-m-chat',
+  mDoc: 'bft-m-doc',
+  mNotesChip: 'bft-m-notes-chip',
+  mDocHint: 'bft-m-doc-hint',
+  mDocFrame: 'bft-m-doc-frame',
+  docActions: 'bft-doc-actions',
+  docNotes: 'bft-doc-notes',
+  docNotesTitle: 'bft-doc-notes-title',
+  docNote: 'bft-doc-note',
+  docNoteSection: 'bft-doc-note-section',
+  docNoteText: 'bft-doc-note-text',
+  docActionButtons: 'bft-doc-action-buttons',
+  docReset: 'bft-doc-reset',
+  noteScrim: 'bft-note-scrim',
+  noteSheet: 'bft-note-sheet',
+  noteGrabber: 'bft-note-grabber',
+  noteHead: 'bft-note-head',
+  noteCaption: 'bft-note-caption',
+  noteSection: 'bft-note-section',
+  noteRecording: 'bft-note-recording',
+  noteDot: 'bft-note-dot',
+  noteWave: 'bft-note-wave',
+  noteTimer: 'bft-note-timer',
+  noteText: 'bft-note-text',
+  noteError: 'bft-note-error',
+  noteActions: 'bft-note-actions',
+  noteSecondary: 'bft-note-secondary',
+  noteMic: 'bft-note-mic',
+  noteStopGlyph: 'bft-note-stop-glyph',
+  notePrimary: 'bft-note-primary',
 } as const
 
 const c = panelClassNames
@@ -725,6 +763,7 @@ export const panelStyleText = `
 
 .${c.detailTextarea} {
   width: 100%;
+  box-sizing: border-box;
   min-height: 96px;
   resize: vertical;
   border-radius: 10px;
@@ -1237,5 +1276,312 @@ export const panelStyleText = `
   font-size: 12px;
   line-height: 1.5;
   color: var(--dsw-alias-state-error-primary);
+}
+
+/* ——— Детальная страница: чат + документ, заметки к разделам ——— */
+
+/* Телефон: чат во всю высоту, сверху плашка документа; документ открывается поверх
+   (.mDoc — от края до края страницы, мимо шапки: у него своя, «назад» ведёт в чат). */
+.${c.mDetail} { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.${c.mDocCard} {
+  position: relative;
+  flex: none;
+  margin: 4px 12px 10px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 10px 10px 12px;
+  border-radius: 14px;
+  background: var(--dsw-specific-sidebar-fill);
+  box-shadow: 0 0 0 0.5px var(--dsw-alias-border-l2);
+  overflow: hidden;
+}
+.${c.mDocCard} > .${c.docWorkingBar} { top: auto; bottom: 0; height: 2px; }
+.${c.mDocIcon} {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-secondary);
+}
+.${c.mDocText} { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.${c.mDocTitle} { display: flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 500; white-space: nowrap; }
+.${c.mDocStage} { font-size: 12px; font-weight: 400; color: var(--dsw-alias-label-tertiary); overflow: hidden; text-overflow: ellipsis; }
+.${c.mDocSub} { font-size: 12px; color: var(--dsw-alias-label-tertiary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.${c.mDocSub}[data-tone="info"] { color: var(--dsw-alias-button-info-fill); }
+.${c.mDocSub}[data-tone="warn"] { color: var(--dsw-static-amber-400, #f7ad31); }
+.${c.mChat} { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 0 12px; }
+
+.${c.mDoc} {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  background: var(--dsw-alias-bg-base);
+}
+.${c.mDoc} > .${c.header} { min-height: 56px; box-sizing: border-box; padding-left: 60px; }
+.${c.mNotesChip} {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 9px;
+  border: none;
+  border-radius: 13px;
+  background: rgba(247, 173, 49, 0.14);
+  color: var(--dsw-static-amber-400, #f7ad31);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.${c.mDocHint} { margin: 0 16px 6px; font-size: 12px; line-height: 16px; color: var(--dsw-alias-label-caption); }
+.${c.mDocFrame} {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  margin: 0 8px;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 0 0 0.5px var(--dsw-alias-border-l2);
+}
+
+/* Действия по документу: заметки к правке + «Отправить правки» / «Принять» / «Отменить». */
+.${c.docActions} {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 10px 8px 8px;
+  padding: 14px;
+  border-radius: 14px;
+  background: var(--dsw-specific-sidebar-fill);
+  box-shadow: 0 0 0 0.5px var(--dsw-alias-border-l2);
+}
+.${c.docNotes} { display: flex; flex-direction: column; gap: 6px; }
+.${c.docNotesTitle} { font-size: 12px; color: var(--dsw-alias-label-caption); }
+.${c.docNote} {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.${c.docNoteSection} { flex: none; max-width: 40%; font-size: 12px; color: var(--dsw-static-amber-400, #f7ad31); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.${c.docNoteText} {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  line-height: 19px;
+  color: var(--dsw-alias-label-secondary);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.${c.docActionButtons} { display: flex; flex-direction: column; gap: 8px; }
+.${c.docActionButtons} > button { width: 100%; justify-content: center; }
+.${c.docReset} {
+  height: 36px;
+  border: none;
+  background: transparent;
+  color: var(--dsw-alias-state-error-primary);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+.${c.docReset}:disabled { opacity: 0.4; cursor: default; }
+@media (min-width: 769px) {
+  .${c.docActionButtons} { flex-direction: row; align-items: center; }
+  .${c.docActionButtons} > button { width: auto; }
+}
+
+/* Шторка заметки к разделу (VoiceNoteSheet). */
+.${c.noteScrim} {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  background: rgba(0, 0, 0, 0.45);
+  pointer-events: auto;
+}
+.${c.noteSheet} {
+  width: 100%;
+  max-width: 560px;
+  margin: 0 auto;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 10px 16px calc(16px + env(safe-area-inset-bottom));
+  border-radius: 16px 16px 0 0;
+  background: var(--dsw-specific-sidebar-fill);
+  box-shadow: 0 -0.5px 0 var(--dsw-alias-border-l2), 0 -12px 40px rgba(0, 0, 0, 0.45);
+}
+.${c.noteGrabber} { align-self: center; width: 36px; height: 4px; border-radius: 2px; background: var(--dsw-alias-border-l4); }
+.${c.noteHead} { display: flex; flex-direction: column; gap: 2px; }
+.${c.noteCaption} { font-size: 12px; color: var(--dsw-alias-label-caption); }
+.${c.noteSection} { font-size: 15px; font-weight: 500; }
+.${c.noteRecording} { display: flex; align-items: center; gap: 10px; }
+.${c.noteDot} { flex: none; width: 8px; height: 8px; border-radius: 4px; background: var(--dsw-alias-state-error-primary); animation: bft-chat-pulse 1.2s ease-in-out infinite; }
+.${c.noteWave} {
+  flex: 1;
+  height: 24px;
+  background: repeating-linear-gradient(90deg, var(--dsw-alias-state-error-primary) 0 3px, transparent 3px 7px);
+  opacity: 0.8;
+  animation: bft-note-wave 0.9s ease-in-out infinite alternate;
+}
+@keyframes bft-note-wave { from { transform: scaleY(0.3); } to { transform: scaleY(1); } }
+.${c.noteTimer} { font-family: var(--ds-font-family-code); font-size: 13px; color: var(--dsw-alias-label-tertiary); }
+.${c.noteText} {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 84px;
+  max-height: 40vh;
+  resize: none;
+  padding: 10px 12px;
+  border: none;
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-layer-1);
+  box-shadow: inset 0 0 0 0.5px var(--dsw-alias-border-l2);
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 15px;
+  line-height: 22px;
+}
+.${c.noteText}:focus { outline: none; box-shadow: inset 0 0 0 1px var(--dsw-alias-border-l4); }
+.${c.noteError} { margin: 0; font-size: 12px; color: var(--dsw-alias-state-error-primary); }
+.${c.noteActions} { display: flex; align-items: center; gap: 10px; }
+.${c.noteSecondary}, .${c.notePrimary} {
+  flex: 1;
+  height: 40px;
+  border: none;
+  border-radius: 10px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.${c.noteSecondary} { background: transparent; box-shadow: inset 0 0 0 0.5px var(--dsw-alias-border-l4); color: var(--dsw-alias-label-primary); }
+.${c.notePrimary} { background: var(--dsw-alias-brand-primary); color: var(--dsw-alias-bg-base); }
+.${c.noteMic} {
+  flex: none;
+  width: 56px;
+  height: 56px;
+  border: none;
+  border-radius: 28px;
+  display: grid;
+  place-items: center;
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-primary);
+  cursor: pointer;
+}
+.${c.noteMic}[data-recording] { background: var(--dsw-alias-state-error-primary); color: var(--dsw-alias-bg-base); }
+.${c.noteStopGlyph} { width: 18px; height: 18px; border-radius: 4px; background: currentColor; }
+@media (max-width: 768px) {
+  /* Шторка — над клавиатурой: видимая область из мобильного скина. */
+  .${c.noteScrim} { top: var(--poh-vvtop, 0px); bottom: auto; height: var(--poh-vvh, 100dvh); }
+}
+
+/* ——— Узкий экран (телефон) ——— */
+
+/* Раздел остаётся тем же, только укладывается в экран телефона (iPhone 15 Pro — 393×852):
+   ничего не уезжает за край и не прячется под системные вырезы.
+   - Панель: ширина из localStorage (ручка перетаскивания, по умолчанию 420px) шире экрана,
+     а панель прижата к правому краю — левая часть уезжала за экран. На телефоне панель во
+     всю ширину, ручки нет.
+   - Слой оверлеев лежит от верха фрейма, а не под вырезом: сверху и снизу — отступы
+     safe-area (вырез и home indicator).
+   - Шапки начинаются правее плавающей кнопки меню мобильного скина (poh-mobile-skin:
+     40px + 10px слева), иначе кнопка накрывает «назад» и начало заголовка.
+   - Детальная страница — одна колонка вместо двух, без горизонтальной прокрутки; высота —
+     видимая область над клавиатурой (--poh-vvtop/--poh-vvh ставит мобильный скин, без него —
+     100dvh).
+   - Доска: колонка почти во всю ширину, свайп доводит до следующей колонки. */
+@media (max-width: 768px) {
+  .${c.panel} {
+    left: 0;
+    width: 100% !important;
+    max-width: 100%;
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    border-left: none;
+    box-shadow: none;
+  }
+  .${c.panelGrip} { display: none; }
+
+  .${c.detailPage} {
+    top: var(--poh-vvtop, 0px);
+    bottom: auto;
+    height: var(--poh-vvh, 100dvh);
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    overflow-x: hidden;
+  }
+
+  .${c.panel} .${c.header}, .${c.detailPage} > .${c.header} {
+    min-height: 56px;
+    box-sizing: border-box;
+    padding-left: 60px;
+  }
+
+  .${c.detailBody} {
+    flex-direction: column;
+    flex-wrap: nowrap;
+    gap: 12px;
+    padding: 12px;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+  .${c.detailLeft} {
+    flex: none;
+    width: 100%;
+    min-width: 0;
+    height: calc(var(--poh-vvh, 100dvh) * 0.62);
+    min-height: 320px;
+    max-height: none;
+  }
+  .${c.detailRight} {
+    flex: none;
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+    max-height: none;
+  }
+
+  .${c.boardRow} {
+    padding: 12px;
+    scroll-snap-type: x mandatory;
+    scroll-padding-inline: 12px;
+    overscroll-behavior-x: contain;
+  }
+  .${c.boardColumn} {
+    flex: 0 0 calc(100% - 40px);
+    min-width: 0;
+    max-width: none;
+    scroll-snap-align: start;
+  }
+
+  .${c.okrDialog} {
+    width: 100%;
+    max-height: calc(var(--poh-vvh, 100dvh) - 32px);
+  }
 }
 `
