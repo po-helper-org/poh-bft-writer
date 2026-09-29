@@ -725,6 +725,7 @@ export const panelStyleText = `
 
 .${c.detailTextarea} {
   width: 100%;
+  box-sizing: border-box;
   min-height: 96px;
   resize: vertical;
   border-radius: 10px;
@@ -1237,5 +1238,92 @@ export const panelStyleText = `
   font-size: 12px;
   line-height: 1.5;
   color: var(--dsw-alias-state-error-primary);
+}
+
+/* ——— Узкий экран (телефон) ——— */
+
+/* Раздел остаётся тем же, только укладывается в экран телефона (iPhone 15 Pro — 393×852):
+   ничего не уезжает за край и не прячется под системные вырезы.
+   - Панель: ширина из localStorage (ручка перетаскивания, по умолчанию 420px) шире экрана,
+     а панель прижата к правому краю — левая часть уезжала за экран. На телефоне панель во
+     всю ширину, ручки нет.
+   - Слой оверлеев лежит от верха фрейма, а не под вырезом: сверху и снизу — отступы
+     safe-area (вырез и home indicator).
+   - Шапки начинаются правее плавающей кнопки меню мобильного скина (poh-mobile-skin:
+     40px + 10px слева), иначе кнопка накрывает «назад» и начало заголовка.
+   - Детальная страница — одна колонка вместо двух, без горизонтальной прокрутки; высота —
+     видимая область над клавиатурой (--poh-vvtop/--poh-vvh ставит мобильный скин, без него —
+     100dvh).
+   - Доска: колонка почти во всю ширину, свайп доводит до следующей колонки. */
+@media (max-width: 768px) {
+  .${c.panel} {
+    left: 0;
+    width: 100% !important;
+    max-width: 100%;
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    border-left: none;
+    box-shadow: none;
+  }
+  .${c.panelGrip} { display: none; }
+
+  .${c.detailPage} {
+    top: var(--poh-vvtop, 0px);
+    bottom: auto;
+    height: var(--poh-vvh, 100dvh);
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    overflow-x: hidden;
+  }
+
+  .${c.panel} .${c.header}, .${c.detailPage} > .${c.header} {
+    min-height: 56px;
+    box-sizing: border-box;
+    padding-left: 60px;
+  }
+
+  .${c.detailBody} {
+    flex-direction: column;
+    flex-wrap: nowrap;
+    gap: 12px;
+    padding: 12px;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+  .${c.detailLeft} {
+    flex: none;
+    width: 100%;
+    min-width: 0;
+    height: calc(var(--poh-vvh, 100dvh) * 0.62);
+    min-height: 320px;
+    max-height: none;
+  }
+  .${c.detailRight} {
+    flex: none;
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+    max-height: none;
+  }
+
+  .${c.boardRow} {
+    padding: 12px;
+    scroll-snap-type: x mandatory;
+    scroll-padding-inline: 12px;
+    overscroll-behavior-x: contain;
+  }
+  .${c.boardColumn} {
+    flex: 0 0 calc(100% - 40px);
+    min-width: 0;
+    max-width: none;
+    scroll-snap-align: start;
+  }
+
+  .${c.okrDialog} {
+    width: 100%;
+    max-height: calc(var(--poh-vvh, 100dvh) - 32px);
+  }
 }
 `
