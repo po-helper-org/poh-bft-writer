@@ -36,6 +36,11 @@ test('страница встречи не показывается вместо
   assert.deepEqual(choice, { name: 'epic-fast.md', kind: 'markdown' })
 })
 
+test('матрица исполнения не показывается вместо документа требования', () => {
+  const choice = chooseDocument('epic', ['epic.md', 'epic-matrix.md', 'epic-matrix.html'])
+  assert.deepEqual(choice, { name: 'epic.md', kind: 'markdown' })
+})
+
 test('скрипт интервью: страница встречи побеждает исходный markdown', () => {
   assert.deepEqual(chooseCustdevDocument('epic', ['epic-custdev.md', 'epic-custdev.html', 'epic-fast.html']),
     { name: 'epic-custdev.html', kind: 'html' })
