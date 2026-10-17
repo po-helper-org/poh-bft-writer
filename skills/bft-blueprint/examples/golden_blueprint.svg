@@ -1,0 +1,323 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" class="bp" viewBox="0 0 1408 1163" width="1408" height="1163" role="img" aria-label="Service Blueprint: direct-faq: Блок «Вопрос-ответ» на карточках Direct">
+<style>
+.bp{font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+.bp .band-a{fill:var(--band-a,#f8f8f8)} .bp .band-b{fill:var(--band-b,#f1f1f1)}
+.bp .hdr{fill:var(--hdr,#ffffff);stroke:var(--rule,#cfd3d8)} .bp .hdr-n{fill:var(--ink,#1f2328)}
+.bp .t-stage{fill:var(--ink,#1f2328);font-size:12px;font-weight:600}
+.bp .t-lane{fill:var(--ink,#1f2328);font-size:13px;font-weight:700}
+.bp .t-owner{fill:var(--muted,#59636e);font-size:11px}
+.bp .t-line{fill:var(--ink,#1f2328);font-size:12px}
+.bp .boundary{stroke:var(--ink,#1f2328);stroke-width:1.2;stroke-dasharray:7 5}
+.bp .gain{fill:#f28b50}.bp .act{fill:#f28b50}.bp .touch{fill:#fbc34e}
+.bp .front{fill:#2fb0cb}.bp .back{fill:#0b6ea8}.bp .sup{fill:#58537a}
+.bp .strip-gain,.bp .strip-act{fill:#f28b50}.bp .strip-touch{fill:#fbc34e}
+.bp .strip-front{fill:#2fb0cb}.bp .strip-back{fill:#0b6ea8}.bp .strip-sup{fill:#58537a}
+.bp .card text{fill:#fff;font-size:12px}.bp .card.touch text{fill:#1f2328}
+.bp .card .cid{font-size:9px;opacity:.85}
+.bp .card .refs{font-size:10px;font-weight:700}
+.bp .card .pill{fill:rgba(0,0,0,.28)}.bp .card.touch .pill{fill:rgba(0,0,0,.14)}
+.bp .card .badge{font-size:9px;font-weight:700;letter-spacing:.04em}
+.bp .card.have{opacity:.7}
+.bp .card.gap rect.body{stroke:var(--ink,#1f2328);stroke-width:1.6;stroke-dasharray:5 3}
+.bp .link{fill:none;stroke-width:1.6;stroke-linejoin:round}
+.bp .link.flow{stroke:var(--flow,#30363d)} .bp .link.call{stroke:var(--call,#0b57d0)}
+.bp .link.data{stroke:var(--data,#6e7781);stroke-dasharray:5 4}
+.bp .mk-flow{fill:var(--flow,#30363d)} .bp .mk-call{fill:var(--call,#0b57d0)} .bp .mk-data{fill:var(--data,#6e7781)}
+.bp .t-leg{fill:var(--ink,#1f2328);font-size:11px}
+</style>
+<defs><marker id="ah-flow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mk-flow" d="M0,0L10,5L0,10z"/></marker><marker id="ah-call" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mk-call" d="M0,0L10,5L0,10z"/></marker><marker id="ah-data" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mk-data" d="M0,0L10,5L0,10z"/></marker></defs>
+<rect class="hdr" x="328" y="4" width="178" height="52" rx="6"/>
+<text class="t-stage" x="338" y="24"><tspan opacity=".6">С1</tspan></text>
+<text class="t-stage" x="362" y="24">Открывает карточку</text>
+<text class="t-stage" x="362" y="39">в Direct</text>
+<rect class="hdr" x="544" y="4" width="178" height="52" rx="6"/>
+<text class="t-stage" x="554" y="24"><tspan opacity=".6">С2</tspan></text>
+<text class="t-stage" x="578" y="24">Ведёт вопросы блока</text>
+<rect class="hdr" x="760" y="4" width="178" height="52" rx="6"/>
+<text class="t-stage" x="770" y="24"><tspan opacity=".6">С3</tspan></text>
+<text class="t-stage" x="794" y="24">Изменения выходят</text>
+<text class="t-stage" x="794" y="39">на сайт</text>
+<rect class="hdr" x="976" y="4" width="178" height="52" rx="6"/>
+<text class="t-stage" x="986" y="24"><tspan opacity=".6">С4</tspan></text>
+<text class="t-stage" x="1010" y="24">Посетитель читает</text>
+<text class="t-stage" x="1010" y="39">страницу</text>
+<rect class="hdr" x="1192" y="4" width="178" height="52" rx="6"/>
+<text class="t-stage" x="1202" y="24"><tspan opacity=".6">С5</tspan></text>
+<text class="t-stage" x="1226" y="24">Вопросы попадают в</text>
+<text class="t-stage" x="1226" y="39">поиск</text>
+<rect class="band-a" x="118" y="68" width="1290" height="124"/>
+<rect class="strip-gain" x="118" y="68" width="8" height="124"/>
+<text class="t-lane" x="138" y="134">Выгода клиента</text>
+<rect class="band-b" x="118" y="196" width="1290" height="124"/>
+<rect class="strip-act" x="118" y="196" width="8" height="124"/>
+<text class="t-lane" x="138" y="262">Действия клиента</text>
+<rect class="band-a" x="118" y="324" width="1290" height="109"/>
+<rect class="strip-touch" x="118" y="324" width="8" height="109"/>
+<text class="t-lane" x="138" y="382">Точки контакта</text>
+<rect class="band-b" x="118" y="445" width="1290" height="139"/>
+<rect class="strip-front" x="118" y="445" width="8" height="139"/>
+<text class="t-lane" x="138" y="518">Витрина</text>
+<rect class="band-a" x="118" y="596" width="1290" height="260"/>
+<rect class="strip-back" x="118" y="596" width="8" height="260"/>
+<text class="t-lane" x="138" y="717">Direct</text>
+<text class="t-owner" x="138" y="733">Разработка (Дмитрий</text>
+<text class="t-owner" x="138" y="745">Ананьев)</text>
+<rect class="band-b" x="118" y="860" width="1290" height="109"/>
+<rect class="strip-back" x="118" y="860" width="8" height="109"/>
+<text class="t-lane" x="138" y="906">Сайт</text>
+<text class="t-owner" x="138" y="922">Разработка (Дмитрий</text>
+<text class="t-owner" x="138" y="934">Ананьев)</text>
+<rect class="band-a" x="118" y="981" width="1290" height="124"/>
+<rect class="strip-sup" x="118" y="981" width="8" height="124"/>
+<text class="t-lane" x="138" y="1040">Поисковые системы</text>
+<text class="t-owner" x="138" y="1056">Внешняя зависимость</text>
+<line class="boundary" x1="6" y1="439" x2="1404" y2="439"/>
+<text class="t-line" x="8" y="420">Линия</text>
+<text class="t-line" x="8" y="434">взаимодействия</text>
+<line class="boundary" x1="6" y1="590" x2="1404" y2="590"/>
+<text class="t-line" x="8" y="585">Линия видимости</text>
+<line class="boundary" x1="6" y1="975" x2="1404" y2="975"/>
+<text class="t-line" x="8" y="942">Линия</text>
+<text class="t-line" x="8" y="956">внутреннего</text>
+<text class="t-line" x="8" y="970">взаимодействия</text>
+<path class="link flow" d="M506.0,258.0 L544.0,258.0" marker-end="url(#ah-flow)"><title>К4 → К5 (поток)</title></path>
+<path class="link flow" d="M722.0,258.0 L976.0,258.0" marker-end="url(#ah-flow)"><title>К5 → К6 (поток)</title></path>
+<path class="link flow" d="M1154.0,258.0 L1192.0,258.0" marker-end="url(#ah-flow)"><title>К6 → К7 (поток)</title></path>
+<path class="link flow" d="M506.0,378.5 L976.0,378.5" marker-end="url(#ah-flow)"><title>К8 → К9 (поток)</title></path>
+<path class="link flow" d="M1154.0,378.5 L1192.0,378.5" marker-end="url(#ah-flow)"><title>К9 → К10 (поток)</title></path>
+<path class="link flow" d="M506.0,514.5 L544.0,514.5" marker-end="url(#ah-flow)"><title>К11 → К12 (поток)</title></path>
+<path class="link flow" d="M938.0,914.5 L976.0,914.5" marker-end="url(#ah-flow)"><title>К16 → К17 (поток)</title></path>
+<path class="link flow" d="M1154.0,914.5 L1192.0,914.5" marker-end="url(#ah-flow)"><title>К17 → К18 (поток)</title></path>
+<path class="link flow" d="M633.0,210.0 L633.0,178.0" marker-end="url(#ah-flow)"><title>К5 → К1 (поток)</title></path>
+<path class="link flow" d="M1065.0,210.0 L1065.0,170.5" marker-end="url(#ah-flow)"><title>К6 → К2 (поток)</title></path>
+<path class="link flow" d="M1281.0,210.0 L1281.0,170.5" marker-end="url(#ah-flow)"><title>К7 → К3 (поток)</title></path>
+<path class="link call" d="M417.0,306.0 L417.0,345.5" marker-end="url(#ah-call)"><title>К4 → К8 (вызов)</title></path>
+<path class="link call" d="M1065.0,306.0 L1065.0,345.5" marker-end="url(#ah-call)"><title>К6 → К9 (вызов)</title></path>
+<path class="link call" d="M1281.0,306.0 L1281.0,338.0" marker-end="url(#ah-call)"><title>К7 → К10 (вызов)</title></path>
+<path class="link call" d="M417.0,411.5 L417.0,466.5" marker-end="url(#ah-call)"><title>К8 → К11 (вызов)</title></path>
+<path class="link call" d="M1065.0,411.5 L1065.0,466.5" marker-end="url(#ah-call)"><title>К9 → К13 (вызов)</title></path>
+<path class="link call" d="M633.0,570.0 L633.0,610.0" marker-end="url(#ah-call)"><title>К12 → К14 (вызов)</title></path>
+<path class="link call" d="M722.0,658.0 L741.0,658.0 L741.0,914.5 L760.0,914.5" marker-end="url(#ah-call)"><title>К14 → К16 (вызов)</title></path>
+<path class="link call" d="M1065.0,874.0 L1065.0,562.5" marker-end="url(#ah-call)"><title>К17 → К13 (вызов)</title></path>
+<path class="link call" d="M1281.0,955.0 L1281.0,995.0" marker-end="url(#ah-call)"><title>К18 → К19 (вызов)</title></path>
+<path class="link data" d="M1192.0,1043.0 L1173.0,1043.0 L1173.0,378.5 L1192.0,378.5" marker-end="url(#ah-data)"><title>К19 → К10 (данные)</title></path>
+<g class="card gain"><title>К1 · Выгода клиента · С2
+Контент-менеджер публикует и меняет вопросы без релиза
+БТ-1: Самостоятельное управление блоком «Вопрос-ответ»
+ПТ-1: Управление вопросами на карточке</title>
+<rect class="body gain" x="544" y="82" width="178" height="96" rx="5"/>
+<text class="cid" x="714" y="98" text-anchor="end">К1</text>
+<text x="552" y="120">Контент-менеджер</text>
+<text x="552" y="135">публикует и меняет</text>
+<text x="552" y="150">вопросы без релиза</text>
+<text class="refs" x="552" y="169">БТ-1 · ПТ-1</text>
+</g>
+<g class="card gain"><title>К2 · Выгода клиента · С4
+Посетитель получает ответ сразу на странице
+ПТ-2: Просмотр вопросов на сайте</title>
+<rect class="body gain" x="976" y="90" width="178" height="81" rx="5"/>
+<text class="cid" x="1146" y="106" text-anchor="end">К2</text>
+<text x="984" y="128">Посетитель получает</text>
+<text x="984" y="142">ответ сразу на странице</text>
+<text class="refs" x="984" y="162">ПТ-2</text>
+</g>
+<g class="card gain"><title>К3 · Выгода клиента · С5
+Опубликованные вопросы находятся через поиск
+БТ-1: Самостоятельное управление блоком «Вопрос-ответ»</title>
+<rect class="body gain" x="1192" y="90" width="178" height="81" rx="5"/>
+<text class="cid" x="1362" y="106" text-anchor="end">К3</text>
+<text x="1200" y="128">Опубликованные вопросы</text>
+<text x="1200" y="142">находятся через поиск</text>
+<text class="refs" x="1200" y="162">БТ-1</text>
+</g>
+<g class="card act"><title>К4 · Действия клиента · С1
+Открывает карточку события, площадки или персоны
+ПТ-1: Управление вопросами на карточке</title>
+<rect class="body act" x="328" y="210" width="178" height="96" rx="5"/>
+<text class="cid" x="498" y="226" text-anchor="end">К4</text>
+<text x="336" y="248">Открывает карточку</text>
+<text x="336" y="263">события, площадки или</text>
+<text x="336" y="278">персоны</text>
+<text class="refs" x="336" y="297">ПТ-1</text>
+</g>
+<g class="card act"><title>К5 · Действия клиента · С2
+Добавляет, правит, переставляет и скрывает вопрос
+ПТ-1: Управление вопросами на карточке</title>
+<rect class="body act" x="544" y="210" width="178" height="96" rx="5"/>
+<text class="cid" x="714" y="226" text-anchor="end">К5</text>
+<text x="552" y="248">Добавляет, правит,</text>
+<text x="552" y="263">переставляет и скрывает</text>
+<text x="552" y="278">вопрос</text>
+<text class="refs" x="552" y="297">ПТ-1</text>
+</g>
+<g class="card act"><title>К6 · Действия клиента · С4
+Посетитель открывает страницу события, площадки или персоны
+ПТ-2: Просмотр вопросов на сайте</title>
+<rect class="body act" x="976" y="210" width="178" height="96" rx="5"/>
+<text class="cid" x="1146" y="226" text-anchor="end">К6</text>
+<text x="984" y="248">Посетитель открывает</text>
+<text x="984" y="263">страницу события,</text>
+<text x="984" y="278">площадки или персоны</text>
+<text class="refs" x="984" y="297">ПТ-2</text>
+</g>
+<g class="card act"><title>К7 · Действия клиента · С5
+Проверяет индексацию в Search Console или Вебмастере
+ФТ-1: Индексация опубликованных вопросов</title>
+<rect class="body act" x="1192" y="210" width="178" height="96" rx="5"/>
+<text class="cid" x="1362" y="226" text-anchor="end">К7</text>
+<text x="1200" y="248">Проверяет индексацию в</text>
+<text x="1200" y="263">Search Console или</text>
+<text x="1200" y="278">Вебмастере</text>
+<text class="refs" x="1200" y="297">ФТ-1</text>
+</g>
+<g class="card touch"><title>К8 · Точки контакта · С1
+Карточка в Direct
+ИТ-2: Управление вопросами в Direct</title>
+<rect class="body touch" x="328" y="346" width="178" height="66" rx="5"/>
+<text class="cid" x="498" y="362" text-anchor="end">К8</text>
+<text x="336" y="384">Карточка в Direct</text>
+<text class="refs" x="336" y="402">ИТ-2</text>
+</g>
+<g class="card touch"><title>К9 · Точки контакта · С4
+Страница на сайте
+ИТ-1: Блок «Вопрос-ответ» на странице сайта</title>
+<rect class="body touch" x="976" y="346" width="178" height="66" rx="5"/>
+<text class="cid" x="1146" y="362" text-anchor="end">К9</text>
+<text x="984" y="384">Страница на сайте</text>
+<text class="refs" x="984" y="402">ИТ-1</text>
+</g>
+<g class="card touch"><title>К10 · Точки контакта · С5
+Google Search Console, Яндекс.Вебмастер
+ФТ-1: Индексация опубликованных вопросов</title>
+<rect class="body touch" x="1192" y="338" width="178" height="81" rx="5"/>
+<text class="cid" x="1362" y="354" text-anchor="end">К10</text>
+<text x="1200" y="376">Google Search Console,</text>
+<text x="1200" y="391">Яндекс.Вебмастер</text>
+<text class="refs" x="1200" y="410">ФТ-1</text>
+</g>
+<g class="card front"><title>К11 · Витрина · С1
+Раздел «Вопрос-ответ» на карточке события, площадки, персоны
+ИТ-2: Управление вопросами в Direct</title>
+<rect class="body front" x="328" y="466" width="178" height="96" rx="5"/>
+<rect class="pill" x="334" y="472" width="52" height="14" rx="7"/>
+<text class="badge" x="360" y="482" text-anchor="middle">СОЗДАТЬ</text>
+<text class="cid" x="498" y="482" text-anchor="end">К11</text>
+<text x="336" y="504">Раздел «Вопрос-ответ» на</text>
+<text x="336" y="520">карточке события,</text>
+<text x="336" y="534">площадки, персоны</text>
+<text class="refs" x="336" y="554">ИТ-2</text>
+</g>
+<g class="card front"><title>К12 · Витрина · С2
+Действия над вопросом: добавить, отредактировать, порядок, скрыть
+ИТ-2: Управление вопросами в Direct</title>
+<rect class="body front" x="544" y="459" width="178" height="111" rx="5"/>
+<rect class="pill" x="550" y="465" width="52" height="14" rx="7"/>
+<text class="badge" x="576" y="475" text-anchor="middle">СОЗДАТЬ</text>
+<text class="cid" x="714" y="475" text-anchor="end">К12</text>
+<text x="552" y="497">Действия над вопросом:</text>
+<text x="552" y="512">добавить,</text>
+<text x="552" y="527">отредактировать,</text>
+<text x="552" y="542">порядок, скрыть</text>
+<text class="refs" x="552" y="561">ИТ-2</text>
+</g>
+<g class="card front"><title>К13 · Витрина · С4
+Блок на странице: скрытые не видны, без вопросов блока нет
+ИТ-1: Блок «Вопрос-ответ» на странице сайта</title>
+<rect class="body front" x="976" y="466" width="178" height="96" rx="5"/>
+<rect class="pill" x="982" y="472" width="52" height="14" rx="7"/>
+<text class="badge" x="1008" y="482" text-anchor="middle">СОЗДАТЬ</text>
+<text class="cid" x="1146" y="482" text-anchor="end">К13</text>
+<text x="984" y="504">Блок на странице:</text>
+<text x="984" y="520">скрытые не видны, без</text>
+<text x="984" y="534">вопросов блока нет</text>
+<text class="refs" x="984" y="554">ИТ-1</text>
+</g>
+<g class="card back"><title>К14 · Сервисы · С2
+Ведёт вопросы блока: добавление, правка, порядок, скрытие
+ПТ-1: Управление вопросами на карточке</title>
+<rect class="body back" x="544" y="610" width="178" height="96" rx="5"/>
+<rect class="pill" x="550" y="616" width="52" height="14" rx="7"/>
+<text class="badge" x="576" y="626" text-anchor="middle">СОЗДАТЬ</text>
+<text class="cid" x="714" y="626" text-anchor="end">К14</text>
+<text x="552" y="648">Ведёт вопросы блока:</text>
+<text x="552" y="663">добавление, правка,</text>
+<text x="552" y="678">порядок, скрытие</text>
+<text class="refs" x="552" y="697">ПТ-1</text>
+</g>
+<g class="card back gap"><title>К15 · Сервисы · С2
+Правила модерации, удаления карточки и одновременной правки [УТОЧНИТЬ у PO и Разработки]
+ФТ-2: Модерация и санитизация контента вопроса
+ФТ-3: Поведение блока при удалении/архивации карточки
+ФТ-4: Конкурентное редактирование блока</title>
+<rect class="body back" x="544" y="716" width="178" height="126" rx="5"/>
+<rect class="pill" x="550" y="722" width="59" height="14" rx="7"/>
+<text class="badge" x="579" y="732" text-anchor="middle">УТОЧНИТЬ</text>
+<text class="cid" x="714" y="732" text-anchor="end">К15</text>
+<text x="552" y="754">Правила модерации,</text>
+<text x="552" y="769">удаления карточки и</text>
+<text x="552" y="784">одновременной правки</text>
+<text x="552" y="799">[УТОЧНИТЬ у PO и</text>
+<text x="552" y="814">Разработки]</text>
+<text class="refs" x="552" y="833">ФТ-2 · ФТ-3 · ФТ-4</text>
+</g>
+<g class="card back"><title>К16 · Сервисы · С3
+Публикует изменения на сайте в течение суток
+НФТ-1: Задержка публикации изменений</title>
+<rect class="body back" x="760" y="874" width="178" height="81" rx="5"/>
+<rect class="pill" x="766" y="880" width="52" height="14" rx="7"/>
+<text class="badge" x="792" y="890" text-anchor="middle">СОЗДАТЬ</text>
+<text class="cid" x="930" y="890" text-anchor="end">К16</text>
+<text x="768" y="912">Публикует изменения на</text>
+<text x="768" y="927">сайте в течение суток</text>
+<text class="refs" x="768" y="946">НФТ-1</text>
+</g>
+<g class="card back"><title>К17 · Сервисы · С4
+Отдаёт странице только опубликованные вопросы
+ИТ-1: Блок «Вопрос-ответ» на странице сайта
+ПТ-2: Просмотр вопросов на сайте</title>
+<rect class="body back" x="976" y="874" width="178" height="81" rx="5"/>
+<rect class="pill" x="982" y="880" width="52" height="14" rx="7"/>
+<text class="badge" x="1008" y="890" text-anchor="middle">СОЗДАТЬ</text>
+<text class="cid" x="1146" y="890" text-anchor="end">К17</text>
+<text x="984" y="912">Отдаёт странице только</text>
+<text x="984" y="927">опубликованные вопросы</text>
+<text class="refs" x="984" y="946">ИТ-1 · ПТ-2</text>
+</g>
+<g class="card back"><title>К18 · Сервисы · С5
+Открывает опубликованные вопросы для индексации
+ФТ-1: Индексация опубликованных вопросов</title>
+<rect class="body back" x="1192" y="874" width="178" height="81" rx="5"/>
+<rect class="pill" x="1198" y="880" width="52" height="14" rx="7"/>
+<text class="badge" x="1224" y="890" text-anchor="middle">СОЗДАТЬ</text>
+<text class="cid" x="1362" y="890" text-anchor="end">К18</text>
+<text x="1200" y="912">Открывает опубликованные</text>
+<text x="1200" y="927">вопросы для индексации</text>
+<text class="refs" x="1200" y="946">ФТ-1</text>
+</g>
+<g class="card sup have"><title>К19 · Основа и поддержка · С5
+Индексирует вопросы, обновление в течение суток
+ФТ-1: Индексация опубликованных вопросов
+НФТ-1: Задержка публикации изменений</title>
+<rect class="body sup" x="1192" y="995" width="178" height="96" rx="5"/>
+<rect class="pill" x="1198" y="1001" width="34" height="14" rx="7"/>
+<text class="badge" x="1215" y="1011" text-anchor="middle">ЕСТЬ</text>
+<text class="cid" x="1362" y="1011" text-anchor="end">К19</text>
+<text x="1200" y="1033">Индексирует вопросы,</text>
+<text x="1200" y="1048">обновление в течение</text>
+<text x="1200" y="1063">суток</text>
+<text class="refs" x="1200" y="1082">ФТ-1 · НФТ-1</text>
+</g>
+<rect class="front" x="118" y="1123" width="22" height="12" rx="3"/>
+<text class="t-leg" x="146" y="1133">СОЗДАТЬ / ДОРАБОТАТЬ — работа этой инициативы</text>
+<rect class="front" x="443.0" y="1123" width="22" height="12" rx="3" opacity=".7"/>
+<text class="t-leg" x="471.0" y="1133">ЕСТЬ — используем как есть</text>
+<rect class="front" x="650.2" y="1123" width="22" height="12" rx="3" stroke="currentColor" stroke-dasharray="3 2"/>
+<text class="t-leg" x="678.2" y="1133">штрих — есть [УТОЧНИТЬ]</text>
+<path class="link flow" d="M118,1153 L148,1153" marker-end="url(#ah-flow)"/>
+<text class="t-leg" x="156" y="1157">поток — следующий шаг</text>
+<path class="link call" d="M308.20000000000005,1153 L338.20000000000005,1153" marker-end="url(#ah-call)"/>
+<text class="t-leg" x="346.20000000000005" y="1157">вызов — одно запускает другое</text>
+<path class="link data" d="M548.0,1153 L578.0,1153" marker-end="url(#ah-data)"/>
+<text class="t-leg" x="586.0" y="1157">данные — передаётся результат</text>
+</svg>
