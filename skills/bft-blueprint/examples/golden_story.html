@@ -1,0 +1,322 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>История · bartello-restart</title>
+<style>
+/* bft-blueprint · история через экраны (верхняя линия blueprint). Стандарт — resources/story_line.md */
+:root{--ink:#1c1c1c;--muted:#6b6b6b;--red:#c0392b;--bg:#f6f4f0;--rule:#cfcac0;--story:#2f6b2a;--storybg:#eef3ea;--storybg2:#f3f6f0;--offer:#6b3fd4;--paper:#fff}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.45 Inter,-apple-system,"Segoe UI",Roboto,Arial,sans-serif}
+header{padding:18px 16px 6px;max-width:1500px;margin:0 auto}
+h1{font-size:21px;margin:0 0 4px}.sub{color:var(--muted);margin:0 0 12px;font-size:14px;max-width:900px}
+.play{font:inherit;font-size:14px;font-weight:700;border:0;border-radius:999px;background:var(--ink);color:#fff;padding:9px 16px;cursor:pointer}
+.legend{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;font-size:12.5px;padding:10px 16px 14px;max-width:1500px;margin:0 auto;color:#3a3a3a}
+.legend .t{font-weight:700;color:var(--muted);font-size:11px;letter-spacing:.6px;text-transform:uppercase}
+.legend .alt{display:inline-block;width:14px;height:18px;border:2px solid var(--red);border-radius:4px;vertical-align:-4px;margin-right:4px}
+.legend .wait{display:inline-block;width:24px;height:14px;border:1.5px dashed var(--story);border-radius:4px;vertical-align:-2px;margin-right:4px}
+.dot{position:absolute;width:14px;height:14px;border-radius:50%;background:var(--red);border:2px solid #fff;z-index:3}
+.dot.inl{position:static;display:inline-block;vertical-align:-2px;margin-right:4px}
+/* холст */
+.wrap{overflow:auto;border-top:1px solid var(--rule);border-bottom:1px solid var(--rule);background:var(--bg)}
+.grid{position:relative;display:grid}
+.grid>div{padding:20px 18px;min-height:60px}
+.sh{position:sticky;top:0;z-index:4;background:var(--bg);font-size:11px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;border-bottom:1px solid var(--rule);min-width:120px;color:#3a3a3a}
+.sh.corner{left:0;z-index:6}
+.ln{position:sticky;left:0;z-index:5;font-weight:700;font-size:13.5px;background:inherit}.ln small{display:block;font-weight:400;color:var(--muted);font-size:11px;margin-top:2px}
+.row0{background:var(--storybg)}.row1{background:var(--storybg2)}
+.cell{display:flex;gap:28px;align-items:flex-start}
+svg.links{position:absolute;left:0;top:0;pointer-events:none;overflow:visible;z-index:1}
+/* карточка шага: картинка · контур · заголовок · пояснение */
+.sf{position:relative;z-index:2;background:#fff;border-radius:18px;padding:12px 12px 16px;box-shadow:0 1px 2px rgba(0,0,0,.06),0 6px 18px rgba(40,60,30,.07);cursor:pointer;transition:box-shadow .15s,transform .15s;text-align:left}
+.sf:hover,.sf:focus-visible{box-shadow:0 2px 4px rgba(0,0,0,.08),0 12px 28px rgba(40,60,30,.14);transform:translateY(-2px);outline:none}
+.stepn{position:absolute;top:-10px;left:-10px;width:26px;height:26px;border-radius:50%;background:var(--story);color:#fff;font-size:12.5px;font-weight:800;display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 3px var(--storybg);z-index:3}
+.sfr{display:flex;gap:14px;justify-content:center;background:#f3f1ec;border-radius:12px;padding:14px}
+.ctr{display:inline-flex;align-items:center;gap:6px;margin:12px 4px 0 0;font-size:11.5px;font-weight:650;color:#3a3a3a;border:1px solid #e3dfd6;border-radius:999px;padding:3px 10px 3px 7px;background:#faf9f6;white-space:nowrap}
+.ctr svg{width:14px;height:14px;flex:none;stroke:#3a3a3a;fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.sf .ttl{display:block;font-size:16px;font-weight:750;line-height:1.25;margin:9px 2px 4px;color:var(--ink)}
+.sf .txt{margin:0 2px;font-size:13.5px;line-height:1.45;color:#5a5a5a}
+.scr{position:relative;width:170px;display:block}
+.scr svg{width:170px;height:auto;display:block}
+.scr .dot{top:6px;right:-5px}
+.sf>.dot{top:-6px;right:-6px}
+/* знакомство и итог */
+.tale{position:relative;z-index:2;width:250px;background:#f4faf1;border:1px solid var(--story);border-radius:16px;padding:14px 16px;text-align:left;cursor:pointer}
+.tale:hover,.tale:focus-visible{box-shadow:0 6px 16px rgba(0,0,0,.12);outline:none}
+.tale .beat{font-size:10.5px;font-weight:800;letter-spacing:.8px;color:var(--story);text-transform:uppercase}
+.tale .big{font-size:34px;font-weight:900;line-height:1;margin:8px 0 2px}.tale.final .big{color:var(--story)}
+.tale .bigc{font-size:12px;color:var(--muted);margin-bottom:6px}
+.tale .ttl{display:block;font-size:16px;font-weight:800;line-height:1.25;margin:6px 0}
+.tale .txt{margin:0;font-size:13.5px;line-height:1.45;color:#2b2b2b}
+.tale .was{font-size:12px;color:#8a8378;margin-top:10px;line-height:1.4}
+.was b,.pn .was b{font-size:9.5px;letter-spacing:.7px;text-transform:uppercase;border:1px solid #d6d0c4;border-radius:5px;padding:0 5px;margin-right:5px;color:#8a8378}
+/* полоса ожидания: персонаж ждёт, пока действует другой */
+.band{position:relative;z-index:2;background:#fff;border:1.5px dashed var(--story);border-radius:14px;padding:12px 16px;cursor:pointer;margin-top:100px}
+.band:hover,.band:focus-visible{box-shadow:0 6px 16px rgba(0,0,0,.1);outline:none}
+.band .beat{font-size:10.5px;font-weight:800;letter-spacing:.8px;color:var(--story);text-transform:uppercase}
+.band .ttl{display:block;font-size:15px;font-weight:750;margin:3px 0}
+.band .txt{margin:0;font-size:13px;color:#4a4a4a}
+.band>.dot{top:-6px;right:-6px}
+/* открытые вопросы */
+.qs{max-width:1500px;margin:0 auto;padding:18px 16px 40px}
+.qs h2{font-size:17px;margin:0 0 8px}
+.qs table{border-collapse:collapse;width:100%;font-size:13.5px}
+.qs th,.qs td{border-bottom:1px solid #e7e2d9;padding:7px 8px;text-align:left;vertical-align:top}
+.qs th{font-size:11px;letter-spacing:.5px;text-transform:uppercase;color:var(--muted)}
+.qs a{color:var(--ink);font-weight:700}
+.qs .none{color:var(--muted)}
+/* панель шага */
+.scrim{position:fixed;inset:0;background:rgba(0,0,0,.28);opacity:0;pointer-events:none;transition:opacity .2s;z-index:8}
+.pn{position:fixed;top:0;right:0;height:100%;width:min(560px,100%);background:#fff;box-shadow:-8px 0 24px rgba(0,0,0,.18);transform:translateX(105%);transition:transform .22s;overflow-y:auto;z-index:9;padding:18px 20px 40px}
+body.panel .scrim{opacity:1;pointer-events:auto}body.panel .pn{transform:none}
+.pn .x{position:sticky;top:0;float:right;font:inherit;font-size:26px;line-height:1;border:0;background:none;cursor:pointer;color:var(--muted)}
+.pn .k{font-size:11px;font-weight:800;letter-spacing:.8px;color:var(--story);text-transform:uppercase}
+.pn h2{font-size:22px;line-height:1.25;margin:6px 0 8px}
+.pn .txt{font-size:15.5px;margin:0 0 10px}
+.pn .was{font-size:14px;color:#8a8378;margin:10px 0}
+.pn .vis{display:flex;gap:16px;flex-wrap:wrap;background:#f3f1ec;border-radius:14px;padding:16px;margin:12px 0;justify-content:center}
+.pn .vis .scr,.pn .vis .scr svg{width:200px}
+.pn h3{font-size:12px;letter-spacing:.6px;text-transform:uppercase;color:var(--muted);margin:18px 0 6px}
+.pn ul{margin:0;padding:0;list-style:none}.pn li{margin:6px 0}
+.pn .src{font-size:13.5px;color:#3a3a3a}
+.pn .ans{color:var(--story)}
+/* история по шагам */
+.show{position:fixed;inset:0;background:#faf8f4;z-index:10;display:none;flex-direction:column}
+body.showing .show{display:flex}body.showing{overflow:hidden}
+.show .sbar{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid #e7e2d9;font-size:14px;font-weight:700;flex-wrap:wrap}
+.show .sbar .x{font:inherit;border:0;background:none;font-size:26px;cursor:pointer;color:var(--muted);line-height:1}
+.show .who{display:inline-flex;background:#efebe3;border-radius:999px;padding:3px;flex-wrap:wrap}
+.show .who button{font:inherit;font-size:13px;font-weight:700;border:0;background:none;padding:5px 12px;border-radius:999px;cursor:pointer;color:var(--muted)}
+.show .who button.on{background:#fff;color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.show .stage{flex:1;overflow:auto;display:flex;align-items:center;justify-content:center;padding:10px 20px}
+.show .scene{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);gap:36px;align-items:center;max-width:1000px;width:100%}
+.show .vis{display:flex;gap:18px;justify-content:center;align-items:flex-end;flex-wrap:wrap}
+.show .vis .scr,.show .vis .scr svg{width:min(210px,42vw)}.show .vis .scr svg{filter:drop-shadow(0 10px 18px rgba(0,0,0,.12))}
+.show .vis.two .scr,.show .vis.two .scr svg{width:min(180px,40vw)}
+.show .n{font-size:13px;font-weight:800;letter-spacing:1px;color:var(--muted);text-transform:uppercase}
+.show h2{font-size:28px;line-height:1.2;margin:6px 0 12px;font-weight:800}
+.show .say{font-size:19px;line-height:1.5;margin:0}
+.show .before{margin-top:16px;font-size:15px;color:#8a8378;display:flex;gap:10px;align-items:baseline}
+.show .before b{flex:none;font-size:11px;letter-spacing:.8px;text-transform:uppercase;border:1px solid #d6d0c4;border-radius:6px;padding:1px 7px}
+.show .big{font-size:64px;font-weight:900;line-height:1;letter-spacing:-1px}.show .final .big,.show .final h2{color:var(--story)}
+.show .bigc{color:var(--muted);font-size:15px;margin-top:6px}
+.show .snav{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-top:1px solid #e7e2d9;gap:12px}
+.show .snav button{font:inherit;font-size:15px;font-weight:700;border:1px solid #e7e2d9;background:#fff;border-radius:999px;padding:10px 18px;cursor:pointer;white-space:nowrap;flex:none}
+.show .snav button:disabled{opacity:.35;cursor:default}
+.show .dots{display:flex;gap:6px;flex-wrap:wrap;justify-content:center}.show .dots i{width:8px;height:8px;border-radius:50%;background:#d9d3c8}.show .dots i.on{background:var(--story)}
+@media (max-width:760px){.show .snav button{padding:9px 12px;font-size:14px}.show .dots{gap:4px}.show .dots i{width:6px;height:6px}.show .scene{grid-template-columns:1fr;gap:16px}.show h2{font-size:22px}.show .say{font-size:16px}.show .big{font-size:48px}}
+@media print{.play,.legend,.show,.pn,.scrim{display:none}}
+</style></head>
+<body>
+<header><h1>История: bartello-restart: Перезапуск акции Bartello — «билет Ticketland = скидка 10%»</h1>
+<p class="sub">По БФТ bartello-restart · версия 1 от 2026-10-17 · Согласован. История читается слева направо: что инициатива меняет для каждого, кто будет ей пользоваться. Нажмите на шаг — подробности и источник в БФТ; красная точка — открытый вопрос.</p>
+<button class="play" id="play">▶ Рассказать историю по шагам</button></header>
+<div class="legend" id="legend"></div>
+<div class="wrap"><div class="grid" id="grid"></div></div>
+<section class="qs" id="qs"></section>
+<div class="scrim" id="scrim"></div><aside class="pn" id="pn" aria-label="Шаг истории"></aside>
+<div class="show" id="show" role="dialog" aria-label="История по шагам"><div class="sbar"><div class="who"></div><button class="x" aria-label="Закрыть">×</button></div>
+<div class="stage"></div><div class="snav"><button class="prev">← Назад</button><div class="dots"></div><button class="next">Дальше →</button></div></div>
+<script type="application/json" id="story-data">{"stages":[{"id":"A","name":"Ресторан подключается","when":"до старта акции"},{"id":"B","name":"Узнаю о скидке","when":"сразу после оплаты"},{"id":"C","name":"Письмо","when":"сразу после покупки"},{"id":"D","name":"Выбор ресторана","when":""},{"id":"E","name":"Не забываю","when":"за сутки и после мероприятия"},{"id":"F","name":"В ресторане","when":"до 7 дней после мероприятия"}],"personas":[{"id":"guest","name":"Гость Ticketland","lane":"История гостя","before":"<1% · узнавали о скидке","after":"−10% · по билету в ресторане"},{"id":"rest","name":"Ресторан-партнёр Bartello и официант","lane":"История ресторана","before":"18 из ~300 · подключились","after":"—"}],"steps":[{"id":"Ш1","persona":"guest","kind":"intro","n":null,"span":"","c0":0,"c1":0,"title":"Гость Ticketland","text":"Я покупаю билеты на спектакли и концерты — и не знаю, что рядом с площадкой есть рестораны со скидкой для меня.","screens":[],"was":"О скидке в ресторанах рядом узнавали меньше 1% гостей. Технически всё работало — её просто никто не видел.","source":"Цель R; ПРОБЛЕМА"},{"id":"Ш2","persona":"guest","kind":"step","n":1,"span":"Узнаю о скидке","c0":2,"c1":2,"title":"Купил билет — и сразу вижу скидку","text":"Сразу после оплаты вижу: мне доступна скидка 10% и рестораны рядом.","screens":["B1"],"was":"На странице после покупки об акции не было ни слова.","source":"How to demo, сценарий 1; ПТ-2"},{"id":"Ш3","persona":"guest","kind":"step","n":2,"span":"Письмо","c0":3,"c1":3,"title":"В письме — то же предложение","text":"В письме с билетом — то же предложение и кнопка «Выбрать ресторан».","screens":["C1"],"was":"В письме была только кнопка «Забронировать в Bartello», без акцента на скидке.","source":"How to demo, сценарий 2; ПТ-2"},{"id":"Ш4","persona":"guest","kind":"step","n":3,"span":"Выбор ресторана","c0":4,"c1":4,"title":"Выбираю ресторан рядом с театром","text":"Вижу все рестораны-участники, фильтрую под компанию; в карточке — скидка, путь пешком и часы работы.","screens":["D1","D2"],"was":"Список обрезался по расстоянию, фильтров не было, в карточке ресторана не было акции.","source":"How to demo, сценарий 3; ПТ-3"},{"id":"Ш5","persona":"guest","kind":"step","n":4,"span":"Не забываю","c0":5,"c1":5,"title":"Накануне мне напоминают","text":"За сутки до мероприятия приходит напоминание о скидке.","screens":["E1"],"was":"Напоминаний о скидке не было.","source":"Изменение в UJM, касания; ПТ-2"},{"id":"Ш6","persona":"guest","kind":"step","n":5,"span":"Не забываю","c0":5,"c1":5,"title":"После мероприятия скидка ещё действует","text":"Скидка действует ещё 7 дней — мне об этом напоминают; могу отписаться.","screens":["E2"],"was":"После мероприятия о скидке никто не напоминал.","source":"Изменение в UJM, касания; ПТ-2"},{"id":"Ш7","persona":"guest","kind":"step","n":6,"span":"В ресторане","c0":6,"c1":6,"title":"Прихожу и просто показываю билет","text":"Прихожу в ресторан и показываю билет — бронь не нужна.","screens":["F1"],"was":"Скидка работала только по брони.","source":"How to demo, сценарий 4; ПТ-1"},{"id":"Ш8","persona":"guest","kind":"step","n":7,"span":"В ресторане","c0":6,"c1":6,"title":"Официант сканирует — скидка моя","text":"Официант сканирует штрихкод — скидка 10%. Если билет не подходит, он сразу видит понятную причину.","screens":["F3"],"was":"У официанта не было приложения, скидку привязывали к брони.","source":"How to demo, сценарий 4; ПТ-1"},{"id":"Ш9","persona":"guest","kind":"final","n":null,"span":"","c0":7,"c1":7,"title":"Я дошёл до ресторана и получил скидку","text":"Покупка билета теперь даёт ещё и скидку 10% в ресторане рядом. Я узнал о ней сразу, мне напомнили, и в ресторане скидку дали с первого сканирования.","screens":[],"was":"","source":"TOBE; БТ-1"},{"id":"Ш10","persona":"rest","kind":"intro","n":null,"span":"","c0":0,"c1":0,"title":"Ресторан-партнёр Bartello","text":"Мы хотим, чтобы к нам приходили гости после спектаклей и концертов. Но подключиться к акции было сложно.","screens":[],"was":"Из ~300 ресторанов, которые хотели участвовать, подключилось 18: интеграция была тяжёлой, всё было завязано на бронь.","source":"ASIS; Изменение в UJM, подключение ресторана"},{"id":"Ш11","persona":"rest","kind":"step","n":1,"span":"Ресторан подключается","c0":1,"c1":1,"title":"Подключаемся без сложной интеграции","text":"Подключаемся без брони и тяжёлой интеграции — получаем приложение-сканер и инструкцию.","screens":["A1"],"was":"Подключение требовало тяжёлой интеграции и было привязано к брони.","source":"Изменение в UJM, подключение ресторана; БТ-4"},{"id":"Ш12","persona":"rest","kind":"band","n":2,"span":"B–E · пока идут другие шаги","c0":2,"c1":5,"title":"Гости знают о скидке заранее","text":"О нас рассказывают гостю сразу после покупки, в письме и в напоминаниях — он видит нас среди ближайших к площадке.","screens":[],"was":"О скидке узнавали меньше 1% гостей — до ресторанов почти никто не доходил.","source":"ПТ-2, ПТ-3"},{"id":"Ш13","persona":"rest","kind":"step","n":3,"span":"В ресторане","c0":6,"c1":6,"title":"Гость показывает билет — сканируем","text":"Гость показывает билет — официант сканирует штрихкод.","screens":["F2"],"was":"Отдельного приложения для официанта не было.","source":"How to demo, сценарий 4; ПТ-4"},{"id":"Ш14","persona":"rest","kind":"step","n":4,"span":"В ресторане","c0":6,"c1":6,"title":"Приложение сразу даёт ответ","text":"Приложение сразу отвечает: скидка 10% или понятная причина отказа — без споров.","screens":["F3","F4"],"was":"","source":"How to demo, сценарий 4; ПТ-4"},{"id":"Ш15","persona":"rest","kind":"step","n":5,"span":"В ресторане","c0":6,"c1":6,"title":"Фотографируем чек — получаем компенсацию","text":"Официант фотографирует чек — компенсация ресторану зафиксирована.","screens":["F5"],"was":"","source":"How to demo, сценарий 4"},{"id":"Ш16","persona":"rest","kind":"step","n":6,"span":"В ресторане","c0":6,"c1":6,"title":"Если что-то непонятно — помощь рядом","text":"Инструкция, частые вопросы и поддержка — в том же приложении.","screens":["F6"],"was":"","source":"How to demo, сценарий 4; ПТ-4"},{"id":"Ш17","persona":"rest","kind":"final","n":null,"span":"","c0":7,"c1":7,"title":"Больше гостей — и понятный способ их принять","text":"К нам приходят гости после спектаклей и концертов. Официант за одно сканирование понимает, давать ли скидку, а ресторан получает за неё компенсацию.","screens":[],"was":"","source":"TOBE; БТ-4"}],"screens":{"A1":{"contour":"Приложение-сканер","device":"phone","view":"основной","el":[["hdr","Сканер билетов"],["ok","Подключён"],["text","Инструкция, FAQ и поддержка — внутри"]],"source":"ИТ-9, ИТ-10"},"B1":{"contour":"Витрина","device":"web","view":"основной","el":[["hdr","✓ Билет куплен"],["offer","Скидка 10% в ресторанах рядом"],["tiles"],["cta","Выбрать ресторан"]],"source":"ИТ-1"},"C1":{"contour":"Email","device":"mail","view":"основной","el":[["from","Ticketland"],["hdr","Ваш билет Ticketland"],["text","Детали заказа"],["offer","Скидка 10% в Bartello"],["cta","Выбрать ресторан"],["cta2","Забронировать"]],"source":"ИТ-2"},"D1":{"contour":"Витрина","device":"web","view":"основной","el":[["hdr","Все рестораны"],["chips",["Персоны","Метро","+3"]],["rowsOffer",3]],"source":"ИТ-3, ИТ-7"},"D2":{"contour":"Витрина","device":"web","view":"основной","el":[["img"],["offer","−10% по билету"],["kv","Окно","7 дней"],["kv","Пешком","от площадки"],["kv","Часы","работы"]],"source":"ИТ-4"},"E1":{"contour":"Оповещение","device":"lock","view":"основной","el":[["notif","Ticketland","Мероприятие завтра","Скидка 10% в ресторанах рядом"]],"source":"ИТ-6"},"E2":{"contour":"Email или SMS","device":"lock","view":"основной","el":[["notif","Ticketland","Скидка 10% ещё действует","Окно — 7 дней после мероприятия"],["link","Отписаться"]],"source":"ИТ-6"},"F1":{"contour":"Электронный билет","device":"phone","view":"основной","el":[["hdr","Ваш билет"],["text","Билет на мероприятие"],["barcode"],["offer","Скидка 10% в Bartello"]],"source":"How to demo, сценарий 4"},"F2":{"contour":"Приложение-сканер","device":"phone","view":"основной","el":[["hdr","Сканер билетов"],["camera"],["cta","Сканировать"]],"source":"ИТ-8"},"F3":{"contour":"Приложение-сканер","device":"phone","view":"основной","el":[["hdr","Сканер билетов"],["ok","Скидка 10%"],["cta","Сфотографировать чек"]],"source":"ИТ-8, ФТ-1"},"F4":{"contour":"Приложение-сканер","device":"phone","view":"альтернативный","el":[["hdr","Сканер билетов"],["no","Отказ"],["text","Билет использован, вне окна или возвращён"]],"source":"ФТ-1"},"F5":{"contour":"Приложение-сканер","device":"phone","view":"основной","el":[["hdr","Сканер билетов"],["ok","Чек сохранён"],["text","Компенсация ресторану зафиксирована"]],"source":"ИТ-8"},"F6":{"contour":"Приложение-сканер","device":"phone","view":"основной","el":[["hdr","Инструкция и FAQ"],["rows",3],["cta2","Поддержка"]],"source":"ИТ-9"}},"stepsByScreen":{"B1":"Купил билет — и сразу вижу скидку","C1":"В письме — то же предложение","D1":"Выбираю ресторан рядом с театром","D2":"Выбираю ресторан рядом с театром","E1":"Накануне мне напоминают","E2":"После мероприятия скидка ещё действует","F1":"Прихожу и просто показываю билет","F3":"Официант сканирует — скидка моя","A1":"Подключаемся без сложной интеграции","F2":"Гость показывает билет — сканируем","F4":"Приложение сразу даёт ответ","F5":"Фотографируем чек — получаем компенсацию","F6":"Если что-то непонятно — помощь рядом"},"questions":[{"id":"В1","to":"CPO витрины","text":"Каким каналом приходит напоминание накануне мероприятия: письмо, SMS или push?","where":"E1","answer":"—","open":true},{"id":"В2","to":"PO","text":"Что видит гость, если рядом с площадкой нет ресторанов-участников?","where":"B1","answer":"—","open":true},{"id":"В3","to":"PO","text":"Что видит гость, если по фильтрам ничего не нашлось?","where":"D1","answer":"—","open":true},{"id":"В4","to":"Bartello","text":"Какие шаги проходит ресторан, чтобы подключиться к акции?","where":"A1","answer":"—","open":true},{"id":"В5","to":"Bartello","text":"Что видит официант, если штрихкод не читается: ручной ввод или отказ?","where":"F2","answer":"—","open":true},{"id":"В6","to":"PO","text":"Скидка 10% считается от всего чека или по числу билетов?","where":"F3","answer":"—","open":true},{"id":"В7","to":"Bartello","text":"Что отвечает приложение, если мероприятие отменили или перенесли?","where":"F4","answer":"—","open":true},{"id":"В8","to":"PO","text":"Какие номер и почту поддержки видит официант?","where":"F6","answer":"—","open":true}]}</script>
+<script>
+/* bft-blueprint · история через экраны. Данные — #story-data (собирает bft-story-render.py).
+   Стандарт формы — resources/story_line.md: карточка шага = картинка · контур · заголовок · пояснение. */
+(function () {
+  "use strict";
+  const D = JSON.parse(document.getElementById("story-data").textContent);
+  const esc = s => String(s == null ? "" : s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const openQ = D.questions.filter(q => q.open);
+  const qAt = where => D.questions.filter(q => q.where === where);
+  const hasOpen = where => openQ.some(q => q.where === where);
+
+  /* ---------- контур: иконка по ключевому слову ---------- */
+  const ICON = {
+    web: '<rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M2 6h12"/>',
+    mail: '<rect x="2" y="3.5" width="12" height="9" rx="1.5"/><path d="M2.5 4.5 8 9l5.5-4.5"/>',
+    bell: '<path d="M4 11V7a4 4 0 0 1 8 0v4l1 1H3z"/><path d="M6.8 13.6a1.4 1.4 0 0 0 2.4 0"/>',
+    sms: '<path d="M2.5 4a1.5 1.5 0 0 1 1.5-1.5h8A1.5 1.5 0 0 1 13.5 4v5.5A1.5 1.5 0 0 1 12 11H6l-3 2.5V11a1.5 1.5 0 0 1-.5-1z"/>',
+    ticket: '<path d="M2 5V3.5h12V5a1.5 1.5 0 0 0 0 3 1.5 1.5 0 0 0 0 3v1.5H2V11a1.5 1.5 0 0 0 0-3 1.5 1.5 0 0 0 0-3z"/><path d="M6 4v8" stroke-dasharray="1.5 1.5"/>',
+    scan: '<path d="M2 5V3h3M11 3h3v2M14 11v2h-3M5 13H2v-2"/><path d="M5 6v4M7 6v4M9.5 6v4M11 6v4"/>',
+    app: '<rect x="4.5" y="1.5" width="7" height="13" rx="1.5"/><path d="M7 12.5h2"/>',
+    pin: '<path d="M8 14s4.5-4.2 4.5-7.5a4.5 4.5 0 0 0-9 0C3.5 9.8 8 14 8 14z"/><circle cx="8" cy="6.5" r="1.6"/>',
+    call: '<path d="M3 2.5h3l1.2 3-1.7 1.2a8 8 0 0 0 3.8 3.8l1.2-1.7 3 1.2v3a1 1 0 0 1-1 1A11 11 0 0 1 2 3.5a1 1 0 0 1 1-1z"/>',
+    chat: '<path d="M2.5 3.5h11v7.5H7l-3 2.5V11H2.5z"/>',
+    dot: '<circle cx="8" cy="8" r="3"/>'
+  };
+  function contourIcon(c) {
+    const s = c.toLowerCase();
+    const rules = [[/sms|смс/, "sms"], [/email|e-mail|письм/, "mail"], [/push|пуш|оповещ|уведомл/, "bell"], [/витрин|сайт/, "web"],
+      [/билет/, "ticket"], [/сканер/, "scan"], [/приложен/, "app"], [/офлайн/, "pin"], [/звонок/, "call"], [/чат/, "chat"]];
+    for (const [re, k] of rules) if (re.test(s)) return k;
+    return "dot";
+  }
+  const chip = c => `<span class="ctr"><svg viewBox="0 0 16 16" aria-hidden="true">${ICON[contourIcon(c)]}</svg>${esc(c)}</span>`;
+  const chips = ids => [...new Set(ids.map(id => D.screens[id].contour))].map(chip).join(" ");
+
+  /* ---------- упрощённый экран: крупно, только главное ---------- */
+  function wrapT(t, n) { const w = String(t).split(" "); const o = []; let c = ""; for (const x of w) { if ((c + " " + x).trim().length > n) { if (c) o.push(c); c = x } else c = (c + " " + x).trim() } if (c) o.push(c); return o }
+  function mock(id) {
+    const t = D.screens[id], W = 150, H = 250, ink = "#1f1f1f", g = "#9a958c", OF = "#6b3fd4", P = 11, IW = W - 2 * P;
+    const T = (x, yy, s, fs, fw, fill, a) => `<text x="${x}" y="${yy}" font-size="${fs}" font-weight="${fw || 400}" fill="${fill || ink}"${a ? ` text-anchor="${a}"` : ""}>${esc(s)}</text>`;
+    const label = `${t.contour}: ${D.stepsByScreen[id] || ""}`;
+    if (t.view === "неизвестен") {
+      return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(label)} — не определён"><rect x="1.5" y="1.5" width="${W - 3}" height="${H - 3}" rx="20" fill="#fdf3f2" stroke="#c0392b" stroke-width="1.6" stroke-dasharray="6 4"/><circle cx="${W / 2}" cy="${H / 2 - 14}" r="20" fill="#c0392b"/>${T(W / 2, H / 2 - 6, "?", 24, 800, "#fff", "middle")}${wrapT(t.contour, 16).map((l, i) => T(W / 2, H / 2 + 30 + i * 14, l, 11, 600, "#c0392b", "middle")).join("")}${T(W / 2, H / 2 + 30 + wrapT(t.contour, 16).length * 14, "не определён", 11, 600, "#c0392b", "middle")}</svg>`;
+    }
+    let y, out = "", frame;
+    if (t.device === "web") { y = 26; frame = `<rect x="1" y="1" width="${W - 2}" height="${H - 2}" rx="10" fill="#fff" stroke="#2b2b2b" stroke-width="1.5"/><path d="M1,11 a10,10 0 0 1 10,-10 h${W - 22} a10,10 0 0 1 10,10 v7 h-${W - 2}z" fill="#efede8"/>` + [0, 1, 2].map(i => `<circle cx="${10 + i * 7}" cy="10" r="2.2" fill="#bdb8af"/>`).join("") }
+    else if (t.device === "mail") { y = 12; frame = `<rect x="1" y="1" width="${W - 2}" height="${H - 2}" rx="10" fill="#fff" stroke="#2b2b2b" stroke-width="1.5"/>` }
+    else if (t.device === "lock") { y = 78; frame = `<rect x="1" y="1" width="${W - 2}" height="${H - 2}" rx="22" fill="#e6e2db" stroke="#2b2b2b" stroke-width="1.5"/><rect x="${W / 2 - 20}" y="7" width="40" height="7" rx="3.5" fill="#2b2b2b"/>` + T(W / 2, 56, "09:41", 30, 300, "#555", "middle") }
+    else { y = 24; frame = `<rect x="1" y="1" width="${W - 2}" height="${H - 2}" rx="22" fill="#fff" stroke="#2b2b2b" stroke-width="1.5"/><rect x="${W / 2 - 20}" y="7" width="40" height="7" rx="3.5" fill="#2b2b2b"/>` }
+    for (const it of t.el) {
+      const k = it[0];
+      if (k === "from") { out += `<path d="M${P},${y} h18 v12 h-18z M${P},${y} l9,7 l9,-7" fill="none" stroke="${g}" stroke-width="1.3"/>` + T(P + 24, y + 10, it[1], 10, 600, g); y += 22 }
+      else if (k === "hdr") { const ok = it[1].startsWith("✓ "); out += ok ? `<circle cx="${P + 7}" cy="${y + 7}" r="7" fill="${ink}"/><path d="M${P + 3.5},${y + 7} l2.5,2.5 l4.5,-5" fill="none" stroke="#fff" stroke-width="1.8"/>` + T(P + 19, y + 11.5, it[1].slice(2), 12, 700) : T(P, y + 11.5, it[1], 12, 700); y += 22 }
+      else if (k === "text") { wrapT(it[1], 22).forEach(l => { out += T(P, y + 11, l, 10.5, 400, g); y += 13 }); y += 5 }
+      else if (k === "offer") { const ls = wrapT(it[1], 13), h = ls.length * 16 + 16; out += `<rect x="${P}" y="${y}" width="${IW}" height="${h}" rx="9" fill="${OF}"/>`; ls.forEach((l, i) => out += T(P + 10, y + 20 + i * 16, l, 13, 800, "#fff")); y += h + 9 }
+      else if (k === "cta" || k === "cta2") { const fs = it[1].length > 16 ? 9.5 : 11; out += `<rect x="${P}" y="${y}" width="${IW}" height="26" rx="13" fill="${k === "cta" ? ink : "#fff"}" stroke="${ink}" stroke-width="1.2"/>` + T(W / 2, y + 17, it[1], fs, 700, k === "cta" ? "#fff" : ink, "middle"); y += 32 }
+      else if (k === "link") { out += T(P, y + 12, it[1], 11, 700, ink) + `<line x1="${P}" y1="${y + 15}" x2="${P + Math.min(IW, it[1].length * 6)}" y2="${y + 15}" stroke="${ink}"/>`; y += 22 }
+      else if (k === "tiles") { const tw = (IW - 8) / 2; [0, 1].forEach(i => { const x = P + i * (tw + 8); out += `<rect x="${x}" y="${y}" width="${tw}" height="58" rx="7" fill="#fff" stroke="#d6d2ca"/><rect x="${x + 5}" y="${y + 5}" width="${tw - 10}" height="24" rx="4" fill="#ece9e3"/><rect x="${x + 5}" y="${y + 35}" width="${tw - 22}" height="6" rx="3" fill="#cfcac0"/><rect x="${x + 5}" y="${y + 46}" width="${tw - 34}" height="5" rx="2.5" fill="#e3dfd8"/><rect x="${x + tw - 27}" y="${y + 8}" width="22" height="13" rx="6.5" fill="${OF}"/>` }); y += 66 }
+      else if (k === "rows" || k === "rowsOffer") { for (let i = 0; i < it[1]; i++) { out += `<rect x="${P}" y="${y}" width="26" height="26" rx="5" fill="#ece9e3"/><rect x="${P + 33}" y="${y + 5}" width="58" height="6" rx="3" fill="#cfcac0"/><rect x="${P + 33}" y="${y + 16}" width="40" height="5" rx="2.5" fill="#e3dfd8"/>`; if (k === "rowsOffer") out += `<rect x="${W - P - 28}" y="${y + 6}" width="28" height="14" rx="7" fill="${OF}"/>`; y += 34 } }
+      else if (k === "chips") { let x = P; it[1].forEach(c => { const w = c.length * 6 + 14; if (x + w > W - P) return; out += `<rect x="${x}" y="${y}" width="${w}" height="20" rx="10" fill="#fff" stroke="#9a958c"/>` + T(x + 7, y + 14, c, 10, 600); x += w + 5 }); y += 30 }
+      else if (k === "kv") { out += T(P, y + 12, it[1], 10.5, 400, g) + T(W - P, y + 12, it[2], 11, 700, ink, "end") + `<line x1="${P}" y1="${y + 19}" x2="${W - P}" y2="${y + 19}" stroke="#eee"/>`; y += 24 }
+      else if (k === "img") { out += `<rect x="${P}" y="${y}" width="${IW}" height="56" rx="7" fill="#ece9e3"/><path d="M${P + 20},${y + 44} l18,-20 l14,14 l10,-9 l18,15z" fill="#d6d1c8"/>`; y += 64 }
+      else if (k === "camera") { out += `<rect x="${P}" y="${y}" width="${IW}" height="112" rx="8" fill="#2b2b2b"/>`;[[P + 10, y + 10, 1, 1], [W - P - 10, y + 10, -1, 1], [P + 10, y + 102, 1, -1], [W - P - 10, y + 102, -1, -1]].forEach(([x, yy, dx, dy]) => out += `<path d="M${x},${yy + 14 * dy} V${yy} H${x + 14 * dx}" fill="none" stroke="#fff" stroke-width="2.4"/>`); for (let i = 0; i < 20; i++) out += `<rect x="${P + 28 + i * 4.3}" y="${y + 38}" width="${i % 3 ? 1.4 : 2.8}" height="36" fill="#fff"/>`; y += 120 }
+      else if (k === "ok" || k === "no") { const cx = W / 2, cy = y + 30, col = k === "ok" ? "#2f6b2a" : "#c0392b"; out += `<circle cx="${cx}" cy="${cy}" r="24" fill="${col}"/>` + (k === "ok" ? `<path d="M${cx - 11},${cy} l8,8 l14,-15" fill="none" stroke="#fff" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/>` : `<path d="M${cx - 9},${cy - 9} l18,18 M${cx + 9},${cy - 9} l-18,18" stroke="#fff" stroke-width="3.4" stroke-linecap="round"/>`); y += 64; out += T(cx, y + 6, it[1], 14, 800, k === "ok" ? ink : "#c0392b", "middle"); y += 22 }
+      else if (k === "barcode") { out += `<rect x="${P}" y="${y}" width="${IW}" height="70" rx="8" fill="#fff" stroke="#d6d2ca"/>`; for (let i = 0; i < 24; i++) out += `<rect x="${P + 14 + i * 4.6}" y="${y + 12}" width="${i % 3 ? 1.5 : 3}" height="46" fill="${ink}"/>`; y += 80 }
+      else if (k === "notif") { const tl = wrapT(it[2], 17), ls = wrapT(it[3], 20), h = 34 + tl.length * 15 + ls.length * 13; out += `<rect x="${P - 3}" y="${y}" width="${IW + 6}" height="${h}" rx="12" fill="#fff"/><rect x="${P + 5}" y="${y + 8}" width="16" height="16" rx="4" fill="${OF}"/>` + T(P + 26, y + 20, it[1], 9.5, 600, g); tl.forEach((l, i) => out += T(P + 5, y + 42 + i * 15, l, 11.5, 800)); ls.forEach((l, i) => out += T(P + 5, y + 42 + tl.length * 15 + i * 13, l, 10.5, 400, "#444")); y += h + 10 }
+    }
+    const alt = t.view === "альтернативный" ? `<rect x="1" y="1" width="${W - 2}" height="${H - 2}" rx="${t.device === "web" || t.device === "mail" ? 10 : 22}" fill="none" stroke="#c0392b" stroke-width="2.2"/>` : "";
+    return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(label)}">${frame}${out}${alt}</svg>`;
+  }
+  const scrHTML = id => `<span class="scr">${hasOpen(id) ? '<span class="dot" title="Открытый вопрос — подробности по клику"></span>' : ""}${mock(id)}</span>`;
+
+  /* ---------- карточки ---------- */
+  const persona = id => D.personas.find(p => p.id === id);
+  function bigOf(v) { const m = String(v || "").split("·"), big = (m[0] || "").trim(); return /^[—–-]?$/.test(big) ? { big: "", cap: "" } : { big, cap: m.slice(1).join("·").trim() } }
+  function cardHTML(s) {
+    const dot = hasOpen(s.id) ? '<span class="dot" title="Открытый вопрос"></span>' : "";
+    if (s.kind === "intro" || s.kind === "final") {
+      const p = persona(s.persona), b = bigOf(s.kind === "intro" ? p.before : p.after);
+      return `<div class="tale ${s.kind}" data-k="${s.id}" role="button" tabindex="0">${dot}<div class="beat">${s.kind === "intro" ? "Знакомьтесь" : "И с тех пор"}</div>${b.big ? `<div class="big">${esc(b.big)}</div>${b.cap ? `<div class="bigc">${esc(b.cap)}</div>` : ""}` : ""}<b class="ttl">${esc(s.title)}</b><p class="txt">${esc(s.text)}</p>${s.was ? `<div class="was"><b>Раньше</b>${esc(s.was)}</div>` : ""}</div>`;
+    }
+    if (s.kind === "band") {
+      return `<div class="band" data-k="${s.id}" role="button" tabindex="0">${dot}<div class="beat">Шаг ${s.n} · ${esc(s.span)}</div><b class="ttl">${esc(s.title)}</b><p class="txt">${esc(s.text)}</p></div>`;
+    }
+    const w = s.screens.length * 170 + (s.screens.length - 1) * 14 + 28 + 24;
+    return `<div class="sf" data-k="${s.id}" role="button" tabindex="0" style="width:${w}px"><span class="stepn">${s.n}</span>${dot}<div class="sfr">${s.screens.map(scrHTML).join("")}</div>${chips(s.screens)}<b class="ttl">${esc(s.title)}</b><p class="txt">${esc(s.text)}</p></div>`;
+  }
+
+  /* ---------- холст ---------- */
+  const NC = D.stages.length + 2;
+  const grid = document.getElementById("grid");
+  grid.style.gridTemplateColumns = `150px repeat(${NC}, max-content)`;
+  const heads = ["Было", ...D.stages.map(s => `${s.id} · ${s.name}${s.when ? " · " + s.when : ""}`), "Стало"];
+  let h = `<div class="sh corner"></div>` + heads.map(x => `<div class="sh">${esc(x)}</div>`).join("");
+  D.personas.forEach((p, pi) => {
+    const rc = "row" + (pi % 2);
+    h += `<div class="ln ${rc}">${esc(p.lane)}<small>${esc(p.name)}</small></div>`;
+    const steps = D.steps.filter(s => s.persona === p.id);
+    for (let c = 0; c < NC; c++) {
+      const band = steps.find(s => s.kind === "band" && s.c0 === c);
+      if (band) { h += `<div class="${rc}" style="grid-column:span ${band.c1 - band.c0 + 1}">${cardHTML(band)}</div>`; c = band.c1; continue }
+      const here = steps.filter(s => s.kind !== "band" && s.c0 === c);
+      h += `<div class="${rc}"><div class="cell">${here.map(cardHTML).join("")}</div></div>`;
+    }
+  });
+  grid.innerHTML = h;
+
+  /* стрелки истории: шаг за шагом слева направо */
+  function drawLinks() {
+    grid.querySelector("svg.links")?.remove();
+    const g = grid.getBoundingClientRect();
+    const box = el => { const r = el.getBoundingClientRect(); return { l: r.left - g.left, r: r.right - g.left, t: r.top - g.top, b: r.bottom - g.top } };
+    const yOf = (el, B) => el.classList.contains("band") ? (B.t + B.b) / 2 : B.t + Math.min(150, (B.b - B.t) / 2);
+    let s = `<svg class="links" width="${grid.scrollWidth}" height="${grid.scrollHeight}"><defs><marker id="ms" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0L10,5L0,10z" fill="#2f6b2a"/></marker></defs>`;
+    D.personas.forEach(p => {
+      const ids = D.steps.filter(x => x.persona === p.id).map(x => x.id);
+      for (let i = 0; i + 1 < ids.length; i++) {
+        const ea = grid.querySelector(`[data-k="${ids[i]}"]`), eb = grid.querySelector(`[data-k="${ids[i + 1]}"]`);
+        if (!ea || !eb) continue;
+        const A = box(ea), B = box(eb), ya = yOf(ea, A), yb = yOf(eb, B);
+        if (B.l <= A.r) continue;
+        const pts = Math.abs(ya - yb) < 3 ? [[A.r, ya], [B.l, yb]] : [[A.r, ya], [B.l - 16, ya], [B.l - 16, yb], [B.l, yb]];
+        s += `<polyline points="${pts.map(q => q.join(",")).join(" ")}" fill="none" stroke="#2f6b2a" stroke-width="2.2" marker-end="url(#ms)"/>`;
+      }
+    });
+    grid.insertAdjacentHTML("beforeend", s + "</svg>");
+  }
+  drawLinks();
+  window.addEventListener("resize", drawLinks);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(drawLinks);
+
+  /* ---------- легенда и открытые вопросы ---------- */
+  const usedContours = [...new Set(Object.keys(D.screens).filter(id => D.stepsByScreen[id]).map(id => D.screens[id].contour))];
+  document.getElementById("legend").innerHTML =
+    `<span class="t">Контуры</span>${usedContours.map(chip).join("")}<span class="t">Знаки</span>` +
+    `<span><span class="dot inl"></span>открытый вопрос</span><span><span class="alt"></span>альтернативный экран</span><span><span class="wait"></span>ждёт, пока действует другой</span>`;
+  const stepOf = where => D.steps.find(s => s.id === where) || D.steps.find(s => s.screens.includes(where));
+  document.getElementById("qs").innerHTML = `<h2>Открытые вопросы · ${openQ.length}</h2>` + (openQ.length
+    ? `<table><tr><th>ID</th><th>Кому</th><th>Вопрос</th><th>Где</th></tr>${openQ.map(q => { const s = stepOf(q.where); return `<tr><td>${q.id}</td><td>${esc(q.to)}</td><td>${esc(q.text)}</td><td>${s ? `<a href="#" data-go="${s.id}">${esc(persona(s.persona).lane)} · ${s.n ? "шаг " + s.n : s.kind === "intro" ? "было" : "стало"}</a>` : "—"}</td></tr>` }).join("")}</table>`
+    : `<p class="none">Нет — история согласуется без уточнений.</p>`);
+
+  /* ---------- панель шага ---------- */
+  const pn = document.getElementById("pn");
+  function stepLabel(s) { return s.kind === "intro" ? "Знакомьтесь" : s.kind === "final" ? "И с тех пор" : `Шаг ${s.n} · ${s.span}` }
+  function openPanel(id) {
+    const s = D.steps.find(x => x.id === id); if (!s) return;
+    const p = persona(s.persona);
+    const qs = [...qAt(s.id), ...s.screens.flatMap(qAt)];
+    pn.innerHTML = `<button class="x" aria-label="Закрыть">×</button><div class="k">${esc(p.lane)} · ${esc(stepLabel(s))}</div><h2>${esc(s.title)}</h2>` +
+      (s.screens.length ? `<div>${chips(s.screens)}</div><div class="vis">${s.screens.map(scrHTML).join("")}</div>` : "") +
+      `<p class="txt">${esc(s.text)}</p>${s.was ? `<div class="was"><b>Раньше</b>${esc(s.was)}</div>` : ""}` +
+      (qs.length ? `<h3>Вопросы</h3><ul>${qs.map(q => `<li>${q.open ? '<span class="dot inl"></span>' : ""}<b>${esc(q.to)}:</b> ${esc(q.text)}${q.open ? "" : ` <span class="ans">— ${esc(q.answer)}</span>`}</li>`).join("")}</ul>` : "") +
+      `<h3>Источник в БФТ</h3><div class="src">${esc(s.source)}${s.screens.map(x => `<br>${x}: ${esc(D.screens[x].source)}`).join("")}</div>`;
+    document.body.classList.add("panel");
+  }
+  const closePanel = () => document.body.classList.remove("panel");
+  document.getElementById("scrim").addEventListener("click", closePanel);
+
+  /* ---------- история по шагам ---------- */
+  let showP = D.personas[0].id, showI = 0;
+  const show = document.getElementById("show");
+  function scene() {
+    const steps = D.steps.filter(s => s.persona === showP), s = steps[showI], p = persona(showP);
+    const b = s.kind === "intro" || s.kind === "final" ? bigOf(s.kind === "intro" ? p.before : p.after) : null;
+    const vis = s.screens.length ? `<div class="vis${s.screens.length > 1 ? " two" : ""}">${s.screens.map(scrHTML).join("")}</div>`
+      : b && b.big ? `<div><div class="big">${esc(b.big)}</div><div class="bigc">${esc(b.cap)}</div></div>` : `<div></div>`;
+    show.querySelector(".stage").innerHTML = `<div class="scene ${s.kind}">${vis}<div><div class="n">${esc(stepLabel(s))}</div><h2>${esc(s.title)}</h2><p class="say">${esc(s.text)}</p>${s.was ? `<div class="before"><b>Раньше</b><span>${esc(s.was)}</span></div>` : ""}${s.screens.length ? `<div style="margin-top:14px">${chips(s.screens)}</div>` : ""}</div></div>`;
+    show.querySelector(".who").innerHTML = D.personas.map(x => `<button data-p="${x.id}" class="${x.id === showP ? "on" : ""}">${esc(x.lane)}</button>`).join("");
+    show.querySelector(".dots").innerHTML = steps.map((_, i) => `<i class="${i === showI ? "on" : ""}"></i>`).join("");
+    show.querySelector(".prev").disabled = showI === 0;
+    show.querySelector(".next").disabled = showI === steps.length - 1;
+  }
+  function openShow(pid, i) { showP = pid; showI = i || 0; document.body.classList.add("showing"); scene() }
+  function step(d) { const n = D.steps.filter(s => s.persona === showP).length; showI = Math.max(0, Math.min(n - 1, showI + d)); scene() }
+  document.getElementById("play").addEventListener("click", () => openShow(D.personas[0].id, 0));
+  show.addEventListener("click", e => {
+    if (e.target.closest(".x")) document.body.classList.remove("showing");
+    else if (e.target.closest(".prev")) step(-1);
+    else if (e.target.closest(".next")) step(1);
+    else { const b = e.target.closest("[data-p]"); if (b) openShow(b.dataset.p, 0) }
+  });
+  let tx = null;
+  show.addEventListener("touchstart", e => { tx = e.touches[0].clientX }, { passive: true });
+  show.addEventListener("touchend", e => { if (tx === null) return; const dx = e.changedTouches[0].clientX - tx; if (Math.abs(dx) > 50) step(dx < 0 ? 1 : -1); tx = null });
+
+  /* ---------- клики и клавиатура ---------- */
+  document.addEventListener("click", e => {
+    const go = e.target.closest("[data-go]");
+    if (go) { e.preventDefault(); openPanel(go.dataset.go); return }
+    if (e.target.closest(".pn .x")) { closePanel(); return }
+    const card = e.target.closest("#grid [data-k]");
+    if (card) openPanel(card.dataset.k);
+  });
+  document.addEventListener("keydown", e => {
+    if (document.body.classList.contains("showing")) {
+      if (e.key === "ArrowRight") step(1); else if (e.key === "ArrowLeft") step(-1); else if (e.key === "Escape") document.body.classList.remove("showing");
+      return;
+    }
+    if (e.key === "Escape") closePanel();
+    if ((e.key === "Enter" || e.key === " ") && e.target.matches && e.target.matches("#grid [data-k]")) { e.preventDefault(); openPanel(e.target.dataset.k) }
+  });
+})();
+</script>
+</body></html>

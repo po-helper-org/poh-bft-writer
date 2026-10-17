@@ -1,6 +1,7 @@
 #!/bin/bash
 # Самотест bft-blueprint: линтер ловит каждый код на фикстурах, эталон проходит строго,
 # рендерер не пишет файлов по сломанному документу, стрелки не пересекают чужие карточки.
+# Вторая часть — история через экраны (bft-story-*): те же гарантии для верхней линии.
 # Запуск из корня репозитория: bash skills/bft-blueprint/scripts/test-bft-blueprint.sh
 set -u
 
@@ -81,6 +82,61 @@ for lk in bp.links:
 if bad:
     print("пересекают:", ", ".join(bad), file=sys.stderr); sys.exit(1)
 PY
+
+# --- история через экраны -------------------------------------------------------------
+SLINT="$DIR/scripts/bft-story-lint.py"
+SRENDER="$DIR/scripts/bft-story-render.py"
+SGOLD="$DIR/examples/golden_story.md"
+
+expect_story() {  # <имя> <ожидаемый rc> <файл> <коды через пробел> [доп. аргументы линтера]
+  local name="$1" rc_want="$2" file="$3" codes="$4"; shift 4
+  local out rc
+  out="$(python3 "$SLINT" "$file" "$@" 2>&1)"; rc=$?
+  [ "$rc" -eq "$rc_want" ] || { fail "история · $name: код выхода $rc, ожидался $rc_want"; return; }
+  for c in $codes; do
+    grep -q " $c " <<<"$out" || { fail "история · $name: нет $c в выводе"; return; }
+  done
+  ok "история · $name"
+}
+
+# БФТ эталона (перезапуск акции Bartello) в репозиторий не входит — сверка с источником на фикстуре
+expect_story "эталон проходит строго"     0 "$SGOLD" "" --no-source --strict
+expect_story "эталон без БФТ рядом"       1 "$SGOLD" "ST013"
+expect_story "структура"                  1 "$FIX/broken_story_structure.md" "ST001 ST002 ST003"
+expect_story "экраны и ссылки"            1 "$FIX/broken_story_screens.md" "ST006 ST008 ST009 ST010 ST015"
+expect_story "смысл: ошибки"              1 "$FIX/broken_story_semantics.md" "ST007 ST008 ST010 ST011 ST012 ST014 ST016"
+expect_story "смысл: предупреждения"      1 "$FIX/broken_story_semantics.md" "ST017 ST018 ST020 ST022 ST023"
+out="$(python3 "$SLINT" "$FIX/broken_story_semantics.md" 2>&1)"
+grep -q "ПТ-3 не отражено" <<<"$out" && fail "история · ПТ от лица команды не должно требовать шага" || ok "история · ПТ команды не персонаж"
+
+sed 's/^| A | Ресторан подключается/| 1 | Ресторан подключается/' "$SGOLD" > "$tmp/stage.md"
+expect_story "этапы: ID — латинская буква" 1 "$tmp/stage.md" "ST004" --no-source
+sed 's/^| Ш12 | rest | B–E |/| Ш12 | rest | B–F |/' "$SGOLD" > "$tmp/band.md"
+expect_story "полоса ожидания не накрывает шаги" 1 "$tmp/band.md" "ST011" --no-source
+sed 's/^| Ш4 | guest | D |/| Ш4 | guest | F |/' "$SGOLD" > "$tmp/order.md"
+expect_story "шаги идут слева направо" 1 "$tmp/order.md" "ST007" --no-source
+sed 's/| E1 | — |$/| E1 | ответ: письмо (PO, 2026-10-17) |/' "$SGOLD" > "$tmp/answered.md"
+sed -i 's/^| E1 | Оповещение | уведомление | основной |/| E1 | Оповещение | уведомление | неизвестен |/' "$tmp/answered.md"
+expect_story "неизвестный экран без открытого вопроса" 1 "$tmp/answered.md" "ST010" --no-source
+sed 's/| Купил билет — и сразу вижу скидку |/| Купил билет — и сразу вижу скидку (ПТ-2) |/' "$SGOLD" > "$tmp/req.md"
+expect_story "ID требования в заголовке" 1 "$tmp/req.md" "ST012" --no-source
+
+python3 "$SRENDER" "$SGOLD" --out-dir "$tmp/sout" >/dev/null 2>&1 && ok "история · эталон отрендерен" || fail "история · эталон не отрендерился"
+spage="$tmp/sout/golden_story.html"
+if grep -Eq 'src="https?://|href="https?://|@import' "$spage"; then fail "история · html: внешние ресурсы"; else ok "история · html: без внешних ресурсов"; fi
+python3 - "$spage" <<'PY' && ok "история · html: данные разбираются, 17 карточек, 13 экранов" || fail "история · html: данные страницы не те"
+import json, re, sys
+page = open(sys.argv[1], encoding="utf-8").read()
+data = json.loads(re.search(r'<script type="application/json" id="story-data">(.*?)</script>', page, re.S).group(1))
+assert len(data["steps"]) == 17 and len(data["screens"]) == 13, (len(data["steps"]), len(data["screens"]))
+assert sum(q["open"] for q in data["questions"]) == 8
+assert [s["n"] for s in data["steps"] if s["persona"] == "rest" and s["n"]] == [1, 2, 3, 4, 5, 6]
+PY
+cmp -s "$spage" "$DIR/examples/golden_story.html" \
+  && ok "история · html: совпадает с examples/golden_story.html" \
+  || fail "история · html: разошёлся с examples/golden_story.html — пересобери: python3 $SRENDER $SGOLD --out-dir $DIR/examples"
+python3 "$SRENDER" "$FIX/broken_story_screens.md" --out-dir "$tmp/sbad" >/dev/null 2>&1; rc=$?
+{ [ "$rc" -eq 1 ] && [ ! -e "$tmp/sbad" ]; } && ok "история · битый документ: код 1, файлов нет" || fail "история · битый документ отрендерился или код не 1"
 
 echo
 [ "$fails" -eq 0 ] && echo "bft-blueprint: все проверки пройдены" || echo "bft-blueprint: провалено проверок — $fails"
