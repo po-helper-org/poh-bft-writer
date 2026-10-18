@@ -28,18 +28,22 @@
 
   /* ---------- шапка ---------- */
   const uniqBlk = [...new Set(D.questions.filter(q => q.open && q.kind === "блокер").map(q => q.text))];
-  document.getElementById("blk").innerHTML = uniqBlk.length ? `<button class="tool blk" data-guide="blk"><svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.5"/><path d="M3.5 12.5l9-9"/></svg>Блокеры · ${uniqBlk.length}</button>` : "";
+  document.getElementById("blk").innerHTML = uniqBlk.length ? `<button class="tool blk" data-guide="blk">Блокеры<b class="cnt">${uniqBlk.length}</b></button>` : "";
   const used = {}; D.tasks.forEach(t => used[t.team] = (used[t.team] || 0) + 1);
-  document.getElementById("teams").innerHTML = D.teams.filter(t => used[t.id]).map(t => `<button class="tchip" data-tf="${t.id}" style="--c:${TEAM[t.id].c}"><i></i>${esc(t.name)}<b>${used[t.id]}</b></button>`).join("") +
-    (used["?"] ? `<button class="tchip" data-tf="?" style="--c:var(--red)"><i class="u"></i>Команда не определена<b>${used["?"]}</b></button>` : "");
+  const nTasks = n => `${n} ${n % 10 === 1 && n % 100 !== 11 ? "задача" : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? "задачи" : "задач"}`;
+  document.getElementById("teams").innerHTML = '<span class="tlab">Команды</span>' + D.teams.filter(t => used[t.id]).map(t => `<button class="tchip" data-tf="${t.id}" style="--c:${TEAM[t.id].c}" title="${nTasks(used[t.id])} · показать только их"><i></i>${esc(t.name)}</button>`).join("") +
+    (used["?"] ? `<button class="tchip" data-tf="?" style="--c:var(--red)" title="${nTasks(used["?"])} без команды"><i class="u"></i>Не определена</button>` : "");
 
   /* ---------- карточки ---------- */
-  function seenHTML(c) {
-    return D.seen.filter(s => s.col === c).map(s => {
-      const p = D.personas.find(x => x.id === s.persona);
-      if (s.final) return `<div class="seen fin" data-seen="${s.key}" role="button" tabindex="0">${who(p)}${s.big ? `<b class="big">${esc(s.big)}</b>` : ""}<b>${esc(s.title)}</b></div>`;
-      const sub = s.steps.length > 1 ? s.steps.slice(1).map(x => x.title).join(" → ") : s.steps[0].text;
-      return `<div class="seen" data-seen="${s.key}" role="button" tabindex="0"><span class="th">${mock(s.steps[0].screens[0])}</span><div class="sx">${who(p)}<b>${esc(s.steps[0].title)}</b><p>${esc(sub)}</p></div></div>`;
+  /* карточка «что видят»: экран, заголовок, две строки текста. На карте персонаж — подпись ряда,
+     в ленте телефона — строка в карточке (withWho) */
+  const plural = (n, a, b, c) => n % 10 === 1 && n % 100 !== 11 ? a : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? b : c;
+  function seenHTML(c, pid, withWho) {
+    return D.seen.filter(s => s.col === c && (!pid || s.persona === pid)).map(s => {
+      const p = D.personas.find(x => x.id === s.persona), w = withWho ? who(p) : "";
+      if (s.final) return `<div class="seen fin" data-seen="${s.key}" role="button" tabindex="0">${w}${s.big ? `<b class="big">${esc(s.big)}</b>` : ""}<b>${esc(s.title)}</b></div>`;
+      const more = s.steps.length - 1;
+      return `<div class="seen" data-seen="${s.key}" role="button" tabindex="0"><span class="th">${mock(s.steps[0].screens[0])}</span><div class="sx">${w}<b>${esc(s.steps[0].title)}</b><p>${esc(s.steps[0].text)}</p>${more ? `<span class="more">+${more} ${plural(more, "шаг", "шага", "шагов")}</span>` : ""}</div></div>`;
     }).join("");
   }
   function taskHTML(t) {
@@ -55,8 +59,10 @@
   grid.className = "map";
   grid.style.gridTemplateColumns = `96px repeat(${COLS.length}, minmax(224px, 1fr))`;
   grid.style.minWidth = `${96 + COLS.length * 236}px`;
-  let h = `<div class="mh corner"></div>` + COLS.map((c, i) => `<div class="mh${i < COLS.length - 1 ? " arrow" : ""}"><span class="n">${i === COLS.length - 1 ? "✓" : i + 1}</span><span class="hx"><b>${esc(c.name)}</b>${c.when ? `<small>${esc(c.when)}</small>` : ""}</span></div>`).join("");
-  h += `<div class="ml">Что видят</div>` + COLS.map((_, c) => `<div class="mc">${seenHTML(c)}</div>`).join("");
+  let h = `<div class="mh corner"></div>` + COLS.map((c, i) => `<div class="mh"><span class="n">${i === COLS.length - 1 ? "✓" : i + 1}</span><span class="hx"><b>${esc(c.name)}</b>${c.when ? `<small>${esc(c.when)}</small>` : ""}</span></div>`).join("");
+  D.personas.filter(p => D.seen.some(s => s.persona === p.id)).forEach((p, i) => {
+    h += `<div class="ml pl">${i ? "" : '<span class="cap">Что видят</span>'}<span class="pn" title="${esc(p.name)}"><svg viewBox="0 0 16 16">${PERSONA_ICON[Math.min(1, i)]}</svg>${esc(p.name.split(/[\s-]+/)[0])}</span></div>` + COLS.map((_, c) => `<div class="mc sr">${seenHTML(c, p.id)}</div>`).join("");
+  });
   h += `<div class="ml top">Что делаем</div>` + COLS.map((col, c) => `<div class="mc top">${D.tasks.filter(t => t.stage === col.id).map(taskHTML).join("")}</div>`).join("");
   if (D.processes.length) {
     h += `<div class="hsec"><span>Как это работает</span></div>`;
@@ -93,7 +99,7 @@
   document.getElementById("mstack").innerHTML = COLS.map((col, c) => {
     const tasks = D.tasks.filter(t => t.stage === col.id), procs = D.processes.filter(p => p.stage === col.id);
     return `<section class="ms"><div class="mh2"><span class="n">${c === COLS.length - 1 ? "✓" : c + 1}</span><div><b>${esc(col.name)}</b>${col.when ? `<small>${esc(col.when)}</small>` : ""}</div></div>
-      <div class="wl">${seenHTML(c)}</div>${tasks.length ? `<span class="lb">Что делаем</span><div class="wl">${tasks.map(taskHTML).join("")}</div>` : ""}
+      <div class="wl">${seenHTML(c, null, true)}</div>${tasks.length ? `<span class="lb">Что делаем</span><div class="wl">${tasks.map(taskHTML).join("")}</div>` : ""}
       ${procs.length ? `<span class="lb">Как это работает</span><div class="wl">${procs.map(procHTML).join("")}</div>` : ""}</section>`;
   }).join("");
 
