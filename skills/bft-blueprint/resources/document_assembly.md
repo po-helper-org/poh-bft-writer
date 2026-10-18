@@ -1,6 +1,6 @@
 # Скелет документов blueprint (document_assembly.md)
 
-Единственный источник формы `<epic_slug>-story.md` (история через экраны, первый этап — §«История») и `<epic_slug>-blueprint.md`. Формат — markdown-таблицы, как весь БФТ: документ ревьюится глазами и публикуется в Confluence без конвертации. Разбирает его `scripts/bft_blueprint.py`; форму держит линтер `bft-blueprint-lint.py`.
+Единственный источник формы `<epic_slug>-story.md` (история через экраны, первый этап — §«История»), `<epic_slug>-map.md` (карта инициативы, второй этап — §«Карта») и прежней слоевой схемы `<epic_slug>-blueprint.md`. Формат — markdown-таблицы, как весь БФТ: документ ревьюится глазами и публикуется в Confluence без конвертации. Разбирает его `scripts/bft_blueprint.py`; форму держит линтер `bft-blueprint-lint.py`.
 
 ## Путь файлов
 
@@ -10,7 +10,9 @@
 |---|---|---|
 | `<epic_slug>-story.md` | история через экраны — верхняя линия, источник правды | ты |
 | `<epic_slug>-story.html` | страница истории: ряды персонажей слева направо, подробности шага, рассказ по шагам, открытые вопросы | `bft-story-render.py` |
-| `<epic_slug>-blueprint.md` | источник правды | ты |
+| `<epic_slug>-map.md` | карта инициативы — источник правды | ты |
+| `<epic_slug>-map.html` | страница карты: что видят, что делаем, как это работает; карточки задач и процессов, промпт для ИИ | `bft-map-render.py` |
+| `<epic_slug>-blueprint.md` | прежняя слоевая схема (режим `--layers`) | ты |
 | `<epic_slug>-blueprint.html` | страница ревью: образ результата, диаграмма, «что реализовать по слоям», покрытие требований, список `[УТОЧНИТЬ]` | `bft-blueprint-render.py` |
 | `<epic_slug>-blueprint.svg` | диаграмма отдельной картинкой для Confluence | `bft-blueprint-render.py` |
 
@@ -114,4 +116,56 @@ ID — В1, В2… «Где» — ID шага или экрана. «Ответ�
 python3 <skills_path>/bft-blueprint/scripts/bft-story-lint.py <docs_path>/<epic_slug>/<epic_slug>-story.md
 python3 <skills_path>/bft-writer/scripts/bft-style-lint.py <docs_path>/<epic_slug>/<epic_slug>-story.md
 python3 <skills_path>/bft-blueprint/scripts/bft-story-render.py <docs_path>/<epic_slug>/<epic_slug>-story.md
+```
+
+## Карта
+
+`<epic_slug>-map.md` собирается после согласованной истории и ссылается на неё (`story_doc`). Разбирает его `scripts/bft_map.py`, форму держит `bft-map-lint.py`, смысл — `map_rules.md`. Эталон — `examples/golden_map.md`.
+
+Frontmatter — девять ключей: восемь, как у истории, но `stage: map`, плюс `story_doc` — путь к `-story.md` относительно карты.
+
+```
+# [Карта] <epic_slug>: <название инициативы из БФТ>
+
+## Команды
+| ID | Команда |
+ID — латиница-слаг (vit, gds). Цвет назначает страница по порядку строк.
+
+## Задачи
+| ID | Этап | Команда | Задача | Зачем | Требования | Статус |
+ID — 1.2 (этап.номер). Этап — ID этапа истории или `стало`. Команда — ID или `? (кандидаты)`.
+Статус: создать | доработать | используем | уточнить.
+
+## IDEF0
+| Задача | Вход | Регуляторы | Выход | Механизмы |
+Значения через `;`. По строке на задачу.
+
+## Процессы
+| ID | Задача | Этап | Слой | Процесс | Было | Станет | Источник |
+ID — П1, П2… Слой: фронтстейдж | бэкстейдж | поддержка.
+
+## Участники
+| ID | Участник | Вид |
+ID — латиница до 8 знаков (G, App, Gd). Вид: человек | интерфейс | система | внешний.
+
+## Схемы
+| Процесс | Ветка | От | Кому | Сообщение | Тип |
+Строки по порядку шагов. Ветка — прочерк, «если: условие» или «иначе: условие». Тип: вызов | ответ.
+
+## Критерии
+| Процесс | Критерий | Источник |
+
+## Цепочка
+| Откуда | Куда | Что передаётся |
+Конец — ID процесса или событие текстом; хотя бы один конец — процесс.
+
+## Вопросы
+| ID | Кому | Вопрос | Где | Тип | Ответ |
+ID — В1… «Где» — ID задачи или процесса. Тип: вопрос | блокер. «Ответ» — текст с `(PO, дата)` или прочерк.
+```
+
+```bash
+python3 <skills_path>/bft-blueprint/scripts/bft-map-lint.py <docs_path>/<epic_slug>/<epic_slug>-map.md
+python3 <skills_path>/bft-writer/scripts/bft-style-lint.py <docs_path>/<epic_slug>/<epic_slug>-map.md
+python3 <skills_path>/bft-blueprint/scripts/bft-map-render.py <docs_path>/<epic_slug>/<epic_slug>-map.md
 ```

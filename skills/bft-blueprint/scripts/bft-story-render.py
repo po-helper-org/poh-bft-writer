@@ -40,6 +40,8 @@ PAGE = """<!doctype html>
 <div class="stage"></div><div class="snav"><button class="prev">← Назад</button><div class="dots"></div><button class="next">Дальше →</button></div></div>
 <script type="application/json" id="story-data">{data}</script>
 <script>
+{kit}</script>
+<script>
 {js}</script>
 </body></html>
 """
@@ -90,6 +92,7 @@ def render(st: bs.Story) -> str:
         revised=html.escape(meta.get("revised", "")),
         status=html.escape(meta.get("status", "")),
         css=(HERE / "story_page.css").read_text(encoding="utf-8"),
+        kit=(HERE / "page_kit.js").read_text(encoding="utf-8"),
         js=(HERE / "story_page.js").read_text(encoding="utf-8"),
         data=data,
     )
