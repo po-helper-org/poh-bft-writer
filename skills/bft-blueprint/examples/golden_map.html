@@ -51,15 +51,23 @@ body.mopen .menu{transform:none}body.mopen .mscrim{opacity:1;pointer-events:auto
 .hl{display:flex;flex-direction:column;justify-content:center;gap:3px;padding:0 18px 0 24px;color:#55524c}
 .hl svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
 .hl b{font-size:15px;color:var(--ink)}.hl small{font-size:11.5px;line-height:1.35;color:var(--muted)}
-.hcell{display:flex;gap:14px;padding:8px 14px;min-height:0;border-left:1px solid var(--line)}
-.hs{position:relative;flex:none;width:380px;display:flex;gap:16px;align-items:center;text-align:left;background:#fff;border:1px solid transparent;border-radius:16px;padding:14px 16px 14px 14px;cursor:pointer;min-height:0;transition:box-shadow .15s}
-.hs:hover,.hs:focus-visible{box-shadow:0 8px 24px rgba(0,0,0,.09);outline:none}
-.hm{position:relative;flex:none;display:block}.hm svg{display:block;height:clamp(150px,calc((100vh - 170px) / var(--p) - 56px),260px);width:auto}
-.hm .dot{top:-4px;right:-5px}
-.ht{display:flex;flex-direction:column;gap:6px;min-width:0}.hn{font-size:11.5px;font-weight:700;color:#9a958c}
-.hs b{font-size:16px;line-height:1.3;font-weight:700}.hs p{margin:0;font-size:13.5px;line-height:1.45;color:#5d5a54;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:6;overflow:hidden}
-.hw0{font-size:12px;line-height:1.4;color:#9a958c;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
-.hs.fin{flex-direction:column;align-items:flex-start;justify-content:center;gap:8px;background:#f0f6ec;padding:20px 22px}.hs.fin .big{font-size:40px;font-weight:800;color:var(--story);line-height:1}
+.hcell{display:flex;gap:18px;padding:6px 16px 14px;min-height:0;border-left:1px solid var(--line)}
+/* кадр раскадровки: экран картинкой без подложки, подпись без акцента */
+.fr{--ph:clamp(170px,calc((100vh - 210px) / var(--p) - 62px),300px);position:relative;flex:none;width:196px;display:flex;flex-direction:column;gap:10px;cursor:pointer;outline:none}
+.fr .pic{position:relative;display:block;height:var(--ph);overflow:hidden;border-radius:14px 14px 0 0;-webkit-mask-image:linear-gradient(#000 74%,transparent);mask-image:linear-gradient(#000 74%,transparent)}
+.track{display:flex;height:100%;transition:transform .45s cubic-bezier(.3,.7,.2,1)}
+.sld{flex:none;width:100%;height:100%;display:flex;justify-content:center;padding-top:6px}
+.sld img{height:calc(var(--ph) * 1.18);width:auto;display:block;transition:transform .2s}
+.fr:hover .sld img,.fr:focus-visible .sld img{transform:translateY(-4px)}
+.fr .dot{top:4px;right:20px;width:9px;height:9px;border-width:1.5px}
+.cap{font-size:13.5px;line-height:1.4;font-weight:400;color:#3e3c38;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+.fr:hover .cap,.fr:focus-visible .cap{color:var(--ink)}
+.sl{position:absolute;top:42%;z-index:2;width:28px;height:28px;border-radius:50%;background:rgba(255,255,255,.92);box-shadow:0 2px 8px rgba(0,0,0,.15);display:flex;align-items:center;justify-content:center;font-size:18px;line-height:1;color:var(--ink);opacity:0;transition:opacity .15s}
+.sl.prev{left:4px}.sl.next{right:4px}.fr:hover .sl{opacity:1}
+.dots{position:absolute;left:0;right:0;top:calc(var(--ph) - 8px);z-index:2;display:flex;justify-content:center;gap:5px}
+.dots i{width:6px;height:6px;border-radius:3px;background:rgba(28,28,28,.25);transition:width .2s,background .2s}.dots i.on{width:16px;background:var(--ink)}
+.fr.fin .pic{display:flex;align-items:center;justify-content:center;background:#eef5ea;border-radius:14px;-webkit-mask-image:none;mask-image:none;height:calc(var(--ph) * .8)}
+.fr.fin .big{font-size:44px;font-weight:800;color:var(--story);line-height:1}
 .hnav{position:absolute;top:50%;z-index:4;width:44px;height:44px;border-radius:50%;border:1px solid var(--line);background:#fff;box-shadow:0 4px 14px rgba(0,0,0,.12);font-size:26px;line-height:1;color:var(--ink);cursor:pointer}
 .hnav.prev{left:calc(var(--lw) + 8px)}.hnav.next{right:16px}.hnav[hidden]{display:none}
 .hdown{position:absolute;left:50%;bottom:10px;transform:translateX(-50%);font-size:13px;font-weight:600;color:#55524c;text-decoration:none;background:#fff;border:1px solid var(--line);border-radius:999px;padding:6px 14px}
@@ -743,28 +751,36 @@ A1 Название функции        — декомпозиция: от ${M
   }
   window.addEventListener("load", drawLinks); window.addEventListener("resize", drawLinks);
 
-  /* ---------- первый экран: «Что видят» на всю высоту, путь уходит вправо ----------
-     Колонка — этап истории шириной во столько шагов, сколько их у самого занятого персонажа;
-     ряд — персонаж. Пустая клетка — персонаж на этом этапе не участвует. */
+  /* ---------- первый экран: «Что видят» раскадровкой, путь уходит вправо ----------
+     Колонка — этап истории шириной во столько кадров, сколько шагов у самого занятого персонажа;
+     ряд — персонаж; пустая клетка — персонаж на этапе не участвует. Кадр — экран картинкой
+     и подпись; несколько экранов у шага — кадры листаются сами и стрелками. */
   const hero = document.getElementById("hero");
+  /* экран — картинка: SVG-макет отдаётся в <img>, как отдался бы PNG из макетов */
+  const IMG = {};
+  const screenImg = id => IMG[id] || (IMG[id] = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(mockSVG(D.screens[id], D.screens[id].contour)
+    .replace("<svg ", '<svg xmlns="http://www.w3.org/2000/svg" font-family="Inter,-apple-system,Helvetica,Arial,sans-serif" ')));
   (function buildHero() {
     const persons = D.personas.filter(p => D.seen.some(s => s.persona === p.id));
     const cell = (p, c) => D.seen.find(s => s.persona === p.id && s.col === c);
     const width = c => Math.max(1, ...persons.map(p => { const s = cell(p, c); return s ? s.steps.length : 0 }));
-    const CW = 380, GAP = 14, PAD = 14, num = {};
-    let x = `<div class="hgrid" style="--p:${persons.length};grid-template-columns:var(--lw) ${COLS.map((_, c) => `${width(c) * CW + (width(c) - 1) * GAP + 2 * PAD}px`).join(" ")}">`;
+    const FW = 196, GAP = 18, PAD = 16;
+    const frame = (s, st) => {
+      const n = st.screens.length, q = st.screens.some(scrOpen) || D.storyQuestions.some(qq => qq.where === st.id);
+      const pic = n ? `<span class="track">${st.screens.map(id => `<span class="sld"><img src="${screenImg(id)}" alt="${esc(D.screens[id].contour)}" draggable="false"></span>`).join("")}</span>
+        ${n > 1 ? `<span class="sl prev" data-sl="-1" aria-hidden="true">‹</span><span class="sl next" data-sl="1" aria-hidden="true">›</span>` : ""}` : "";
+      const dots = n > 1 ? `<span class="dots">${st.screens.map((_, i) => `<i data-dot="${i}"${i ? "" : ' class="on"'}></i>`).join("")}</span>` : "";
+      return `<div class="fr" data-seen="${s.key}" role="button" tabindex="0" title="${esc(st.text)}"><span class="pic" data-n="${n}" data-i="0">${pic}${q ? '<span class="dot"></span>' : ""}</span>${dots}<span class="cap">${esc(st.title)}</span></div>`;
+    };
+    let x = `<div class="hgrid" style="--p:${persons.length};grid-template-columns:var(--lw) ${COLS.map((_, c) => `${width(c) * FW + (width(c) - 1) * GAP + 2 * PAD}px`).join(" ")}">`;
     x += '<div class="hc0"></div>' + COLS.map((col, c) => `<div class="hh"><span class="hhs"><span class="n">${c === COLS.length - 1 ? "✓" : c + 1}</span><b>${esc(col.name)}</b>${col.when ? `<small>${esc(col.when)}</small>` : ""}</span></div>`).join("");
     persons.forEach((p, i) => {
       x += `<div class="hl"><svg viewBox="0 0 16 16" aria-hidden="true">${PERSONA_ICON[Math.min(1, i)]}</svg><b>${esc(p.name.split(/[\s-]+/)[0])}</b><small>${esc(p.name)}</small></div>`;
       COLS.forEach((_, c) => {
         const s = cell(p, c);
-        if (!s) { x += '<div class="hcell"></div>'; return }
-        if (s.final) { x += `<div class="hcell"><button class="hs fin" data-seen="${s.key}">${s.big ? `<span class="big">${esc(s.big)}</span>` : ""}<b>${esc(s.title)}</b></button></div>`; return }
-        x += `<div class="hcell">${s.steps.map(st => {
-          num[p.id] = (num[p.id] || 0) + 1;
-          const sc = st.screens[0], q = st.screens.some(scrOpen) || D.storyQuestions.some(qq => qq.where === st.id);
-          return `<button class="hs" data-seen="${s.key}">${sc ? `<span class="hm">${q ? '<span class="dot"></span>' : ""}${mockSVG(D.screens[sc], D.screens[sc].contour)}</span>` : ""}<span class="ht"><span class="hn">Шаг ${num[p.id]}</span><b>${esc(st.title)}</b><p>${esc(st.text)}</p>${st.was ? `<span class="hw0">Раньше: ${esc(st.was)}</span>` : ""}</span></button>`;
-        }).join("")}</div>`;
+        if (!s) x += '<div class="hcell"></div>';
+        else if (s.final) x += `<div class="hcell"><div class="fr fin" data-seen="${s.key}" role="button" tabindex="0"><span class="pic">${s.big ? `<span class="big">${esc(s.big)}</span>` : '<span class="big">✓</span>'}</span><span class="cap">${esc(s.title)}</span></div></div>`;
+        else x += `<div class="hcell">${s.steps.map(st => frame(s, st)).join("")}</div>`;
       });
     });
     hero.innerHTML = `<div class="hscroll" id="hscroll">${x}</div></div><button class="hnav prev" aria-label="Назад по пути">‹</button><button class="hnav next" aria-label="Дальше по пути">›</button><a class="hdown" href="#work">Что делают команды и как это работает <span aria-hidden="true">↓</span></a>`;
@@ -773,7 +789,20 @@ A1 Название функции        — декомпозиция: от ${M
     sc.addEventListener("scroll", sync, { passive: true }); window.addEventListener("resize", sync); sync();
     prev.addEventListener("click", () => sc.scrollBy({ left: -sc.clientWidth * .8, behavior: "smooth" }));
     next.addEventListener("click", () => sc.scrollBy({ left: sc.clientWidth * .8, behavior: "smooth" }));
+
+    /* кадры внутри шага: сами листаются каждые 3 с, пока кадр на экране и под ним нет курсора */
+    const multi = [...hero.querySelectorAll('.pic:not([data-n="0"]):not([data-n="1"])')].filter(el => el.dataset.n);
+    const seen = new Set();
+    if ("IntersectionObserver" in window) { const io = new IntersectionObserver(es => es.forEach(e => e.isIntersecting ? seen.add(e.target) : seen.delete(e.target)), { root: sc, threshold: .6 }); multi.forEach(el => io.observe(el)) }
+    else multi.forEach(el => seen.add(el));
+    const calm = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (multi.length && !calm) setInterval(() => seen.forEach(el => { if (!el.matches(":hover") && !body.classList.contains("open")) slide(el, 1) }), 3000);
   })();
+  function slide(pic, d, to) {
+    const n = +pic.dataset.n, i = to != null ? to : (+pic.dataset.i + d + n) % n;
+    pic.dataset.i = i; pic.querySelector(".track").style.transform = `translateX(${-i * 100}%)`;
+    pic.closest(".fr").querySelectorAll(".dots i").forEach((x, k) => x.classList.toggle("on", k === i));
+  }
 
   /* ---------- телефон: шаг за шагом сверху вниз ---------- */
   document.getElementById("mstack").innerHTML = COLS.map((col, c) => {
@@ -1022,6 +1051,8 @@ ${cur}
     if (t.closest('[data-menu="close"]') || t.closest(".mscrim")) return menu(false);
     if (t.closest("[data-tf-clear]")) return teamFilter("");
     if (t.closest("#menu [data-guide]") || t.closest("#menu .play")) menu(false);
+    const sl = t.closest("[data-sl]"); if (sl) return slide(sl.closest(".pic"), +sl.dataset.sl);
+    const dd = t.closest("[data-dot]"); if (dd) return slide(dd.closest(".fr").querySelector(".pic"), 0, +dd.dataset.dot);
     const ai = t.closest("[data-ai]");
     if (ai) {
       if (ai.dataset.ai === "open") { ai.href = "https://claude.ai/new?q=" + encodeURIComponent(promptFor(ai)); return }

@@ -103,28 +103,36 @@
   }
   window.addEventListener("load", drawLinks); window.addEventListener("resize", drawLinks);
 
-  /* ---------- первый экран: «Что видят» на всю высоту, путь уходит вправо ----------
-     Колонка — этап истории шириной во столько шагов, сколько их у самого занятого персонажа;
-     ряд — персонаж. Пустая клетка — персонаж на этом этапе не участвует. */
+  /* ---------- первый экран: «Что видят» раскадровкой, путь уходит вправо ----------
+     Колонка — этап истории шириной во столько кадров, сколько шагов у самого занятого персонажа;
+     ряд — персонаж; пустая клетка — персонаж на этапе не участвует. Кадр — экран картинкой
+     и подпись; несколько экранов у шага — кадры листаются сами и стрелками. */
   const hero = document.getElementById("hero");
+  /* экран — картинка: SVG-макет отдаётся в <img>, как отдался бы PNG из макетов */
+  const IMG = {};
+  const screenImg = id => IMG[id] || (IMG[id] = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(mockSVG(D.screens[id], D.screens[id].contour)
+    .replace("<svg ", '<svg xmlns="http://www.w3.org/2000/svg" font-family="Inter,-apple-system,Helvetica,Arial,sans-serif" ')));
   (function buildHero() {
     const persons = D.personas.filter(p => D.seen.some(s => s.persona === p.id));
     const cell = (p, c) => D.seen.find(s => s.persona === p.id && s.col === c);
     const width = c => Math.max(1, ...persons.map(p => { const s = cell(p, c); return s ? s.steps.length : 0 }));
-    const CW = 380, GAP = 14, PAD = 14, num = {};
-    let x = `<div class="hgrid" style="--p:${persons.length};grid-template-columns:var(--lw) ${COLS.map((_, c) => `${width(c) * CW + (width(c) - 1) * GAP + 2 * PAD}px`).join(" ")}">`;
+    const FW = 196, GAP = 18, PAD = 16;
+    const frame = (s, st) => {
+      const n = st.screens.length, q = st.screens.some(scrOpen) || D.storyQuestions.some(qq => qq.where === st.id);
+      const pic = n ? `<span class="track">${st.screens.map(id => `<span class="sld"><img src="${screenImg(id)}" alt="${esc(D.screens[id].contour)}" draggable="false"></span>`).join("")}</span>
+        ${n > 1 ? `<span class="sl prev" data-sl="-1" aria-hidden="true">‹</span><span class="sl next" data-sl="1" aria-hidden="true">›</span>` : ""}` : "";
+      const dots = n > 1 ? `<span class="dots">${st.screens.map((_, i) => `<i data-dot="${i}"${i ? "" : ' class="on"'}></i>`).join("")}</span>` : "";
+      return `<div class="fr" data-seen="${s.key}" role="button" tabindex="0" title="${esc(st.text)}"><span class="pic" data-n="${n}" data-i="0">${pic}${q ? '<span class="dot"></span>' : ""}</span>${dots}<span class="cap">${esc(st.title)}</span></div>`;
+    };
+    let x = `<div class="hgrid" style="--p:${persons.length};grid-template-columns:var(--lw) ${COLS.map((_, c) => `${width(c) * FW + (width(c) - 1) * GAP + 2 * PAD}px`).join(" ")}">`;
     x += '<div class="hc0"></div>' + COLS.map((col, c) => `<div class="hh"><span class="hhs"><span class="n">${c === COLS.length - 1 ? "✓" : c + 1}</span><b>${esc(col.name)}</b>${col.when ? `<small>${esc(col.when)}</small>` : ""}</span></div>`).join("");
     persons.forEach((p, i) => {
       x += `<div class="hl"><svg viewBox="0 0 16 16" aria-hidden="true">${PERSONA_ICON[Math.min(1, i)]}</svg><b>${esc(p.name.split(/[\s-]+/)[0])}</b><small>${esc(p.name)}</small></div>`;
       COLS.forEach((_, c) => {
         const s = cell(p, c);
-        if (!s) { x += '<div class="hcell"></div>'; return }
-        if (s.final) { x += `<div class="hcell"><button class="hs fin" data-seen="${s.key}">${s.big ? `<span class="big">${esc(s.big)}</span>` : ""}<b>${esc(s.title)}</b></button></div>`; return }
-        x += `<div class="hcell">${s.steps.map(st => {
-          num[p.id] = (num[p.id] || 0) + 1;
-          const sc = st.screens[0], q = st.screens.some(scrOpen) || D.storyQuestions.some(qq => qq.where === st.id);
-          return `<button class="hs" data-seen="${s.key}">${sc ? `<span class="hm">${q ? '<span class="dot"></span>' : ""}${mockSVG(D.screens[sc], D.screens[sc].contour)}</span>` : ""}<span class="ht"><span class="hn">Шаг ${num[p.id]}</span><b>${esc(st.title)}</b><p>${esc(st.text)}</p>${st.was ? `<span class="hw0">Раньше: ${esc(st.was)}</span>` : ""}</span></button>`;
-        }).join("")}</div>`;
+        if (!s) x += '<div class="hcell"></div>';
+        else if (s.final) x += `<div class="hcell"><div class="fr fin" data-seen="${s.key}" role="button" tabindex="0"><span class="pic">${s.big ? `<span class="big">${esc(s.big)}</span>` : '<span class="big">✓</span>'}</span><span class="cap">${esc(s.title)}</span></div></div>`;
+        else x += `<div class="hcell">${s.steps.map(st => frame(s, st)).join("")}</div>`;
       });
     });
     hero.innerHTML = `<div class="hscroll" id="hscroll">${x}</div></div><button class="hnav prev" aria-label="Назад по пути">‹</button><button class="hnav next" aria-label="Дальше по пути">›</button><a class="hdown" href="#work">Что делают команды и как это работает <span aria-hidden="true">↓</span></a>`;
@@ -133,7 +141,20 @@
     sc.addEventListener("scroll", sync, { passive: true }); window.addEventListener("resize", sync); sync();
     prev.addEventListener("click", () => sc.scrollBy({ left: -sc.clientWidth * .8, behavior: "smooth" }));
     next.addEventListener("click", () => sc.scrollBy({ left: sc.clientWidth * .8, behavior: "smooth" }));
+
+    /* кадры внутри шага: сами листаются каждые 3 с, пока кадр на экране и под ним нет курсора */
+    const multi = [...hero.querySelectorAll('.pic:not([data-n="0"]):not([data-n="1"])')].filter(el => el.dataset.n);
+    const seen = new Set();
+    if ("IntersectionObserver" in window) { const io = new IntersectionObserver(es => es.forEach(e => e.isIntersecting ? seen.add(e.target) : seen.delete(e.target)), { root: sc, threshold: .6 }); multi.forEach(el => io.observe(el)) }
+    else multi.forEach(el => seen.add(el));
+    const calm = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (multi.length && !calm) setInterval(() => seen.forEach(el => { if (!el.matches(":hover") && !body.classList.contains("open")) slide(el, 1) }), 3000);
   })();
+  function slide(pic, d, to) {
+    const n = +pic.dataset.n, i = to != null ? to : (+pic.dataset.i + d + n) % n;
+    pic.dataset.i = i; pic.querySelector(".track").style.transform = `translateX(${-i * 100}%)`;
+    pic.closest(".fr").querySelectorAll(".dots i").forEach((x, k) => x.classList.toggle("on", k === i));
+  }
 
   /* ---------- телефон: шаг за шагом сверху вниз ---------- */
   document.getElementById("mstack").innerHTML = COLS.map((col, c) => {
@@ -382,6 +403,8 @@ ${cur}
     if (t.closest('[data-menu="close"]') || t.closest(".mscrim")) return menu(false);
     if (t.closest("[data-tf-clear]")) return teamFilter("");
     if (t.closest("#menu [data-guide]") || t.closest("#menu .play")) menu(false);
+    const sl = t.closest("[data-sl]"); if (sl) return slide(sl.closest(".pic"), +sl.dataset.sl);
+    const dd = t.closest("[data-dot]"); if (dd) return slide(dd.closest(".fr").querySelector(".pic"), 0, +dd.dataset.dot);
     const ai = t.closest("[data-ai]");
     if (ai) {
       if (ai.dataset.ai === "open") { ai.href = "https://claude.ai/new?q=" + encodeURIComponent(promptFor(ai)); return }
