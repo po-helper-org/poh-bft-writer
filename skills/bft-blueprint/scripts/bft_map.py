@@ -29,6 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import bft_blueprint as bb  # noqa: E402
 import bft_story as bs  # noqa: E402
 import diagram_dsl as dd  # noqa: E402
+import bft_screens as bsn  # noqa: E402
 
 REQUIRED_FRONTMATTER = (
     "epic_slug", "stage", "story_doc", "source_doc", "source_stage", "source_rev", "version", "revised", "status",
@@ -182,6 +183,7 @@ class Map:
     links: list[Link] = field(default_factory=list)
     questions: list[Question] = field(default_factory=list)
     issues: list[bb.Issue] = field(default_factory=list)
+    screens: dict = field(default_factory=dict)  # требования к экранам: {ID: bsn.ScreenDoc}
 
     def err(self, line: int, code: str, msg: str) -> None:
         self.issues.append(bb.Issue(line, "ERROR", code, msg))
@@ -440,4 +442,9 @@ def parse(path: Path) -> Map:
         if not c[1].strip() or not c[2].strip():
             mp.err(ln, "MP013", f"{qid}: нужны «Кому» и «Вопрос»")
         mp.questions.append(Question(qid, c[1].strip(), c[2].strip(), where_n, kind, c[5].strip(), ln))
+
+    # Требования к экранам — screens/<ID>.md рядом с картой
+    if mp.story:
+        mp.screens, sn_issues = bsn.check(path, {sc.id for sc in mp.story.screens})
+        mp.issues.extend(sn_issues)
     return mp

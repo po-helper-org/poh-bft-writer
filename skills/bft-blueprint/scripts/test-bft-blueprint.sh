@@ -4,6 +4,7 @@
 # Вторая часть — история через экраны (bft-story-*), третья — карта инициативы (bft-map-*):
 # те же гарантии для каждого этапа. Четвёртая — схемы как код: коды DG на блоках,
 # совпадение разбора JS (страница) и Python (линтер), вставка блока в карту.
+# Пятая — требования к экранам (screens/<ID>.md): коды SN и данные страницы.
 # Запуск из корня репозитория: bash skills/bft-blueprint/scripts/test-bft-blueprint.sh
 set -u
 
@@ -186,6 +187,18 @@ python3 "$MLINT" "$FIX/map_ok.md" >/dev/null 2>&1 && python3 "$MRENDER" "$FIX/ma
 python3 "$MRENDER" "$FIX/broken_map_refs.md" --out-dir "$tmp/mbad" >/dev/null 2>&1; rc=$?
 { [ "$rc" -eq 1 ] && [ ! -e "$tmp/mbad" ]; } && ok "карта · битый документ: код 1, файлов нет" || fail "карта · битый документ отрендерился или код не 1"
 
+# --- требования к экранам: screens/<ID>.md рядом с картой ------------------------------------
+python3 - "$mpage" <<'PY' && ok "экраны · эталон: требования у 12 экранов, вкладки Product, Design, Functions" || fail "экраны · эталон: требований к экранам на странице нет или они не те"
+import json, re, sys
+d = json.loads(re.search(r'id="map-data">(.*?)</script>', open(sys.argv[1], encoding="utf-8").read(), re.S).group(1))
+assert len(d["notes"]) == 12, sorted(d["notes"])
+assert all("## Product" in t and "## Design" in t and "## Functions" in t for t in d["notes"].values())
+PY
+mkdir -p "$tmp/sn" && cp "$FIX/map_ok.md" "$FIX/story_ok.md" "$tmp/sn/" && cp -r "$FIX/screens_bad" "$tmp/sn/screens"
+expect_map "экраны · битые заметки" 1 "$tmp/sn/map_ok.md" "SN001 SN002 SN003 SN004 SN005 SN006 SN020 SN021 SN022 SN023" --no-source
+python3 "$MRENDER" "$tmp/sn/map_ok.md" --out-dir "$tmp/snout" >/dev/null 2>&1; rc=$?
+{ [ "$rc" -eq 1 ] && [ ! -e "$tmp/snout" ]; } && ok "экраны · битые заметки: страница не рисуется" || fail "экраны · страница с битыми заметками отрисовалась"
+
 # --- схемы как код: блоки seq и idef0 -----------------------------------------------------
 DSL="$DIR/scripts/diagram_dsl.py"
 DFIX="$FIX/diagrams"
@@ -242,7 +255,7 @@ PY
 
 # вставка блока в карту: заменяет, не трогает карту при ошибке, проверяет ID
 APPLY="$DIR/scripts/bft-diagram-apply.py"
-mkdir -p "$tmp/ap" && cp "$MGOLD" "$DIR/examples/golden_story.md" "$tmp/ap/"
+mkdir -p "$tmp/ap" && cp "$MGOLD" "$DIR/examples/golden_story.md" "$tmp/ap/" && cp -r "$DIR/examples/screens" "$tmp/ap/"
 printf 'Ответ ИИ:\n```seq П15\nописание: GDS проверяет билет и гасит его.\nсистема Val: Сервис валидации\nApp -> Gd: штрихкод\nGd -> Val: проверка условий\nVal --> Gd: валиден\nGd --> App: валиден\n```\n' > "$tmp/ap/ok.txt"
 python3 "$APPLY" "$tmp/ap/golden_map.md" "$tmp/ap/ok.txt" >/dev/null 2>&1 \
   && grep -q '^система Val: Сервис валидации$' "$tmp/ap/golden_map.md" \

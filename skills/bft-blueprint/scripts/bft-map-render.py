@@ -3,7 +3,8 @@
 
 Собирает `<epic_slug>-map.html` рядом с документом: шаги пути слева направо, «Что видят»
 (экраны истории), «Что делаем» (задачи команд с фильтром по команде), «Как это работает»
-(Frontstage, Backstage, Support). Клик по экрану — шаги этапа; по задаче — IDEF0 и вопросы;
+(Frontstage, Backstage, Support). Клик по кадру — требования к экрану для дизайнера (screens/<ID>.md: вкладки Product, Design,
+Functions, заметки в markdown, картинки крупно), без требований — шаги этапа; по задаче — IDEF0 и вопросы;
 по процессу — что до и после, было → станет, что требуется, описание и sequence-схема, IDEF0,
 редактор схем как кода с проверкой (`diagram_kit.js` — тот же разбор, что `diagram_dsl.py`) и промпты для ИИ.
 Один файл без CDN: стили и скрипты (`page_kit.js`, `diagram_kit.js`, `map_page.js`, `map_page.css`) — внутри.
@@ -25,6 +26,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import bft_map as bm  # noqa: E402
 import bft_story as bs  # noqa: E402
+import bft_screens as bsn  # noqa: E402
 
 PAGE = """<!doctype html>
 <html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -44,7 +46,7 @@ PAGE = """<!doctype html>
 <section class="hero" id="hero" aria-label="Что видят люди — путь слева направо"></section>
 <div class="wrap" id="work"><div id="grid"></div></div>
 <div class="mstack" id="mstack"></div>
-<div class="scrim"></div><aside class="side" id="side" aria-label="Подробности"></aside>
+<div class="scrim"></div><aside class="side" id="side" aria-label="Подробности"></aside><div class="zoombox" id="lb" hidden></div>
 <div class="show" id="show" role="dialog" aria-label="История по шагам"><div class="sbar"><div class="whos"></div><button class="x" aria-label="Закрыть">×</button></div>
 <div class="stage"></div><div class="snav"><button class="prev">← Назад</button><button class="next">Дальше →</button></div></div>
 <script type="application/json" id="map-data">{data}</script>
@@ -119,6 +121,7 @@ def model(mp: bm.Map) -> dict:
         "personas": [{"id": p.id, "name": persona[p.id].name, "lane": p.lane} for p in st.personas],
         "seen": seen, "story": story,
         "screens": {sc.id: {"contour": sc.contour, "device": sc.device, "view": sc.view, "el": sc.elements} for sc in st.screens},
+        "notes": {sid: bsn.page_md(doc) for sid, doc in sorted(mp.screens.items())},
         "storyQuestions": [{"id": q.id, "to": q.to, "text": q.text, "where": q.where} for q in st.questions if q.open],
         "teams": teams, "tasks": tasks, "processes": procs,
         "parts": {p.id: [p.name, p.kind] for p in mp.parts},

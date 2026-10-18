@@ -103,6 +103,59 @@
   }
   window.addEventListener("load", drawLinks); window.addEventListener("resize", drawLinks);
 
+  /* ---------- требования к экранам: screens/<ID>.md — вкладки и стек заметок ---------- */
+  const IMG_MD = /^!\[(.*?)\]\((.+?)\)$/, SCR = {}, NOTE_OF = {};
+  /* файл экрана: # заголовок, картинки до первой вкладки, ## вкладка, ### заметка, ниже — markdown */
+  function parseNotes(text) {
+    const doc = { title: "", images: [], tabs: [] }; let tab = null, note = null;
+    text.split("\n").forEach(l => {
+      let m;
+      if (l.startsWith("### ")) { note = { title: l.slice(4).trim(), body: [] }; if (tab) tab.notes.push(note) }
+      else if (l.startsWith("## ")) { tab = { name: l.slice(3).trim(), notes: [] }; doc.tabs.push(tab); note = null }
+      else if (l.startsWith("# ")) doc.title = l.slice(2).trim();
+      else if (note) note.body.push(l);
+      else if (!tab && (m = l.trim().match(IMG_MD))) doc.images.push({ alt: m[1], src: m[2] });
+    });
+    doc.tabs.forEach(t => t.notes.forEach(n => n.md = n.body.join("\n").trim()));
+    return doc;
+  }
+  Object.keys(D.notes || {}).forEach(id => { SCR[id] = parseNotes(D.notes[id]); NOTE_OF[id] = id; SCR[id].images.forEach(im => { const k = im.src.replace(/^screen:/, ""); if (im.src.startsWith("screen:") && !NOTE_OF[k]) NOTE_OF[k] = id }) });
+  const imgSrc = s => s.startsWith("screen:") && D.screens[s.slice(7)] ? screenImg(s.slice(7)) : s;
+  const mdInline = s => esc(s).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/\*(.+?)\*/g, "<i>$1</i>").replace(/\[УТОЧНИТЬ у ([^\]]+)\]/g, '<mark>? $1</mark>');
+  function mdHTML(text) {
+    let k = -1;
+    return text.split(/\n{2,}/).map(block => {
+      const lines = block.split("\n"), im = block.trim().match(IMG_MD);
+      if (im) { k++; return `<figure><img src="${esc(imgSrc(im[2]))}" alt="${esc(im[1])}" data-zoom="${k}"><figcaption>${esc(im[1])}</figcaption></figure>` }
+      if (lines.every(l => /^[-*] /.test(l))) return `<ul>${lines.map(l => `<li>${mdInline(l.slice(2))}</li>`).join("")}</ul>`;
+      if (/^Источник:/.test(block)) return `<p class="snsrc">${mdInline(block)}</p>`;
+      return `<p>${lines.map(mdInline).join("<br>")}</p>`;
+    }).join("");
+  }
+  const notePreview = n => (n.md.split("\n").find(l => l.trim() && !IMG_MD.test(l.trim()) && !l.startsWith("Источник:")) || "").replace(/\*\*/g, "").replace(/\[УТОЧНИТЬ у ([^\]]+)\]/g, "? $1").replace(/^[-*] /, "");
+  let snCur = null, snTab = 0, gallery = [];
+  const snHead = (title, back) => `<div class="snbar">${back ? '<button class="snback" data-snback aria-label="Назад">←</button>' : ""}<h3>${esc(title)}</h3><button class="x" aria-label="Закрыть">×</button></div>`;
+  function openScreen(id, tab) {
+    snCur = NOTE_OF[id]; if (tab != null) snTab = tab; const d = SCR[snCur], t = d.tabs[snTab] || d.tabs[0];
+    gallery = d.images.map(im => ({ alt: im.alt, src: imgSrc(im.src) }));
+    side.innerHTML = snHead(d.title) + `<div class="snbody">${gallery.length ? `<div class="sngal${gallery.length > 1 ? " many" : ""}">${gallery.map((im, i) => `<img src="${esc(im.src)}" alt="${esc(im.alt)}" data-zoom="${i}">`).join("")}</div>` : ""}
+      <nav class="snseg">${d.tabs.map((x, i) => `<button data-sntab="${i}"${x === t ? ' class="on"' : ""}>${esc(x.name)}</button>`).join("")}</nav>
+      <ul class="snstack">${(t ? t.notes : []).map((n, i) => `<li data-snnote="${i}" tabindex="0"><b>${esc(n.title)}</b><span>${esc(notePreview(n))}</span>${n.md.includes(MARK) ? '<i class="q"></i>' : ""}</li>`).join("")}</ul></div>`;
+    body.classList.remove("wide"); body.classList.add("open"); side.scrollTop = 0;
+  }
+  function openNote(i) {
+    const d = SCR[snCur], n = d.tabs[snTab].notes[i];
+    gallery = n.md.split(/\n{2,}/).map(b => b.trim().match(IMG_MD)).filter(Boolean).map(m => ({ alt: m[1], src: imgSrc(m[2]) }));
+    side.innerHTML = snHead(n.title, true) + `<div class="snbody"><div class="snmd">${mdHTML(n.md)}</div></div>`; side.scrollTop = 0;
+  }
+  /* просмотр картинки: крупно, ‹ › если их несколько; Esc или клик мимо — закрыть */
+  const LB = document.getElementById("lb"); let lbI = 0;
+  function zoom(i) {
+    lbI = (i + gallery.length) % gallery.length; const im = gallery[lbI], many = gallery.length > 1;
+    LB.innerHTML = `<figure><img src="${esc(im.src)}" alt="${esc(im.alt)}"><figcaption>${esc(im.alt)}${many ? ` · ${lbI + 1} из ${gallery.length}` : ""}</figcaption></figure>${many ? '<button class="nv p" data-lb="-1" aria-label="Предыдущая">‹</button><button class="nv n" data-lb="1" aria-label="Следующая">›</button>' : ""}<button class="lx" aria-label="Закрыть">×</button>`;
+    LB.hidden = false;
+  }
+
   /* ---------- первый экран: «Что видят» раскадровкой, путь уходит вправо ----------
      Колонка — этап истории шириной во столько кадров, сколько шагов у самого занятого персонажа;
      ряд — персонаж; пустая клетка — персонаж на этапе не участвует. Кадр — экран картинкой
@@ -122,7 +175,8 @@
       const pic = n ? `<span class="track">${st.screens.map(id => `<span class="sld"><img src="${screenImg(id)}" alt="${esc(D.screens[id].contour)}" draggable="false"></span>`).join("")}</span>
         ${n > 1 ? `<span class="sl prev" data-sl="-1" aria-hidden="true">‹</span><span class="sl next" data-sl="1" aria-hidden="true">›</span>` : ""}` : "";
       const dots = n > 1 ? `<span class="dots">${st.screens.map((_, i) => `<i data-dot="${i}"${i ? "" : ' class="on"'}></i>`).join("")}</span>` : "";
-      return `<div class="fr" data-seen="${s.key}" role="button" tabindex="0" title="${esc(st.text)}"><span class="pic" data-n="${n}" data-i="0">${pic}${q ? '<span class="dot"></span>' : ""}</span>${dots}<span class="cap">${esc(st.title)}</span></div>`;
+      const notes = st.screens.some(id => NOTE_OF[id]);
+      return `<div class="fr" data-seen="${s.key}"${notes ? ` data-screens="${st.screens.join(",")}"` : ""} role="button" tabindex="0" title="${esc(st.text)}"><span class="pic" data-n="${n}" data-i="0">${pic}${q ? '<span class="dot"></span>' : ""}</span>${dots}<span class="cap">${esc(st.title)}</span></div>`;
     };
     let x = `<div class="hgrid" style="--p:${persons.length};grid-template-columns:var(--lw) ${COLS.map((_, c) => `${width(c) * FW + (width(c) - 1) * GAP + 2 * PAD}px`).join(" ")}">`;
     x += '<div class="hc0"></div>' + COLS.map((col, c) => `<div class="hh"><span class="hhs"><span class="n">${c === COLS.length - 1 ? "✓" : c + 1}</span><b>${esc(col.name)}</b>${col.when ? `<small>${esc(col.when)}</small>` : ""}</span></div>`).join("");
@@ -398,7 +452,12 @@ ${cur}
   /* ---------- клики и клавиатура ---------- */
   document.addEventListener("click", e => {
     const t = e.target;
+    if (!LB.hidden) { const b = t.closest("[data-lb]"); if (b) return zoom(lbI + +b.dataset.lb); if (!t.closest("img")) LB.hidden = true; return }
     if (t.closest(".side .x") || t.closest(".scrim")) return closeSide();
+    const zm = t.closest("[data-zoom]"); if (zm) return zoom(+zm.dataset.zoom);
+    const st = t.closest("[data-sntab]"); if (st) return openScreen(snCur, +st.dataset.sntab);
+    const nt = t.closest("[data-snnote]"); if (nt) return openNote(+nt.dataset.snnote);
+    if (t.closest("[data-snback]")) return openScreen(snCur);
     if (t.closest("#burger")) return menu(!body.classList.contains("mopen"));
     if (t.closest('[data-menu="close"]') || t.closest(".mscrim")) return menu(false);
     if (t.closest("[data-tf-clear]")) return teamFilter("");
@@ -417,12 +476,17 @@ ${cur}
     const g = t.closest("[data-guide]"); if (g) return openGuide(g.dataset.guide);
     const pr = t.closest("[data-proc]"); if (pr) return openProc(pr.dataset.proc);
     const tk = t.closest("[data-task]"); if (tk) return openTask(tk.dataset.task);
+    /* кадр с требованиями: открыть экран, который сейчас виден в кадре */
+    const scr = t.closest("[data-screens]");
+    if (scr) { const ids = scr.dataset.screens.split(","), pic = scr.querySelector(".pic"), now = ids[+(pic && pic.dataset.i) || 0]; return openScreen(NOTE_OF[now] ? now : ids.find(id => NOTE_OF[id]), 0) }
     const sn = t.closest("[data-seen]"); if (sn) return openSeen(sn.dataset.seen);
   });
   document.addEventListener("keydown", e => {
     if (body.classList.contains("showing")) { if (e.key === "ArrowRight") stepShow(1); else if (e.key === "ArrowLeft") stepShow(-1); else if (e.key === "Escape") body.classList.remove("showing"); return }
-    if (e.key === "Escape") { if (body.classList.contains("mopen")) { menu(false); burger.focus() } else closeSide() }
+    if (!LB.hidden) { if (e.key === "Escape") LB.hidden = true; else if (gallery.length > 1 && e.key === "ArrowRight") zoom(lbI + 1); else if (gallery.length > 1 && e.key === "ArrowLeft") zoom(lbI - 1); return }
+    if (e.key === "Escape") { if (body.classList.contains("mopen")) { menu(false); burger.focus() } else if (side.querySelector("[data-snback]")) openScreen(snCur); else closeSide() }
+    if (e.key === "Enter" && e.target.matches && e.target.matches("[data-snnote]")) openNote(+e.target.dataset.snnote);
     if ((e.key === "Enter" || e.key === " ") && e.target.matches && e.target.matches("[data-seen]")) { e.preventDefault(); openSeen(e.target.dataset.seen) }
   });
-  window.BPMAP = { aiPrompt, dslPrompt, openProc, openTask, openSeen, dslTab, dslCheck };
+  window.BPMAP = { aiPrompt, dslPrompt, openProc, openTask, openSeen, openScreen, openNote, zoom, dslTab, dslCheck };
 })();

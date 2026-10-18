@@ -62,6 +62,7 @@ class Issue:
     level: str  # ERROR | WARN
     code: str
     msg: str
+    path: str = ""  # файл, если не основной документ (например, screens/F3.md)
 
 
 @dataclass

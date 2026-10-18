@@ -73,7 +73,8 @@ description: "Service Blueprint по БФТ в два согласуемых э�
    5. *критерии* — что требуется от процесса, по одной строке на требование БФТ; `[УТОЧНИТЬ]` и `— БЛОКЕР` в тексте становятся отметками.
    6. *цепочка* — что процесс получает и кому отдаёт: ID процессов или событие текстом.
    7. *вопросы* — каждый `[УТОЧНИТЬ у …]` из БФТ по задачам и процессам: «Кому», «Где», тип `вопрос` или `блокер`.
-   8. *emit* — сохрани `<epic>-map.md` и прогони:
+   8. *требования к экранам* — на каждый экран истории файл `screens/<ID>.md` рядом с картой (`resources/screen_notes.md`). Вкладки Product (job stories), Design (где, главное, куда дальше, ограничения), Functions (сценарии Gherkin, включая отказы и «что если» из БФТ). Одна заметка — одно требование, коротко, с «Источник:». Неизвестное — `[УТОЧНИТЬ у …]`.
+   9. *emit* — сохрани `<epic>-map.md` и прогони:
       ```bash
       python3 <skills_path>/bft-blueprint/scripts/bft-map-lint.py <docs_path>/<epic>/<epic>-map.md
       python3 <skills_path>/bft-writer/scripts/bft-style-lint.py <docs_path>/<epic>/<epic>-map.md
@@ -94,6 +95,7 @@ description: "Service Blueprint по БФТ в два согласуемых э�
 
 - `resources/story_line.md` — стандарт истории; `resources/story_interview.md` — вопросы к PO на этапе истории.
 - `resources/map_rules.md` — стандарт карты: слои, задача, процесс, схема, критерии, цепочка, вопросы, проверка перед показом.
+- `resources/screen_notes.md` — требования к экранам для дизайнера: файл `screens/<ID>.md`, вкладки Product, Design, Functions, коды `SN`.
 - `resources/diagram_dsl.md` — схемы как код: грамматика блоков `seq` и `idef0`, коды `DG`, путь блока в карту.
 - `resources/document_assembly.md` — форма файлов `-story.md`, `-map.md` и прежнего `-blueprint.md`.
 - Гейты: `scripts/bft-story-lint.py` (`ST001`–`ST023`), `scripts/bft-map-lint.py` (`MP001`–`MP028` и `DG` схем). Страницы: `scripts/bft-story-render.py`, `scripts/bft-map-render.py` (общий набор `page_kit.js`, схемы — `diagram_kit.js`). Блок схемы — `scripts/bft-diagram-apply.py`; проверка одного блока — `scripts/diagram_dsl.py`.

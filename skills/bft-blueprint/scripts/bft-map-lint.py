@@ -35,6 +35,7 @@
   MP026  БФТ изменился после сборки (`source_rev` не совпадает)
   MP027  число не найдено ни в БФТ, ни в ответах на вопросы
   MP028  процесс без связей в «Цепочке» — не видно, что до и что после
+  SN0xx  требования к экранам `screens/<ID>.md` — `bft_screens.py`, `resources/screen_notes.md`
 
 Использование:
     python3 bft-map-lint.py <epic>-map.md [--source БФТ.md | --no-source] [--strict]
@@ -112,6 +113,11 @@ def check(mp: bm.Map, source: Path | None, no_source: bool) -> None:
                 mp.err(line, "MP016", f"{owner}: {rid} нет в БФТ {source.name}")
             else:
                 cited.add(rid)
+    for d in mp.screens.values():
+        for x in d.notes:
+            for rid in bb.REQ_RE.findall(x.md):
+                if rid not in reqs:
+                    mp.issues.append(bb.Issue(x.line, "ERROR", "MP016", f"«{x.title}»: {rid} нет в БФТ {source.name}", f"screens/{d.id}.md"))
     for rid in reqs:
         if rid.split("-")[0] in ("ФТ", "ИТ", "НФТ") and rid not in cited:
             mp.err(1, "MP017", f"{rid} не попало ни в одну задачу и ни в один критерий — где эта работа на карте?")
@@ -162,13 +168,14 @@ def main() -> int:
         print(f"{args.file}: не прочитан: {e}", file=sys.stderr)
         return 2
     for i in sorted(mp.issues, key=lambda i: (i.level != "ERROR", i.line)):
-        print(f"{args.file}:{i.line}: {i.level} {i.code} {i.msg}")
+        print(f"{args.file.parent / i.path if i.path else args.file}:{i.line}: {i.level} {i.code} {i.msg}")
     errors = len(mp.errors)
     warns = len(mp.issues) - errors
     blockers = [q for q in mp.questions if q.open and q.kind == "блокер"]
     for q in blockers:
         print(f"  блокер {q.id} → {q.to}: {q.text}")
     print(f"map-lint: {len(mp.tasks)} задач, {len(mp.processes)} процессов, {len(mp.steps)} шагов схем, "
+          f"{len(mp.screens)} экранов с требованиями, "
           f"открытых вопросов {sum(q.open for q in mp.questions)} (блокеров {len(blockers)}) — ошибок {errors}, предупреждений {warns}")
     return 1 if errors or (args.strict and warns) else 0
 
