@@ -28,11 +28,36 @@ ul.lim li,ul.chk li{display:flex;gap:10px;align-items:flex-start;padding:8px 0;b
 ul.chk .g{color:var(--muted)}ul.chk .ar{margin:0 8px;color:#9a958c}
 .srcd{margin-top:26px;border-top:1px solid var(--line);padding-top:10px}.srcd summary{cursor:pointer;font-size:12px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;color:var(--muted)}
 .srcd pre{font:12.5px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--soft);border-radius:12px;padding:14px;white-space:pre-wrap;font-variant-ligatures:none}
+
+/* вкладки и секции */
+.tabs{position:sticky;top:0;z-index:2;display:flex;align-items:center;gap:4px;background:#fff;padding:10px 28px;border-bottom:1px solid var(--line)}
+.ph{position:static}
+.tabs button{border:0;background:none;font:inherit;font-size:14px;font-weight:650;color:#6b6b6b;border-radius:9px;padding:7px 14px;cursor:pointer;display:inline-flex;gap:6px;align-items:center}
+.tabs button.on{background:var(--ink);color:#fff}.tabs .cnt{min-width:18px;height:18px;border-radius:9px;background:var(--red);color:#fff;font-size:11px;display:inline-flex;align-items:center;justify-content:center;padding:0 5px}
+.tabs .prog{margin-left:auto;font-size:13px;color:var(--muted)}
+.story{margin-top:20px;background:var(--soft);border-radius:16px;padding:16px 18px}
+.trk{display:flex;gap:4px;margin-bottom:10px}.trk span{flex:1;height:5px;border-radius:3px;background:#e2ded6}.trk span.in{background:#c9d8c2}.trk span.on{background:var(--story)}
+.sp{font-size:12.5px;color:var(--muted);margin-bottom:8px}
+.flow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13.5px}.fs{color:#8a857c}.fs.me{color:var(--ink);font-weight:700;background:#fff;border-radius:999px;padding:4px 12px;box-shadow:0 1px 4px rgba(0,0,0,.08)}.fa{color:#b5b0a6}
+ul.jobs{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+ul.jobs li{display:flex;gap:12px;align-items:flex-start;border:1px solid var(--line);border-radius:14px;padding:12px 14px;font-size:14.5px;line-height:1.55}
+ul.jobs li.main{border-color:var(--ink);border-width:1.5px}ul.jobs .w{display:inline-block;min-width:54px;color:#9a958c;font-size:12.5px}
+ul.jobs li .refs{margin-left:0;padding-left:0;margin-top:6px;display:flex}
+.goal{margin-top:20px;display:flex;gap:12px;align-items:baseline;flex-wrap:wrap;font-size:15px;font-weight:600}.goal>span{font-size:12px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;color:var(--muted)}
+.core{display:grid;grid-template-columns:150px minmax(0,1fr) 190px;gap:14px;margin-top:16px;align-items:start}
+.core h3{margin:0 0 8px;font-size:11px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;color:var(--muted)}
+.cin,.cout{display:flex;flex-direction:column;gap:6px;align-items:flex-start;padding-top:2px}
+.cmid{background:var(--soft);border-radius:16px;padding:14px}.cmid ol.prio li{background:#fff}.cmid .shots{flex-direction:row;align-items:flex-end;gap:8px;margin-top:10px}.cmid .shots img{width:70px}
+.cout .act{flex-direction:column;align-items:flex-start;gap:4px;margin-bottom:6px}.cout .refs{margin-left:0;padding-left:0}
 </style></head><body>
 <div class="sw"><button data-sw="B1">B1 · Страница после оплаты</button><button data-sw="F3">F3 · Результат сканирования</button></div><aside id="panel"></aside>
 <script type="text/plain" id="blocks">```screen B1
 экран: Страница после оплаты — блок акции
-задача: Когда я купил билет на офлайн-мероприятие, хочу сразу узнать о скидке 10% в ресторанах рядом, чтобы не пропустить выгоду · ПТ-2
+для: Гость
+истории:
+  Когда я купил билет на офлайн-мероприятие, хочу сразу узнать о скидке 10% в ресторанах рядом, чтобы не пропустить выгоду · ПТ-2
+  Когда я вижу предложение, хочу увидеть рестораны у площадки своего билета, чтобы понять, куда идти · ИТ-1, ФТ-3
+  Когда я решил сходить в ресторан, хочу перейти к выбору, чтобы найти подходящий рядом с театром · ПТ-3
 цель: Больше гостей с билетами доходят до ресторанов Bartello · БТ-1
 откуда: оплата офлайн-билета на витрине
 дальше: D1 Все рестораны; C1 Письмо с билетом
@@ -60,7 +85,12 @@ ul.chk .g{color:var(--muted)}ul.chk .ar{margin:0 8px;color:#9a958c}
 
 ```screen F3
 экран: Приложение-сканер — результат проверки
-задача: Когда официант отсканировал билет, хочет сразу понять, давать ли скидку и почему, чтобы не спорить с гостем · ФТ-1, ФТ-8
+для: Ресторан
+истории:
+  Когда я отсканировал билет, хочу сразу понять, давать ли скидку, чтобы не спорить с гостем · ФТ-1, ФТ-8
+  Когда билет не прошёл, хочу видеть причину понятными словами, чтобы объяснить её гостю · ФТ-1
+  Когда скидка дана, хочу сразу перейти к фото чека, чтобы ресторан получил компенсацию · ИТ-8
+  Когда я не знаю, что делать, хочу открыть инструкцию и поддержку, чтобы не задерживать гостя · ФТ-13
 цель: Одна покупка — одна скидка, без конфликта у стола · ПТ-1
 откуда: F2 Сканирование штрихкода
 дальше: F5 Фото чека; F6 Инструкция и FAQ
@@ -168,7 +198,7 @@ const BPK = (function () {
       if (ln === "```") { cur = null; continue }
       if (!ln) continue;
       const split = s => { const k = s.lastIndexOf(" · "); return k > 0 && REQ.test(s.slice(k)) ? (REQ.lastIndex = 0, [s.slice(0, k), s.slice(k + 3).match(REQ)]) : (REQ.lastIndex = 0, [s, []]) };
-      if (raw.startsWith("  ") && sec) { const [t, refs] = split(ln); const k = t.indexOf(": "); cur.lists[sec].push(k > 0 && sec !== "главное" && sec !== "дополнительно" && sec !== "ограничения" ? { name: t.slice(0, k), text: t.slice(k + 2), refs } : { text: t, refs }); continue }
+      if (raw.startsWith("  ") && sec) { const [t, refs] = split(ln); const k = t.indexOf(": "); cur.lists[sec].push(k > 0 && !["главное", "дополнительно", "ограничения", "истории"].includes(sec) ? { name: t.slice(0, k), text: t.slice(k + 2), refs } : { text: t, refs }); continue }
       if ((m = ln.match(/^([а-яё]+):\s*(.*)$/i))) { if (m[2]) { const [t, refs] = split(m[2]); cur[m[1]] = { text: t, refs }; sec = null } else { sec = m[1]; cur.lists[sec] = [] } }
     }
     return out;
@@ -177,31 +207,56 @@ const BPK = (function () {
   const refs = r => r.length ? `<span class="refs">${r.map(x => `<i>${x}</i>`).join("")}</span>` : "";
   const ask = t => t.includes(MARK);
   const askTxt = t => esc(t).replace(/\[УТОЧНИТЬ у ([^\]]+)\]/, '<b class="who">? $1</b>');
-  const link = s => { const m = s.trim().match(/^([A-Z]\d+)\s*(.*)$/); return m && D.screens[m[1]] ? `<a class="lnk" data-s="${m[1]}"><img src="${uri(m[1])}" alt="">${esc(m[2] || D.screens[m[1]].contour)}</a>` : `<span class="lnk ev">${esc(s.trim())}</span>` };
+  const link = s => { const m = s.trim().match(/^([A-Z]\d+)\s*(.*)$/); return m && D.screens[m[1]] ? `<a class="lnk" data-s="${m[1]}"><img src="${uri(m[1])}" alt="">${esc(m[2] || stepOf(m[1]) || D.screens[m[1]].contour)}</a>` : `<span class="lnk ev">${esc(s.trim())}</span>` };
+  const stepOf = id => { for (const s of D.seen) for (const st of s.steps) if (st.screens.includes(id)) return st.title; return "" };
   const key = id => `bp-brief-${id}`;
+  /* место экрана в истории: этапы персонажа, шаг с этим экраном, шаг до и после */
+  function place(id, who) {
+    const ps = D.personas.filter(p => !who || p.name.toLowerCase().startsWith(who.toLowerCase()));
+    for (const p of ps.length ? ps : D.personas) {
+      const steps = D.seen.filter(s => s.persona === p.id && !s.final).flatMap(s => s.steps.map(st => ({ ...st, col: s.col })));
+      const k = steps.findIndex(st => st.screens.includes(id)); if (k < 0) continue;
+      return { p, steps, k, cols: [...new Set(D.seen.filter(s => s.persona === p.id).map(s => s.col))] };
+    }
+  }
+  const COLS = [...D.stages, { id: "стало", name: "Итог" }];
+  let tab = "product";
   function render(id) {
-    const b = B[id], sc = D.screens[id], alts = id === "F3" ? ["F3", "F4"] : [id];
-    const L = b.lists; let done = {}; try { done = JSON.parse(localStorage.getItem(key(id)) || "{}") } catch (e) { }
-    const checks = [...(L["главное"] || []).map(x => x.text), ...(L["действия"] || []).map(x => `${x.name}: ${x.text}`), ...(L["ограничения"] || []).map(x => x.text), ...(L["проверка"] || []).map(x => x.text)];
-    const nOk = checks.filter((_, i) => done[i]).length, states = L["состояния"] || [], unk = states.filter(s => ask(s.text)).length;
-    let i = -1; const cb = () => { i++; return `<input type="checkbox" data-c="${i}"${done[i] ? " checked" : ""} aria-label="Учтено в макете">` };
-    let x = `<div class="ph"><div class="pt"><span class="tag">Дизайнеру · ${esc(sc.contour)}</span><h1>${esc(b["экран"].text)}</h1><div class="meta">Экран ${id} · <span class="prog"><b>${nOk}</b> из ${checks.length} учтено</span>${unk ? ` · <span class="unk">${unk} ${unk === 1 ? "состояние не определено" : "состояния не определены"}</span>` : ""}</div></div><button class="x" aria-label="Закрыть">×</button></div><div class="pb">`;
-    x += `<section class="why"><div class="shots">${alts.map(a => `<img src="${uri(a)}" alt="${esc(D.screens[a].contour)}">`).join("")}<small>схема, не макет</small></div><div class="wt">
-      <div class="job">${esc(b["задача"].text)}${refs(b["задача"].refs)}</div>
-      <dl><dt>Цель</dt><dd>${esc(b["цель"].text)}${refs(b["цель"].refs)}</dd><dt>Откуда</dt><dd>${b["откуда"].text.split(";").map(link).join("")}</dd><dt>Дальше</dt><dd>${b["дальше"].text.split(";").map(link).join("")}</dd></dl></div></section>`;
-    x += `<h2>Что на экране <small>по важности</small></h2><ol class="prio">${(L["главное"] || []).map(r => `<li>${cb()}<span class="t">${esc(r.text)}</span>${refs(r.refs)}</li>`).join("")}</ol>`;
-    if (L["дополнительно"]) x += `<ul class="prio2">${L["дополнительно"].map(r => `<li><span class="t">${esc(r.text)}</span>${refs(r.refs)}</li>`).join("")}</ul>`;
-    x += `<h2>Действия</h2><div class="acts">${(L["действия"] || []).map((r, k) => { const [lab, to] = r.text.split(" → "); return `<div class="act">${cb()}<span class="btn${k ? " sec" : ""}">${esc(lab)}</span><span class="when">${esc(r.name)}</span>${to ? `<span class="to">→ ${link(to)}</span>` : ""}${refs(r.refs)}</div>` }).join("")}</div>`;
-    x += `<h2>Состояния <small>${states.length - unk} из ${states.length} описаны</small></h2><div class="states">${states.map((s, k) => `<div class="st${ask(s.text) ? " q" : ""}${k ? "" : " ideal"}"><b>${esc(s.name)}</b><span>${askTxt(s.text)}</span>${refs(s.refs)}</div>`).join("")}</div>`;
-    x += `<h2>Ограничения</h2><ul class="lim">${(L["ограничения"] || []).map(r => `<li>${cb()}<span class="t">${esc(r.text)}</span>${refs(r.refs)}</li>`).join("")}</ul>`;
-    x += `<h2>Проверка макета <small>сценарий → что видно</small></h2><ul class="chk">${(L["проверка"] || []).map(r => { const [a, z] = r.text.split(" → "); return `<li>${cb()}<span class="t"><span class="g">${esc(a)}</span><span class="ar">→</span>${esc(z || "")}</span></li>` }).join("")}</ul>`;
-    x += `<details class="srcd"><summary>Текст требований</summary><pre>${esc(b.src.join("\n"))}</pre></details></div>`;
-    document.getElementById("panel").innerHTML = x;
+    const b = B[id], sc = D.screens[id], alts = id === "F3" ? ["F3", "F4"] : [id], L = b.lists;
+    let done = {}; try { done = JSON.parse(localStorage.getItem(key(id)) || "{}") } catch (e) { }
+    const cb = k => `<input type="checkbox" data-c="${k}"${done[k] ? " checked" : ""} aria-label="Учтено в макете">`;
+    const states = L["состояния"] || [], unk = states.filter(s => ask(s.text)).length;
+    const keys = [...(L["истории"] || []).map((_, i) => "s" + i), ...(L["проверка"] || []).map((_, i) => "v" + i)], nOk = keys.filter(k => done[k]).length;
+    let x = `<div class="ph"><div class="pt"><span class="tag">${esc(sc.contour)} · экран ${id}</span><h1>${esc(b["экран"].text)}</h1></div><button class="x" aria-label="Закрыть">×</button></div>
+      <nav class="tabs"><button data-tab="product"${tab === "product" ? ' class="on"' : ""}>Product</button><button data-tab="design"${tab === "design" ? ' class="on"' : ""}>Design</button><button data-tab="check"${tab === "check" ? ' class="on"' : ""}>Проверка${unk ? `<b class="cnt">${unk}</b>` : ""}</button><span class="prog">${nOk} из ${keys.length} закрыто</span></nav><div class="pb">`;
+    if (tab === "product") {
+      const pl = place(id, b["для"] && b["для"].text);
+      if (pl) {
+        const prev = pl.steps[pl.k - 1], cur = pl.steps[pl.k], next = pl.steps[pl.k + 1];
+        x += `<section class="story"><div class="trk">${COLS.map((c, i) => `<span class="${i === cur.col ? "on" : pl.cols.includes(i) ? "in" : ""}" title="${esc(c.name)}"></span>`).join("")}</div>
+          <div class="sp">Шаг истории — ${esc(pl.p.name)} · ${esc(COLS[cur.col].name)}</div>
+          <div class="flow">${prev ? `<span class="fs">${esc(prev.title)}</span><span class="fa">→</span>` : ""}<span class="fs me">${esc(cur.title)}</span>${next ? `<span class="fa">→</span><span class="fs">${esc(next.title)}</span>` : ""}</div></section>`;
+      }
+      x += `<h2>Истории, которые закрывает экран</h2><ul class="jobs">${(L["истории"] || []).map((r, i) => { const m = r.text.match(/^Когда (.+?), хочу (.+?), чтобы (.+)$/);
+        return `<li class="${i ? "" : "main"}">${cb("s" + i)}<div>${m ? `<span class="w">Когда</span> ${esc(m[1])}<br><span class="w">хочу</span> <b>${esc(m[2])}</b><br><span class="w">чтобы</span> ${esc(m[3])}` : esc(r.text)}${refs(r.refs)}</div></li>` }).join("")}</ul>`;
+    } else if (tab === "design") {
+      x += `<div class="goal"><span>Цель бизнеса</span>${esc(b["цель"].text)}${refs(b["цель"].refs)}</div>`;
+      x += `<section class="core"><div class="cin"><h3>Откуда</h3>${b["откуда"].text.split(";").map(link).join("")}</div>
+        <div class="cmid"><h3>Ядро — по важности</h3><ol class="prio">${(L["главное"] || []).map(r => `<li><span class="t">${esc(r.text)}</span>${refs(r.refs)}</li>`).join("")}</ol>${L["дополнительно"] ? `<ul class="prio2">${L["дополнительно"].map(r => `<li>${esc(r.text)}${refs(r.refs)}</li>`).join("")}</ul>` : ""}
+          <div class="shots">${alts.map(a => `<img src="${uri(a)}" alt="${esc(D.screens[a].contour)}">`).join("")}<small>схема, не макет</small></div></div>
+        <div class="cout"><h3>Куда</h3>${(L["действия"] || []).map((r, k) => { const [lab, to] = r.text.split(" → "); return `<div class="act"><span class="btn${k ? " sec" : ""}">${esc(lab)}</span><span class="when">${esc(r.name)}${to ? ` → ${link(to)}` : ""}</span>${refs(r.refs)}</div>` }).join("")}</div></section>`;
+      x += `<h2>Ограничения</h2><ul class="lim">${(L["ограничения"] || []).map(r => `<li><span class="t">${esc(r.text)}</span>${refs(r.refs)}</li>`).join("")}</ul>`;
+    } else {
+      x += `<h2>Состояния <small>${states.length - unk} из ${states.length} описаны</small></h2><div class="states">${states.map((s, k) => `<div class="st${ask(s.text) ? " q" : ""}${k ? "" : " ideal"}"><b>${esc(s.name)}</b><span>${askTxt(s.text)}</span>${refs(s.refs)}</div>`).join("")}</div>`;
+      x += `<h2>Проверка макета <small>сценарий → что видно</small></h2><ul class="chk">${(L["проверка"] || []).map((r, i) => { const [a, z] = r.text.split(" → "); return `<li>${cb("v" + i)}<span class="t"><span class="g">${esc(a)}</span><span class="ar">→</span>${esc(z || "")}</span></li>` }).join("")}</ul>`;
+      x += `<details class="srcd"><summary>Текст требований</summary><pre>${esc(b.src.join("\n"))}</pre></details>`;
+    }
+    document.getElementById("panel").innerHTML = x + "</div>";
     document.querySelectorAll("[data-sw]").forEach(s => s.classList.toggle("on", s.dataset.sw === id));
   }
   let cur = "B1";
   document.addEventListener("change", e => { const c = e.target.closest("[data-c]"); if (!c) return; let d = {}; try { d = JSON.parse(localStorage.getItem(key(cur)) || "{}") } catch (er) { } d[c.dataset.c] = c.checked; try { localStorage.setItem(key(cur), JSON.stringify(d)) } catch (er) { } render(cur) });
-  document.addEventListener("click", e => { const s = e.target.closest("[data-sw]"); if (s) { cur = s.dataset.sw; render(cur) } });
+  document.addEventListener("click", e => { const s = e.target.closest("[data-sw]"); if (s) { cur = s.dataset.sw; render(cur) } const t = e.target.closest("[data-tab]"); if (t) { tab = t.dataset.tab; render(cur) } });
   render(cur);
 })();
 </script></body></html>
