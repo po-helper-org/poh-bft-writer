@@ -10,29 +10,62 @@ body{margin:0;background:#fff;color:var(--ink);font:15px/1.45 Inter,-apple-syste
 button{font:inherit;color:inherit}
 .dot{position:absolute;width:12px;height:12px;border-radius:50%;background:var(--red);border:2px solid #fff;z-index:3}
 .dot.inl{position:static;display:inline-block;vertical-align:-1px}
-/* шапка */
-header{padding:18px 24px 0}
-.hdr{display:flex;flex-wrap:wrap;gap:12px 20px;align-items:center;justify-content:space-between}
-.tt{display:flex;align-items:baseline;gap:12px;min-width:0}.tt h1{margin:0;font-size:20px;font-weight:700;letter-spacing:-.2px;line-height:1.25}
-.draft{flex:none;display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:#9a6a12}.draft::before{content:"";width:7px;height:7px;border-radius:50%;background:#e0a526}
+/* меню вместо шапки: кнопка поверх карты, остальное — в выезжающей панели */
+.ptitle{display:none}
+.fab{position:fixed;top:12px;left:16px;z-index:7;display:flex;align-items:center;gap:8px}
+.burger{position:relative;width:40px;height:40px;border-radius:12px;border:1px solid var(--line);background:#fff;box-shadow:0 2px 10px rgba(0,0,0,.08);display:flex;align-items:center;justify-content:center;cursor:pointer}
+.burger:hover{box-shadow:0 4px 14px rgba(0,0,0,.12)}.burger svg{width:18px;height:18px;stroke:var(--ink);stroke-width:1.8;stroke-linecap:round;fill:none}
+.bdot:empty{display:none}.bdot{position:absolute;top:-6px;right:-6px;min-width:18px;height:18px;border-radius:9px;background:var(--red);color:#fff;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;padding:0 5px;border:2px solid #fff}
+.fchip{display:inline-flex;align-items:center;gap:7px;height:32px;border:0;border-radius:999px;background:var(--c);color:#fff;font-size:12.5px;font-weight:650;padding:0 8px 0 12px;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.1)}
+.fchip i{width:7px;height:7px;border-radius:50%;background:#fff}.fchip span{font-size:15px;line-height:1;opacity:.85;padding:0 2px}
+.mscrim{position:fixed;inset:0;background:rgba(0,0,0,.22);opacity:0;pointer-events:none;transition:opacity .2s;z-index:10}
+.menu{position:fixed;top:0;left:0;height:100%;width:min(340px,100%);background:#fff;box-shadow:8px 0 24px rgba(0,0,0,.16);transform:translateX(-105%);transition:transform .22s;z-index:11;overflow-y:auto;padding:16px 16px 28px;display:flex;flex-direction:column;gap:14px}
+body.mopen .menu{transform:none}body.mopen .mscrim{opacity:1;pointer-events:auto}
+.mtop{display:flex;gap:10px;align-items:flex-start;justify-content:space-between}.mtop h1{margin:6px 0 0;font-size:18px;font-weight:700;line-height:1.3;letter-spacing:-.1px}
+.mtop .x{flex:none;border:0;background:none;font-size:24px;line-height:1;color:var(--muted);cursor:pointer;padding:2px 4px}
+.draft{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:#9a6a12}.draft::before{content:"";width:7px;height:7px;border-radius:50%;background:#e0a526}
 .draft.ok{color:var(--story)}.draft.ok::before{background:var(--story)}
-.tools{display:flex;flex-wrap:wrap;gap:2px;align-items:center}
-.play{border:0;border-radius:999px;background:var(--ink);color:#fff;font-weight:650;font-size:13.5px;padding:7px 15px;cursor:pointer;margin-right:6px}
-.hdr .tool{border-color:transparent;background:none;font-size:13.5px;font-weight:600;color:#55524c;padding:7px 10px}.hdr .tool:hover{background:#f3f1ec;color:var(--ink)}
-.hdr .tool svg{width:15px;height:15px;opacity:.8}
-.hdr .tool.blk{color:var(--red);border-color:transparent;background:none}.hdr .tool.blk:hover{background:#fdf3f2}
-.cnt{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;border-radius:9px;background:var(--red);color:#fff;font-size:11px;font-weight:800;padding:0 5px}
+.play{border:0;border-radius:12px;background:var(--ink);color:#fff;font-weight:650;font-size:14px;padding:11px 14px;cursor:pointer;text-align:left}
+.mlist{display:flex;flex-direction:column;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:6px 0}
+.mi{display:flex;align-items:center;gap:10px;width:100%;border:0;background:none;font-size:14px;font-weight:600;color:var(--ink);padding:9px 8px;border-radius:9px;cursor:pointer;text-align:left}
+.mi:hover{background:#f5f3ef}.mi svg{flex:none;width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;color:#6b6b6b}
+.mi.blk{color:var(--red)}.mi.blk svg{color:var(--red)}.mi .cnt{margin-left:auto}
+.cnt{display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:20px;border-radius:10px;background:var(--red);color:#fff;font-size:11px;font-weight:800;padding:0 6px}
+.mlab{font-size:11px;font-weight:800;letter-spacing:.7px;text-transform:uppercase;color:var(--muted);margin-bottom:-6px}
+.teams{display:flex;flex-direction:column}
+.tchip{display:flex;align-items:center;gap:10px;width:100%;font-size:14px;font-weight:500;color:var(--ink);background:none;border:0;border-radius:9px;padding:8px;cursor:pointer;text-align:left}
+.tchip:hover{background:#f5f3ef}.tchip b{margin-left:auto;font-size:12px;font-weight:500;color:var(--muted)}
+.tchip i{flex:none;width:9px;height:9px;border-radius:50%;background:var(--c)}.tchip i.u{background:#fff;border:1.5px dashed var(--red)}
+.tchip.on{background:var(--c);color:#fff}.tchip.on b{color:rgba(255,255,255,.85)}.tchip.on i{background:#fff}
 .tool{display:inline-flex;align-items:center;gap:7px;font-size:14px;font-weight:650;background:#fff;border:1px solid #dcd7cd;border-radius:999px;padding:8px 14px;cursor:pointer;text-decoration:none;color:var(--ink)}
 .tool:hover{background:#f6f4f0}.tool svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
-.tool.blk{color:var(--red);border-color:#e9b4ae;background:#fdf3f2}
-.teams{display:flex;flex-wrap:wrap;align-items:center;gap:2px 4px;margin:8px 0 12px}
-.tlab{font-size:12.5px;color:var(--muted);margin-right:6px}
-.tchip{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:500;color:#55524c;background:none;border:0;border-radius:999px;padding:3px 9px;cursor:pointer}
-.tchip:hover{background:#f3f1ec;color:var(--ink)}
-.tchip i{width:7px;height:7px;border-radius:50%;background:var(--c)}.tchip i.u{background:#fff;border:1.5px dashed var(--red)}
-.tchip.on{background:var(--c);color:#fff}.tchip.on i{background:#fff}
+/* первый экран: что видят — на всю высоту, путь уходит вправо */
+.hero{--lw:132px;position:relative;height:100vh;min-height:560px;background:var(--soft);border-bottom:1px solid var(--line)}
+.hscroll{height:100%;overflow-x:auto;overflow-y:hidden;scroll-behavior:smooth;scroll-snap-type:x proximity;scroll-padding-left:var(--lw);overscroll-behavior-x:contain}
+.hgrid{display:grid;grid-template-rows:auto repeat(var(--p),auto);align-content:center;min-height:100%;padding:8px 0 52px;width:max-content}
+.hc0,.hl{position:sticky;left:0;z-index:3;background:linear-gradient(90deg,var(--soft) 82%,rgba(247,245,241,0))}
+.hh{padding:22px 14px 12px;scroll-snap-align:start;border-left:1px solid var(--line)}
+.hhs{position:sticky;left:calc(var(--lw) + 14px);display:inline-flex;align-items:baseline;flex-wrap:wrap;gap:2px 8px;max-width:360px}
+.hh .n{font-size:12px;font-weight:700;color:#9a958c;font-variant-numeric:tabular-nums}.hh b{font-size:17px;font-weight:700;letter-spacing:-.1px}
+.hh small{flex-basis:100%;padding-left:18px;font-size:12.5px;color:var(--muted)}
+.hl{display:flex;flex-direction:column;justify-content:center;gap:3px;padding:0 18px 0 24px;color:#55524c}
+.hl svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.hl b{font-size:15px;color:var(--ink)}.hl small{font-size:11.5px;line-height:1.35;color:var(--muted)}
+.hcell{display:flex;gap:14px;padding:8px 14px;min-height:0;border-left:1px solid var(--line)}
+.hs{position:relative;flex:none;width:380px;display:flex;gap:16px;align-items:center;text-align:left;background:#fff;border:1px solid transparent;border-radius:16px;padding:14px 16px 14px 14px;cursor:pointer;min-height:0;transition:box-shadow .15s}
+.hs:hover,.hs:focus-visible{box-shadow:0 8px 24px rgba(0,0,0,.09);outline:none}
+.hm{position:relative;flex:none;display:block}.hm svg{display:block;height:clamp(150px,calc((100vh - 170px) / var(--p) - 56px),260px);width:auto}
+.hm .dot{top:-4px;right:-5px}
+.ht{display:flex;flex-direction:column;gap:6px;min-width:0}.hn{font-size:11.5px;font-weight:700;color:#9a958c}
+.hs b{font-size:16px;line-height:1.3;font-weight:700}.hs p{margin:0;font-size:13.5px;line-height:1.45;color:#5d5a54;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:6;overflow:hidden}
+.hw0{font-size:12px;line-height:1.4;color:#9a958c;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+.hs.fin{flex-direction:column;align-items:flex-start;justify-content:center;gap:8px;background:#f0f6ec;padding:20px 22px}.hs.fin .big{font-size:40px;font-weight:800;color:var(--story);line-height:1}
+.hnav{position:absolute;top:50%;z-index:4;width:44px;height:44px;border-radius:50%;border:1px solid var(--line);background:#fff;box-shadow:0 4px 14px rgba(0,0,0,.12);font-size:26px;line-height:1;color:var(--ink);cursor:pointer}
+.hnav.prev{left:calc(var(--lw) + 8px)}.hnav.next{right:16px}.hnav[hidden]{display:none}
+.hdown{position:absolute;left:50%;bottom:10px;transform:translateX(-50%);font-size:13px;font-weight:600;color:#55524c;text-decoration:none;background:#fff;border:1px solid var(--line);border-radius:999px;padding:6px 14px}
+.hdown:hover{color:var(--ink);box-shadow:0 4px 14px rgba(0,0,0,.08)}
 /* карта */
-.wrap{overflow:auto;background:var(--soft);border-top:1px solid var(--line)}
+.wrap{overflow:auto;background:var(--soft)}
 .map{position:relative;display:grid;background:var(--soft)}
 .map>div{padding:10px 8px}
 .mh{position:sticky;top:0;z-index:4;background:var(--soft);display:flex;align-items:baseline;gap:8px;padding:16px 10px 10px!important}
@@ -40,12 +73,7 @@ header{padding:18px 24px 0}
 .mh .hx{display:flex;flex-direction:column}.mh b{font-size:14px;font-weight:700;line-height:1.25}.mh small{font-size:12px;color:var(--muted);margin-top:1px}
 .mh.corner,.ml{position:sticky;left:0;background:var(--soft)}.mh.corner{z-index:6}
 .ml{z-index:3;font-size:11px;font-weight:800;letter-spacing:.8px;text-transform:uppercase;color:var(--muted);padding:18px 8px 8px 24px!important}
-.ml.pl{text-transform:none;letter-spacing:0;font-size:12.5px;font-weight:600;color:#55524c;padding:12px 8px 8px 24px!important;display:flex;flex-direction:column;gap:10px}
-.ml.pl .cap{font-size:11px;font-weight:800;letter-spacing:.8px;text-transform:uppercase;color:var(--muted)}
-.pn{display:inline-flex;align-items:center;gap:5px;white-space:nowrap}.pn svg{flex:none;width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
-.mc.sr{padding-top:6px!important;padding-bottom:6px!important}.mc.sr .seen{flex:1}
-.ml.top{border-top:1px solid var(--line)}
-.mc{display:flex;flex-direction:column;gap:8px}.mc.top{border-top:1px solid var(--line);padding-top:14px!important;padding-bottom:22px!important}
+.mc{display:flex;flex-direction:column;gap:8px;padding-top:4px!important;padding-bottom:22px!important}
 /* что видят */
 .seen,.wk,.hw{width:100%}
 .seen{position:relative;display:flex;gap:12px;align-items:flex-start;text-align:left;background:#fff;border:1px solid transparent;border-radius:12px;padding:10px 12px 10px 10px;cursor:pointer;transition:box-shadow .15s,border-color .15s}
@@ -150,16 +178,15 @@ body.showing .show{display:flex}body.showing{overflow:hidden}
 .show .snav button{border:1px solid #e7e2d9;background:#fff;border-radius:999px;padding:9px 16px;font-weight:700;cursor:pointer;white-space:nowrap}.show .snav button:disabled{opacity:.35}
 /* телефон */
 .mstack{display:none}
-@media(max-width:700px){header{padding:16px 16px 4px}.tt h1{font-size:19px}.tool,.play{padding:7px 12px;font-size:13.5px}
- .teams{flex-wrap:nowrap;overflow-x:auto;margin:10px -16px 12px;padding:0 16px 2px}.tchip{flex:none}
- .wrap{display:none}.mstack{display:block;padding:0 16px 40px;background:var(--soft)}
+@media(max-width:700px){.tool{padding:7px 12px;font-size:13.5px}
+ .wrap,.hero{display:none}.mstack{display:block;padding:52px 16px 40px;background:var(--soft)}
  .ms{padding:18px 0 20px;border-bottom:1px solid var(--line)}.mh2{display:flex;gap:10px;align-items:center;margin-bottom:12px}
  .mh2 .n{width:28px;height:28px;border-radius:50%;background:var(--story);color:#fff;font-weight:800;display:flex;align-items:center;justify-content:center}.mh2 b{display:block;font-size:18px}.mh2 small{color:var(--muted)}
  .ms .wl{display:flex;flex-direction:column;gap:8px;margin-bottom:12px}.ms .lb{margin:10px 0 6px;display:block}
  .ms .seen .th,.ms .seen .th svg{width:64px}.ms .seen b{font-size:14px}.ms .seen p{font-size:13px}
  .pchain{grid-template-columns:1fr}.pab{flex-direction:column}.seqw svg{max-width:none!important}
  .show .scene{grid-template-columns:1fr;gap:16px}.show h2{font-size:22px}.show .say{font-size:16px}}
-@media print{.tools,.teams,.side,.scrim,.show{display:none}}
+@media print{.fab,.menu,.mscrim,.side,.scrim,.show{display:none}.ptitle{display:block;margin:0;padding:16px 24px 8px;font-size:20px}}
 /* описание процесса и схемы как код */
 .pdesc{font-size:14.5px;line-height:1.5;margin:0 0 10px;color:#2a2a2a}.pdesc.ask{border-left:3px solid var(--red);padding-left:10px}
 .pempty{font-size:13.5px;color:var(--muted);border:1px dashed #cfc9bd;border-radius:12px;padding:14px;text-align:center}
@@ -177,12 +204,17 @@ body.showing .show{display:flex}body.showing{overflow:hidden}
 .dhint{display:block;font-size:12px;color:var(--muted);margin-top:8px}.dhint code{font-size:11.5px}
 </style></head>
 <body>
-<header><div class="hdr"><div class="tt"><h1>Перезапуск акции Bartello — «билет Ticketland = скидка 10%»</h1><span class="draft">Черновик</span></div>
-<div class="tools"><button class="play" id="play">▶ История</button>
-<button class="tool" data-guide="help"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 3h4.5A1.5 1.5 0 0 1 8 4.5V14a1.5 1.5 0 0 0-1.5-1.5H2zM14 3H9.5A1.5 1.5 0 0 0 8 4.5V14a1.5 1.5 0 0 1 1.5-1.5H14z"/></svg>Инструкции</button>
-<button class="tool" data-guide="legend"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2.5" width="4" height="4" rx="1"/><path d="M8.5 4.5H14"/><circle cx="4" cy="11.5" r="2"/><path d="M8.5 11.5H14"/></svg>Легенда</button><span id="blk"></span></div></div>
-<div class="teams" id="teams"></div></header>
-<div class="wrap"><div id="grid"></div></div>
+<h1 class="ptitle">Перезапуск акции Bartello — «билет Ticketland = скидка 10%»</h1>
+<div class="fab"><button class="burger" id="burger" aria-label="Меню карты" aria-expanded="false" aria-controls="menu"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 4h11M2.5 8h11M2.5 12h11"/></svg><span class="bdot" id="bdot"></span></button><span id="fchip"></span></div>
+<div class="mscrim"></div>
+<nav class="menu" id="menu" aria-label="Меню карты"><div class="mtop"><div><span class="draft">Черновик</span><h1>Перезапуск акции Bartello — «билет Ticketland = скидка 10%»</h1></div><button class="x" data-menu="close" aria-label="Закрыть">×</button></div>
+<button class="play" id="play">▶ Рассказать историю</button>
+<div class="mlist"><span id="blk"></span>
+<button class="mi" data-guide="help"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 3h4.5A1.5 1.5 0 0 1 8 4.5V14a1.5 1.5 0 0 0-1.5-1.5H2zM14 3H9.5A1.5 1.5 0 0 0 8 4.5V14a1.5 1.5 0 0 1 1.5-1.5H14z"/></svg>Инструкции</button>
+<button class="mi" data-guide="legend"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2.5" width="4" height="4" rx="1"/><path d="M8.5 4.5H14"/><circle cx="4" cy="11.5" r="2"/><path d="M8.5 11.5H14"/></svg>Легенда</button></div>
+<div class="mlab">Команды — показать работу одной</div><div class="teams" id="teams"></div></nav>
+<section class="hero" id="hero" aria-label="Что видят люди — путь слева направо"></section>
+<div class="wrap" id="work"><div id="grid"></div></div>
 <div class="mstack" id="mstack"></div>
 <div class="scrim"></div><aside class="side" id="side" aria-label="Подробности"></aside>
 <div class="show" id="show" role="dialog" aria-label="История по шагам"><div class="sbar"><div class="whos"></div><button class="x" aria-label="Закрыть">×</button></div>
@@ -636,19 +668,30 @@ A1 Название функции        — декомпозиция: от ${M
 
   /* ---------- шапка ---------- */
   const uniqBlk = [...new Set(D.questions.filter(q => q.open && q.kind === "блокер").map(q => q.text))];
-  document.getElementById("blk").innerHTML = uniqBlk.length ? `<button class="tool blk" data-guide="blk">Блокеры<b class="cnt">${uniqBlk.length}</b></button>` : "";
+  document.getElementById("blk").innerHTML = uniqBlk.length ? `<button class="mi blk" data-guide="blk"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.5"/><path d="M3.5 12.5l9-9"/></svg>Блокеры<b class="cnt">${uniqBlk.length}</b></button>` : "";
   const used = {}; D.tasks.forEach(t => used[t.team] = (used[t.team] || 0) + 1);
   const nTasks = n => `${n} ${n % 10 === 1 && n % 100 !== 11 ? "задача" : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? "задачи" : "задач"}`;
-  document.getElementById("teams").innerHTML = '<span class="tlab">Команды</span>' + D.teams.filter(t => used[t.id]).map(t => `<button class="tchip" data-tf="${t.id}" style="--c:${TEAM[t.id].c}" title="${nTasks(used[t.id])} · показать только их"><i></i>${esc(t.name)}</button>`).join("") +
-    (used["?"] ? `<button class="tchip" data-tf="?" style="--c:var(--red)" title="${nTasks(used["?"])} без команды"><i class="u"></i>Не определена</button>` : "");
+  document.getElementById("teams").innerHTML = D.teams.filter(t => used[t.id]).map(t => `<button class="tchip" data-tf="${t.id}" style="--c:${TEAM[t.id].c}"><i></i>${esc(t.name)}<b>${nTasks(used[t.id])}</b></button>`).join("") +
+    (used["?"] ? `<button class="tchip" data-tf="?" style="--c:var(--red)"><i class="u"></i>Команда не определена<b>${nTasks(used["?"])}</b></button>` : "");
+  if (uniqBlk.length) document.getElementById("bdot").textContent = uniqBlk.length;
+
+  /* ---------- меню: всё, что раньше было в шапке, — поверх карты ---------- */
+  const burger = document.getElementById("burger");
+  const menu = open => { body.classList.toggle("mopen", open); burger.setAttribute("aria-expanded", open); if (open) document.querySelector("#menu .play").focus() };
+  /* фильтр по команде: подсветить её работу, на кнопке меню — чип с крестиком */
+  function teamFilter(id) {
+    document.querySelectorAll(".tchip").forEach(x => x.classList.toggle("on", x.dataset.tf === id));
+    document.querySelectorAll(".wk,.hw").forEach(x => x.classList.toggle("dim", !!id && x.dataset.team !== id));
+    const t = id && (id === "?" ? { name: "Команда не определена", c: "var(--red)" } : TEAM[id]);
+    document.getElementById("fchip").innerHTML = t ? `<button class="fchip" data-tf-clear style="--c:${t.c}" aria-label="Снять фильтр"><i></i>${esc(t.name)}<span aria-hidden="true">×</span></button>` : "";
+  }
 
   /* ---------- карточки ---------- */
-  /* карточка «что видят»: экран, заголовок, две строки текста. На карте персонаж — подпись ряда,
-     в ленте телефона — строка в карточке (withWho) */
+  /* карточка «что видят» для ленты телефона: экран, персонаж, заголовок, две строки текста */
   const plural = (n, a, b, c) => n % 10 === 1 && n % 100 !== 11 ? a : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? b : c;
-  function seenHTML(c, pid, withWho) {
-    return D.seen.filter(s => s.col === c && (!pid || s.persona === pid)).map(s => {
-      const p = D.personas.find(x => x.id === s.persona), w = withWho ? who(p) : "";
+  function seenHTML(c) {
+    return D.seen.filter(s => s.col === c).map(s => {
+      const p = D.personas.find(x => x.id === s.persona), w = who(p);
       if (s.final) return `<div class="seen fin" data-seen="${s.key}" role="button" tabindex="0">${w}${s.big ? `<b class="big">${esc(s.big)}</b>` : ""}<b>${esc(s.title)}</b></div>`;
       const more = s.steps.length - 1;
       return `<div class="seen" data-seen="${s.key}" role="button" tabindex="0"><span class="th">${mock(s.steps[0].screens[0])}</span><div class="sx">${w}<b>${esc(s.steps[0].title)}</b><p>${esc(s.steps[0].text)}</p>${more ? `<span class="more">+${more} ${plural(more, "шаг", "шага", "шагов")}</span>` : ""}</div></div>`;
@@ -668,10 +711,7 @@ A1 Название функции        — декомпозиция: от ${M
   grid.style.gridTemplateColumns = `96px repeat(${COLS.length}, minmax(224px, 1fr))`;
   grid.style.minWidth = `${96 + COLS.length * 236}px`;
   let h = `<div class="mh corner"></div>` + COLS.map((c, i) => `<div class="mh"><span class="n">${i === COLS.length - 1 ? "✓" : i + 1}</span><span class="hx"><b>${esc(c.name)}</b>${c.when ? `<small>${esc(c.when)}</small>` : ""}</span></div>`).join("");
-  D.personas.filter(p => D.seen.some(s => s.persona === p.id)).forEach((p, i) => {
-    h += `<div class="ml pl">${i ? "" : '<span class="cap">Что видят</span>'}<span class="pn" title="${esc(p.name)}"><svg viewBox="0 0 16 16">${PERSONA_ICON[Math.min(1, i)]}</svg>${esc(p.name.split(/[\s-]+/)[0])}</span></div>` + COLS.map((_, c) => `<div class="mc sr">${seenHTML(c, p.id)}</div>`).join("");
-  });
-  h += `<div class="ml top">Что делаем</div>` + COLS.map((col, c) => `<div class="mc top">${D.tasks.filter(t => t.stage === col.id).map(taskHTML).join("")}</div>`).join("");
+  h += `<div class="ml">Что делаем</div>` + COLS.map((col, c) => `<div class="mc">${D.tasks.filter(t => t.stage === col.id).map(taskHTML).join("")}</div>`).join("");
   if (D.processes.length) {
     h += `<div class="hsec"><span>Как это работает</span></div>`;
     ["front", "back", "sup"].filter(l => D.processes.some(p => p.layer === l)).forEach(l => {
@@ -703,11 +743,43 @@ A1 Название функции        — декомпозиция: от ${M
   }
   window.addEventListener("load", drawLinks); window.addEventListener("resize", drawLinks);
 
+  /* ---------- первый экран: «Что видят» на всю высоту, путь уходит вправо ----------
+     Колонка — этап истории шириной во столько шагов, сколько их у самого занятого персонажа;
+     ряд — персонаж. Пустая клетка — персонаж на этом этапе не участвует. */
+  const hero = document.getElementById("hero");
+  (function buildHero() {
+    const persons = D.personas.filter(p => D.seen.some(s => s.persona === p.id));
+    const cell = (p, c) => D.seen.find(s => s.persona === p.id && s.col === c);
+    const width = c => Math.max(1, ...persons.map(p => { const s = cell(p, c); return s ? s.steps.length : 0 }));
+    const CW = 380, GAP = 14, PAD = 14, num = {};
+    let x = `<div class="hgrid" style="--p:${persons.length};grid-template-columns:var(--lw) ${COLS.map((_, c) => `${width(c) * CW + (width(c) - 1) * GAP + 2 * PAD}px`).join(" ")}">`;
+    x += '<div class="hc0"></div>' + COLS.map((col, c) => `<div class="hh"><span class="hhs"><span class="n">${c === COLS.length - 1 ? "✓" : c + 1}</span><b>${esc(col.name)}</b>${col.when ? `<small>${esc(col.when)}</small>` : ""}</span></div>`).join("");
+    persons.forEach((p, i) => {
+      x += `<div class="hl"><svg viewBox="0 0 16 16" aria-hidden="true">${PERSONA_ICON[Math.min(1, i)]}</svg><b>${esc(p.name.split(/[\s-]+/)[0])}</b><small>${esc(p.name)}</small></div>`;
+      COLS.forEach((_, c) => {
+        const s = cell(p, c);
+        if (!s) { x += '<div class="hcell"></div>'; return }
+        if (s.final) { x += `<div class="hcell"><button class="hs fin" data-seen="${s.key}">${s.big ? `<span class="big">${esc(s.big)}</span>` : ""}<b>${esc(s.title)}</b></button></div>`; return }
+        x += `<div class="hcell">${s.steps.map(st => {
+          num[p.id] = (num[p.id] || 0) + 1;
+          const sc = st.screens[0], q = st.screens.some(scrOpen) || D.storyQuestions.some(qq => qq.where === st.id);
+          return `<button class="hs" data-seen="${s.key}">${sc ? `<span class="hm">${q ? '<span class="dot"></span>' : ""}${mockSVG(D.screens[sc], D.screens[sc].contour)}</span>` : ""}<span class="ht"><span class="hn">Шаг ${num[p.id]}</span><b>${esc(st.title)}</b><p>${esc(st.text)}</p>${st.was ? `<span class="hw0">Раньше: ${esc(st.was)}</span>` : ""}</span></button>`;
+        }).join("")}</div>`;
+      });
+    });
+    hero.innerHTML = `<div class="hscroll" id="hscroll">${x}</div></div><button class="hnav prev" aria-label="Назад по пути">‹</button><button class="hnav next" aria-label="Дальше по пути">›</button><a class="hdown" href="#work">Что делают команды и как это работает <span aria-hidden="true">↓</span></a>`;
+    const sc = document.getElementById("hscroll"), prev = hero.querySelector(".prev"), next = hero.querySelector(".next");
+    const sync = () => { prev.hidden = sc.scrollLeft < 8; next.hidden = sc.scrollLeft + sc.clientWidth > sc.scrollWidth - 8 };
+    sc.addEventListener("scroll", sync, { passive: true }); window.addEventListener("resize", sync); sync();
+    prev.addEventListener("click", () => sc.scrollBy({ left: -sc.clientWidth * .8, behavior: "smooth" }));
+    next.addEventListener("click", () => sc.scrollBy({ left: sc.clientWidth * .8, behavior: "smooth" }));
+  })();
+
   /* ---------- телефон: шаг за шагом сверху вниз ---------- */
   document.getElementById("mstack").innerHTML = COLS.map((col, c) => {
     const tasks = D.tasks.filter(t => t.stage === col.id), procs = D.processes.filter(p => p.stage === col.id);
     return `<section class="ms"><div class="mh2"><span class="n">${c === COLS.length - 1 ? "✓" : c + 1}</span><div><b>${esc(col.name)}</b>${col.when ? `<small>${esc(col.when)}</small>` : ""}</div></div>
-      <div class="wl">${seenHTML(c, null, true)}</div>${tasks.length ? `<span class="lb">Что делаем</span><div class="wl">${tasks.map(taskHTML).join("")}</div>` : ""}
+      <div class="wl">${seenHTML(c)}</div>${tasks.length ? `<span class="lb">Что делаем</span><div class="wl">${tasks.map(taskHTML).join("")}</div>` : ""}
       ${procs.length ? `<span class="lb">Как это работает</span><div class="wl">${procs.map(procHTML).join("")}</div>` : ""}</section>`;
   }).join("");
 
@@ -946,6 +1018,10 @@ ${cur}
   document.addEventListener("click", e => {
     const t = e.target;
     if (t.closest(".side .x") || t.closest(".scrim")) return closeSide();
+    if (t.closest("#burger")) return menu(!body.classList.contains("mopen"));
+    if (t.closest('[data-menu="close"]') || t.closest(".mscrim")) return menu(false);
+    if (t.closest("[data-tf-clear]")) return teamFilter("");
+    if (t.closest("#menu [data-guide]") || t.closest("#menu .play")) menu(false);
     const ai = t.closest("[data-ai]");
     if (ai) {
       if (ai.dataset.ai === "open") { ai.href = "https://claude.ai/new?q=" + encodeURIComponent(promptFor(ai)); return }
@@ -954,7 +1030,7 @@ ${cur}
     const dt = t.closest("[data-dt]"); if (dt) return dslTab(dt.dataset.dt);
     const da = t.closest("[data-dsl]"); if (da) return dslAction(da.dataset.dsl);
     const tf = t.closest("[data-tf]");
-    if (tf) { const on = tf.classList.contains("on"); document.querySelectorAll(".tchip").forEach(x => x.classList.toggle("on", !on && x === tf)); document.querySelectorAll(".wk,.hw").forEach(x => x.classList.toggle("dim", !on && x.dataset.team !== tf.dataset.tf)); return }
+    if (tf) { teamFilter(tf.classList.contains("on") ? "" : tf.dataset.tf); return menu(false) }
     const g = t.closest("[data-guide]"); if (g) return openGuide(g.dataset.guide);
     const pr = t.closest("[data-proc]"); if (pr) return openProc(pr.dataset.proc);
     const tk = t.closest("[data-task]"); if (tk) return openTask(tk.dataset.task);
@@ -962,7 +1038,7 @@ ${cur}
   });
   document.addEventListener("keydown", e => {
     if (body.classList.contains("showing")) { if (e.key === "ArrowRight") stepShow(1); else if (e.key === "ArrowLeft") stepShow(-1); else if (e.key === "Escape") body.classList.remove("showing"); return }
-    if (e.key === "Escape") closeSide();
+    if (e.key === "Escape") { if (body.classList.contains("mopen")) { menu(false); burger.focus() } else closeSide() }
     if ((e.key === "Enter" || e.key === " ") && e.target.matches && e.target.matches("[data-seen]")) { e.preventDefault(); openSeen(e.target.dataset.seen) }
   });
   window.BPMAP = { aiPrompt, dslPrompt, openProc, openTask, openSeen, dslTab, dslCheck };

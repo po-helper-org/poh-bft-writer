@@ -28,19 +28,30 @@
 
   /* ---------- шапка ---------- */
   const uniqBlk = [...new Set(D.questions.filter(q => q.open && q.kind === "блокер").map(q => q.text))];
-  document.getElementById("blk").innerHTML = uniqBlk.length ? `<button class="tool blk" data-guide="blk">Блокеры<b class="cnt">${uniqBlk.length}</b></button>` : "";
+  document.getElementById("blk").innerHTML = uniqBlk.length ? `<button class="mi blk" data-guide="blk"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.5"/><path d="M3.5 12.5l9-9"/></svg>Блокеры<b class="cnt">${uniqBlk.length}</b></button>` : "";
   const used = {}; D.tasks.forEach(t => used[t.team] = (used[t.team] || 0) + 1);
   const nTasks = n => `${n} ${n % 10 === 1 && n % 100 !== 11 ? "задача" : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? "задачи" : "задач"}`;
-  document.getElementById("teams").innerHTML = '<span class="tlab">Команды</span>' + D.teams.filter(t => used[t.id]).map(t => `<button class="tchip" data-tf="${t.id}" style="--c:${TEAM[t.id].c}" title="${nTasks(used[t.id])} · показать только их"><i></i>${esc(t.name)}</button>`).join("") +
-    (used["?"] ? `<button class="tchip" data-tf="?" style="--c:var(--red)" title="${nTasks(used["?"])} без команды"><i class="u"></i>Не определена</button>` : "");
+  document.getElementById("teams").innerHTML = D.teams.filter(t => used[t.id]).map(t => `<button class="tchip" data-tf="${t.id}" style="--c:${TEAM[t.id].c}"><i></i>${esc(t.name)}<b>${nTasks(used[t.id])}</b></button>`).join("") +
+    (used["?"] ? `<button class="tchip" data-tf="?" style="--c:var(--red)"><i class="u"></i>Команда не определена<b>${nTasks(used["?"])}</b></button>` : "");
+  if (uniqBlk.length) document.getElementById("bdot").textContent = uniqBlk.length;
+
+  /* ---------- меню: всё, что раньше было в шапке, — поверх карты ---------- */
+  const burger = document.getElementById("burger");
+  const menu = open => { body.classList.toggle("mopen", open); burger.setAttribute("aria-expanded", open); if (open) document.querySelector("#menu .play").focus() };
+  /* фильтр по команде: подсветить её работу, на кнопке меню — чип с крестиком */
+  function teamFilter(id) {
+    document.querySelectorAll(".tchip").forEach(x => x.classList.toggle("on", x.dataset.tf === id));
+    document.querySelectorAll(".wk,.hw").forEach(x => x.classList.toggle("dim", !!id && x.dataset.team !== id));
+    const t = id && (id === "?" ? { name: "Команда не определена", c: "var(--red)" } : TEAM[id]);
+    document.getElementById("fchip").innerHTML = t ? `<button class="fchip" data-tf-clear style="--c:${t.c}" aria-label="Снять фильтр"><i></i>${esc(t.name)}<span aria-hidden="true">×</span></button>` : "";
+  }
 
   /* ---------- карточки ---------- */
-  /* карточка «что видят»: экран, заголовок, две строки текста. На карте персонаж — подпись ряда,
-     в ленте телефона — строка в карточке (withWho) */
+  /* карточка «что видят» для ленты телефона: экран, персонаж, заголовок, две строки текста */
   const plural = (n, a, b, c) => n % 10 === 1 && n % 100 !== 11 ? a : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? b : c;
-  function seenHTML(c, pid, withWho) {
-    return D.seen.filter(s => s.col === c && (!pid || s.persona === pid)).map(s => {
-      const p = D.personas.find(x => x.id === s.persona), w = withWho ? who(p) : "";
+  function seenHTML(c) {
+    return D.seen.filter(s => s.col === c).map(s => {
+      const p = D.personas.find(x => x.id === s.persona), w = who(p);
       if (s.final) return `<div class="seen fin" data-seen="${s.key}" role="button" tabindex="0">${w}${s.big ? `<b class="big">${esc(s.big)}</b>` : ""}<b>${esc(s.title)}</b></div>`;
       const more = s.steps.length - 1;
       return `<div class="seen" data-seen="${s.key}" role="button" tabindex="0"><span class="th">${mock(s.steps[0].screens[0])}</span><div class="sx">${w}<b>${esc(s.steps[0].title)}</b><p>${esc(s.steps[0].text)}</p>${more ? `<span class="more">+${more} ${plural(more, "шаг", "шага", "шагов")}</span>` : ""}</div></div>`;
@@ -60,10 +71,7 @@
   grid.style.gridTemplateColumns = `96px repeat(${COLS.length}, minmax(224px, 1fr))`;
   grid.style.minWidth = `${96 + COLS.length * 236}px`;
   let h = `<div class="mh corner"></div>` + COLS.map((c, i) => `<div class="mh"><span class="n">${i === COLS.length - 1 ? "✓" : i + 1}</span><span class="hx"><b>${esc(c.name)}</b>${c.when ? `<small>${esc(c.when)}</small>` : ""}</span></div>`).join("");
-  D.personas.filter(p => D.seen.some(s => s.persona === p.id)).forEach((p, i) => {
-    h += `<div class="ml pl">${i ? "" : '<span class="cap">Что видят</span>'}<span class="pn" title="${esc(p.name)}"><svg viewBox="0 0 16 16">${PERSONA_ICON[Math.min(1, i)]}</svg>${esc(p.name.split(/[\s-]+/)[0])}</span></div>` + COLS.map((_, c) => `<div class="mc sr">${seenHTML(c, p.id)}</div>`).join("");
-  });
-  h += `<div class="ml top">Что делаем</div>` + COLS.map((col, c) => `<div class="mc top">${D.tasks.filter(t => t.stage === col.id).map(taskHTML).join("")}</div>`).join("");
+  h += `<div class="ml">Что делаем</div>` + COLS.map((col, c) => `<div class="mc">${D.tasks.filter(t => t.stage === col.id).map(taskHTML).join("")}</div>`).join("");
   if (D.processes.length) {
     h += `<div class="hsec"><span>Как это работает</span></div>`;
     ["front", "back", "sup"].filter(l => D.processes.some(p => p.layer === l)).forEach(l => {
@@ -95,11 +103,43 @@
   }
   window.addEventListener("load", drawLinks); window.addEventListener("resize", drawLinks);
 
+  /* ---------- первый экран: «Что видят» на всю высоту, путь уходит вправо ----------
+     Колонка — этап истории шириной во столько шагов, сколько их у самого занятого персонажа;
+     ряд — персонаж. Пустая клетка — персонаж на этом этапе не участвует. */
+  const hero = document.getElementById("hero");
+  (function buildHero() {
+    const persons = D.personas.filter(p => D.seen.some(s => s.persona === p.id));
+    const cell = (p, c) => D.seen.find(s => s.persona === p.id && s.col === c);
+    const width = c => Math.max(1, ...persons.map(p => { const s = cell(p, c); return s ? s.steps.length : 0 }));
+    const CW = 380, GAP = 14, PAD = 14, num = {};
+    let x = `<div class="hgrid" style="--p:${persons.length};grid-template-columns:var(--lw) ${COLS.map((_, c) => `${width(c) * CW + (width(c) - 1) * GAP + 2 * PAD}px`).join(" ")}">`;
+    x += '<div class="hc0"></div>' + COLS.map((col, c) => `<div class="hh"><span class="hhs"><span class="n">${c === COLS.length - 1 ? "✓" : c + 1}</span><b>${esc(col.name)}</b>${col.when ? `<small>${esc(col.when)}</small>` : ""}</span></div>`).join("");
+    persons.forEach((p, i) => {
+      x += `<div class="hl"><svg viewBox="0 0 16 16" aria-hidden="true">${PERSONA_ICON[Math.min(1, i)]}</svg><b>${esc(p.name.split(/[\s-]+/)[0])}</b><small>${esc(p.name)}</small></div>`;
+      COLS.forEach((_, c) => {
+        const s = cell(p, c);
+        if (!s) { x += '<div class="hcell"></div>'; return }
+        if (s.final) { x += `<div class="hcell"><button class="hs fin" data-seen="${s.key}">${s.big ? `<span class="big">${esc(s.big)}</span>` : ""}<b>${esc(s.title)}</b></button></div>`; return }
+        x += `<div class="hcell">${s.steps.map(st => {
+          num[p.id] = (num[p.id] || 0) + 1;
+          const sc = st.screens[0], q = st.screens.some(scrOpen) || D.storyQuestions.some(qq => qq.where === st.id);
+          return `<button class="hs" data-seen="${s.key}">${sc ? `<span class="hm">${q ? '<span class="dot"></span>' : ""}${mockSVG(D.screens[sc], D.screens[sc].contour)}</span>` : ""}<span class="ht"><span class="hn">Шаг ${num[p.id]}</span><b>${esc(st.title)}</b><p>${esc(st.text)}</p>${st.was ? `<span class="hw0">Раньше: ${esc(st.was)}</span>` : ""}</span></button>`;
+        }).join("")}</div>`;
+      });
+    });
+    hero.innerHTML = `<div class="hscroll" id="hscroll">${x}</div></div><button class="hnav prev" aria-label="Назад по пути">‹</button><button class="hnav next" aria-label="Дальше по пути">›</button><a class="hdown" href="#work">Что делают команды и как это работает <span aria-hidden="true">↓</span></a>`;
+    const sc = document.getElementById("hscroll"), prev = hero.querySelector(".prev"), next = hero.querySelector(".next");
+    const sync = () => { prev.hidden = sc.scrollLeft < 8; next.hidden = sc.scrollLeft + sc.clientWidth > sc.scrollWidth - 8 };
+    sc.addEventListener("scroll", sync, { passive: true }); window.addEventListener("resize", sync); sync();
+    prev.addEventListener("click", () => sc.scrollBy({ left: -sc.clientWidth * .8, behavior: "smooth" }));
+    next.addEventListener("click", () => sc.scrollBy({ left: sc.clientWidth * .8, behavior: "smooth" }));
+  })();
+
   /* ---------- телефон: шаг за шагом сверху вниз ---------- */
   document.getElementById("mstack").innerHTML = COLS.map((col, c) => {
     const tasks = D.tasks.filter(t => t.stage === col.id), procs = D.processes.filter(p => p.stage === col.id);
     return `<section class="ms"><div class="mh2"><span class="n">${c === COLS.length - 1 ? "✓" : c + 1}</span><div><b>${esc(col.name)}</b>${col.when ? `<small>${esc(col.when)}</small>` : ""}</div></div>
-      <div class="wl">${seenHTML(c, null, true)}</div>${tasks.length ? `<span class="lb">Что делаем</span><div class="wl">${tasks.map(taskHTML).join("")}</div>` : ""}
+      <div class="wl">${seenHTML(c)}</div>${tasks.length ? `<span class="lb">Что делаем</span><div class="wl">${tasks.map(taskHTML).join("")}</div>` : ""}
       ${procs.length ? `<span class="lb">Как это работает</span><div class="wl">${procs.map(procHTML).join("")}</div>` : ""}</section>`;
   }).join("");
 
@@ -338,6 +378,10 @@ ${cur}
   document.addEventListener("click", e => {
     const t = e.target;
     if (t.closest(".side .x") || t.closest(".scrim")) return closeSide();
+    if (t.closest("#burger")) return menu(!body.classList.contains("mopen"));
+    if (t.closest('[data-menu="close"]') || t.closest(".mscrim")) return menu(false);
+    if (t.closest("[data-tf-clear]")) return teamFilter("");
+    if (t.closest("#menu [data-guide]") || t.closest("#menu .play")) menu(false);
     const ai = t.closest("[data-ai]");
     if (ai) {
       if (ai.dataset.ai === "open") { ai.href = "https://claude.ai/new?q=" + encodeURIComponent(promptFor(ai)); return }
@@ -346,7 +390,7 @@ ${cur}
     const dt = t.closest("[data-dt]"); if (dt) return dslTab(dt.dataset.dt);
     const da = t.closest("[data-dsl]"); if (da) return dslAction(da.dataset.dsl);
     const tf = t.closest("[data-tf]");
-    if (tf) { const on = tf.classList.contains("on"); document.querySelectorAll(".tchip").forEach(x => x.classList.toggle("on", !on && x === tf)); document.querySelectorAll(".wk,.hw").forEach(x => x.classList.toggle("dim", !on && x.dataset.team !== tf.dataset.tf)); return }
+    if (tf) { teamFilter(tf.classList.contains("on") ? "" : tf.dataset.tf); return menu(false) }
     const g = t.closest("[data-guide]"); if (g) return openGuide(g.dataset.guide);
     const pr = t.closest("[data-proc]"); if (pr) return openProc(pr.dataset.proc);
     const tk = t.closest("[data-task]"); if (tk) return openTask(tk.dataset.task);
@@ -354,7 +398,7 @@ ${cur}
   });
   document.addEventListener("keydown", e => {
     if (body.classList.contains("showing")) { if (e.key === "ArrowRight") stepShow(1); else if (e.key === "ArrowLeft") stepShow(-1); else if (e.key === "Escape") body.classList.remove("showing"); return }
-    if (e.key === "Escape") closeSide();
+    if (e.key === "Escape") { if (body.classList.contains("mopen")) { menu(false); burger.focus() } else closeSide() }
     if ((e.key === "Enter" || e.key === " ") && e.target.matches && e.target.matches("[data-seen]")) { e.preventDefault(); openSeen(e.target.dataset.seen) }
   });
   window.BPMAP = { aiPrompt, dslPrompt, openProc, openTask, openSeen, dslTab, dslCheck };

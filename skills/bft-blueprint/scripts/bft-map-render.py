@@ -32,12 +32,17 @@ PAGE = """<!doctype html>
 <style>
 {css}</style></head>
 <body>
-<header><div class="hdr"><div class="tt"><h1>{h1}</h1><span class="draft{status_cls}">{status}</span></div>
-<div class="tools"><button class="play" id="play">▶ История</button>
-<button class="tool" data-guide="help"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 3h4.5A1.5 1.5 0 0 1 8 4.5V14a1.5 1.5 0 0 0-1.5-1.5H2zM14 3H9.5A1.5 1.5 0 0 0 8 4.5V14a1.5 1.5 0 0 1 1.5-1.5H14z"/></svg>Инструкции</button>
-<button class="tool" data-guide="legend"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2.5" width="4" height="4" rx="1"/><path d="M8.5 4.5H14"/><circle cx="4" cy="11.5" r="2"/><path d="M8.5 11.5H14"/></svg>Легенда</button><span id="blk"></span></div></div>
-<div class="teams" id="teams"></div></header>
-<div class="wrap"><div id="grid"></div></div>
+<h1 class="ptitle">{h1}</h1>
+<div class="fab"><button class="burger" id="burger" aria-label="Меню карты" aria-expanded="false" aria-controls="menu"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 4h11M2.5 8h11M2.5 12h11"/></svg><span class="bdot" id="bdot"></span></button><span id="fchip"></span></div>
+<div class="mscrim"></div>
+<nav class="menu" id="menu" aria-label="Меню карты"><div class="mtop"><div><span class="draft{status_cls}">{status}</span><h1>{h1}</h1></div><button class="x" data-menu="close" aria-label="Закрыть">×</button></div>
+<button class="play" id="play">▶ Рассказать историю</button>
+<div class="mlist"><span id="blk"></span>
+<button class="mi" data-guide="help"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 3h4.5A1.5 1.5 0 0 1 8 4.5V14a1.5 1.5 0 0 0-1.5-1.5H2zM14 3H9.5A1.5 1.5 0 0 0 8 4.5V14a1.5 1.5 0 0 1 1.5-1.5H14z"/></svg>Инструкции</button>
+<button class="mi" data-guide="legend"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2.5" width="4" height="4" rx="1"/><path d="M8.5 4.5H14"/><circle cx="4" cy="11.5" r="2"/><path d="M8.5 11.5H14"/></svg>Легенда</button></div>
+<div class="mlab">Команды — показать работу одной</div><div class="teams" id="teams"></div></nav>
+<section class="hero" id="hero" aria-label="Что видят люди — путь слева направо"></section>
+<div class="wrap" id="work"><div id="grid"></div></div>
 <div class="mstack" id="mstack"></div>
 <div class="scrim"></div><aside class="side" id="side" aria-label="Подробности"></aside>
 <div class="show" id="show" role="dialog" aria-label="История по шагам"><div class="sbar"><div class="whos"></div><button class="x" aria-label="Закрыть">×</button></div>
