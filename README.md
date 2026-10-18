@@ -423,11 +423,19 @@ Agenda». Справа выезжает список вопросов с отм�
 команды, цвет и фильтр по команде), «Как это работает» (Frontstage, Backstage, Support).
 Клик по процессу открывает карточку для техлида: «← до · этот процесс · после →»,
 было → станет, чек-лист «что требуется» (✓ / уточнить / блокер), sequence-схема с линией
-видимости и списком скрытых от гостя шагов, IDEF0, заметка и промпт для системной
+видимости и списком скрытых от гостя шагов, описание процесса, IDEF0 с декомпозицией, заметка и промпт для системной
 аналитики с ИИ. Каждое ФТ, ИТ и НФТ обязано попасть в задачу или критерий — иначе `MP017`;
 эндпоинты, протоколы и таблицы линтер отклоняет. Стандарт —
 [`resources/map_rules.md`](skills/bft-blueprint/resources/map_rules.md), эталон —
 [`examples/golden_map.md`](skills/bft-blueprint/examples/golden_map.md) и его страница.
+
+**Схемы как код.** Sequence-схема процесса и IDEF0 задачи — короткие текстовые блоки
+```` ```seq П3 ```` и ```` ```idef0 1.2 ````. LLM пишет только текст; синтаксис и стрелки
+проверяет `diagram_dsl.py` (коды `DG`), рисует `diagram_kit.js` — тот же разбор работает
+в редакторе карточки процесса: проверка на лету, предпросмотр, «применить к карточке»,
+промпт «собрать схему с ИИ». Одна схема попадает в карту через `bft-diagram-apply.py`
+без переписывания файла. Грамматика —
+[`resources/diagram_dsl.md`](skills/bft-blueprint/resources/diagram_dsl.md).
 
 **Файлы рядом с БФТ.** `<epic>-story.md` + `.html`, `<epic>-map.md` + `.html`. Прежняя
 слоевая схема `<epic>-blueprint.md` (+ `.html`, `.svg`) осталась режимом `--layers` для
@@ -441,6 +449,7 @@ python3 <skills_path>/bft-blueprint/scripts/bft-story-lint.py .bft/documentation
 python3 <skills_path>/bft-blueprint/scripts/bft-story-render.py .bft/documentation/<epic_slug>/<epic_slug>-story.md
 python3 <skills_path>/bft-blueprint/scripts/bft-map-lint.py .bft/documentation/<epic_slug>/<epic_slug>-map.md
 python3 <skills_path>/bft-blueprint/scripts/bft-map-render.py .bft/documentation/<epic_slug>/<epic_slug>-map.md
+python3 <skills_path>/bft-blueprint/scripts/bft-diagram-apply.py .bft/documentation/<epic_slug>/<epic_slug>-map.md блок.txt
 bash skills/bft-blueprint/scripts/test-bft-blueprint.sh   # самотест из клона репозитория
 ```
 

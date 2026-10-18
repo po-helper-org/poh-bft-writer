@@ -6,14 +6,15 @@
 
   Команды      — кто делает; цвет команды назначает страница
   Задачи       — что делаем: одна строка — один результат одной команды на этапе
-  IDEF0        — вход, регуляторы, выход, механизмы задачи
+  IDEF0        — блоки ```idef0 1.2```: вход, управление, выход, механизм, декомпозиция A1…An
   Процессы     — как это работает: Frontstage, Backstage, Support
   Участники    — кто и что участвует в схемах процессов
-  Схемы        — шаги sequence-диаграммы процесса по порядку
+  Схемы        — блоки ```seq П3```: описание и шаги sequence-диаграммы процесса
   Критерии     — что требуется от процесса
   Цепочка      — что процесс получает и кому отдаёт
   Вопросы      — открытые вопросы и блокеры задач и процессов
 
+Схемы — код (`resources/diagram_dsl.md`): разбор и проверка — `diagram_dsl.py`, коды DG.
 Структурные дефекты собираются в `Map.issues`; рендерер по документу с ошибками не рисует.
 Только стандартная библиотека.
 """
@@ -27,6 +28,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import bft_blueprint as bb  # noqa: E402
 import bft_story as bs  # noqa: E402
+import diagram_dsl as dd  # noqa: E402
 
 REQUIRED_FRONTMATTER = (
     "epic_slug", "stage", "story_doc", "source_doc", "source_stage", "source_rev", "version", "revised", "status",
@@ -35,10 +37,8 @@ SECTIONS = ("Команды", "Задачи", "IDEF0", "Процессы", "Уч
 HEADERS = {
     "Команды": ("ID", "Команда"),
     "Задачи": ("ID", "Этап", "Команда", "Задача", "Зачем", "Требования", "Статус"),
-    "IDEF0": ("Задача", "Вход", "Регуляторы", "Выход", "Механизмы"),
     "Процессы": ("ID", "Задача", "Этап", "Слой", "Процесс", "Было", "Станет", "Источник"),
     "Участники": ("ID", "Участник", "Вид"),
-    "Схемы": ("Процесс", "Ветка", "От", "Кому", "Сообщение", "Тип"),
     "Критерии": ("Процесс", "Критерий", "Источник"),
     "Цепочка": ("Откуда", "Куда", "Что передаётся"),
     "Вопросы": ("ID", "Кому", "Вопрос", "Где", "Тип", "Ответ"),
@@ -46,14 +46,11 @@ HEADERS = {
 STATUSES = ("создать", "доработать", "используем", "уточнить")
 LAYERS = {"фронтстейдж": "front", "бэкстейдж": "back", "поддержка": "sup"}
 KINDS = {"человек": "p", "интерфейс": "i", "система": "s", "внешний": "x"}
-MSG_TYPES = ("вызов", "ответ")
 Q_TYPES = ("вопрос", "блокер")
 FINAL = bs.FINAL  # колонка «Итог» карты — шаги «стало» истории
 
 MAX_TASK = 80
 MAX_PROC = 90
-MAX_STEPS = 12
-MAX_PARTS = 6
 
 TEAM_RE = re.compile(r"^[a-z][a-z0-9-]*$")
 TASK_RE = re.compile(r"^\d{1,2}\.\d{1,2}$")
@@ -92,6 +89,9 @@ class Idef:
     outputs: list[str]
     mechanisms: list[str]
     line: int
+    fn: str = ""                                        # название функции, если не текст задачи
+    children: list = field(default_factory=list)        # декомпозиция A1…An
+    src: str = ""                                       # текст блока как в документе
 
 
 @dataclass
@@ -105,6 +105,9 @@ class Process:
     after: str
     source: str
     line: int
+    desc: str = ""                                      # «описание:» из блока схемы
+    parts: dict = field(default_factory=dict)           # участники, объявленные в блоке
+    src: str = ""                                       # текст блока схемы как в документе
 
 
 @dataclass
@@ -202,10 +205,6 @@ def norm_proc(raw: str) -> str:
     return f"П{int(m.group(1))}" if m else ""
 
 
-def split_list(raw: str) -> list[str]:
-    return [x.strip() for x in raw.split(";") if x.strip() and x.strip() not in EMPTY]
-
-
 def _table_of(mp: Map, secs, name: str):
     if name not in secs:
         mp.err(1, "MP002", f"нет раздела «{name}»")
@@ -227,6 +226,41 @@ def _table_of(mp: Map, secs, name: str):
         else:
             good.append((ln, c))
     return good
+
+
+def _blocks_of(mp: Map, secs, name: str, kind: str):
+    """Блоки ```kind ID``` раздела: [(строка заголовка, ID, тело, текст блока)]. Вне блоков — только пустые строки."""
+    if name not in secs:
+        mp.err(1, "MP002", f"нет раздела «{name}»")
+        return []
+    lineno, body = secs[name]
+    out, i = [], 0
+    while i < len(body):
+        ln = body[i].strip()
+        m = dd.FENCE_RE.match(ln)
+        if m:
+            j = i + 1
+            while j < len(body) and not dd.FENCE_END.match(body[j].strip()):
+                j += 1
+            fence = lineno + 1 + i
+            if j >= len(body):
+                mp.err(fence, "DG000", f"«{name}»: блок не закрыт строкой ```")
+            if m.group(1) != kind:
+                mp.err(fence, "MP003", f"«{name}»: здесь блоки ```{kind} …```, а не ```{m.group(1)}```")
+            else:
+                out.append((fence, m.group(2).strip(), body[i + 1:j], "\n".join(x.rstrip() for x in body[i:j + 1])))
+            i = j + 1
+            continue
+        if ln:
+            hint = "таблица — прежний формат" if ln.startswith("|") else "текст вне блока"
+            mp.err(lineno + 1 + i, "MP003", f"«{name}»: {hint}; раздел — блоки ```{kind} {'П3' if kind == 'seq' else '1.2'} … ``` (resources/diagram_dsl.md)")
+        i += 1
+    return out
+
+
+def _dsl_issues(mp: Map, fence: int, issues: list) -> None:
+    for i in issues:
+        mp.issues.append(bb.Issue(fence + i["line"], i["level"], i["code"], i["msg"]))
 
 
 def stage_ids(mp: Map) -> set[str]:
@@ -299,17 +333,18 @@ def parse(path: Path) -> Map:
         mp.tasks.append(Task(tid, stage, team, cand, c[3].strip(), c[4].strip(), bb.REQ_RE.findall(c[5]), status, ln))
     task_ids = {t.id for t in mp.tasks}
 
-    # IDEF0
-    for ln, c in _table_of(mp, secs, "IDEF0") or []:
-        tid = c[0].strip()
-        if tid not in task_ids:
-            mp.err(ln, "MP007", f"IDEF0: задачи «{tid}» нет в «Задачах»")
+    # IDEF0 — блоки ```idef0 1.2```
+    for fence, tid, body, src in _blocks_of(mp, secs, "IDEF0", "idef0"):
+        if not dd.IDEF_ID.match(tid) or tid not in task_ids:
+            mp.err(fence, "MP007", f"IDEF0: задачи «{tid}» нет в «Задачах» — заголовок ```idef0 1.2```")
             continue
-        parts = [split_list(x) for x in c[1:5]]
-        for name, vals in zip(("вход", "регуляторы", "выход", "механизмы"), parts):
-            if not vals:
-                mp.err(ln, "MP007", f"IDEF0 {tid}: пустое поле «{name}»")
-        mp.idef.append(Idef(tid, *parts, ln))
+        if any(i.task == tid for i in mp.idef):
+            mp.err(fence, "MP007", f"IDEF0 {tid}: второй блок — один блок на задачу")
+            continue
+        res = dd.parse_idef(body)
+        _dsl_issues(mp, fence, res["issues"])
+        mp.idef.append(Idef(tid, res["in"], res["ctl"], res["out"], res["mech"], fence,
+                            res["fn"], res["children"], src))
 
     # Процессы
     for ln, c in _table_of(mp, secs, "Процессы") or []:
@@ -345,27 +380,25 @@ def parse(path: Path) -> Map:
             mp.err(ln, "MP009", f"{pid}: вид «{c[2]}» — один из {', '.join(KINDS)}")
             continue
         mp.parts.append(Participant(pid, c[1].strip(), kind, ln))
-    part_ids = {p.id for p in mp.parts}
 
-    # Схемы
-    for ln, c in _table_of(mp, secs, "Схемы") or []:
-        pid = norm_proc(c[0])
+    # Схемы — блоки ```seq П3```
+    known = {p.id: [p.name, p.kind] for p in mp.parts}
+    seen_seq: set[str] = set()
+    for fence, raw, body, src in _blocks_of(mp, secs, "Схемы", "seq"):
+        pid = norm_proc(raw)
         if pid not in proc_ids:
-            mp.err(ln, "MP010", f"схема: процесса «{c[0]}» нет в «Процессах»")
+            mp.err(fence, "MP010", f"схема: процесса «{raw}» нет в «Процессах» — заголовок ```seq П3```")
             continue
-        branch = "" if c[1].strip() in EMPTY else c[1].strip()
-        if branch and not re.match(r"^(если|иначе):\s*\S", branch):
-            mp.err(ln, "MP010", f"{pid}: ветка «{branch}» — «если: условие», «иначе: условие» или прочерк")
-        src, dst = c[2].strip(), c[3].strip()
-        for x in (src, dst):
-            if x not in part_ids:
-                mp.err(ln, "MP010", f"{pid}: участника «{x}» нет в «Участниках»")
-        kind = c[5].strip().lower()
-        if kind not in MSG_TYPES:
-            mp.err(ln, "MP010", f"{pid}: тип «{c[5]}» — вызов или ответ")
-        if not c[4].strip():
-            mp.err(ln, "MP010", f"{pid}: пустое сообщение")
-        mp.steps.append(Step(pid, branch, src, dst, c[4].strip(), kind, ln))
+        if pid in seen_seq:
+            mp.err(fence, "MP010", f"схема {pid}: второй блок — один блок на процесс")
+            continue
+        seen_seq.add(pid)
+        res = dd.parse_seq(body, known)
+        _dsl_issues(mp, fence, res["issues"])
+        proc = mp.process(pid)
+        proc.desc, proc.parts, proc.src = res["desc"], res["parts"], src
+        for st in res["steps"]:
+            mp.steps.append(Step(pid, st["branch"], st["src"], st["dst"], st["text"], st["kind"], fence + st["line"]))
 
     # Критерии
     for ln, c in _table_of(mp, secs, "Критерии") or []:

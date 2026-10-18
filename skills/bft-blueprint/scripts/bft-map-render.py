@@ -4,8 +4,9 @@
 Собирает `<epic_slug>-map.html` рядом с документом: шаги пути слева направо, «Что видят»
 (экраны истории), «Что делаем» (задачи команд с фильтром по команде), «Как это работает»
 (Frontstage, Backstage, Support). Клик по экрану — шаги этапа; по задаче — IDEF0 и вопросы;
-по процессу — что до и после, было → станет, что требуется, sequence-схема, промпт для ИИ.
-Один файл без CDN: стили и скрипты (`page_kit.js`, `map_page.js`, `map_page.css`) — внутри.
+по процессу — что до и после, было → станет, что требуется, описание и sequence-схема, IDEF0,
+редактор схем как кода с проверкой (`diagram_kit.js` — тот же разбор, что `diagram_dsl.py`) и промпты для ИИ.
+Один файл без CDN: стили и скрипты (`page_kit.js`, `diagram_kit.js`, `map_page.js`, `map_page.css`) — внутри.
 
 Документ с ошибками (карты или истории) не рисуется: код 1, файлов нет.
 
@@ -44,6 +45,8 @@ PAGE = """<!doctype html>
 <script type="application/json" id="map-data">{data}</script>
 <script>
 {kit}</script>
+<script>
+{dkit}</script>
 <script>
 {js}</script>
 </body></html>
@@ -93,11 +96,13 @@ def model(mp: bm.Map) -> dict:
         i = idef.get(t.id)
         tasks.append({"id": t.id, "stage": t.stage, "team": t.team, "cand": t.candidates, "text": t.text,
                       "why": t.why, "reqs": t.reqs, "status": t.status,
-                      "idef": {"in": i.inputs, "ctl": i.controls, "out": i.outputs, "mech": i.mechanisms} if i else None})
+                      "idef": {"fn": i.fn, "in": i.inputs, "ctl": i.controls, "out": i.outputs, "mech": i.mechanisms,
+                               "children": i.children, "src": i.src} if i else None})
     procs = []
     for p in mp.processes:
         procs.append({"id": p.id, "task": p.task, "stage": p.stage, "layer": p.layer, "text": p.text,
                       "before": p.before, "after": p.after, "source": p.source,
+                      "desc": p.desc, "parts": p.parts, "src": p.src,
                       "steps": [{"branch": s.branch, "src": s.src, "dst": s.dst, "text": s.text, "kind": s.kind}
                                 for s in mp.steps if s.process == p.id],
                       "criteria": [{"text": c.text, "source": c.source, "state": c.state}
@@ -131,6 +136,7 @@ def render(mp: bm.Map) -> str:
         status=html.escape(status), status_cls=" ok" if status.lower() == "согласован" else "",
         css=(HERE / "map_page.css").read_text(encoding="utf-8"),
         kit=(HERE / "page_kit.js").read_text(encoding="utf-8"),
+        dkit=(HERE / "diagram_kit.js").read_text(encoding="utf-8"),
         js=(HERE / "map_page.js").read_text(encoding="utf-8"),
         data=data,
     )

@@ -145,3 +145,18 @@ body.showing .show{display:flex}body.showing{overflow:hidden}
  .pchain{grid-template-columns:1fr}.pab{flex-direction:column}.seqw svg{max-width:none!important}
  .show .scene{grid-template-columns:1fr;gap:16px}.show h2{font-size:22px}.show .say{font-size:16px}}
 @media print{.tools,.teams,.side,.scrim,.show{display:none}}
+/* описание процесса и схемы как код */
+.pdesc{font-size:14.5px;line-height:1.5;margin:0 0 10px;color:#2a2a2a}.pdesc.ask{border-left:3px solid var(--red);padding-left:10px}
+.pempty{font-size:13.5px;color:var(--muted);border:1px dashed #cfc9bd;border-radius:12px;padding:14px;text-align:center}
+.loc{display:inline-block;font-size:10.5px;letter-spacing:.3px;text-transform:none;font-weight:700;color:#8a5a00;background:#fff3d6;border:1px solid #f0d9a0;border-radius:999px;padding:1px 8px;margin-left:6px;vertical-align:1px}
+.lb2{font-size:11px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;color:var(--muted);margin:14px 0 6px}
+.idefw{overflow-x:auto;border-radius:10px}svg.idef.dec{max-width:none;margin:0;height:auto}
+.dsl{background:#f7f6f2;border-color:#e3dfd6}
+.dtabs{display:flex;gap:6px;margin-bottom:8px}.dtabs button{font:inherit;font-size:13px;font-weight:650;border:1px solid #d9d4ca;background:#fff;border-radius:999px;padding:6px 12px;cursor:pointer;color:var(--ink)}.dtabs button.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+.pwork textarea.dsrc{font-variant-ligatures:none;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12.5px;line-height:1.55;min-height:220px;white-space:pre;overflow-wrap:normal;overflow-x:auto;tab-size:2}
+.dstat{font-size:13px;font-weight:700;margin:8px 2px 4px}.dstat.good{color:#2f6b2a}.dstat.bad{color:var(--red)}
+.psame{font-size:12.5px;color:var(--muted);padding:2px 2px 6px}
+.diss{font-variant-ligatures:none;list-style:none;margin:0 0 6px;padding:0;font-size:12.5px;max-height:180px;overflow-y:auto}.diss li{display:flex;gap:8px;align-items:baseline;padding:3px 0;border-bottom:1px solid #ece8df}
+.diss li b{flex:none;width:52px;color:var(--muted);font-weight:600}.diss code{flex:none;font-size:11px;font-weight:800;border-radius:5px;padding:1px 5px}.diss li.e code{background:#fbe3e0;color:var(--red)}.diss li.w code{background:#fff3d6;color:#8a5a00}
+.dprev{margin:4px 0 8px}.dbtn{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0 4px}.tool.pri{background:var(--ink);color:#fff;border-color:var(--ink)}.tool:disabled{opacity:.45;cursor:not-allowed}
+.dhint{display:block;font-size:12px;color:var(--muted);margin-top:8px}.dhint code{font-size:11.5px}

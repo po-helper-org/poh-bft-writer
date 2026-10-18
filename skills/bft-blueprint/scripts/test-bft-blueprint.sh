@@ -2,7 +2,8 @@
 # Самотест bft-blueprint: линтер ловит каждый код на фикстурах, эталон проходит строго,
 # рендерер не пишет файлов по сломанному документу, стрелки не пересекают чужие карточки.
 # Вторая часть — история через экраны (bft-story-*), третья — карта инициативы (bft-map-*):
-# те же гарантии для каждого этапа.
+# те же гарантии для каждого этапа. Четвёртая — схемы как код: коды DG на блоках,
+# совпадение разбора JS (страница) и Python (линтер), вставка блока в карту.
 # Запуск из корня репозитория: bash skills/bft-blueprint/scripts/test-bft-blueprint.sh
 set -u
 
@@ -158,9 +159,9 @@ expect_map() {  # <имя> <ожидаемый rc> <файл> <коды чере
 expect_map "эталон проходит строго"   0 "$MGOLD" "" --no-source --strict
 expect_map "эталон без БФТ рядом"     1 "$MGOLD" "MP015"
 expect_map "структура"                1 "$FIX/broken_map_structure.md" "MP001 MP002 MP003"
-expect_map "ссылки"                   1 "$FIX/broken_map_refs.md" "MP006 MP007 MP008 MP009 MP010 MP011 MP012 MP013"
+expect_map "ссылки"                   1 "$FIX/broken_map_refs.md" "MP006 MP007 MP008 MP009 MP010 MP011 MP012 MP013 DG001 DG003 DG007"
 expect_map "смысл: ошибки"            1 "$FIX/broken_map_semantics.md" "MP014 MP016 MP017 MP018"
-expect_map "смысл: предупреждения"    1 "$FIX/broken_map_semantics.md" "MP020 MP021 MP022 MP023 MP024 MP025 MP026 MP027 MP028"
+expect_map "смысл: предупреждения"    1 "$FIX/broken_map_semantics.md" "MP020 MP021 MP022 MP023 MP025 MP026 MP027 MP028 DG020 DG025"
 sed 's/^story_doc: .*/story_doc: нет-такой-истории.md/' "$MGOLD" > "$DIR/examples/.tmp_map.md"
 expect_map "история не найдена"       1 "$DIR/examples/.tmp_map.md" "MP004" --no-source
 rm -f "$DIR/examples/.tmp_map.md"
@@ -184,6 +185,77 @@ python3 "$MLINT" "$FIX/map_ok.md" >/dev/null 2>&1 && python3 "$MRENDER" "$FIX/ma
   && ok "карта · вторая инициатива: проходит и рисуется" || fail "карта · fixtures/map_ok.md не прошла линтер или не отрисовалась"
 python3 "$MRENDER" "$FIX/broken_map_refs.md" --out-dir "$tmp/mbad" >/dev/null 2>&1; rc=$?
 { [ "$rc" -eq 1 ] && [ ! -e "$tmp/mbad" ]; } && ok "карта · битый документ: код 1, файлов нет" || fail "карта · битый документ отрендерился или код не 1"
+
+# --- схемы как код: блоки seq и idef0 -----------------------------------------------------
+DSL="$DIR/scripts/diagram_dsl.py"
+DFIX="$FIX/diagrams"
+expect_dsl() {  # <файл в fixtures/diagrams> <ожидаемый rc> <коды через пробел>
+  local f="$1" rc_want="$2" codes="$3" out rc
+  out="$(python3 "$DSL" "$DFIX/$f" --parts "$DFIX/parts.json" 2>&1)"; rc=$?
+  [ "$rc" -eq "$rc_want" ] || { fail "схема · $f: код выхода $rc, ожидался $rc_want"; return; }
+  for c in $codes; do
+    grep -q " $c " <<<"$out" || { fail "схема · $f: нет $c в выводе"; return; }
+  done
+  ok "схема · $f${codes:+ → $codes}"
+}
+expect_dsl seq_ok.txt        0 ""
+expect_dsl seq_decl.txt      0 "DG023"
+expect_dsl seq_nodesc.txt    0 "DG025"
+expect_dsl seq_limits.txt    0 "DG020 DG021 DG022 DG023 DG026"
+expect_dsl seq_syntax.txt    1 "DG001 DG002 DG004 DG005 DG007 DG008"
+expect_dsl seq_branches.txt  1 "DG003 DG006 DG024"
+expect_dsl seq_empty.txt     1 "DG008"
+expect_dsl seq_badhead.txt   1 "DG000"
+expect_dsl none.txt          1 "DG000"
+expect_dsl idef_ok.txt       0 ""
+expect_dsl idef_ctx.txt      0 ""
+expect_dsl idef_feedback.txt 0 ""
+expect_dsl idef_bad.txt      1 "DG030 DG031 DG032 DG033 DG034 DG035 DG036 DG040 DG041 DG042"
+expect_dsl idef_one.txt      1 "DG033"
+
+# редактор на странице разбирает так же, как линтер: модель и проблемы совпадают до символа
+if command -v node >/dev/null 2>&1; then
+  node "$DIR/scripts/diagram-check.js" "$DFIX/parts.json" "$DFIX"/*.txt > "$tmp/js.jsonl" 2>"$tmp/js.err" \
+  && python3 - "$DFIX" "$tmp/js.jsonl" "$DIR/scripts" <<'PY' && ok "схема · diagram_kit.js = diagram_dsl.py на всех блоках, рисунки без исключений" || fail "схема · JS и Python разбирают по-разному: $(cat "$tmp/js.err")"
+import glob, json, sys
+sys.path.insert(0, sys.argv[3])
+import diagram_dsl as dd
+parts = json.load(open(sys.argv[1] + "/parts.json", encoding="utf-8"))
+files = sorted(glob.glob(sys.argv[1] + "/*.txt"))
+js = [json.loads(l) for l in open(sys.argv[2], encoding="utf-8")]
+assert len(js) == len(files), (len(js), len(files))
+for f, j in zip(files, js):
+    assert dd.check_text(open(f, encoding="utf-8").read(), parts) == j, f
+PY
+else
+  echo "skip  схема · node не найден — совпадение JS и Python не проверено"
+fi
+
+# эталон: описание у каждого процесса, декомпозиция у 6.3 и 7.3
+python3 - "$mpage" <<'PY' && ok "схема · эталон: описания процессов и декомпозиции IDEF0 на странице" || fail "схема · эталон: нет описаний или декомпозиций"
+import json, re, sys
+d = json.loads(re.search(r'id="map-data">(.*?)</script>', open(sys.argv[1], encoding="utf-8").read(), re.S).group(1))
+assert all(p["desc"] and p["src"].startswith("```seq " + p["id"]) for p in d["processes"])
+dec = {t["id"]: len(t["idef"]["children"]) for t in d["tasks"] if t["idef"]["children"]}
+assert dec == {"6.3": 2, "7.3": 2}, dec
+PY
+
+# вставка блока в карту: заменяет, не трогает карту при ошибке, проверяет ID
+APPLY="$DIR/scripts/bft-diagram-apply.py"
+mkdir -p "$tmp/ap" && cp "$MGOLD" "$DIR/examples/golden_story.md" "$tmp/ap/"
+printf 'Ответ ИИ:\n```seq П15\nописание: GDS проверяет билет и гасит его.\nсистема Val: Сервис валидации\nApp -> Gd: штрихкод\nGd -> Val: проверка условий\nVal --> Gd: валиден\nGd --> App: валиден\n```\n' > "$tmp/ap/ok.txt"
+python3 "$APPLY" "$tmp/ap/golden_map.md" "$tmp/ap/ok.txt" >/dev/null 2>&1 \
+  && grep -q '^система Val: Сервис валидации$' "$tmp/ap/golden_map.md" \
+  && [ "$(grep -c '^```seq П15$' "$tmp/ap/golden_map.md")" -eq 1 ] \
+  && python3 "$MLINT" "$tmp/ap/golden_map.md" --no-source --strict >/dev/null 2>&1 \
+  && ok "схема · apply: блок заменён, карта проходит строго" || fail "схема · apply: блок не встал или карта сломалась"
+cp "$tmp/ap/golden_map.md" "$tmp/ap/before.md"
+printf '```seq П15\nApp -> Zz: штрихкод\n```\n' > "$tmp/ap/bad.txt"
+printf '```seq П99\nописание: нет такого\nApp -> Gd: штрихкод\n```\n' > "$tmp/ap/unknown.txt"
+python3 "$APPLY" "$tmp/ap/golden_map.md" "$tmp/ap/bad.txt" >/dev/null 2>&1; rc1=$?
+python3 "$APPLY" "$tmp/ap/golden_map.md" "$tmp/ap/unknown.txt" >/dev/null 2>&1; rc2=$?
+{ [ "$rc1" -eq 1 ] && [ "$rc2" -eq 1 ] && cmp -s "$tmp/ap/golden_map.md" "$tmp/ap/before.md"; } \
+  && ok "схема · apply: ошибка в блоке или чужой ID — код 1, карта не тронута" || fail "схема · apply: битый блок изменил карту или код не 1"
 
 echo
 [ "$fails" -eq 0 ] && echo "bft-blueprint: все проверки пройдены" || echo "bft-blueprint: провалено проверок — $fails"

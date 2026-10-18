@@ -7,14 +7,14 @@
   ОШИБКИ (код выхода 1)
   MP001  frontmatter: ключи, `stage: map`, `story_doc`
   MP002  H1 `# [Карта]`, разделы и их порядок
-  MP003  таблица раздела: заголовок колонок, число колонок
+  MP003  таблица раздела: заголовок колонок, число колонок; в «IDEF0» и «Схемах» — только блоки
   MP004  история не найдена или с ошибками
   MP005  команда: ID-слаг, название
   MP006  задача: ID, этап истории, команда, статус, текст
-  MP007  IDEF0: задача есть, все четыре поля заполнены
+  MP007  IDEF0: блок ```idef0 1.2``` у существующей задачи, один на задачу
   MP008  процесс: ID, задача, этап, слой, текст
   MP009  участник: ID, вид
-  MP010  шаг схемы: процесс, участники, ветка, тип
+  MP010  схема: блок ```seq П3``` у существующего процесса, один на процесс
   MP011  критерий: процесс
   MP012  цепочка: ссылки на процессы
   MP013  вопрос: ID, «Где», тип
@@ -22,14 +22,15 @@
   MP015  БФТ-источник не найден (`source_doc`); с `--no-source` пропускается
   MP016  требование из задачи или критерия не найдено в БФТ
   MP017  ФТ/ИТ/НФТ из БФТ не попало ни в одну задачу и ни в один критерий
-  MP018  технический язык в задаче или процессе: API, протоколы, БД
+  MP018  технический язык в задаче, процессе или описании схемы: API, протоколы, БД
+  DG0xx  синтаксис и смысл блоков схем — `diagram_dsl.py`, `resources/diagram_dsl.md`
 
   ПРЕДУПРЕЖДЕНИЯ (код выхода 1 только с --strict)
   MP020  этап истории без задач — что на нём делают команды?
   MP021  задача без процесса в «Как это работает»
   MP022  задача без IDEF0
   MP023  процесс без схемы или без критериев
-  MP024  в схеме больше 12 шагов или 6 участников — дроби процесс
+  DG020+ предупреждения блоков схем: размер, описание, ответ без вызова, IDEF0-стрелки
   MP025  участник не встречается ни в одной схеме
   MP026  БФТ изменился после сборки (`source_rev` не совпадает)
   MP027  число не найдено ни в БФТ, ни в ответах на вопросы
@@ -83,12 +84,11 @@ def check(mp: bm.Map, source: Path | None, no_source: bool) -> None:
         steps = [s for s in mp.steps if s.process == p.id]
         if not steps or not any(c.process == p.id for c in mp.criteria):
             mp.warn(p.line, "MP023", f"{p.id}: нет {'схемы' if not steps else 'критериев'} — техлиду не видно, как это устроено")
-        parts = {x for s in steps for x in (s.src, s.dst)}
-        if len(steps) > bm.MAX_STEPS or len(parts) > bm.MAX_PARTS:
-            mp.warn(p.line, "MP024", f"{p.id}: {len(steps)} шагов, {len(parts)} участников — схема перестаёт читаться, раздели процесс")
         if p.id not in linked:
             mp.warn(p.line, "MP028", f"{p.id}: нет связей в «Цепочке»")
         tech(mp, p.line, p.id, p.text)
+        if p.desc:
+            tech(mp, p.line, p.id, p.desc)
     used = {x for s in mp.steps for x in (s.src, s.dst)}
     for pt in mp.parts:
         if pt.id not in used:
@@ -117,7 +117,8 @@ def check(mp: bm.Map, source: Path | None, no_source: bool) -> None:
             mp.err(1, "MP017", f"{rid} не попало ни в одну задачу и ни в один критерий — где эта работа на карте?")
     answers = " ".join(q.answer for q in mp.questions if not q.open)
     texts = [(t.line, t.id, t.text) for t in mp.tasks] + [(p.line, p.id, p.text) for p in mp.processes] + \
-            [(c.line, c.process, c.text) for c in mp.criteria] + [(s.line, s.process, s.text) for s in mp.steps]
+            [(c.line, c.process, c.text) for c in mp.criteria] + [(s.line, s.process, s.text) for s in mp.steps] + \
+            [(p.line, p.id, p.desc) for p in mp.processes if p.desc]
     for line, owner, txt in texts:
         clean = bb.REQ_RE.sub("", txt)
         for m in NUM_RE.finditer(clean):

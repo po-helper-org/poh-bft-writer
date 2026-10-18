@@ -119,7 +119,7 @@
     let x = `<h4>Зачем</h4><div class="why">${esc(t.why)}</div>`;
     const qs = qOf(id); if (qs.length) x += `<h4>Что не решено</h4>${qHTML(qs)}`;
     if (procs.length) x += `<h4>Как это работает</h4><div class="chips2">${procs.map(p => chainChip(p.id, LAYER[p.layer][0])).join("")}</div>`;
-    if (t.idef) x += `<h4>IDEF0</h4>${idef0(t)}`;
+    const fd = idefOf(t); if (fd) x += `<h4>IDEF0 ${fd.local ? LOCAL : ""}</h4>${idefHTML(t, fd, "t")}`;
     x += `<h4>Требования БФТ</h4><div class="reqs">${t.reqs.map(r => `<span>${r}</span>`).join("")}</div>`;
     openSide(teamN(t), teamC(t), t.text, `задача ${t.id} · ${esc(COLS[colOf(t.stage)].name)} · ${esc(t.status)}`, x);
   }
@@ -133,8 +133,47 @@
   function critHTML(p) {
     return p.criteria.map(c => `<li class="${c.state}"><span class="ic">${c.state === "blocker" ? "!" : c.state === "ask" ? "?" : "✓"}</span><span>${esc(c.text.replace(/\s*—\s*БЛОКЕР/, ""))}${c.state === "blocker" ? "<em>Блокер</em>" : ""}<small>${esc(c.source)}</small></span></li>`).join("");
   }
-  function openProc(id) {
-    const p = PROC[id], t = TASK[p.task], L = LAYER[p.layer];
+  /* ---------- схемы как код: документ или правка в этом браузере ---------- */
+  const lsGet = k => { try { return localStorage.getItem(k) || "" } catch (e) { return "" } };
+  const lsSet = (k, v) => { try { if (v) localStorage.setItem(k, v); else localStorage.removeItem(k) } catch (e) { } };
+  const dslKey = (kind, id, draft) => `bp-dsl-${D.epic}-${kind}-${id}${draft ? "-draft" : ""}`;
+  const hasErr = m => m.issues.some(i => i.level === "ERROR");
+  /* текст блока из документа; блока нет — заготовка с ключами грамматики */
+  const BLANK = { seq: "описание: \nA -> B: ", idef0: "вход: \nуправление: \nвыход: \nмеханизм: " };
+  const docSrc = (kind, id) => (kind === "seq" ? PROC[id].src : TASK[id].idef && TASK[id].idef.src) || `\`\`\`${kind} ${id}\n${BLANK[kind]}\n\`\`\``;
+  /* проверка блока для этой карточки: разбор как у линтера + ID блока совпадает с карточкой */
+  function checkFor(kind, id, text) {
+    const m = BPD.checkText(text, D.parts), off = BPD.extract(text).offset;
+    if (m.kind && (m.kind !== kind || m.id !== id)) m.issues.unshift({ line: 0, level: "ERROR", code: "DG000", msg: `здесь блок \`\`\`${kind} ${id}\`\`\`, а не \`\`\`${m.kind} ${m.id}\`\`\`` });
+    return { m, off };
+  }
+  /* действующая схема: применённая правка (если она без ошибок), иначе — документ */
+  function seqOf(p) {
+    const ov = lsGet(dslKey("seq", p.id));
+    if (ov) { const { m } = checkFor("seq", p.id, ov); if (!hasErr(m)) return { ...m, local: true } }
+    return { desc: p.desc, parts: p.parts, steps: p.steps, local: false };
+  }
+  function idefOf(t) {
+    const ov = lsGet(dslKey("idef0", t.id));
+    if (ov) { const { m } = checkFor("idef0", t.id, ov); if (!hasErr(m)) return { ...m, local: true } }
+    return t.idef ? { ...t.idef, local: false } : null;
+  }
+  const teamHex = t => t.team === "?" ? "#c0392b" : getComputedStyle(document.documentElement).getPropertyValue(TEAM[t.team].c.slice(4, -1)).trim();
+  const pname = (m, k) => ((m.parts && m.parts[k]) || D.parts[k] || [k])[0];
+  const LOCAL = '<span class="loc">правка в браузере</span>';
+  function seqHTML(m, uid) {
+    const hid = BPD.hiddenSteps(m, D.parts);
+    let x = `<div class="seqw">${BPD.seqSVG(m, D.parts, uid)}</div><div class="seqk"><span><i style="background:#2f6b2a"></i>видно человеку</span><span><i style="background:#2563c9"></i>скрыто от гостя</span><span>- - → ответ</span></div>`;
+    if (hid.length) x += `<details class="pd"><summary>Что скрыто от гостя · ${hid.length}</summary><ol class="hidl">${hid.map(([n, s]) => `<li value="${n}"><b>${esc(pname(m, s.src))} → ${esc(pname(m, s.dst))}</b> ${esc(s.text)}</li>`).join("")}</ol></details>`;
+    return x;
+  }
+  function idefHTML(t, f, uid) {
+    const o = { title: t.text, color: teamHex(t), dashed: t.team === "?", uid };
+    return BPD.idefSVG(f, o) + (f.children && f.children.length ? `<div class="lb2">Декомпозиция A0 → A1…A${f.children.length}</div><div class="idefw">${BPD.idefDecompSVG(f, { ...o, uid: uid + "d" })}</div>` : "");
+  }
+
+  function openProc(id, tab) {
+    const p = PROC[id], t = TASK[p.task], L = LAYER[p.layer], sq = seqOf(p), fd = idefOf(t);
     const pre = D.links.filter(l => l.dst === id), post = D.links.filter(l => l.src === id);
     let x = `<div class="pchain"><div class="pc"><span class="lb">← До</span>${pre.map(l => chainChip(l.src, l.what)).join("") || '<span class="cc ev">—</span>'}</div>
       <div class="pc"><span class="lb">Этот процесс</span><div class="meb">${esc(p.text)}</div></div>
@@ -142,32 +181,70 @@
     if (p.before || p.after) x += `<div class="pab"><div><span class="lb">Было</span>${esc(p.before || "—")}</div><span class="ar">→</span><div><span class="lb">Станет</span><b>${esc(p.after || "—")}</b></div></div>`;
     if (p.criteria.length) x += `<h4>Что требуется</h4><ul class="crit">${critHTML(p)}</ul>`;
     const qs = [...qOf(id), ...qOf(p.task)]; if (qs.length) x += `<h4>Вопросы и блокеры</h4>${qHTML(qs)}`;
-    if (p.steps.length) {
-      const hid = hiddenSteps(p);
-      x += `<h4>Как устроено</h4><div class="seqw">${seqSVG(p)}</div><div class="seqk"><span><i style="background:#2f6b2a"></i>видно человеку</span><span><i style="background:#2563c9"></i>скрыто от гостя</span><span>- - → ответ</span></div>`;
-      if (hid.length) x += `<details class="pd"><summary>Что скрыто от гостя · ${hid.length}</summary><ol class="hidl">${hid.map(([n, s]) => `<li value="${n}"><b>${esc(D.parts[s.src][0])} → ${esc(D.parts[s.dst][0])}</b> ${esc(s.text)}</li>`).join("")}</ol></details>`;
-    }
-    if (t.idef) x += `<details class="pd"><summary>Задача целиком — IDEF0</summary>${idef0(t)}</details>`;
+    x += `<h4 id="phow">Как устроено ${sq.local ? LOCAL : ""}</h4>`;
+    if (sq.desc) x += `<p class="pdesc${U(sq.desc) ? " ask" : ""}">${esc(sq.desc)}</p>`;
+    x += sq.steps.length ? seqHTML(sq, "m") : '<div class="pempty">Схемы пока нет — соберите её в «Схеме как коде» ниже</div>';
+    if (fd) x += `<details class="pd"${fd.local ? " open" : ""}><summary>Задача целиком — IDEF0${fd.children && fd.children.length ? ` · декомпозиция на ${fd.children.length}` : ""}</summary>${fd.local ? LOCAL : ""}${idefHTML(t, fd, "p")}</details>`;
     x += `<details class="pd"><summary>Требования БФТ · ${t.reqs.length}</summary><div class="reqs">${t.reqs.map(r => `<span>${r}</span>`).join("")}</div>${p.source ? `<div class="src">Источник: ${esc(p.source)}</div>` : ""}</details>`;
-    let note = ""; try { note = localStorage.getItem(noteKey(id)) || "" } catch (e) { }
-    x += `<div class="pwork"><h4>Дополнить</h4><textarea id="pnote" placeholder="Контекст техлида: что подправить, что уже известно, ссылки">${esc(note)}</textarea>
+    x += `<div class="pwork"><h4>Дополнить</h4><textarea id="pnote" placeholder="Контекст техлида: что подправить, что уже известно, ссылки">${esc(lsGet(noteKey(id)))}</textarea>
       <div class="pai"><div><b>Системная аналитика с ИИ</b><small>промпт собран из карточки: требования, цепочка, схема, вопросы и ваша заметка</small></div>
-      <button class="tool" data-ai="copy" data-id="${id}">Скопировать промпт</button><a class="tool" data-ai="open" data-id="${id}" target="_blank" rel="noopener">Открыть в Claude ↗</a></div></div>`;
+      <button class="tool" data-ai="copy" data-kind="sa" data-id="${id}">Скопировать промпт</button><a class="tool" data-ai="open" data-kind="sa" data-id="${id}" target="_blank" rel="noopener">Открыть в Claude ↗</a></div></div>`;
+    x += `<div class="pwork dsl" id="dsl" data-id="${id}"><h4>Схема как код</h4>
+      <div class="dtabs" role="tablist"><button data-dt="seq">Sequence · ${id}</button><button data-dt="idef0">IDEF0 · задача ${t.id}</button></div>
+      <textarea class="dsrc" spellcheck="false" aria-label="Текст схемы"></textarea>
+      <div class="dstat" aria-live="polite"></div><ul class="diss"></ul><div class="dprev"></div>
+      <div class="dbtn"><button class="tool pri" data-dsl="apply">Применить к карточке</button><button class="tool" data-dsl="copy">Скопировать блок</button><button class="tool" data-dsl="reset">Вернуть из документа</button></div>
+      <div class="pai"><div><b>Собрать схему с ИИ</b><small>промпт: грамматика, участники и контекст карточки. Ответ ИИ вставьте в поле — проверка сразу</small></div>
+      <button class="tool" data-ai="copy" data-kind="dsl" data-id="${id}">Скопировать промпт</button><a class="tool" data-ai="open" data-kind="dsl" data-id="${id}" target="_blank" rel="noopener">Открыть в Claude ↗</a></div>
+      <small class="dhint">Правка живёт в этом браузере. В документ — блок через <code>bft-diagram-apply.py</code>, затем перерисовать карту.</small></div>`;
     openSide(`${L[0]} · ${L[1]}`, L[2], p.text, `<span class="pteam" style="--c:${teamC(t)}"><i></i>${esc(teamN(t))}</span> · задача ${t.id} «${esc(t.text)}» · ${esc(COLS[colOf(p.stage)].name)}`, x, true);
     const ta = document.getElementById("pnote");
-    ta.addEventListener("input", () => { try { localStorage.setItem(noteKey(id), ta.value) } catch (e) { } refreshAi(id) });
-    refreshAi(id);
+    ta.addEventListener("input", () => { lsSet(noteKey(id), ta.value); refreshAi() });
+    dslTab(tab || "seq");
+    const src = side.querySelector(".dsrc"); let tm = 0;
+    src.addEventListener("input", () => { const d = side.querySelector("#dsl"); lsSet(dslKey(d.dataset.kind, d.dataset.target, true), src.value); clearTimeout(tm); tm = setTimeout(dslCheck, 150) });
   }
   const noteKey = id => `bp-note-${D.epic}-${id}`;
-  function refreshAi(id) { const a = side.querySelector('[data-ai="open"]'); if (a) a.href = "https://claude.ai/new?q=" + encodeURIComponent(aiPrompt(id)) }
-  function aiPrompt(id) {
-    const p = PROC[id], t = TASK[p.task]; let note = ""; try { note = localStorage.getItem(noteKey(id)) || "" } catch (e) { }
-    const nm = x => PROC[x] ? PROC[x].text : x;
-    let n = 0; const steps = p.steps.map(s => `${++n}. ${s.branch ? `[${s.branch}] ` : ""}${D.parts[s.src][0]} → ${D.parts[s.dst][0]}: ${s.text}`);
-    return `Ты — системный аналитик. Проведи системную аналитику процесса инициативы «${D.title}».
 
-Процесс: ${p.text}
-Задача ${t.id} «${t.text}», команда: ${teamN(t)}, шаг пути: ${COLS[colOf(p.stage)].name}.
+  /* редактор: вкладка, проверка, предпросмотр */
+  function dslTab(kind) {
+    const d = side.querySelector("#dsl"), p = PROC[d.dataset.id], target = kind === "seq" ? p.id : p.task;
+    d.dataset.kind = kind; d.dataset.target = target;
+    d.querySelectorAll("[data-dt]").forEach(b => { b.classList.toggle("on", b.dataset.dt === kind); b.setAttribute("aria-selected", b.dataset.dt === kind) });
+    d.querySelector(".dsrc").value = lsGet(dslKey(kind, target, true)) || lsGet(dslKey(kind, target)) || docSrc(kind, target);
+    dslCheck(); refreshAi();
+  }
+  function dslCheck() {
+    const d = side.querySelector("#dsl"); if (!d) return null;
+    const kind = d.dataset.kind, target = d.dataset.target, { m, off } = checkFor(kind, target, d.querySelector(".dsrc").value);
+    const err = m.issues.filter(i => i.level === "ERROR").length, warn = m.issues.length - err;
+    d.querySelector(".dstat").className = "dstat " + (err ? "bad" : "good");
+    d.querySelector(".dstat").textContent = err ? `✗ Ошибок: ${err}${warn ? ` · предупреждений: ${warn}` : ""} — схема не применится` : `✓ Синтаксис в порядке${warn ? ` · предупреждений: ${warn}` : ""}`;
+    d.querySelector(".diss").innerHTML = m.issues.map(i => `<li class="${i.level === "ERROR" ? "e" : "w"}"><b>стр. ${i.line + off}</b><code>${i.code}</code>${esc(i.msg)}</li>`).join("");
+    const t = TASK[PROC[d.dataset.id].task];
+    const same = blockKey(d.querySelector(".dsrc").value) === blockKey(lsGet(dslKey(kind, target)) || docSrc(kind, target));
+    d.querySelector(".dprev").innerHTML = err ? "" : same ? '<div class="psame">Совпадает со схемой в карточке — измените текст или вставьте ответ ИИ</div>'
+      : `<div class="lb2">Предпросмотр</div>${kind === "seq" ? seqHTML(m, "v") : idefHTML(t, m, "v")}`;
+    d.querySelector('[data-dsl="apply"]').disabled = !!err;
+    return { m, err };
+  }
+  /* блок без пустых строк и отступов — чтобы сравнить «то же самое» */
+  const blockKey = text => { const ex = BPD.extract(text); return ex.kind ? [ex.kind, ex.id, ...ex.body.map(l => l.trim()).filter(Boolean)].join("\n") : text.trim() };
+  function dslAction(act) {
+    const d = side.querySelector("#dsl"), kind = d.dataset.kind, target = d.dataset.target, ta = d.querySelector(".dsrc");
+    if (act === "copy") { const ex = BPD.extract(ta.value); return copyText(ex.kind ? [`\`\`\`${ex.kind} ${ex.id}`, ...ex.body, "```"].join("\n") : ta.value, d.querySelector('[data-dsl="copy"]')) }
+    if (act === "apply") { const r = dslCheck(); if (!r || r.err) return; const ex = BPD.extract(ta.value); lsSet(dslKey(kind, target), [`\`\`\`${ex.kind} ${ex.id}`, ...ex.body, "```"].join("\n")) }
+    if (act === "reset") lsSet(dslKey(kind, target), "");
+    lsSet(dslKey(kind, target, true), "");
+    openProc(d.dataset.id, kind);
+    if (act === "apply") { const h = side.querySelector(kind === "seq" ? "#phow" : "details.pd"); if (h) side.scrollTop = h.offsetTop - 110 }
+  }
+
+  /* ---------- промпты для ИИ ---------- */
+  function procContext(id) {
+    const p = PROC[id], t = TASK[p.task], nm = x => PROC[x] ? PROC[x].text : x, note = lsGet(noteKey(id));
+    return `Процесс ${id}: ${p.text}
+Задача ${t.id} «${t.text}», команда: ${teamN(t)}, шаг пути: ${COLS[colOf(p.stage)].name}, слой: ${LAYER[p.layer][0]}.
 Было: ${p.before || "—"}. Станет: ${p.after || "—"}.
 До: ${D.links.filter(l => l.dst === id).map(l => `${nm(l.src)} (${l.what})`).join("; ") || "—"}.
 После: ${D.links.filter(l => l.src === id).map(l => `${nm(l.dst)} (${l.what})`).join("; ") || "—"}.
@@ -175,13 +252,20 @@
 Что требуется (из БФТ):
 ${p.criteria.map(c => `- ${c.text} (${c.source})`).join("\n") || "—"}
 
-Как устроено по БФТ:
-${steps.join("\n") || "—"}
-
 Открытые вопросы:
 ${[...qOf(id), ...qOf(p.task)].map(q => `- ${q.kind === "блокер" ? "БЛОКЕР: " : ""}${q.text} (кому: ${q.to})`).join("\n") || "—"}
 ${note ? `\nЗаметка техлида: ${note}\n` : ""}
-Источник: БФТ ${D.epic}${p.source ? `, ${p.source}` : ""}.
+Источник: БФТ ${D.epic}${p.source ? `, ${p.source}` : ""}.`;
+  }
+  function aiPrompt(id) {
+    const p = PROC[id], sq = seqOf(p);
+    let n = 0; const steps = sq.steps.map(s => `${++n}. ${s.branch ? `[${s.branch}] ` : ""}${pname(sq, s.src)} → ${pname(sq, s.dst)}: ${s.text}`);
+    return `Ты — системный аналитик. Проведи системную аналитику процесса инициативы «${D.title}».
+
+${procContext(id)}
+
+Как устроено${sq.desc ? `: ${sq.desc}` : ""}
+${steps.join("\n") || "—"}
 
 Задача:
 1) найди пробелы, противоречия и неявные зависимости в процессе;
@@ -189,60 +273,27 @@ ${note ? `\nЗаметка техлида: ${note}\n` : ""}
 3) предложи, какие состояния, данные и интеграции нужны — помечай это как гипотезу для СА;
 4) сформулируй вопросы «кому — что», без которых процесс не запустить.`;
   }
+  function dslPrompt(id, kind) {
+    const p = PROC[id], t = TASK[p.task], target = kind === "seq" ? id : t.id;
+    const cur = lsGet(dslKey(kind, target, true)) || lsGet(dslKey(kind, target)) || docSrc(kind, target);
+    const parts = Object.keys(D.parts).map(k => `${k}: ${D.parts[k][0]} (${{ p: "человек", i: "интерфейс", s: "система", x: "внешний" }[D.parts[k][1]]})`).join("; ");
+    return `Ты — системный аналитик. Собери ${kind === "seq" ? `sequence-схему процесса ${id}` : `IDEF0 задачи ${t.id} «${t.text}» с декомпозицией на функции`} инициативы «${D.title}». Опирайся только на контекст ниже; чего в нём нет — пиши [УТОЧНИТЬ у <кого>], не придумывай.
 
-  /* ---------- sequence: участники слева направо, справа от пунктира — скрыто от гостя ---------- */
-  const hiddenKind = k => "sx".includes(D.parts[k][1]);
-  const isHidden = s => hiddenKind(s.src) || hiddenKind(s.dst);
-  function hiddenSteps(p) { return p.steps.map((s, i) => [i + 1, s]).filter(([, s]) => isHidden(s)) }
-  function seqSVG(p) {
-    const order = { p: 0, i: 1, s: 2, x: 3 };
-    const P = [...new Set(p.steps.flatMap(s => [s.src, s.dst]))].sort((a, b) => order[D.parts[a][1]] - order[D.parts[b][1]]);
-    const CW = 150, X0 = 20, cx = k => X0 + CW * P.indexOf(k) + CW / 2;
-    const W = Math.max(X0 * 2 + CW * P.length, ...p.steps.filter(s => s.src === s.dst).map(s => cx(s.src) + 40 + s.text.length * 6.3 + X0));
-    const rows = []; let cur = "";
-    p.steps.forEach(s => { const br = s.branch || ""; if (br !== cur) { if (cur.startsWith("если") && !br.startsWith("иначе")) rows.push({ end: 1 }); if (cur.startsWith("иначе")) rows.push({ end: 1 }); if (br) rows.push({ br }); cur = br } rows.push({ s }) });
-    if (cur) rows.push({ end: 1 });
-    const H = 70 + rows.reduce((a, r) => a + (r.s ? (r.s.src === r.s.dst ? 40 : 34) : r.br ? 24 : 8), 0) + 16;
-    const vis = P.findIndex(k => hiddenKind(k));
-    let s = `<svg viewBox="0 0 ${W} ${H}" style="width:${W}px;max-width:100%" role="img" aria-label="Как устроен процесс"><defs><marker id="sq" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0L10,5L0,10z" fill="#3a3a3a"/></marker></defs>`;
-    if (vis > 0) { const xv = X0 + CW * vis; s += `<rect x="${xv}" y="0" width="${W - xv}" height="${H}" fill="#f1f3f7"/><line x1="${xv}" y1="0" x2="${xv}" y2="${H}" stroke="#7d7a73" stroke-width="1.5" stroke-dasharray="6 4"/><text x="${xv + 6}" y="${H - 6}" font-size="10.5" fill="#7d7a73">за линией видимости — скрыто от гостя</text>` }
-    P.forEach(k => {
-      const x = cx(k), [n, t] = D.parts[k];
-      s += `<line x1="${x}" y1="44" x2="${x}" y2="${H - 20}" stroke="#c9c4ba" stroke-dasharray="3 4"/>`;
-      s += t === "p" ? `<circle cx="${x}" cy="14" r="7" fill="none" stroke="#1c1c1c" stroke-width="1.5"/><path d="M${x - 11},34 q11,-14 22,0" fill="none" stroke="#1c1c1c" stroke-width="1.5"/><text x="${x}" y="46" font-size="12" font-weight="700" text-anchor="middle">${esc(n)}</text>`
-        : `<rect x="${x - 64}" y="8" width="128" height="30" rx="7" fill="${t === "i" ? "#e5f3f4" : t === "x" ? "#f3f1ec" : "#e7edf8"}" stroke="${t === "i" ? "#0f8b8d" : t === "x" ? "#9a958c" : "#2563c9"}" stroke-width="1.2"/><text x="${x}" y="27" font-size="11.5" font-weight="700" text-anchor="middle">${esc(n.length > 20 ? n.slice(0, 19) + "…" : n)}</text>`;
-    });
-    let y = 70, num = 0, top = 0; const xs = P.map(cx), L = Math.min(...xs) - 50, Rr = Math.max(...xs) + 50;
-    rows.forEach(r => {
-      if (r.br) { if (r.br.startsWith("если")) top = y; else s += `<line x1="${L}" y1="${y + 2}" x2="${Rr}" y2="${y + 2}" stroke="#9a958c" stroke-dasharray="5 4"/>`; s += `<text x="${L + 6}" y="${y + 16}" font-size="10.5" font-weight="800" fill="#6b6b6b">${esc(r.br.replace(/^если:\s*/, "ЕСЛИ ").replace(/^иначе:\s*/, "ИНАЧЕ "))}</text>`; y += 24; return }
-      if (r.end) { s += `<rect x="${L}" y="${top}" width="${Rr - L}" height="${y - top + 4}" rx="6" fill="none" stroke="#9a958c"/>`; y += 8; return }
-      const m = r.s; num++; const xa = cx(m.src), xb = cx(m.dst), hid = isHidden(m), col = hid ? "#2563c9" : "#1c1c1c", red = U(m.text);
-      const badge = x => `<circle cx="${x}" cy="${y}" r="8" fill="${hid ? "#2563c9" : "#2f6b2a"}"/><text x="${x}" y="${y + 3.5}" font-size="9.5" font-weight="800" fill="#fff" text-anchor="middle">${num}</text>`;
-      if (m.src === m.dst) { s += `<path d="M${xa},${y} h28 v16 h-26" fill="none" stroke="${col}" stroke-width="1.4" marker-end="url(#sq)"/><text x="${xa + 34}" y="${y + 12}" font-size="11.5" fill="${red ? "#c0392b" : col}">${esc(m.text)}</text>` + badge(xa - 12); y += 40; return }
-      const dir = xb > xa ? 1 : -1;
-      s += `<line x1="${xa}" y1="${y}" x2="${xb - dir * 2}" y2="${y}" stroke="${col}" stroke-width="1.4" ${m.kind === "ответ" ? 'stroke-dasharray="5 4"' : ""} marker-end="url(#sq)"/><text x="${(xa + xb) / 2}" y="${y - 6}" font-size="11.5" text-anchor="middle" fill="${red ? "#c0392b" : col}">${esc(m.text)}</text>` + badge(xa + dir * 14);
-      y += 34;
-    });
-    return s + "</svg>";
+Грамматика — строго:
+${BPD.GRAMMAR[kind]}
+${kind === "seq" ? `\nУчастники карты: ${parts}.\n` : ""}
+${procContext(id)}
+
+Сейчас:
+${cur}
+
+Верни только один блок \`\`\`${kind} ${target} … \`\`\` без пояснений до и после.`;
   }
-
-  /* ---------- IDEF0: вход слева, выход справа, регуляторы сверху, механизмы снизу ---------- */
-  function idef0(t) {
-    const f = t.idef, bh = Math.max(130, 58 * Math.max(f.in.length, f.out.length)), W = 560, H = 340 + bh, bx = 195, by = 170, bw = 170, col = t.team === "?" ? "#c0392b" : getComputedStyle(document.documentElement).getPropertyValue(TEAM[t.team].c.slice(4, -1)).trim();
-    const red = x => U(x) ? "#c0392b" : "#1c1c1c";
-    const tsp = (ls, x, dy) => ls.map((l, i) => `<tspan x="${x}" dy="${i ? dy : 0}">${esc(l)}</tspan>`).join("");
-    let s = `<svg class="idef" viewBox="0 0 ${W} ${H}" role="img" aria-label="IDEF0"><defs><marker id="ia" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0L10,5L0,10z" fill="#1c1c1c"/></marker></defs><rect x="0" y="0" width="${W}" height="${H}" rx="10" fill="#faf9f6"/>`;
-    const cap = (x, y, txt, a) => `<text x="${x}" y="${y}" font-size="11" font-weight="700" fill="#6b6b6b" letter-spacing=".6" text-anchor="${a}">${txt}</text>`;
-    s += cap(8, by - 14, "ВХОД", "start") + cap(W - 8, by - 14, "ВЫХОД", "end") + cap(W / 2, 14, "РЕГУЛЯТОРЫ — правила и ограничения", "middle") + cap(W / 2, H - 6, "МЕХАНИЗМЫ — кто и чем исполняет", "middle");
-    s += `<rect x="${bx}" y="${by}" width="${bw}" height="${bh}" rx="3" fill="#fff" stroke="${col}" stroke-width="2.2" ${t.team === "?" ? 'stroke-dasharray="6 3"' : ""}/><rect x="${bx}" y="${by}" width="${bw}" height="6" fill="${col}"/>`;
-    const fl = wrapT(t.text, 18).slice(0, 5); s += `<text x="${bx + bw / 2}" y="${by + bh / 2 - (fl.length - 1) * 8 + 4}" font-size="13.5" font-weight="700" text-anchor="middle">${tsp(fl, bx + bw / 2, 16)}</text><text x="${bx + bw - 6}" y="${by + bh - 6}" font-size="11" fill="#6b6b6b" text-anchor="end">A${esc(t.id)}</text>`;
-    f.in.forEach((v, i) => { const y = by + bh * (i + 1) / (f.in.length + 1), ls = wrapT(v, 22).slice(0, 3); s += `<path d="M8,${y} H${bx}" stroke="#1c1c1c" stroke-width="1.6" marker-end="url(#ia)"/><text x="8" y="${y - 6 - (ls.length - 1) * 15}" font-size="13" fill="${red(v)}">${tsp(ls, 8, 15)}</text>` });
-    f.out.forEach((v, i) => { const y = by + bh * (i + 1) / (f.out.length + 1), ls = wrapT(v, 22).slice(0, 3); s += `<path d="M${bx + bw},${y} H${W - 8}" stroke="#1c1c1c" stroke-width="1.6" marker-end="url(#ia)"/><text x="${bx + bw + 8}" y="${y - 6 - (ls.length - 1) * 15}" font-size="13" fill="${red(v)}">${tsp(ls, bx + bw + 8, 15)}</text>` });
-    const sideTxt = (arr, topSide) => { const k = arr.length, sl = W / k; arr.forEach((v, i) => { const ax = bx + bw * (i + 1) / (k + 1), tx = sl * i + sl / 2, ls = wrapT(v, Math.max(14, Math.floor(sl / 7.6))).slice(0, 4);
-      s += topSide ? `<path d="M${tx},102 L${tx},116 L${ax},136 L${ax},${by}" fill="none" stroke="#1c1c1c" stroke-width="1.6" marker-end="url(#ia)"/><text x="${tx}" y="34" font-size="13" text-anchor="middle" fill="${red(v)}">${tsp(ls, tx, 15)}</text>`
-        : `<path d="M${tx},${H - 76} L${tx},${H - 90} L${ax},${by + bh + 26} L${ax},${by + bh}" fill="none" stroke="#1c1c1c" stroke-width="1.6" marker-end="url(#ia)"/><text x="${tx}" y="${H - 58}" font-size="13" text-anchor="middle" fill="${red(v)}">${tsp(ls, tx, 15)}</text>` }) };
-    sideTxt(f.ctl, true); sideTxt(f.mech, false);
-    return s + "</svg>";
+  function promptFor(el) { return el.dataset.kind === "dsl" ? dslPrompt(el.dataset.id, side.querySelector("#dsl").dataset.kind) : aiPrompt(el.dataset.id) }
+  function refreshAi() { side.querySelectorAll('[data-ai="open"]').forEach(a => a.href = "https://claude.ai/new?q=" + encodeURIComponent(promptFor(a))) }
+  function copyText(txt, btn) {
+    const lab = btn.textContent, done = () => { btn.textContent = "Скопировано ✓"; setTimeout(() => btn.textContent = lab, 1600) };
+    (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject()).then(done).catch(() => { const ta = document.createElement("textarea"); ta.value = txt; document.body.appendChild(ta); ta.select(); try { document.execCommand("copy"); done() } catch (er) { } ta.remove() });
   }
 
   /* ---------- инструкции, легенда, блокеры ---------- */
@@ -283,11 +334,11 @@ ${note ? `\nЗаметка техлида: ${note}\n` : ""}
     if (t.closest(".side .x") || t.closest(".scrim")) return closeSide();
     const ai = t.closest("[data-ai]");
     if (ai) {
-      if (ai.dataset.ai === "open") { ai.href = "https://claude.ai/new?q=" + encodeURIComponent(aiPrompt(ai.dataset.id)); return }
-      const txt = aiPrompt(ai.dataset.id), done = () => ai.textContent = "Скопировано ✓";
-      (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject()).then(done).catch(() => { const ta = document.createElement("textarea"); ta.value = txt; document.body.appendChild(ta); ta.select(); try { document.execCommand("copy"); done() } catch (er) { } ta.remove() });
-      return;
+      if (ai.dataset.ai === "open") { ai.href = "https://claude.ai/new?q=" + encodeURIComponent(promptFor(ai)); return }
+      return copyText(promptFor(ai), ai);
     }
+    const dt = t.closest("[data-dt]"); if (dt) return dslTab(dt.dataset.dt);
+    const da = t.closest("[data-dsl]"); if (da) return dslAction(da.dataset.dsl);
     const tf = t.closest("[data-tf]");
     if (tf) { const on = tf.classList.contains("on"); document.querySelectorAll(".tchip").forEach(x => x.classList.toggle("on", !on && x === tf)); document.querySelectorAll(".wk,.hw").forEach(x => x.classList.toggle("dim", !on && x.dataset.team !== tf.dataset.tf)); return }
     const g = t.closest("[data-guide]"); if (g) return openGuide(g.dataset.guide);
@@ -300,5 +351,5 @@ ${note ? `\nЗаметка техлида: ${note}\n` : ""}
     if (e.key === "Escape") closeSide();
     if ((e.key === "Enter" || e.key === " ") && e.target.matches && e.target.matches("[data-seen]")) { e.preventDefault(); openSeen(e.target.dataset.seen) }
   });
-  window.BPMAP = { aiPrompt, openProc, openTask, openSeen };
+  window.BPMAP = { aiPrompt, dslPrompt, openProc, openTask, openSeen, dslTab, dslCheck };
 })();
