@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 from dataclasses import dataclass, asdict
@@ -678,10 +679,12 @@ def check_markup(doc: Doc, out: list[Finding]) -> None:
 
 
 
-# Базовые адреса корпоративных систем MTS — те же, что в bft_standards.md и в
-# bft-deliver-check.py. Меняются здесь, если контур разворачивают в другом.
-JIRA_BROWSE = "https://jira.mts.ru/browse/"
-WIKI_PAGE = "https://confluence.mts.ru/pages/viewpage.action?pageId="
+# Базовые адреса корпоративных систем — те же, что в bft_standards.md и в
+# bft-deliver-check.py. Задаются BFT_JIRA_BROWSE_URL / BFT_WIKI_PAGE_URL (по умолчанию — заглушки example.com).
+JIRA_BROWSE = os.environ.get("BFT_JIRA_BROWSE_URL", "https://jira.example.com/browse/")
+WIKI_PAGE = os.environ.get(
+    "BFT_WIKI_PAGE_URL", "https://confluence.example.com/pages/viewpage.action?pageId="
+)
 
 # Ключ трекера: 2–10 заглавных латинских символов, дефис, номер. ID требований
 # БФТ кириллические (БТ-1, ПТ-1, ФТ-1), поэтому не пересекаются.
