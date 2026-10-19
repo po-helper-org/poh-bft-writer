@@ -29,14 +29,18 @@ import subprocess
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).parent))
+import bft_matrix  # noqa: E402 — разбор матрицы исполнения, общий со страницей Confluence
+
 ID_PREFIX_SLUG = {
     "бт": "bt",
     "пт": "pt",
     "ит": "it",
     "фт": "ft",
     "нфт": "nft",
+    "ex": "ex",   # строка матрицы исполнения (EX-01)
 }
-ID_RE = re.compile(r"\b(БТ|ПТ|ИТ|НФТ|ФТ)-(\d+)\b")
+ID_RE = re.compile(r"\b(БТ|ПТ|ИТ|НФТ|ФТ|EX)-(\d+)\b")
 
 
 def slug_for(id_text: str) -> str:
@@ -99,6 +103,10 @@ KEEP_AS_IS_RE = re.compile(
     r'(<a\b[^>]*>.*?</a>|<mark class="unc">.*?</mark>|<code>.*?</code>)', re.S)
 
 
+# Дополняется в main() под вид документа: в матрице исполнения EX-NN — её строки.
+EXTRA_NOT_TRACKER: set[str] = set()
+
+
 def linkify_external(esc: str) -> str:
     """Голый ключ трекера и pageId вики → кликабельная ссылка (ЗМ-041).
 
@@ -114,7 +122,7 @@ def linkify_external(esc: str) -> str:
                       f'target="_blank" rel="noopener">{m.group(0)}</a>', chunk)
 
         def tracker(m):
-            if m.group(1) in NOT_TRACKER_PREFIX:
+            if m.group(1) in NOT_TRACKER_PREFIX or m.group(1) in EXTRA_NOT_TRACKER:
                 return m.group(0)
             return (f'<a href="{JIRA_BROWSE}{m.group(0)}" class="ext-link" '
                     f'target="_blank" rel="noopener">{m.group(0)}</a>')
@@ -148,7 +156,8 @@ def inline(text: str, skip_id_links=False, id_map=None) -> str:
             target = id_map.get(full)
             if not target:
                 return full
-            return f'<a href="#{target}" class="anchor-link">{full}</a>'
+            href = target if ".html#" in target else f"#{target}"
+            return f'<a href="{href}" class="anchor-link">{full}</a>'
         esc = ID_RE.sub(repl, esc)
 
     return esc
@@ -375,8 +384,26 @@ SOURCE_COL_RE = re.compile(r"^\s*Источник", re.IGNORECASE)
 FOOTER_SECTIONS = ("Якоря истины", "Источники")
 
 
+MX_TEAM_COLS = bft_matrix.TEAM_COLS
+mx_team = bft_matrix.team_of
+
+
+def mx_status_chip(cell: str) -> str:
+    """Статус строки матрицы → знак и класс. Страница ч/б: состояние читается формой знака
+    и рамкой, возврат — единственный инвертированный, его видно сразу."""
+    kind = bft_matrix.status_kind(cell)
+    if not kind:
+        return inline(cell)
+    glyph, name = kind
+    return f'<span class="st st-{name}">{glyph} {inline(cell)}</span>'
+
+
 def render_table(header, rows, id_map, notes=None, src_idx=None):
     is_id_table = header and header[0].strip().lower() in ("идентификатор", "id")
+    # Строки матрицы исполнения: фильтр по команде и знак статуса.
+    is_mx = bool(header) and all(c in header for c in MX_TEAM_COLS + ("Статус",))
+    team_idx = [header.index(c) for c in MX_TEAM_COLS] if is_mx else []
+    status_idx = header.index("Статус") if is_mx else None
     thead = "<thead><tr>" + "".join(f"<th>{htmlmod.escape(h)}</th>" for h in header) + "</tr></thead>"
     body_rows = []
     seen_slugs = set()
@@ -395,6 +422,8 @@ def render_table(header, rows, id_map, notes=None, src_idx=None):
                     tr_id = f' id="{slug}"'
                     seen_slugs.add(slug)
                 cells.append(f'<td class="rid">{htmlmod.escape(cell)}</td>')
+            elif idx == status_idx:
+                cells.append(f'<td class="st-cell">{mx_status_chip(cell)}</td>')
             elif notes is not None and idx == src_idx and cell.strip():
                 # Источник уезжает в подвал страницы, в теле остаётся сноска:
                 # цитата длиной в абзац в каждой строке таблицы мешает читать
@@ -407,8 +436,12 @@ def render_table(header, rows, id_map, notes=None, src_idx=None):
                     f'href="#src-note-{n}" title="{plain}">[{n}]</a></td>')
             else:
                 cells.append(f"<td>{inline(cell, id_map=id_map)}</td>")
+        if is_mx:
+            teams = "|".join(sorted({mx_team(row[i]) for i in team_idx if row[i].strip()}))
+            tr_id += f' data-teams="{htmlmod.escape(teams)}"'
         body_rows.append(f"<tr{tr_id}>" + "".join(cells) + "</tr>")
-    return f'<div class="table-wrap"><table>{thead}<tbody>{"".join(body_rows)}</tbody></table></div>'
+    cls = ' class="mx-rows"' if is_mx else ""
+    return f'<div class="table-wrap"><table{cls}>{thead}<tbody>{"".join(body_rows)}</tbody></table></div>'
 
 
 def collect_id_map(blocks):
@@ -520,6 +553,20 @@ def insert_sources(body_html: str, section_html: str) -> str:
     return body_html + "\n" + section_html
 
 
+TASK_RE = re.compile(r"^\[([ xX])\]\s+")
+
+
+def list_item(text, id_map):
+    """Пункт списка; «[ ] …» / «[x] …» (чеклист паузы матрицы) — галочкой, а не скобками."""
+    m = TASK_RE.match(text)
+    if not m:
+        return f"<li>{inline(text, id_map=id_map)}</li>"
+    done = m.group(1) != " "
+    box = "☑" if done else "☐"
+    cls = "task done" if done else "task"
+    return f'<li class="{cls}"><span class="chk">{box}</span> {inline(text[m.end():], id_map=id_map)}</li>'
+
+
 def render_body(blocks, id_map, notes=None):
     out = []
     last_table_ids = []
@@ -553,7 +600,7 @@ def render_body(blocks, id_map, notes=None):
                 last_table_ids = []
         elif kind == "list":
             tag = "ol" if a else "ul"
-            items = "".join(f"<li>{inline(x, id_map=id_map)}</li>" for x in b)
+            items = "".join(list_item(x, id_map) for x in b)
             out.append(f"<{tag}>{items}</{tag}>")
         elif kind == "code":
             lang, code = a, b
@@ -595,10 +642,10 @@ TEMPLATE_HEAD = """<!doctype html>
 {css}
 </style>
 </head>
-<body>
+<body class="{body_class}">
 
 <div class="promptbox">
-  <button class="shipbtn" id="shipBtn" type="button">Всё ок — отгружай в Confluence/Jira</button>
+  <button class="shipbtn" id="shipBtn" type="button">{ship_label}</button>
   <button id="panelToggle">Комментарии (<span id="cCount">0</span>)</button>
   <p class="shiphint" id="shipHint"></p>
   <div class="panel" id="panel">
@@ -670,10 +717,10 @@ def find_lint_scripts_dir(md_path: Path) -> Path:
     return Path(__file__).parent
 
 
-def run_lint(md_path: Path) -> str:
+def run_lint(md_path: Path, gates=(("bft-lint.py", "17"), ("bft-style-lint.py", "18"))) -> str:
     scripts_dir = find_lint_scripts_dir(md_path)
     parts = []
-    for name, gate in (("bft-lint.py", "17"), ("bft-style-lint.py", "18")):
+    for name, gate in gates:
         script = scripts_dir / name
         if not script.exists():
             continue
@@ -684,6 +731,75 @@ def run_lint(md_path: Path) -> str:
         except Exception:
             parts.append(f"гейт {gate} — не прогнан")
     return " · " + " · ".join(parts) if parts else ""
+
+
+# ---------- матрица исполнения (stage: matrix) ----------
+
+MATRIX_FILTER_JS = """
+<script>
+(function(){
+  // Фильтр строк матрицы по команде: поставщик, потребитель или проверяющий.
+  var rows = document.querySelectorAll("table.mx-rows tbody tr");
+  var btns = document.querySelectorAll(".mx-team");
+  var hint = document.getElementById("mxFilterHint");
+  function apply(team){
+    Array.prototype.forEach.call(btns, function(b){ b.classList.toggle("on", b.getAttribute("data-team") === team); });
+    Array.prototype.forEach.call(rows, function(r){
+      var t = (r.getAttribute("data-teams") || "").split("|");
+      r.hidden = !!team && t.indexOf(team) < 0;
+    });
+    if(hint) hint.textContent = team ? "Показаны строки, где «" + team + "» — поставщик, потребитель или проверяющий." : "";
+  }
+  Array.prototype.forEach.call(btns, function(b){
+    b.addEventListener("click", function(){
+      var team = b.getAttribute("data-team");
+      apply(team);
+      var t = document.querySelector("table.mx-rows");
+      if(team && t && !b.closest(".mx-filterbar")) t.scrollIntoView({behavior: "smooth", block: "start"});
+    });
+  });
+})();
+</script>
+"""
+
+
+def matrix_summary(text: str) -> str:
+    """Сводка исполнения по командам — над документом, только на странице (см. bft_matrix)."""
+    lines, total = bft_matrix.summary(bft_matrix.parse(text))
+    if not lines:
+        return ""
+    body = []
+    for line in lines:
+        cells = [htmlmod.escape(c) for c in bft_matrix.summary_cells(line)]
+        cells[0] = (f'<button class="mx-team" type="button" data-team="{cells[0]}">{cells[0]}</button>')
+        if line.returned_now:
+            cells[7] = f'<span class="st st-returned">↩ {line.returned_now}</span> / {line.returned_all}'
+        cells[8] = inline(line.agreed)
+        body.append("<tr>" + "".join(f"<td>{c}</td>" for c in cells) + "</tr>")
+    return (
+        '<div class="mx-summary">'
+        '<p class="mx-total"><b>Сводка исполнения</b> — считается по строкам и журналу при сборке страницы. '
+        + htmlmod.escape(total) + ". Клик по команде — её строки в матрице.</p>"
+        '<div class="table-wrap"><table><thead><tr>'
+        + "".join(f"<th>{htmlmod.escape(h)}</th>" for h in bft_matrix.SUMMARY_HEAD)
+        + "</tr></thead><tbody>" + "".join(body) + "</tbody></table></div></div>"
+    )
+
+
+def matrix_req_links(meta, md_path: Path, out_path: Path) -> dict:
+    """ФТ-N/ИТ-N/НФТ-N в матрице → строка требования на странице БФТ."""
+    src = meta.get("source", "")
+    if not src:
+        return {}
+    source = (md_path.parent / src).resolve()
+    if not source.is_file():
+        return {}
+    html = os.path.relpath(source.with_suffix(".html"), out_path.resolve().parent)
+    text = source.read_text(encoding="utf-8")
+    links = {}
+    for m in re.finditer(r"^\|\s*((?:БТ|ПТ|ИТ|ФТ|НФТ)-\d+)\s*\|", text, re.M):
+        links[m.group(1)] = f"{html}#{slug_for(m.group(1))}"
+    return links
 
 
 def main():
@@ -703,9 +819,26 @@ def main():
             title = b
             break
 
+    out_path = Path(args.output) if args.output else md_path.with_suffix(".html")
+    is_matrix = meta.get("stage") == "matrix"
+    if is_matrix:
+        EXTRA_NOT_TRACKER.add("EX")
+
     id_map = collect_id_map(blocks)
+    if is_matrix:
+        id_map = {**matrix_req_links(meta, md_path, out_path), **id_map}
     notes: list[tuple[int, str]] = []
     body_html = render_body(blocks, id_map, notes=notes)
+    if is_matrix:
+        # Сводка — под строкой-пояснением, перед первым разделом: читатель сначала
+        # узнаёт, что за документ, потом видит, как идёт исполнение.
+        summary = matrix_summary(text)
+        pos = body_html.find("<h2")
+        body_html = body_html[:pos] + summary + body_html[pos:] if pos >= 0 else summary + body_html
+        body_html = body_html.replace(
+            '<div class="table-wrap"><table class="mx-rows">',
+            '<div class="mx-filterbar"><button class="mx-team" type="button" data-team="">Все команды</button>'
+            ' <span id="mxFilterHint"></span></div><div class="table-wrap"><table class="mx-rows">', 1)
 
     # Сквозная нумерация якорей по h2 и h3 разом: оглавление в левой панели
     # строится из обоих уровней, а на подзаголовок без id сослаться нечем.
@@ -721,7 +854,30 @@ def main():
 
     epic_slug = meta.get("epic_slug") or md_path.stem
 
-    lint_status = run_lint(md_path)
+    if is_matrix:
+        lint_status = run_lint(md_path, (("bft-matrix-lint.py", "23"), ("bft-style-lint.py", "18")))
+        prompt_head = f"Доработай матрицу исполнения {md_path.name} с учётом следующей обратной связи по разделам:"
+        prompt_steps = [
+            f"python3 <skills_path>/bft-writer/scripts/bft-matrix-lint.py {md_path.name}"
+            "  (гейт 23; ненулевой код — исправить, матрицу с ошибками не сохранять)",
+            f"python3 <skills_path>/bft-writer/scripts/bft-html-export.py {md_path.name}"
+            "  (пересобрать страницу — без этого замечания придут повторно)",
+        ]
+        ship_cmd = f"/bft-deliver {epic_slug} --matrix"
+        ship_label = "Всё ок — отгружай матрицу в Confluence"
+        store_key = f"bft-matrix-comments-{epic_slug}"
+    else:
+        lint_status = run_lint(md_path)
+        prompt_head = f"Доработай БФТ-документ {md_path.name} с учётом следующей обратной связи по разделам:"
+        prompt_steps = [
+            f"python3 <skills_path>/bft-writer/scripts/bft-lint.py {md_path.name}"
+            "  (ненулевой код — исправить, документ с ошибками не сохранять)",
+            f"python3 <skills_path>/bft-writer/scripts/bft-html-export.py {md_path.name}"
+            "  (пересобрать страницу ревью — без этого замечания придут повторно)",
+        ]
+        ship_cmd = f"/bft-deliver {epic_slug}"
+        ship_label = "Всё ок — отгружай в Confluence/Jira"
+        store_key = f"bft-comments-{epic_slug}"
 
     # json.dumps, not str.replace with an f-string: epic_slug (frontmatter,
     # user-editable) and the filename can contain a `"`/`\`/newline, which
@@ -733,7 +889,13 @@ def main():
     doc_rev = hashlib.sha1(text.encode("utf-8")).hexdigest()[:12]
 
     scripts = SCRIPTS.replace(
-        "__STORE_KEY_JSON__", json.dumps(f"bft-comments-{epic_slug}")
+        "__STORE_KEY_JSON__", json.dumps(store_key)
+    ).replace(
+        "__PROMPT_HEAD_JSON__", json.dumps(prompt_head, ensure_ascii=False)
+    ).replace(
+        "__PROMPT_STEPS_JSON__", json.dumps(prompt_steps, ensure_ascii=False)
+    ).replace(
+        "__SHIP_CMD_JSON__", json.dumps(ship_cmd, ensure_ascii=False)
     ).replace(
         "__DOC_NAME_JSON__", json.dumps(md_path.name)
     ).replace(
@@ -742,11 +904,13 @@ def main():
         "__EPIC_JSON__", json.dumps(epic_slug)
     )
 
-    html_out = TEMPLATE_HEAD.format(title=htmlmod.escape(title), css=CSS)
+    if is_matrix:
+        scripts += MATRIX_FILTER_JS
+    html_out = TEMPLATE_HEAD.format(title=htmlmod.escape(title), css=CSS, ship_label=ship_label,
+                                    body_class="doc-matrix" if is_matrix else "doc-bft")
     html_out += body_html
     html_out += TEMPLATE_TAIL.format(doc_name=htmlmod.escape(md_path.name), lint_status=lint_status, scripts=scripts)
 
-    out_path = Path(args.output) if args.output else md_path.with_suffix(".html")
     out_path.write_text(html_out, encoding="utf-8")
     print(f"OK — записано {out_path}")
 
