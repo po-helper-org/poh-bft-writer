@@ -30,9 +30,8 @@ import type { ChatEvent } from '../chat-events.js'
 // hand-drawn inline SVG и локальных .btn/.btnOutline/.btnPrimary — см. Panel.tsx. IconCodeOutline16
 // для «нет документа»: наш документ требования — HTML-артефакт (links.html), а в наборе икон нет
 // прямого «пустой документ» глифа — код-иконка ближе всего к «здесь мог бы быть HTML» смыслу.
-import {
-  Button, IconChevronLeftOutline14, IconCodeOutline16, IconWarningOutline16,
-} from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconChevronLeftOutline14, IconCodeOutline16, IconWarningOutline16 } from './icons.js'
 import type { DocumentRole } from '../bft-reader.js'
 import type { RpcResult } from '../channel.js'
 import type { BftTask } from '../model.js'
@@ -44,6 +43,8 @@ import { buildContinueDraft, isHandoff } from './Preview.js'
 import { SessionSummary } from './SessionMark.js'
 import { describeSession, type LiveSession, type SessionView } from './session-view.js'
 import { STAGE_TONE } from './stage-tone.js'
+import { VoiceNoteSheet } from './VoiceNoteSheet.js'
+import { bindSections, formatNotes, loadNotes, saveNotes, type SectionBinding, type SectionNote } from './section-notes.js'
 
 export interface DetailPageProps {
   /** Идентификатор задачи — единственное, что страница получает о ней на входе. */
@@ -174,6 +175,20 @@ function fallbackMiniPrompt(task: BftTask, text: string): string {
   const lines = [`По БФТ ${task.id} «${task.title}»: ${text}`, `Стадия на доске: ${task.stage}.`]
   if (task.links.entire) lines.push(`Контекст прошлого захода: ${task.links.entire}`)
   return lines.join('\n')
+}
+
+/** Узкий экран — та же граница, что у мобильного блока стилей (Panel.styles.ts) и скина. */
+const MOBILE_QUERY = '(max-width: 768px)'
+
+function useIsMobile(): boolean {
+  const [mobile, setMobile] = useState(() => typeof window !== 'undefined' && window.matchMedia(MOBILE_QUERY).matches)
+  useEffect(() => {
+    const mq = window.matchMedia(MOBILE_QUERY)
+    const onChange = () => { setMobile(mq.matches) }
+    mq.addEventListener('change', onChange)
+    return () => { mq.removeEventListener('change', onChange) }
+  }, [])
+  return mobile
 }
 
 export function DetailPage({ id, t, getTask, findDocument, doc: initialDoc = 'requirement', getHandoff, openChatWithDraft, chat, sessionInfo, openSession, onBack, onClose }: DetailPageProps) {
@@ -400,7 +415,7 @@ export function DetailPage({ id, t, getTask, findDocument, doc: initialDoc = 're
    * — черновик создания узел соберёт сам, см. handoff). Чат выключен в профиле —
    * запасной путь в композер харнесса.
    */
-  const startRun = (task: BftTask, text: string, fallback: () => void) => {
+  const startRun = (task: BftTask, text: string, fallback: () => void, onStarted?: () => void) => {
     if (chatAvailable === false) {
       fallback()
       return
@@ -427,6 +442,7 @@ export function DetailPage({ id, t, getTask, findDocument, doc: initialDoc = 're
           return
         }
         setPromptText('')
+        onStarted?.()
         setChatRun({ runId, status: 'running', events: [], since: 0 })
         pollRun(runId, 0)
       })
@@ -451,6 +467,73 @@ export function DetailPage({ id, t, getTask, findDocument, doc: initialDoc = 're
   }
 
   const chatWorking = chatStarting || chatRun?.status === 'running'
+
+  // ——— Заметки к разделам и действия по документу ———
+  //
+  // Долгое нажатие на раздел документа → шторка голосовой заметки; заметки копятся по
+  // требованию (localStorage) и уходят в чат одним сообщением: «Отправить правки» — правка PO
+  // через handoff (узел выберет навык по составу артефактов), «Принять документ» — следующий
+  // шаг конвейера без правки, «Отменить» — сброс заметок.
+  const mobile = useIsMobile()
+  const [notes, setNotesState] = useState<SectionNote[]>(() => loadNotes(id))
+  const notesRef = useRef(notes)
+  notesRef.current = notes
+  const setNotes = (next: SectionNote[]) => {
+    notesRef.current = next
+    setNotesState(next)
+    saveNotes(id, next)
+  }
+  const [noteSection, setNoteSection] = useState<string | null>(null)
+  // Телефон: документ открывается поверх чата на весь экран; футер с действиями — в конце
+  // документа (после первой прокрутки до конца остаётся на месте: иначе он сам сжимал бы
+  // фрейм, уводя конец из вида, и мигал).
+  const [docOpen, setDocOpen] = useState(false)
+  const [footerShown, setFooterShown] = useState(false)
+  const bindingRef = useRef<SectionBinding | null>(null)
+  useEffect(() => () => { bindingRef.current?.dispose() }, [])
+  useEffect(() => { bindingRef.current?.mark(notes.map(note => note.section)) }, [notes])
+  useEffect(() => { if (!docOpen) setFooterShown(false) }, [docOpen])
+  // Пока агент правит документ, смотреть на него незачем: откроется уже обновлённым.
+  useEffect(() => { if (chatWorking) setDocOpen(false) }, [chatWorking])
+
+  const onFrameLoad = (frame: HTMLIFrameElement) => {
+    bindingRef.current?.dispose()
+    bindingRef.current = bindSections(frame, {
+      touch: mobile,
+      onLongPress: (section) => { setNoteSection(section) },
+      onAtEnd: (atEnd) => { if (atEnd) setFooterShown(true) },
+    })
+    bindingRef.current?.mark(notesRef.current.map(note => note.section))
+  }
+
+  const saveNote = (section: string, text: string) => {
+    setNotes([...notesRef.current.filter(note => note.section !== section), { section, text }])
+    setNoteSection(null)
+  }
+
+  const sendNotes = (task: BftTask) => {
+    if (notesRef.current.length === 0) return
+    const text = formatNotes(notesRef.current)
+    setDocOpen(false)
+    startRun(task, text, () => { setNotes([]); handoffToHarness(task, text) }, () => { setNotes([]) })
+  }
+
+  const acceptDocument = (task: BftTask) => {
+    setDocOpen(false)
+    startRun(task, '', () => { handoffToHarness(task, '') })
+  }
+
+  const docActions = (task: BftTask) => (
+    <DocActions
+      t={t}
+      notes={notes}
+      busy={chatWorking || chatPending}
+      onSend={() => { sendNotes(task) }}
+      onAccept={() => { acceptDocument(task) }}
+      onReset={() => { setNotes([]) }}
+      onEdit={(section) => { setNoteSection(section) }}
+    />
+  )
 
   return (
     <div className={css.detailPage}>
@@ -494,7 +577,92 @@ export function DetailPage({ id, t, getTask, findDocument, doc: initialDoc = 're
         </div>
       )}
 
-      {taskState.phase === 'ready' && (
+      {taskState.phase === 'ready' && mobile && (
+        <div className={css.mDetail}>
+          <div className={css.mDocCard}>
+            <span className={css.mDocIcon} aria-hidden="true"><IconCodeOutline16 size={16} /></span>
+            <div className={css.mDocText}>
+              <div className={css.mDocTitle}>
+                {t('detailDocTitle')}
+                <span className={css.groupDot} style={{ '--tone': STAGE_TONE[taskState.task.stage] } as CSSProperties} aria-hidden="true" />
+                <span className={css.mDocStage}>{taskState.task.stage}</span>
+              </div>
+              <div className={css.mDocSub} data-tone={chatWorking ? 'info' : notes.length > 0 ? 'warn' : undefined}>
+                {chatWorking
+                  ? t('detailDocUpdating')
+                  : docState.phase === 'missing'
+                    ? t('detailNoDocument')
+                    : docState.phase === 'loading'
+                      ? t('detailDocumentLoading')
+                      : docState.phase === 'error'
+                        ? docState.message
+                        : notes.length > 0
+                          ? `${t('detailNotesTitle')} · ${notes.length}`
+                          : t('detailDocReady')}
+              </div>
+            </div>
+            {docState.phase === 'missing'
+              ? (
+                <Button variant="primary" disabled={chatPending || chatWorking} onClick={() => { handleCreateDocument(taskState.task) }}>
+                  {t('detailCreateDocument')}
+                </Button>
+                )
+              : (
+                <Button variant="primary" disabled={chatWorking || docState.phase !== 'ready'} onClick={() => { setDocOpen(true) }}>
+                  {chatWorking && <span className={css.chatPulse} aria-hidden="true" />}
+                  {t('detailDocView')}
+                </Button>
+                )}
+            {chatWorking && <div className={css.docWorkingBar} aria-hidden="true" />}
+          </div>
+
+          <div className={css.mChat}>
+            <DetailChat
+              t={t}
+              available={chatAvailable}
+              run={chatRun}
+              starting={chatStarting || chatPending}
+              error={chatError}
+              promptText={promptText}
+              onPromptChange={setPromptText}
+              onSend={() => { handleMiniPrompt(taskState.task) }}
+              onStop={handleStop}
+              onOpenDetail={() => { loadTask(); loadDoc() }}
+              links={taskState.task.links}
+            />
+          </div>
+
+          {docOpen && docState.phase === 'ready' && (
+            <div className={css.mDoc}>
+              <div className={css.header}>
+                <button type="button" className={css.iconButton} aria-label={t('detailBackToChat')} onClick={() => { setDocOpen(false) }}>
+                  <IconChevronLeftOutline14 size={14} />
+                </button>
+                <h2>{t('detailDocTitle')}</h2>
+                {notes.length > 0 && (
+                  <button type="button" className={css.mNotesChip} aria-label={`${t('detailNotesTitle')}: ${notes.length}`} onClick={() => { setFooterShown(true); bindingRef.current?.scrollToEnd() }}>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5.5 11a6.5 6.5 0 0 0 13 0" /></svg>
+                    {notes.length}
+                  </button>
+                )}
+              </div>
+              <p className={css.mDocHint}>{t('detailNoteHint')}</p>
+              <div className={css.mDocFrame}>
+                <iframe
+                  className={css.detailFrame}
+                  title={t('detailDocumentFrameTitle')}
+                  srcDoc={docState.html}
+                  sandbox="allow-scripts allow-same-origin allow-popups"
+                  onLoad={(event) => { onFrameLoad(event.currentTarget) }}
+                />
+              </div>
+              {footerShown && docActions(taskState.task)}
+            </div>
+          )}
+        </div>
+      )}
+
+      {taskState.phase === 'ready' && !mobile && (
         <div className={css.detailBody}>
           <div className={css.detailLeft}>
             {docState.phase === 'missing' && (
@@ -546,8 +714,10 @@ export function DetailPage({ id, t, getTask, findDocument, doc: initialDoc = 're
                 title={t('detailDocumentFrameTitle')}
                 srcDoc={docState.html}
                 sandbox="allow-scripts allow-same-origin allow-popups"
+                onLoad={(event) => { onFrameLoad(event.currentTarget) }}
               />
             )}
+            {docState.phase === 'ready' && notes.length > 0 && docActions(taskState.task)}
             {chatWorking && (
               // Анимация проработки поверх документа, пока ход Claude Code идёт: документ
               // остаётся читаемым под полупрозрачной плёнкой, бегущая полоса сверху — что
@@ -583,6 +753,53 @@ export function DetailPage({ id, t, getTask, findDocument, doc: initialDoc = 're
           </DetailSidebar>
         </div>
       )}
+
+      {noteSection !== null && (
+        <VoiceNoteSheet
+          t={t}
+          section={noteSection}
+          initialText={notes.find(note => note.section === noteSection)?.text ?? ''}
+          onSave={(text) => { saveNote(noteSection, text) }}
+          onCancel={() => { setNoteSection(null) }}
+        />
+      )}
+    </div>
+  )
+}
+
+/**
+ * Действия по документу: заметки к правке и три кнопки. На телефоне — футер в конце
+ * документа, на широком экране — полоса под документом, пока есть заметки.
+ */
+function DocActions({ t, notes, busy, onSend, onAccept, onReset, onEdit }: {
+  t: (key: BftLocaleKey) => string
+  notes: readonly SectionNote[]
+  busy: boolean
+  onSend: () => void
+  onAccept: () => void
+  onReset: () => void
+  onEdit: (section: string) => void
+}) {
+  return (
+    <div className={css.docActions}>
+      {notes.length > 0 && (
+        <div className={css.docNotes}>
+          <div className={css.docNotesTitle}>{t('detailNotesTitle')} · {notes.length}</div>
+          {notes.map(note => (
+            <button key={note.section} type="button" className={css.docNote} onClick={() => { onEdit(note.section) }}>
+              <span className={css.docNoteSection}>{note.section}</span>
+              <span className={css.docNoteText}>{note.text}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      <div className={css.docActionButtons}>
+        <Button variant="primary" disabled={busy || notes.length === 0} onClick={onSend}>
+          {notes.length > 0 ? `${t('detailSendNotes')} · ${notes.length}` : t('detailSendNotes')}
+        </Button>
+        <Button variant="outline" disabled={busy} onClick={onAccept}>{t('detailAcceptDocument')}</Button>
+        <button type="button" className={css.docReset} disabled={notes.length === 0} onClick={onReset}>{t('detailResetNotes')}</button>
+      </div>
     </div>
   )
 }

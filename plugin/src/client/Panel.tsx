@@ -30,10 +30,8 @@ import type { PropsStore } from '@deepseek-ai/dsh-client-store'
 // IconArchiveOutline20 — «пусто»/«ничего не найдено» (архивная коробка, ближайшее совпадение
 // из полного набора icons/index.tsx — точного «empty state» глифа там нет, см. отчёт задачи).
 // IconRefreshOutline16 и IconSearchOutline16/IconCloseOutline16 — прямое совпадение по смыслу.
-import {
-  Button, IconArchiveOutline20, IconCloseOutline16, IconPlusOutline16, IconRefreshOutline16,
-  IconSearchOutline16, IconWarningOutline16,
-} from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconArchiveOutline20, IconCloseOutline16, IconPlusOutline16, IconRefreshOutline16, IconSearchOutline16, IconWarningOutline16 } from './icons.js'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { DocumentRole } from '../bft-reader.js'
 import type { RpcResult } from '../channel.js'

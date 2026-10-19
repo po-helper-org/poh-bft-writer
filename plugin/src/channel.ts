@@ -14,6 +14,9 @@ import { parseOkrHandoff } from './okr-handoff.js'
 
 export const BFT_CHANNEL = '/bft'
 
+/** Все подкоманды канала — по ним ядро 0.1.7+ получает маршруты `/api/bft.<подкоманда>`. */
+export const BFT_ENDPOINTS: readonly string[] = ['list', 'task', 'document', 'findDocument', 'handoff', 'worklog', 'attachSession', 'sessionWorkspace', 'finishWork', 'chatStart', 'chatPoll', 'chatStop', 'chatStatus', 'addToOkr']
+
 export type RpcResult<T> =
   | { ok: true; value: T }
   | { ok: false; error: { code: string; message: string; details: object } }

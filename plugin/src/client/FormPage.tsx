@@ -12,9 +12,8 @@
  * что данные уже в списке, нельзя — между формой и списком стоят таблица и разбор агентом.
  */
 import { useEffect, useRef, useState } from 'react'
-import {
-  Button, IconChevronLeftOutline14, IconCloseOutline16, IconWarningOutline16,
-} from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconChevronLeftOutline14, IconCloseOutline16, IconWarningOutline16 } from './icons.js'
 import type { BftLocaleKey } from './locales.js'
 import { panelClassNames as css } from './Panel.styles.js'
 

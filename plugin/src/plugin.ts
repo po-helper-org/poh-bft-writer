@@ -9,7 +9,8 @@
  */
 import z from '@deepseek-ai/schemastery'
 import { BftReader } from './bft-reader.js'
-import { BFT_CHANNEL, dispatch, type RpcResult } from './channel.js'
+import { BFT_CHANNEL, BFT_ENDPOINTS, dispatch, type RpcResult } from './channel.js'
+import { bftFetchRoute, type BftFetchRoute } from './api-route.js'
 import { toBftConfig, type PluginConfig } from './plugin-config.js'
 import { BFT_SETTINGS_NS, DEFAULT_SYNC_PROMPT, type BftSettings } from './settings.js'
 
@@ -24,6 +25,8 @@ interface ConnectionLike {
       options?: { authority?: string },
     ) => () => Promise<void> | void
   }
+  /** Ядро 0.1.7+: точные маршруты на общем канале `/api` (см. src/api-route.ts). */
+  fetch?: { register: (route: BftFetchRoute) => () => Promise<void> | void }
 }
 
 interface HarnessContext {
@@ -81,6 +84,35 @@ const Settings: z<BftSettings> = z.object({
 })
 
 /**
+ * Схема строки профиля `bft-requirements`.
+ *
+ * Ядро 0.1.7 убрало `settings.register`: настройки, которые PO правит из интерфейса, теперь —
+ * поля Config самого плагина, помеченные `.volatile()`; служба настроек отдаёт их форме по id
+ * записи профиля и пишет правки в cordis.patch.yml профиля. Поэтому Config объявляет ВСЕ поля
+ * строки: схема schemastery отбрасывает незнакомые ключи, и неописанный `workspaceRoot` пропал
+ * бы из конфига ещё до apply(). Полей без умолчаний здесь нарочно нет (кроме трёх настроек PO):
+ * пустое значение по-прежнему означает «взять из окружения» (toBftConfig).
+ */
+export const Config: z<PluginConfig & BftSettings> = z.object({
+  workspaceRoot: z.string(),
+  docsPath: z.string(),
+  indexPath: z.string(),
+  taskType: z.string(),
+  backlogBin: z.string(),
+  entireBaseUrl: z.string(),
+  entireBranchUrl: z.string(),
+  entireRequired: z.boolean(),
+  sessionPath: z.string(),
+  skillsPath: z.string(),
+  claudeBin: z.string(),
+  claudeArgs: z.union([z.array(z.string()), z.string()]),
+  formUrl: z.string().default('').volatile(),
+  // Слой окружения — умолчание схемы: очистка поля в форме возвращает адрес из окружения.
+  sheetUrl: z.string().default(process.env.BFT_INITIATIVES_SHEET_URL?.trim() ?? '').volatile(),
+  syncPrompt: z.string().default(DEFAULT_SYNC_PROMPT).volatile(),
+}) as unknown as z<PluginConfig & BftSettings>
+
+/**
  * Поднимает раздел требований.
  *
  * Служба соединения берётся отложенной инъекцией, а не жёстким требованием:
@@ -96,6 +128,16 @@ export function apply(ctx: HarnessContext, config: PluginConfig): void {
 
   ctx.inject(['connection'], (scoped: HarnessContext) => {
     const connection = scoped.get('connection') as ConnectionLike
+    // Ядро 0.1.7+: маршрут на каждую подкоманду, см. src/api-route.ts.
+    const register = connection.fetch?.register
+    if (typeof register === 'function') {
+      const handler = (endpoint: string, payload: unknown) => dispatch(reader, endpoint, payload)
+      for (const endpoint of BFT_ENDPOINTS) {
+        scoped.effect(() => register(bftFetchRoute(endpoint, handler)), `poh-bft-plugin: /api/bft.${endpoint}`)
+      }
+      return
+    }
+    // Ядро 0.1.2: собственный канал /bft.
     scoped.effect(
       () => connection.rpc.handle(
         BFT_CHANNEL,
@@ -168,7 +210,9 @@ export function apply(ctx: HarnessContext, config: PluginConfig): void {
   // env» нигде нет: это слоение делает сама служба настроек.
   const sheetFromEnv = process.env.BFT_INITIATIVES_SHEET_URL?.trim()
   ctx.inject(['settings'], (scoped: HarnessContext) => {
-    const settings = scoped.get('settings') as SettingsLike
+    const settings = scoped.get('settings') as Partial<SettingsLike>
+    // Ядро 0.1.7+: регистрации нет, поля формы — volatile-поля Config (см. выше).
+    if (typeof settings.register !== 'function') return
     settings.register(BFT_SETTINGS_NS, Settings, sheetFromEnv ? { base: { sheetUrl: sheetFromEnv } } : {})
   })
 }
