@@ -168,13 +168,14 @@ DSH_HOME="$PWD/.dsh-data" pnpm dsh web --no-open --port 3082
 2. В левом меню внизу — кнопка **«Управление требованиями»**.
 3. По ней открывается сайдбар: поиск и группы по стадиям, ближе к финалу выше.
 4. Внизу сайдбара — **«Открыть доску требований»**, она открывает полноэкранную
-   доску со всеми семью колонками (`To Do`, `NEED-CUSTDEV`, `FAST-DONE`,
-   `DEEP-REVIEW`, `DEEP-DONE`, `OKR-ADDED`, `BFT-CANCELED`). Все семь должны
-   быть в `backlog/config.yml → statuses` воркспейса — иначе `task edit -s`
-   с новой стадией отвечает «Invalid status», и «Добавить в OKR» откажет:
+   доску со всеми девятью колонками (`To Do`, `NEED-CUSTDEV`, `FAST-DONE`,
+   `DEEP-REVIEW`, `DEEP-DONE`, `OKR-ADDED`, `OKR-DONE`, `OKR-VLET`,
+   `BFT-CANCELED`). Все девять должны быть в `backlog/config.yml → statuses`
+   воркспейса — иначе `task edit -s` с новой стадией отвечает «Invalid status»,
+   и «Добавить в OKR», «Оформить влётом», «Готово» и «Отказ» откажут:
 
    ```yaml
-   statuses: ["To Do", "NEED-CUSTDEV", "FAST-DONE", "DEEP-REVIEW", "DEEP-DONE", "OKR-ADDED", "BFT-CANCELED"]
+   statuses: ["To Do", "NEED-CUSTDEV", "FAST-DONE", "DEEP-REVIEW", "DEEP-DONE", "OKR-ADDED", "OKR-DONE", "OKR-VLET", "BFT-CANCELED"]
    ```
 
    Статусы других типов задач (`In Progress`, `Done`, …) оставь рядом — список

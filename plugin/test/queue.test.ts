@@ -14,6 +14,8 @@ const TASKS = [
   task('PO-2', 'BFT-CANCELED', 'Отменено'),
   task('PO-3', 'OKR-ADDED', 'В квартальном плане'),
   task('PO-8', 'NEED-CUSTDEV', 'Нужно интервью'),
+  task('PO-4', 'OKR-DONE', 'Реализовано'),
+  task('PO-5', 'OKR-VLET', 'Влётом'),
 ]
 
 test('очередь идёт от почти готового к нетронутому', () => {
@@ -24,15 +26,15 @@ test('пустые стадии в панели не показываются', 
   assert.deepEqual(queueGroups([task('PO-7', 'To Do')]).map(g => g.stage), ['To Do'])
 })
 
-test('завершённые, переданные в OKR и отменённые в счётчик очереди не идут', () => {
+test('завершённые, переданные в OKR, реализованные, влетевшие и отменённые в счётчик очереди не идут', () => {
   assert.equal(queueSize(TASKS), 4)
 })
 
 test('доска сохраняет пустые колонки — «сюда ничего не дошло» тоже смысл', () => {
   const columns = boardColumns([task('PO-7', 'To Do')])
-  assert.equal(columns.length, 7)
+  assert.equal(columns.length, 9)
   assert.deepEqual(columns.map(c => c.stage),
-    ['To Do', 'NEED-CUSTDEV', 'FAST-DONE', 'DEEP-REVIEW', 'DEEP-DONE', 'OKR-ADDED', 'BFT-CANCELED'])
+    ['To Do', 'NEED-CUSTDEV', 'FAST-DONE', 'DEEP-REVIEW', 'DEEP-DONE', 'OKR-ADDED', 'OKR-DONE', 'OKR-VLET', 'BFT-CANCELED'])
   assert.deepEqual(columns.find(c => c.stage === 'DEEP-REVIEW')?.tasks, [])
 })
 

@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
+import { readFileSync } from 'node:fs'
 import { BftReader } from '../src/bft-reader.js'
-import { dispatch } from '../src/channel.js'
+import { BFT_ENDPOINTS, dispatch } from '../src/channel.js'
 import { loadConfig } from '../src/config.js'
 import type { BftPorts } from '../src/ports.js'
 
@@ -84,6 +85,28 @@ test('вид документа проверяется на проводе, а �
   assert.equal(old.ok, true)
 })
 
+test('переход с доски: плохая форма — bad-request словами, отказ доски — свой код', async () => {
+  const noId = await dispatch(reader(), 'transition', { kind: 'vlet' })
+  assert.deepEqual(noId, { ok: false, error: { code: 'bad-request', message: 'не передан идентификатор требования', details: {} } })
+
+  const noWho = await dispatch(reader(), 'transition', { id: 'alpha', kind: 'cancel', comment: 'закрыто' })
+  assert.equal(noWho.ok, false)
+  assert.equal((noWho as { error: { message: string } }).error.message, 'укажите, кто отменил')
+
+  // Доска в этой подделке выключена (runCommand отвечает -1) — отказ приходит своим кодом.
+  const noBoard = await dispatch(reader(), 'transition', { id: 'alpha', kind: 'vlet' })
+  assert.equal(noBoard.ok, false)
+  assert.equal((noBoard as { error: { code: string } }).error.code, 'stage-transition-failed')
+})
+
+test('снимок каталога отдаётся значением', async () => {
+  const result = await dispatch(reader(), 'catalog', {})
+  assert.equal(result.ok, true)
+  const value = (result as { value: { at: string; rows: Array<{ id: string }> } }).value
+  assert.equal(value.rows.length, 1)
+  assert.equal(value.rows[0].id, 'alpha')
+})
+
 test('добавить в OKR: плохая форма — bad-request словами, отказ доски — свой код', async () => {
   const noId = await dispatch(reader(), 'addToOkr', { confluence: 'https://c', epic: 'https://j', quarter: '2026-Q4' })
   assert.deepEqual(noId, { ok: false, error: { code: 'bad-request', message: 'не передан идентификатор требования', details: {} } })
@@ -138,4 +161,11 @@ test('чат Claude Code: ход, опрос, неизвестный ход — 
   assert.equal((poll as { value: { events: unknown[] } }).value.events.length, 1)
   assert.equal((await dispatch(r, 'chatPoll', { runId: 'nope', since: 0 }) as { error: { code: string } }).error.code, 'chat-run-not-found')
   assert.deepEqual(await dispatch(r, 'chatStop', { runId }), { ok: true, value: true })
+})
+
+test('каждая подкоманда канала есть в списке маршрутов /api (ядро 0.1.7+)', () => {
+  // иначе на 0.1.7 подкоманда не получит маршрут и браузер увидит 405
+  const src = readFileSync(new URL('../../src/channel.ts', import.meta.url), 'utf8')
+  const cases = [...src.matchAll(/case '(\w+)'/g)].map((m) => m[1]).filter((c) => !['internal'].includes(c))
+  for (const c of cases) assert.ok(BFT_ENDPOINTS.includes(c), `нет в BFT_ENDPOINTS: ${c}`)
 })
