@@ -74,7 +74,8 @@ description: "Service Blueprint по БФТ в два согласуемых э�
    6. *цепочка* — что процесс получает и кому отдаёт: ID процессов или событие текстом.
    7. *вопросы* — каждый `[УТОЧНИТЬ у …]` из БФТ по задачам и процессам: «Кому», «Где», тип `вопрос` или `блокер`.
    8. *требования к экранам* — на каждый экран истории файл `screens/<ID>.md` рядом с картой (`resources/screen_notes.md`). Вкладки Product (job stories), Design (где, главное, куда дальше, ограничения), Functions (сценарии Gherkin, включая отказы и «что если» из БФТ). Одна заметка — одно требование, коротко, с «Источник:». Неизвестное — `[УТОЧНИТЬ у …]`.
-   9. *emit* — сохрани `<epic>-map.md` и прогони:
+   9. *постановки задач* — на каждую задачу «Что делаем» файл `tasks/<ID>.md` (`resources/task_brief.md`). Разделы: ASIS, GAP, TOBE, HowToDemo (нумерованный E2E-сценарий), «Чеклист приемки» (`- [ ]`), «Дополнительно». Требования и вопросы задачи страница добавит сама.
+   10. *emit* — сохрани `<epic>-map.md` и прогони:
       ```bash
       python3 <skills_path>/bft-blueprint/scripts/bft-map-lint.py <docs_path>/<epic>/<epic>-map.md
       python3 <skills_path>/bft-writer/scripts/bft-style-lint.py <docs_path>/<epic>/<epic>-map.md
@@ -95,6 +96,7 @@ description: "Service Blueprint по БФТ в два согласуемых э�
 
 - `resources/story_line.md` — стандарт истории; `resources/story_interview.md` — вопросы к PO на этапе истории.
 - `resources/map_rules.md` — стандарт карты: слои, задача, процесс, схема, критерии, цепочка, вопросы, проверка перед показом.
+- `resources/task_brief.md` — постановка задачи для техлида: файл `tasks/<ID>.md`, ASIS, GAP, TOBE, HowToDemo, чеклист приемки, коды `TK`.
 - `resources/screen_notes.md` — требования к экранам для дизайнера: файл `screens/<ID>.md`, вкладки Product, Design, Functions, коды `SN`.
 - `resources/diagram_dsl.md` — схемы как код: грамматика блоков `seq` и `idef0`, коды `DG`, путь блока в карту.
 - `resources/document_assembly.md` — форма файлов `-story.md`, `-map.md` и прежнего `-blueprint.md`.

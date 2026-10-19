@@ -30,6 +30,7 @@ import bft_blueprint as bb  # noqa: E402
 import bft_story as bs  # noqa: E402
 import diagram_dsl as dd  # noqa: E402
 import bft_screens as bsn  # noqa: E402
+import bft_tasks as btk  # noqa: E402
 
 REQUIRED_FRONTMATTER = (
     "epic_slug", "stage", "story_doc", "source_doc", "source_stage", "source_rev", "version", "revised", "status",
@@ -184,6 +185,7 @@ class Map:
     questions: list[Question] = field(default_factory=list)
     issues: list[bb.Issue] = field(default_factory=list)
     screens: dict = field(default_factory=dict)  # требования к экранам: {ID: bsn.ScreenDoc}
+    briefs: dict = field(default_factory=dict)   # постановки задач: {ID: btk.TaskDoc}
 
     def err(self, line: int, code: str, msg: str) -> None:
         self.issues.append(bb.Issue(line, "ERROR", code, msg))
@@ -447,4 +449,8 @@ def parse(path: Path) -> Map:
     if mp.story:
         mp.screens, sn_issues = bsn.check(path, {sc.id for sc in mp.story.screens})
         mp.issues.extend(sn_issues)
+
+    # Постановки задач для техлида — tasks/<ID>.md рядом с картой
+    mp.briefs, tk_issues = btk.check(path, task_ids)
+    mp.issues.extend(tk_issues)
     return mp

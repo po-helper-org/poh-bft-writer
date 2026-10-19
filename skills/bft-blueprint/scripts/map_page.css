@@ -69,7 +69,7 @@ body.mopen .menu{transform:none}body.mopen .mscrim{opacity:1;pointer-events:auto
 .hdown{position:absolute;left:50%;bottom:10px;transform:translateX(-50%);font-size:13px;font-weight:600;color:#55524c;text-decoration:none;background:#fff;border:1px solid var(--line);border-radius:999px;padding:6px 14px}
 .hdown:hover{color:var(--ink);box-shadow:0 4px 14px rgba(0,0,0,.08)}
 /* карта */
-.wrap{overflow:auto;background:var(--soft)}
+.wrap{height:100vh;overflow:auto;background:var(--soft);overscroll-behavior:contain}
 .map{position:relative;display:grid;background:var(--soft)}
 .map>div{padding:10px 8px}
 .mh{position:sticky;top:0;z-index:4;background:var(--soft);display:flex;align-items:baseline;gap:8px;padding:16px 10px 10px!important}
@@ -229,3 +229,12 @@ body.showing .show{display:flex}body.showing{overflow:hidden}
 .zoombox figcaption{color:#e8e5df;font-size:14px;text-transform:none;letter-spacing:0;font-weight:500}
 .zoombox .nv,.zoombox .lx{position:absolute;border:0;background:rgba(255,255,255,.12);color:#fff;border-radius:50%;width:44px;height:44px;font-size:24px;cursor:pointer}
 .zoombox .p{left:24px;top:50%}.zoombox .n{right:24px;top:50%}.zoombox .lx{right:20px;top:20px}
+/* постановка задачи для техлида */
+.tkmeta{font-size:13px;color:var(--muted);margin-bottom:6px}.tkmeta .pteam{font-weight:600;color:var(--ink)}
+.tk{padding:14px 0;border-bottom:1px solid #eeebe5}.tk:last-child{border-bottom:0}
+.side .tk h4{margin:0 0 6px;font-size:13px;font-weight:600;letter-spacing:0;text-transform:none;color:#8a857c}
+.tk p{margin:0 0 8px;line-height:1.6}.tk ol,.tk ul{margin:0;padding-left:20px;line-height:1.6}.tk li{margin:3px 0}
+.dod{display:flex;gap:10px;align-items:flex-start;padding:5px 0;line-height:1.5;cursor:pointer}.dod input{margin-top:3px;width:16px;height:16px;accent-color:var(--story)}
+.dod input:checked+span{color:#8a857c;text-decoration:line-through}
+.tkreq{font-size:13px;color:#8a857c}.tkq{list-style:none;padding:0!important}.tkq li{font-size:14px}.tkq li span{color:#8a857c}.tkq li.b b{color:var(--red)}
+.tkno{color:var(--muted);font-size:14px}

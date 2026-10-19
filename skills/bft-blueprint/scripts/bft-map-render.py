@@ -122,6 +122,7 @@ def model(mp: bm.Map) -> dict:
         "seen": seen, "story": story,
         "screens": {sc.id: {"contour": sc.contour, "device": sc.device, "view": sc.view, "el": sc.elements} for sc in st.screens},
         "notes": {sid: bsn.page_md(doc) for sid, doc in sorted(mp.screens.items())},
+        "briefs": {tid: {k: v[1] for k, v in doc.sections.items()} for tid, doc in sorted(mp.briefs.items())},
         "storyQuestions": [{"id": q.id, "to": q.to, "text": q.text, "where": q.where} for q in st.questions if q.open],
         "teams": teams, "tasks": tasks, "processes": procs,
         "parts": {p.id: [p.name, p.kind] for p in mp.parts},

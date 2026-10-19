@@ -35,6 +35,7 @@
   MP026  БФТ изменился после сборки (`source_rev` не совпадает)
   MP027  число не найдено ни в БФТ, ни в ответах на вопросы
   MP028  процесс без связей в «Цепочке» — не видно, что до и что после
+  TK0xx  постановки задач `tasks/<ID>.md` — `bft_tasks.py`, `resources/task_brief.md`
   SN0xx  требования к экранам `screens/<ID>.md` — `bft_screens.py`, `resources/screen_notes.md`
 
 Использование:
@@ -113,6 +114,10 @@ def check(mp: bm.Map, source: Path | None, no_source: bool) -> None:
                 mp.err(line, "MP016", f"{owner}: {rid} нет в БФТ {source.name}")
             else:
                 cited.add(rid)
+    for d in mp.briefs.values():
+        for rid in bb.REQ_RE.findall(d.text):
+            if rid not in reqs:
+                mp.issues.append(bb.Issue(1, "ERROR", "MP016", f"постановка {d.id}: {rid} нет в БФТ {source.name}", f"tasks/{d.id}.md"))
     for d in mp.screens.values():
         for x in d.notes:
             for rid in bb.REQ_RE.findall(x.md):
@@ -175,7 +180,7 @@ def main() -> int:
     for q in blockers:
         print(f"  блокер {q.id} → {q.to}: {q.text}")
     print(f"map-lint: {len(mp.tasks)} задач, {len(mp.processes)} процессов, {len(mp.steps)} шагов схем, "
-          f"{len(mp.screens)} экранов с требованиями, "
+          f"{len(mp.briefs)} постановок задач, {len(mp.screens)} экранов с требованиями, "
           f"открытых вопросов {sum(q.open for q in mp.questions)} (блокеров {len(blockers)}) — ошибок {errors}, предупреждений {warns}")
     return 1 if errors or (args.strict and warns) else 0
 

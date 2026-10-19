@@ -121,12 +121,13 @@
   }
   Object.keys(D.notes || {}).forEach(id => { SCR[id] = parseNotes(D.notes[id]); NOTE_OF[id] = id; SCR[id].images.forEach(im => { const k = im.src.replace(/^screen:/, ""); if (im.src.startsWith("screen:") && !NOTE_OF[k]) NOTE_OF[k] = id }) });
   const imgSrc = s => s.startsWith("screen:") && D.screens[s.slice(7)] ? screenImg(s.slice(7)) : s;
-  const mdInline = s => esc(s).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/\*(.+?)\*/g, "<i>$1</i>").replace(/\[УТОЧНИТЬ у ([^\]]+)\]/g, '<mark>? $1</mark>');
+  const mdInline = s => esc(s).replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>').replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/\*(.+?)\*/g, "<i>$1</i>").replace(/\[УТОЧНИТЬ у ([^\]]+)\]/g, '<mark>? $1</mark>');
   function mdHTML(text) {
     let k = -1;
     return text.split(/\n{2,}/).map(block => {
       const lines = block.split("\n"), im = block.trim().match(IMG_MD);
       if (im) { k++; return `<figure><img src="${esc(imgSrc(im[2]))}" alt="${esc(im[1])}" data-zoom="${k}"><figcaption>${esc(im[1])}</figcaption></figure>` }
+      if (lines.every(l => /^\d+\.\s/.test(l))) return `<ol>${lines.map(l => `<li>${mdInline(l.replace(/^\d+\.\s+/, ""))}</li>`).join("")}</ol>`;
       if (lines.every(l => /^[-*] /.test(l))) return `<ul>${lines.map(l => `<li>${mdInline(l.slice(2))}</li>`).join("")}</ul>`;
       if (/^Источник:/.test(block)) return `<p class="snsrc">${mdInline(block)}</p>`;
       return `<p>${lines.map(mdInline).join("<br>")}</p>`;
@@ -235,15 +236,25 @@
     openSide(p.name, "#2f6b2a", col.name, `${esc(p.lane)} · ${s.steps.length} ${s.steps.length === 1 ? "шаг" : "шага"}`, html);
   }
 
+  /* задача «Что делаем» — постановка для техлида из tasks/<ID>.md: ASIS, GAP, TOBE, HowToDemo,
+     чеклист приемки, дополнительно; требования БФТ и открытые вопросы задачи добавляются из карты */
+  const dodKey = id => `bp-dod-${D.epic}-${id}`;
   function openTask(id) {
-    const t = TASK[id], procs = D.processes.filter(p => p.task === id);
-    let x = `<h4>Зачем</h4><div class="why">${esc(t.why)}</div>`;
-    const qs = qOf(id); if (qs.length) x += `<h4>Что не решено</h4>${qHTML(qs)}`;
-    if (procs.length) x += `<h4>Как это работает</h4><div class="chips2">${procs.map(p => chainChip(p.id, LAYER[p.layer][0])).join("")}</div>`;
-    const fd = idefOf(t); if (fd) x += `<h4>IDEF0 ${fd.local ? LOCAL : ""}</h4>${idefHTML(t, fd, "t")}`;
-    x += `<h4>Требования БФТ</h4><div class="reqs">${t.reqs.map(r => `<span>${r}</span>`).join("")}</div>`;
-    openSide(teamN(t), teamC(t), t.text, `задача ${t.id} · ${esc(COLS[colOf(t.stage)].name)} · ${esc(t.status)}`, x);
+    const t = TASK[id], br = (D.briefs || {})[id] || {}, qs = [...qOf(id), ...D.processes.filter(p => p.task === id).flatMap(p => qOf(p.id))];
+    let done = {}; try { done = JSON.parse(localStorage.getItem(dodKey(id)) || "{}") } catch (e) { }
+    let k = -1;
+    const sec = (name, html) => html ? `<section class="tk"><h4>${name}</h4>${html}</section>` : "";
+    const extra = [br["Дополнительно"] ? mdHTML(br["Дополнительно"]) : "",
+      t.reqs.length ? `<p class="tkreq">Требования БФТ: ${t.reqs.map(esc).join(", ")}</p>` : "",
+      qs.length ? `<ul class="tkq">${[...new Map(qs.map(q => [q.text, q])).values()].map(q => `<li class="${q.kind === "блокер" ? "b" : ""}">${q.kind === "блокер" ? "<b>Блокер.</b> " : ""}${esc(q.text)} <span>— ${esc(q.to)}</span></li>`).join("")}</ul>` : ""].join("");
+    const dod = (br["Чеклист приемки"] || "").split("\n").map(l => l.trim().match(/^[-*]\s+\[([ xX])\]\s+(.*)$/)).filter(Boolean)
+      .map(m => { k++; return `<label class="dod"><input type="checkbox" data-dod="${id}:${k}"${done[k] || m[1] !== " " ? " checked" : ""}><span>${mdInline(m[2])}</span></label>` }).join("");
+    const html = br.ASIS ? sec("ASIS", mdHTML(br.ASIS)) + sec("GAP", mdHTML(br.GAP || "")) + sec("TOBE", mdHTML(br.TOBE || "")) + sec("HowToDemo", mdHTML(br.HowToDemo || "")) + sec("Чеклист приемки", dod) + sec("Дополнительно", extra)
+      : `<p class="tkno">Постановки нет — tasks/${esc(id)}.md</p>` + sec("Дополнительно", extra);
+    side.innerHTML = `<div class="snbar"><h3>${esc(t.text)}</h3><button class="x" aria-label="Закрыть">×</button></div><div class="snbody"><div class="tkmeta"><span class="pteam" style="--c:${teamC(t)}"><i></i>${esc(teamN(t))}</span> · ${esc(COLS[colOf(t.stage)].name)} · задача ${esc(t.id)}</div>${html}</div>`;
+    body.classList.remove("wide"); body.classList.add("open"); side.scrollTop = 0;
   }
+
 
   /* цепочка процесса: что до и что после */
   function chainChip(id, lab) {
@@ -480,6 +491,11 @@ ${cur}
     const scr = t.closest("[data-screens]");
     if (scr) { const ids = scr.dataset.screens.split(","), pic = scr.querySelector(".pic"), now = ids[+(pic && pic.dataset.i) || 0]; return openScreen(NOTE_OF[now] ? now : ids.find(id => NOTE_OF[id]), 0) }
     const sn = t.closest("[data-seen]"); if (sn) return openSeen(sn.dataset.seen);
+  });
+  document.addEventListener("change", e => {
+    const c = e.target.closest && e.target.closest("[data-dod]"); if (!c) return;
+    const [id, k] = c.dataset.dod.split(":"); let d = {}; try { d = JSON.parse(localStorage.getItem(dodKey(id)) || "{}") } catch (er) { }
+    d[k] = c.checked; try { localStorage.setItem(dodKey(id), JSON.stringify(d)) } catch (er) { }
   });
   document.addEventListener("keydown", e => {
     if (body.classList.contains("showing")) { if (e.key === "ArrowRight") stepShow(1); else if (e.key === "ArrowLeft") stepShow(-1); else if (e.key === "Escape") body.classList.remove("showing"); return }
