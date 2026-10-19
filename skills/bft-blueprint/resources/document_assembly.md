@@ -12,7 +12,7 @@
 | `<epic_slug>-story.html` | страница истории: ряды персонажей слева направо, подробности шага, рассказ по шагам, открытые вопросы | `bft-story-render.py` |
 | `<epic_slug>-blueprint/` | карта инициативы — проект Backlog.md, источник правды: задачи «Что делаем», карточки «Как это работает», документы «Карта», «История», требования к экранам (`resources/backlog_rules.md`) | ты, через CLI `backlog` |
 | `<epic_slug>-map.html` | страница карты: что видят, что делаем, как это работает; постановки задач, карточки, требования к экранам, замечания | `bft-backlog-build.py` |
-| `<epic_slug>-blueprint.zip` | автономный проект: папка Backlog.md, страница и `.blueprint/` со скриптами и правилами | `bft-backlog-build.py` |
+| `<epic_slug>-blueprint.zip` | автономная папка проекта целиком и страница `blueprint.html` | `bft-backlog-build.py` |
 | `<epic_slug>-blueprint.md` | прежняя слоевая схема (режим `--layers`) | ты |
 | `<epic_slug>-blueprint.html` | страница ревью: образ результата, диаграмма, «что реализовать по слоям», покрытие требований, список `[УТОЧНИТЬ]` | `bft-blueprint-render.py` |
 | `<epic_slug>-blueprint.svg` | диаграмма отдельной картинкой для Confluence | `bft-blueprint-render.py` |
@@ -125,13 +125,15 @@ python3 <skills_path>/bft-blueprint/scripts/bft-story-render.py <docs_path>/<epi
 
 ```
 <epic_slug>-blueprint/
-  README.md, CLAUDE.md, AGENTS.md          инструкции Backlog.md и блок «Service Blueprint»
+  README.md, CLAUDE.md, AGENTS.md, GEMINI.md   инструкции агенту: что где лежит, правила, команды
+  backlog.py, blueprint.py                 встроенный CLI Backlog.md и сборка: только python3
+  .blueprint/scripts, .blueprint/rules     скрипты сборки и правила карты; .claude/settings.json — разрешения
   backlog/config.yml                       task_prefix: "bp"
   backlog/docs/doc-1 - Карта.md            <!-- bft-map паспорт -->, «Команды», «Вопросы»
   backlog/docs/doc-2 - История.md          <!-- bft-story frontmatter истории -->, история целиком
   backlog/docs/screens/doc-N - F3 · ….md   требования к экрану (resources/screen_notes.md)
   backlog/tasks/bp-N - ….md                «Что делаем»: stage:…, вид, @команда, постановка, критерии приемки
-  backlog/tasks/bp-N.M - ….md              «Как это работает»: stage:…, layer:…, суть, Параметры, IDEF0, HowToDemo
+  backlog/tasks/bp-N.M - ….md              «Как это работает»: stage:…, layer:…, суть, UserStory, JobStory, Параметры, Процесс, BPMN, HowToDemo
 ```
 
 Паспорт «Карты» — семь ключей: `epic_slug`, `source_doc`, `source_stage`, `source_rev`, `version`, `revised`, `status`.

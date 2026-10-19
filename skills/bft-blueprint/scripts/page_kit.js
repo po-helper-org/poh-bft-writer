@@ -1,6 +1,6 @@
 /* bft-blueprint · общий набор страницы: упрощённый экран, контуры, экранирование.
    Подключается перед story_page.js и map_page.js — экраны на истории и на карте рисуются одинаково;
-   здесь же IDEF0 карточки «Как это работает». */
+   здесь же схема BPMN карточки «Как это работает». */
 const BPK = (function () {
   "use strict";
   const esc = s => String(s == null ? "" : s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -59,25 +59,71 @@ const BPK = (function () {
     const alt = t.view === "альтернативный" ? `<rect x="1" y="1" width="${W - 2}" height="${H - 2}" rx="${t.device === "web" || t.device === "mail" ? 10 : 22}" fill="none" stroke="#c0392b" stroke-width="2.2"/>` : "";
     return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(label)}">${frame}${out}${alt}</svg>`;
   }
-  /* ---------- IDEF0 карточки «Как это работает»: функция A0 и четыре стороны ---------- */
+  /* ---------- BPMN карточки «Как это работает»: дорожка — участник, слева направо — шаги ----------
+     Процесс — список из bft_backlog.parse_process: {t:"task", lane, text} и {t:"xor", q, br:[{label, lane, text} | {label, end}]}.
+     Дорожка — колонка, шаг — строка; ветки развилки — в одной строке; ветки сходятся в следующий шаг. */
   const MARK = "[УТОЧНИТЬ", U = t => String(t || "").includes(MARK);
   const tsp = (ls, x, dy) => ls.map((l, i) => `<tspan x="${x}" dy="${i ? dy : 0}">${esc(l)}</tspan>`).join("");
-  /* IDEF0 A0: вход слева, выход справа, управление сверху, механизмы снизу */
-  function idefSVG(m, o) {
-    const bh = Math.max(130, 58 * Math.max(m.in.length, m.out.length)), W = 560, H = 340 + bh, bx = 195, by = 170, bw = 170, col = o.color, mk = "ia" + (o.uid || "");
-    const red = x => U(x) ? "#c0392b" : "#1c1c1c";
-    let s = `<svg class="idef" viewBox="0 0 ${W} ${H}" role="img" aria-label="IDEF0"><defs><marker id="${mk}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0L10,5L0,10z" fill="#1c1c1c"/></marker></defs><rect x="0" y="0" width="${W}" height="${H}" rx="10" fill="#faf9f6"/>`;
-    const cap = (x, y, txt, a) => `<text x="${x}" y="${y}" font-size="11" font-weight="700" fill="#6b6b6b" letter-spacing=".6" text-anchor="${a}">${txt}</text>`;
-    s += cap(8, by - 14, "ВХОД", "start") + cap(W - 8, by - 14, "ВЫХОД", "end") + cap(W / 2, 14, "УПРАВЛЕНИЕ — правила и ограничения", "middle") + cap(W / 2, H - 6, "МЕХАНИЗМЫ — кто и чем исполняет", "middle");
-    s += `<rect x="${bx}" y="${by}" width="${bw}" height="${bh}" rx="3" fill="#fff" stroke="${col}" stroke-width="2.2" ${o.dashed ? 'stroke-dasharray="6 3"' : ""}/><rect x="${bx}" y="${by}" width="${bw}" height="6" fill="${col}"/>`;
-    const fl = wrapT(m.fn || o.title, 18).slice(0, 5); s += `<text x="${bx + bw / 2}" y="${by + bh / 2 - (fl.length - 1) * 8 + 4}" font-size="13.5" font-weight="700" text-anchor="middle">${tsp(fl, bx + bw / 2, 16)}</text><text x="${bx + bw - 6}" y="${by + bh - 6}" font-size="11" fill="#6b6b6b" text-anchor="end">A0</text>`;
-    m.in.forEach((v, i) => { const y = by + bh * (i + 1) / (m.in.length + 1), ls = wrapT(v, 22).slice(0, 3); s += `<path d="M8,${y} H${bx}" stroke="#1c1c1c" stroke-width="1.6" marker-end="url(#${mk})"/><text x="8" y="${y - 6 - (ls.length - 1) * 15}" font-size="13" fill="${red(v)}">${tsp(ls, 8, 15)}</text>` });
-    m.out.forEach((v, i) => { const y = by + bh * (i + 1) / (m.out.length + 1), ls = wrapT(v, 22).slice(0, 3); s += `<path d="M${bx + bw},${y} H${W - 8}" stroke="#1c1c1c" stroke-width="1.6" marker-end="url(#${mk})"/><text x="${bx + bw + 8}" y="${y - 6 - (ls.length - 1) * 15}" font-size="13" fill="${red(v)}">${tsp(ls, bx + bw + 8, 15)}</text>` });
-    const sideTxt = (arr, topSide) => { const k = arr.length, sl = W / k; arr.forEach((v, i) => { const ax = bx + bw * (i + 1) / (k + 1), tx = sl * i + sl / 2, ls = wrapT(v, Math.max(14, Math.floor(sl / 7.6))).slice(0, 4);
-      s += topSide ? `<path d="M${tx},102 L${tx},116 L${ax},136 L${ax},${by}" fill="none" stroke="#1c1c1c" stroke-width="1.6" marker-end="url(#${mk})"/><text x="${tx}" y="34" font-size="13" text-anchor="middle" fill="${red(v)}">${tsp(ls, tx, 15)}</text>`
-        : `<path d="M${tx},${H - 76} L${tx},${H - 90} L${ax},${by + bh + 26} L${ax},${by + bh}" fill="none" stroke="#1c1c1c" stroke-width="1.6" marker-end="url(#${mk})"/><text x="${tx}" y="${H - 58}" font-size="13" text-anchor="middle" fill="${red(v)}">${tsp(ls, tx, 15)}</text>` }) };
-    sideTxt(m.ctl, true); sideTxt(m.mech, false);
+  function bpmnSVG(proc, o) {
+    o = o || {};
+    const lanes = [], addLane = l => { if (l && !lanes.includes(l)) lanes.push(l) };
+    proc.forEach(x => x.t === "task" ? addLane(x.lane) : x.br.forEach(b => addLane(b.lane)));
+    if (!lanes.length) return "";
+    const nodes = [], edges = [], add = n => (nodes.push(n), n), short = t => String(t || "").replace(/\[УТОЧНИТЬ у ([^\]]+)\]/g, "? $1").replace(/\[УТОЧНИТЬ:?\s*([^\]]*)\]/g, "? $1");
+    let col = 0, lastLane = proc[0].t === "task" ? proc[0].lane : lanes[0];
+    let prev = [[add({ kind: "start", lane: lastLane, col: col++ }), ""]];
+    proc.forEach(x => {
+      if (x.t === "task") {
+        const n = add({ kind: "task", lane: x.lane, col: col++, text: x.text });
+        prev.forEach(([a, l]) => edges.push([a, n, l])); prev = [[n, ""]]; lastLane = x.lane; return;
+      }
+      const g = add({ kind: "gw", lane: lastLane, col: col++, text: x.q }), bc = col++;
+      prev.forEach(([a, l]) => edges.push([a, g, l])); prev = [];
+      x.br.forEach(b => {
+        const n = b.end ? add({ kind: "end", lane: lastLane, col: bc }) : add({ kind: "task", lane: b.lane, col: bc, text: b.text });
+        edges.push([g, n, b.label]); if (!b.end) prev.push([n, ""]);
+      });
+      if (prev.length === 1) lastLane = prev[0][0].lane;
+    });
+    if (prev.length) { const e = add({ kind: "end", lane: prev.length === 1 ? prev[0][0].lane : lastLane, col: col++ }); prev.forEach(([a, l]) => edges.push([a, e, l])) }
+    /* раскладка: дорожки — колонки, шаги идут сверху вниз; в одной клетке узлы встают рядом */
+    const W = 800, LW = Math.round(W / lanes.length), HEAD = 40, RH = 86, BW = Math.min(LW - 18, 158), BH = 48, cell = {};
+    nodes.forEach(n => { const k = n.lane + "|" + n.col; n.slot = (cell[k] = (cell[k] || 0) + 1) - 1 });
+    const H = HEAD + col * RH + 10;
+    nodes.forEach(n => {
+      const k = cell[n.lane + "|" + n.col], li = lanes.indexOf(n.lane), w = LW / k;
+      n.x = li * LW + w * n.slot + w / 2; n.y = HEAD + n.col * RH + RH / 2; n.bw = Math.min(BW, w - 12);
+    });
+    nodes.forEach(n => { if (n.kind === "task") n.h = Math.max(BH, wrapT(short(n.text), Math.max(11, Math.floor(n.bw / 6.6))).slice(0, 4).length * 13 + 16) });
+    const half = n => n.kind === "task" ? n.h / 2 : n.kind === "gw" ? 18 : 13;
+    const mk = "bp" + (o.uid || ""), ink = "#1c1c1c", red = t => U(t) ? "#c0392b" : ink;
+    let s = `<svg class="bpmn" viewBox="0 0 ${W} ${H}" role="img" aria-label="Процесс BPMN"><defs><marker id="${mk}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0L10,5L0,10z" fill="${ink}"/></marker></defs>`;
+    lanes.forEach((l, i) => {
+      const x = i * LW, ls = wrapT(l, Math.max(10, Math.floor(LW / 8))).slice(0, 2);
+      s += `<rect x="${x}" y="0" width="${LW}" height="${H}" fill="${i % 2 ? "#faf9f6" : "#fff"}"/>${i ? `<line x1="${x}" y1="0" x2="${x}" y2="${H}" stroke="#d8d4cb"/>` : ""}`;
+      s += `<text x="${x + LW / 2}" y="${ls.length > 1 ? 16 : 24}" font-size="12" font-weight="700" fill="#3a3a3a" text-anchor="middle">${tsp(ls, x + LW / 2, 14)}</text>`;
+    });
+    s += `<line x1="0" y1="${HEAD - 4}" x2="${W}" y2="${HEAD - 4}" stroke="#c9c4ba"/><rect x="0.5" y="0.5" width="${W - 1}" height="${H - 1}" fill="none" stroke="#c9c4ba"/>`;
+    edges.forEach(([a, b, lab]) => {
+      const ax = a.x, ay = a.y + half(a), bx = b.x, by = b.y - half(b), my = Math.round(ay + Math.min(16, (by - ay) / 2));
+      s += Math.abs(ax - bx) < 1 ? `<path d="M${ax},${ay} V${by}" fill="none" stroke="${ink}" stroke-width="1.4" marker-end="url(#${mk})"/>`
+        : `<path d="M${ax},${ay} V${my} H${bx} V${by}" fill="none" stroke="${ink}" stroke-width="1.4" marker-end="url(#${mk})"/>`;
+      if (lab) s += `<text x="${bx + 6}" y="${my + 14}" font-size="11" font-weight="700" fill="#2563c9" paint-order="stroke" stroke="#fff" stroke-width="3">${esc(lab)}</text>`;
+    });
+    nodes.forEach(n => {
+      if (n.kind === "start") s += `<circle cx="${n.x}" cy="${n.y}" r="13" fill="#fff" stroke="#2f6b2a" stroke-width="2"/>`;
+      else if (n.kind === "end") s += `<circle cx="${n.x}" cy="${n.y}" r="13" fill="#fff" stroke="${ink}" stroke-width="4"/>`;
+      else if (n.kind === "gw") {
+        const right = n.x + 24 + 150 < W, ls = wrapT(short(n.text), 24).slice(0, 3), tx = right ? n.x + 26 : n.x - 26;
+        s += `<path d="M${n.x},${n.y - 18} L${n.x + 18},${n.y} L${n.x},${n.y + 18} L${n.x - 18},${n.y}z" fill="#fff8e6" stroke="#b7791f" stroke-width="1.6"/><path d="M${n.x - 6},${n.y - 6} L${n.x + 6},${n.y + 6} M${n.x + 6},${n.y - 6} L${n.x - 6},${n.y + 6}" stroke="#b7791f" stroke-width="2"/>`;
+        s += `<text x="${tx}" y="${n.y - (ls.length - 1) * 6.5 + 4}" font-size="11.5" font-weight="600" text-anchor="${right ? "start" : "end"}" fill="${red(n.text)}" paint-order="stroke" stroke="#fff" stroke-width="3">${tsp(ls, tx, 13)}</text>`;
+      } else {
+        const ls = wrapT(short(n.text), Math.max(11, Math.floor(n.bw / 6.6))).slice(0, 4), bh = Math.max(BH, ls.length * 13 + 16);
+        s += `<rect x="${n.x - n.bw / 2}" y="${n.y - bh / 2}" width="${n.bw}" height="${bh}" rx="9" fill="#fff" stroke="${U(n.text) ? "#c0392b" : o.color || ink}" stroke-width="1.6"/>`;
+        s += `<text x="${n.x}" y="${n.y - (ls.length - 1) * 6.5 + 4}" font-size="11.5" text-anchor="middle" fill="${red(n.text)}">${tsp(ls, n.x, 13)}</text>`;
+      }
+    });
     return s + "</svg>";
   }
-  return { esc, wrapT, ICON, contourIcon, chip, mockSVG, idefSVG };
+  return { esc, wrapT, ICON, contourIcon, chip, mockSVG, bpmnSVG };
 })();

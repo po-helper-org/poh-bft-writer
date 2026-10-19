@@ -3,7 +3,7 @@
 # рендерер не пишет файлов по сломанному документу, стрелки не пересекают чужие карточки.
 # Вторая часть — история через экраны (bft-story-*), третья — карта инициативы в проекте Backlog.md
 # (bft-backlog-*): коды BL и SN на сломанных копиях, страница эталона байт в байт, детерминированный
-# автономный zip, IDEF0 из «Параметров», новый проект из истории.
+# автономный проект и zip (встроенный CLI, инструкции агенту), BPMN из «Процесса», новый проект из истории.
 # Запуск из корня репозитория: bash skills/bft-blueprint/scripts/test-bft-blueprint.sh
 set -u
 
@@ -192,6 +192,9 @@ edit(d, C1, "parent_task_id: BP-1", "parent_task_id: BP-77")
 edit(d, C21, "layer:employee", "layer:frontstage")
 edit(d, C22, "- **Выход:** Ответ проверки (BP-2.1)", "- **Результат:** Ответ проверки (BP-9.9)")
 edit(d, MAP, "| BP-2.1 | вопрос |", "| BP-99 | разговор |")
+edit(d, C21, "  - нет → Официант: Объясняет отказ [УТОЧНИТЬ у PO]\n", "")
+edit(d, C22, "- Сканер: Передаёт штрихкод", "- Сканер передаёт штрихкод")
+edit(d, C1, "### UserStory\nКак гость, я хочу сразу после покупки увидеть скидку, чтобы спланировать вечер.\n\n", "")
 edit(d, T1, "dependencies: []", "dependencies: []\ndocumentation:\n  - doc-42")
 d = copy("semantics")
 edit(d, T1, "title: Блок акции на странице после покупки", "title: Блок акции на странице после покупки с очень длинным названием, которое не читается за секунду")
@@ -203,8 +206,9 @@ edit(d, T2, "  - 'stage:B'", "  - 'stage:A'")
 for g in (C21, C22):
     next(d.glob(g)).unlink()
 edit(d, C1, "- **Управление:** Один офер (ИТ-1)\n", "")
+edit(d, C1, "Как гость, я хочу сразу после покупки увидеть скидку", "Гость хочет сразу после покупки увидеть скидку")
 edit(d, C1, "Гость выбрал ресторан (BP-2.1)", "Скидка через 99 минут")
-edit(d, C1, 'A0 --> out1["Блок «скидка 10%»"]', 'A0 --> out1["Старое"]')
+edit(d, C1, 'N2["Показывает блок «скидка 10%»"]', 'N2["Старое"]')
 edit(d, MAP, "| В1 | PO | Что видит официант при отказе? | BP-2.1 |", "| В1 | PO | Что видит официант при отказе? | BP-2 |")
 d = copy("screens")
 for f in sorted(sbad.glob("*.md")):
@@ -220,12 +224,12 @@ expect_bl "не проект Backlog.md"          1 "$tmp/bad/noproject" "BL001"
 expect_bl "структура"                     1 "$tmp/bad/structure" "BL002 BL003 BL004 BL005" --no-source
 expect_bl "задачи и карточки"             1 "$tmp/bad/refs" "BL006 BL007 BL008 BL009 BL010 BL011" --no-source
 expect_bl "смысл: ошибки"                 1 "$tmp/bad/semantics" "BL014 BL016 BL017 BL018" --source "$FIX/story_source.md"
-expect_bl "смысл: предупреждения"         1 "$tmp/bad/warnings" "BL020 BL021 BL022 BL023 BL026 BL027 BL028" --strict --source "$FIX/story_source.md"
+expect_bl "смысл: предупреждения"         1 "$tmp/bad/warnings" "BL020 BL021 BL022 BL023 BL026 BL027 BL028 BL030" --strict --source "$FIX/story_source.md"
 expect_bl "экраны · битые заметки"        1 "$tmp/bad/screens" "SN001 SN002 SN003 SN004 SN005 SN006 SN020 SN021 SN022 SN023" --no-source
 
 # сборка: эталон совпадает со страницей в examples, архив — тот же байт в байт и автономный
 python3 "$BBUILD" "$BGOLD" --no-source --check >/dev/null 2>&1 \
-  && ok "карта · эталон: IDEF0 карточек совпадает с «Параметрами»" || fail "карта · эталон: устаревший IDEF0 — python3 $BBUILD $BGOLD --no-source"
+  && ok "карта · эталон: схемы BPMN, скрипты и инструкции проекта актуальны" || fail "карта · эталон устарел (BL022/BL029) — python3 $BBUILD $BGOLD --no-source --out-dir $DIR/examples --no-zip"
 cp -r "$BGOLD" "$tmp/gold" && python3 "$BBUILD" "$tmp/gold" --out-dir "$tmp/bout" >/dev/null 2>&1 \
   && cmp -s "$tmp/bout/dineclub-restart-map.html" "$DIR/examples/dineclub-restart-map.html" \
   && ok "карта · html: совпадает с examples/dineclub-restart-map.html" \
@@ -236,7 +240,7 @@ from pathlib import Path
 d = json.loads(re.search(r'id="map-data">(.*?)</script>', (Path(sys.argv[1]) / "dineclub-restart-map.html").read_text(encoding="utf-8"), re.S).group(1))
 assert len(d["tasks"]) == 19 and len(d["cards"]) == 20, (len(d["tasks"]), len(d["cards"]))
 assert {c["layer"] for c in d["cards"]} == {"employee", "technology", "backstage", "support"}
-assert all(c["params"].get("out") and c["demo"] for c in d["cards"])
+assert all(c["params"].get("out") and c["demo"] and c["us"] and c["js"] and len(c["proc"]) >= 2 for c in d["cards"])
 assert all(t["brief"].get("ASIS") and t["ac"] for t in d["tasks"])
 assert len(d["links"]) >= 20 and len(d["notes"]) == 12
 PY
@@ -244,39 +248,55 @@ cp "$tmp/bout/dineclub-restart-blueprint.zip" "$tmp/first.zip"
 python3 "$BBUILD" "$tmp/gold" --out-dir "$tmp/bout" >/dev/null 2>&1 && cmp -s "$tmp/bout/dineclub-restart-blueprint.zip" "$tmp/first.zip" \
   && ok "карта · zip: та же карта — тот же архив байт в байт" || fail "карта · zip: архив не детерминирован"
 python3 - "$tmp/first.zip" "$tmp/unz" <<'PY' || fail "карта · zip: распаковка не удалась"
-import sys, zipfile; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])
+import sys, zipfile
+z = zipfile.ZipFile(sys.argv[1]); z.extractall(sys.argv[2])
+assert all(z.getinfo(f"dineclub-restart-blueprint/{n}").external_attr >> 16 == 0o755 for n in ("backlog.py", "blueprint.py"))
 PY
-( cd "$tmp/unz/dineclub-restart-blueprint" && python3 .blueprint/scripts/bft-backlog-build.py . --out-dir . >/dev/null 2>&1 \
-  && cmp -s blueprint.html dineclub-restart-map.html && test -f CLAUDE.md && test -f .blueprint/rules/backlog_rules.md ) \
-  && ok "карта · zip: распакованный проект сам пересобирает ту же страницу" || fail "карта · zip: распакованный проект не собирается сам"
+# распакованный проект в чистом окружении: только python3, без навыка и без npm
+( cd "$tmp/unz/dineclub-restart-blueprint" && E="env -i PATH=/usr/bin:/bin HOME=$tmp" \
+  && $E python3 blueprint.py build >/dev/null 2>&1 && cmp -s blueprint.html dineclub-restart-map.html \
+  && $E python3 backlog.py task list -l stage:F --plain | grep -q "BP-16 - " \
+  && $E python3 backlog.py task create "Учесть часовой пояс площадки" -p BP-16 -a "" -l "stage:F,layer:backstage" --no-dod-defaults \
+       -d $'TeamA учитывает часовой пояс.\n\n### UserStory\nКак официант, я хочу верную проверку в полночь, чтобы не спорить с гостем.\n\n### JobStory\n- Когда гость пришёл в последний день, хочу верный ответ, чтобы дать скидку.\n\n### Параметры\n- **Вход:** Штрихкод (BP-16.1)\n- **Управление:** Окно 7 дней (ФТ-1)\n- **Выход:** Ответ (BP-15.1)\n- **Механизм:** TeamA\n\n### Процесс\n- TeamA: Берёт часовой пояс площадки\n- TeamA: Считает окно\n\n### HowToDemo\n1. Сканирую в 23:59\n2. Проверка проходит' >/dev/null \
+  && $E python3 backlog.py task edit BP-16 --check-ac 1 --add-ref https://jira.example.com/browse/DEMO-16 >/dev/null \
+  && $E python3 blueprint.py build >/dev/null 2>&1 && $E python3 blueprint.py check >/dev/null 2>&1 \
+  && grep -q "Берёт часовой пояс площадки" "$(ls backlog/tasks/bp-16.2*)" && grep -q 'N1\["Берёт часовой пояс площадки"\]' "$(ls backlog/tasks/bp-16.2*)" \
+  && grep -q "./backlog.py" CLAUDE.md AGENTS.md GEMINI.md && grep -q "Bash(./backlog.py:\*)" .claude/settings.json \
+  && ! grep -q "skills_path>/bft-blueprint/scripts/bft-backlog-lint" CLAUDE.md ) \
+  && ok "карта · zip: автономный проект — ./backlog.py и ./blueprint.py без установки, инструкции агенту" || fail "карта · zip: распакованный проект не автономен"
 
-# IDEF0 собирается из «Параметров»: правка параметров → сборка переписывает блок mermaid
+# BPMN собирается из «Процесса»: правка процесса → сборка переписывает блок mermaid
 python3 - "$tmp/gold" <<'PY'
 import sys
 from pathlib import Path
 f = next(Path(sys.argv[1]).glob("backlog/tasks/bp-16.1 - *.md")); t = f.read_text(encoding="utf-8")
-f.write_text(t.replace("- **Механизм:** TeamA; Сервис проверки билетов", "- **Механизм:** TeamA; Сервис проверки билетов; Журнал проверок"), encoding="utf-8")
+f.write_text(t.replace("- Приложение-сканер: Показывает ответ официанту", "- Приложение-сканер: Показывает ответ официанту\n- TeamA: Пишет журнал проверок"), encoding="utf-8")
 PY
 python3 "$BBUILD" "$tmp/gold" --check >/dev/null 2>&1; rc=$?
 python3 "$BBUILD" "$tmp/gold" --out-dir "$tmp/bout2" --no-zip >/dev/null 2>&1 \
-  && [ "$rc" -eq 1 ] && grep -q 'mech3\["Журнал проверок"\] == механизм ==> A0' "$tmp/gold/backlog/tasks/bp-16.1 - "*.md \
+  && [ "$rc" -eq 1 ] && grep -q '\["Пишет журнал проверок"\]' "$tmp/gold/backlog/tasks/bp-16.1 - "*.md \
   && python3 "$BBUILD" "$tmp/gold" --check >/dev/null 2>&1 \
-  && ok "карта · IDEF0: --check ловит устаревшую схему, сборка переписывает mermaid" || fail "карта · IDEF0 не пересобрался из параметров"
+  && ok "карта · BPMN: --check ловит устаревшую схему, сборка переписывает mermaid" || fail "карта · BPMN не пересобрался из процесса"
 python3 "$BBUILD" "$tmp/bad/refs" --out-dir "$tmp/bbad" --no-source >/dev/null 2>&1; rc=$?
 { [ "$rc" -eq 1 ] && [ ! -e "$tmp/bbad" ]; } && ok "карта · сломанный проект — код 1, файлов нет" || fail "карта · сборка по сломанному проекту (rc=$rc)"
 
-# новый проект из согласованной истории — без CLI backlog
-python3 "$DIR/scripts/bft-backlog-init.py" "$FIX/story_ok.md" --dir "$tmp/init" --no-cli >/dev/null 2>&1 \
+# новый проект из согласованной истории: сразу автономный
+python3 "$DIR/scripts/bft-backlog-init.py" "$FIX/story_ok.md" --dir "$tmp/init" >/dev/null 2>&1 \
   && python3 "$BLINT" "$tmp/init" --no-source >/dev/null 2>&1 \
-  && grep -q "BFT-BLUEPRINT START" "$tmp/init/CLAUDE.md" && grep -q "BACKLOG.MD GUIDELINES START" "$tmp/init/AGENTS.md" \
+  && grep -q "BFT-BLUEPRINT START" "$tmp/init/CLAUDE.md" "$tmp/init/AGENTS.md" "$tmp/init/GEMINI.md" \
+  && ( cd "$tmp/init" && python3 backlog.py doc list | grep -q "doc-2 - История" ) \
   && ok "карта · init: проект из истории, «Карта» и «История», инструкции агенту" || fail "карта · bft-backlog-init.py не собрал проект"
-python3 "$DIR/scripts/bft-backlog-init.py" "$DIR/scripts/fixtures/broken_story_semantics.md" --dir "$tmp/init2" --no-cli >/dev/null 2>&1; rc=$?
+python3 "$DIR/scripts/bft-backlog-init.py" "$DIR/scripts/fixtures/broken_story_semantics.md" --dir "$tmp/init2" >/dev/null 2>&1; rc=$?
 { [ "$rc" -eq 1 ] && [ ! -e "$tmp/init2" ]; } && ok "карта · init: история с ошибками — проект не создаётся" || fail "карта · init по сломанной истории (rc=$rc)"
 
-# проект читает настоящий CLI Backlog.md — если он установлен
+# встроенный CLI и настоящий Backlog.md читают файлы друг друга — если npm-пакет установлен
 if command -v backlog >/dev/null 2>&1; then
-  ( cd "$tmp/unz/dineclub-restart-blueprint" && [ "$(backlog task list --plain 2>/dev/null | grep -c 'BP-')" -eq 39 ] ) \
-    && ok "карта · CLI backlog видит 19 задач и 20 карточек" || fail "карта · CLI backlog не читает проект"
+  ( cd "$tmp/unz/dineclub-restart-blueprint" && [ "$(backlog task list --plain 2>/dev/null | grep -c 'BP-')" -eq 40 ] \
+    && backlog task view BP-16.2 --plain 2>/dev/null | grep -q "Parent: BP-16" \
+    && backlog task view BP-16 --plain 2>/dev/null | grep -q "jira.example.com" \
+    && backlog task edit BP-16.2 --ac "Граница 23:59 по площадке" --check-ac 1 >/dev/null 2>&1 \
+    && python3 backlog.py task view BP-16.2 --plain | grep -q "\[x\] #1 Граница 23:59" ) \
+    && ok "карта · встроенный CLI и npm-пакет backlog.md читают и правят одни файлы" || fail "карта · встроенный CLI разошёлся с Backlog.md"
 fi
 
 echo

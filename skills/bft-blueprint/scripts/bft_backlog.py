@@ -20,8 +20,10 @@ markdown-файлы, которыми ИИ-агент управляет чер�
 Исполнение — references (JIRA, Confluence) и Implementation Notes.
 
 Карточка «Как это работает»: подзадача задачи «Что делаем», метки `layer:<слой>` и `stage:<этап>`.
-Описание: суть одной-двумя фразами; ### Параметры (вход, управление, выход, механизм);
-### IDEF0 — mermaid, собирается из параметров; ### HowToDemo. Ссылки — documentation, references.
+Описание: суть одной-двумя фразами; ### UserStory «Как …, я хочу …, чтобы …»; ### JobStory — ситуации
+«Когда …, хочу …, чтобы …»; ### Параметры (вход, управление, выход, механизм); ### Процесс — шаги
+«Участник: действие» и развилки «? вопрос» с ветками «ответ → Участник: действие»; ### BPMN — mermaid,
+собирается из процесса; ### HowToDemo. Ссылки — documentation, references.
 Ссылка `(BP-8.1)` во входе или управлении — откуда пришло, в выходе — куда уходит: это стрелки карты.
 
 Стандарт — `resources/backlog_rules.md`. Только стандартная библиотека.
@@ -44,7 +46,10 @@ KINDS = ("создать", "доработать", "используем", "ут
 LAYERS = ("employee", "technology", "backstage", "support")
 BRIEF = ("ASIS", "GAP", "TOBE", "HowToDemo", "Дополнительно")
 BRIEF_OPTIONAL = {"Дополнительно"}
-CARD = ("Параметры", "IDEF0", "HowToDemo")
+CARD = ("UserStory", "JobStory", "Параметры", "Процесс", "BPMN", "HowToDemo")
+CARD_REQUIRED = ("UserStory", "JobStory", "Параметры", "Процесс", "HowToDemo")
+MAX_STEPS = 12          # шагов процесса — дальше схема не читается, карточку делят на две
+MAX_LANES = 6
 PARAM_KEYS = {"вход": "in", "входы": "in", "управление": "ctl", "выход": "out", "выходы": "out",
               "механизм": "mech", "механизмы": "mech"}
 PARAM_NAME = {"in": "Вход", "ctl": "Управление", "out": "Выход", "mech": "Механизм"}
@@ -68,7 +73,7 @@ MERMAID = re.compile(r"```mermaid\n(.*?)\n```", re.S)
 
 @dataclass
 class Item:
-    """Значение параметра IDEF0: текст и ссылки на другие карточки."""
+    """Значение параметра карточки: текст и ссылки на другие карточки."""
     text: str
     refs: list[str]
 
@@ -107,7 +112,10 @@ class BTask:
     lead: str = ""
     sections: dict = field(default_factory=dict)  # {раздел: (строка, текст)}
     params: dict = field(default_factory=dict)    # {in|ctl|out|mech: [Item]}
-    mermaid: str = ""                             # блок IDEF0 в файле
+    mermaid: str = ""                             # блок BPMN в файле
+    user_story: str = ""
+    job_stories: list = field(default_factory=list)
+    proc: list = field(default_factory=list)      # шаги процесса: {t: task|xor, …}
 
     @property
     def status(self) -> str:
@@ -352,20 +360,118 @@ def parse_params(pr: Project, t: BTask, line: int, text: str) -> None:
             t.params.setdefault(key, []).append(Item(txt, refs))
 
 
-def mermaid_of(t: BTask) -> str:
-    """IDEF0 карточки в mermaid — из «Параметров», детерминированно: тот же вход — тот же текст."""
+STEP_TASK = re.compile(r"^([^:?→]{1,40}?)\s*:\s*(\S.*)$")
+BRANCH = re.compile(r"^(.+?)\s*(?:→|->)\s*(.+)$")
+
+
+def parse_process(pr: "Project", c: BTask, line: int, text: str) -> None:
+    """### Процесс: «- Участник: действие», «- ? вопрос» и под ним «  - ответ → Участник: действие | конец»."""
+    err = lambda n, msg: pr.err(c.rel, n, "BL009", f"{c.id}: «Процесс» — {msg}")  # noqa: E731
+    gate = None
+    for n, raw in enumerate(text.split("\n"), start=line + 1):
+        if not raw.strip():
+            continue
+        m = re.match(r"^(\s*)[-*]\s+(.*)$", raw)
+        if not m:
+            err(n, f"строка списка «- …», а не «{raw.strip()[:40]}»")
+            continue
+        sub, body = len(m.group(1)) >= 2, m.group(2).strip()
+        if sub:
+            bm = BRANCH.match(body)
+            if gate is None or not bm:
+                err(n, "ветка — под развилкой «- ? вопрос», вида «  - да → Участник: действие» или «  - нет → конец»")
+                continue
+            label, tail = bm.group(1).strip(), bm.group(2).strip()
+            if tail.lower() in ("конец", "end"):
+                gate["br"].append({"label": label, "end": True})
+                continue
+            tm = STEP_TASK.match(tail)
+            if not tm:
+                err(n, f"ветка «{label}» — «Участник: действие» или «конец»")
+                continue
+            gate["br"].append({"label": label, "lane": tm.group(1).strip(), "text": tm.group(2).strip()})
+            continue
+        if body.startswith("?"):
+            gate = {"t": "xor", "q": body[1:].strip(), "br": [], "line": n}
+            c.proc.append(gate)
+            continue
+        gate = None
+        tm = STEP_TASK.match(body)
+        if not tm:
+            err(n, f"шаг «Участник: действие», а не «{body[:40]}»")
+            continue
+        c.proc.append({"t": "task", "lane": tm.group(1).strip(), "text": tm.group(2).strip()})
+    for g in [x for x in c.proc if x["t"] == "xor"]:
+        if len(g["br"]) < 2:
+            err(g["line"], f"у развилки «{g['q']}» нужно хотя бы две ветки")
+        g.pop("line", None)
+    tasks = [x for x in c.proc if x["t"] == "task"] + [b for g in c.proc if g["t"] == "xor" for b in g["br"] if not b.get("end")]
+    if len(tasks) < 2:
+        err(line, "хотя бы два шага")
+    if len(tasks) > MAX_STEPS:
+        err(line, f"{len(tasks)} шагов (больше {MAX_STEPS}) — раздели карточку на две")
+    if len(lanes_of(c.proc)) > MAX_LANES:
+        err(line, f"участников {len(lanes_of(c.proc))} (больше {MAX_LANES})")
+
+
+def lanes_of(proc: list) -> list[str]:
+    out: list[str] = []
+    for x in proc:
+        for lane in ([x["lane"]] if x["t"] == "task" else [b["lane"] for b in x["br"] if b.get("lane")]):
+            if lane not in out:
+                out.append(lane)
+    return out
+
+
+def bpmn_of(c: BTask) -> str:
+    """Процесс карточки в mermaid: дорожка — участник, развилка — ромб; тот же процесс — тот же текст."""
     q = lambda s: s.replace('"', "#quot;")  # noqa: E731
-    out = ["```mermaid", "flowchart LR", f'  A0["{q(t.title)}"]']
-    for i, it in enumerate(t.params.get("in", []), 1):
-        out.append(f'  in{i}["{q(it.text)}"] --> A0')
-    for i, it in enumerate(t.params.get("ctl", []), 1):
-        out.append(f'  ctl{i}["{q(it.text)}"] -. управление .-> A0')
-    for i, it in enumerate(t.params.get("mech", []), 1):
-        out.append(f'  mech{i}["{q(it.text)}"] == механизм ==> A0')
-    for i, it in enumerate(t.params.get("out", []), 1):
-        out.append(f'  A0 --> out{i}["{q(it.text)}"]')
-    out.append("  style A0 fill:#fff,stroke:#1c1c1c,stroke-width:2px")
+    lanes = lanes_of(c.proc)
+    lane_nodes: dict[str, list[str]] = {ln: [] for ln in lanes}
+    edges: list[str] = []
+    node_lines: list[str] = []
+    n = 0
+    prev: list[tuple[str, str]] = [("S", "")]   # (узел, подпись ребра)
+    last_lane = lanes[0] if lanes else ""
+    first_lane = last_lane
+    ends = 0
+    for x in c.proc:
+        if x["t"] == "task":
+            n += 1
+            nid = f"N{n}"
+            lane_nodes[x["lane"]].append(f'{nid}["{q(x["text"])}"]')
+            edges += [f"  {a} -- {lab} --> {nid}" if lab else f"  {a} --> {nid}" for a, lab in prev]
+            prev, last_lane = [(nid, "")], x["lane"]
+        else:
+            n += 1
+            gid = f"G{n}"
+            node_lines.append(f'  {gid}{{"{q(x["q"])}"}}')
+            edges += [f"  {a} -- {lab} --> {gid}" if lab else f"  {a} --> {gid}" for a, lab in prev]
+            prev = []
+            for b in x["br"]:
+                if b.get("end"):
+                    ends += 1
+                    node_lines.append(f'  E{ends}((("конец")))')
+                    edges.append(f'  {gid} -- {q(b["label"])} --> E{ends}')
+                    continue
+                n += 1
+                nid = f"N{n}"
+                lane_nodes[b["lane"]].append(f'{nid}["{q(b["text"])}"]')
+                edges.append(f'  {gid} -- {q(b["label"])} --> {nid}')
+                prev.append((nid, ""))
+                last_lane = b["lane"]
+    out = ["```mermaid", "flowchart LR", '  S(("старт"))']
+    for i, ln in enumerate(lanes, 1):
+        out.append(f'  subgraph L{i}["{q(ln)}"]')
+        out += [f"    {x}" for x in lane_nodes[ln]]
+        out.append("  end")
+    out += node_lines
+    if prev:
+        out.append('  E((("конец")))')
+        edges += [f"  {a} --> E" for a, _ in prev]
+    out += edges
     out.append("```")
+    del first_lane, last_lane
     return "\n".join(out)
 
 
@@ -624,21 +730,33 @@ def _check_card(pr: Project, c: BTask, stages: set, team_ids: set, task_ids: set
     for n, name in order:
         if name not in CARD:
             pr.err(rel, n, "BL009", f"{c.id}: раздел «{name}» — один из {', '.join(CARD)}; ссылки — documentation и references задачи")
-    if names != [s for s in CARD if s in names] or len(set(names)) != len(names):
+    if names != [x for x in CARD if x in names] or len(set(names)) != len(names):
         pr.err(rel, c.off, "BL009", f"{c.id}: разделы по порядку, без повторов: " + " → ".join(CARD))
-    if "Параметры" not in secs:
-        pr.err(rel, c.off, "BL009", f"{c.id}: нет раздела `### Параметры`")
-    else:
+    for name in CARD_REQUIRED:
+        if name not in secs or not secs[name][1].strip():
+            pr.err(rel, secs.get(name, (c.off,))[0], "BL009", f"{c.id}: нет раздела `### {name}`")
+    if "UserStory" in secs:
+        c.user_story = secs["UserStory"][1].strip()
+        if c.user_story and not re.match(r"^Как .+,\s*я хочу .+,\s*чтобы .+", c.user_story.replace("**", ""), re.S):
+            pr.warn(rel, secs["UserStory"][0], "BL030", f"{c.id}: UserStory — «Как <роль>, я хочу <действие>, чтобы <ценность>»")
+    if "JobStory" in secs:
+        c.job_stories = [re.sub(r"^[-*]\s+", "", x.strip()) for x in secs["JobStory"][1].split("\n") if re.match(r"^\s*[-*]\s+\S", x)]
+        if secs["JobStory"][1].strip() and not c.job_stories:
+            pr.err(rel, secs["JobStory"][0], "BL009", f"{c.id}: JobStory — список «- Когда …, хочу …, чтобы …»")
+        for js in c.job_stories:
+            if not re.match(r"^Когда .+,\s*хочу .+,\s*чтобы .+", js.replace("**", "")):
+                pr.warn(rel, secs["JobStory"][0], "BL030", f"{c.id}: JobStory «{js[:40]}…» — «Когда …, хочу …, чтобы …»")
+    if "Параметры" in secs:
         parse_params(pr, c, *secs["Параметры"])
         if not c.params.get("out"):
             pr.err(rel, secs["Параметры"][0], "BL009", f"{c.id}: у функции нет выхода — `- **Выход:** …`")
-    if "HowToDemo" not in secs:
-        pr.err(rel, c.off, "BL009", f"{c.id}: нет раздела `### HowToDemo`")
-    elif sum(bool(STEP_RE.match(x.strip())) for x in secs["HowToDemo"][1].split("\n")) < 2:
+    if "Процесс" in secs:
+        parse_process(pr, c, *secs["Процесс"])
+    if "HowToDemo" in secs and sum(bool(STEP_RE.match(x.strip())) for x in secs["HowToDemo"][1].split("\n")) < 2:
         pr.err(rel, secs["HowToDemo"][0], "BL009", f"{c.id}: HowToDemo — хотя бы два шага «1. …»")
-    if "IDEF0" in secs:
-        mm = MERMAID.search(secs["IDEF0"][1])
-        c.mermaid = f"```mermaid\n{mm.group(1)}\n```" if mm else secs["IDEF0"][1]
+    if "BPMN" in secs:
+        mm = MERMAID.search(secs["BPMN"][1])
+        c.mermaid = f"```mermaid\n{mm.group(1)}\n```" if mm else secs["BPMN"][1]
     for key, items in c.params.items():
         for it in items:
             for r in it.refs:
@@ -646,14 +764,15 @@ def _check_card(pr: Project, c: BTask, stages: set, team_ids: set, task_ids: set
                     pr.err(rel, secs["Параметры"][0], "BL009", f"{c.id}: ссылка {r} в «{PARAM_NAME[key]}» — на другую карточку «Как это работает»")
 
 
-def sync_idef(pr: Project, write: bool) -> list[BTask]:
-    """IDEF0 карточек — mermaid из «Параметров». Возвращает карточки, где блок устарел; write — переписать."""
+def sync_schema(pr: Project, write: bool) -> list[BTask]:
+    """BPMN карточек — mermaid из «Процесса». Возвращает карточки, где блок устарел; write — переписать.
+    Прежний блок `### IDEF0` при переписывании убирается: схему функции заменила схема процесса."""
     stale = []
     for c in pr.cards:
-        if not c.params.get("out"):
+        if not c.proc:
             continue
-        want = mermaid_of(c)
-        if c.mermaid.strip() == want:
+        want = bpmn_of(c)
+        if c.mermaid.strip() == want and "### IDEF0" not in c.desc:
             continue
         stale.append(c)
         if not write:
@@ -661,15 +780,14 @@ def sync_idef(pr: Project, write: bool) -> list[BTask]:
         text = c.path.read_text(encoding="utf-8")
         a = text.index("<!-- SECTION:DESCRIPTION:BEGIN -->") + len("<!-- SECTION:DESCRIPTION:BEGIN -->\n")
         b = text.index("<!-- SECTION:DESCRIPTION:END -->")
-        desc = text[a:b]
-        block = f"### IDEF0\n{want}\n"
-        if re.search(r"^### IDEF0\n", desc, re.M):
-            desc = re.sub(r"^### IDEF0\n.*?(?=^### |\Z)", lambda _: block + "\n", desc, count=1, flags=re.S | re.M)
-            desc = desc.rstrip("\n") + "\n"
+        desc = re.sub(r"^### IDEF0\n.*?(?=^### |\Z)", "", text[a:b], flags=re.S | re.M)
+        block = f"### BPMN\n{want}\n"
+        if re.search(r"^### BPMN\n", desc, re.M):
+            desc = re.sub(r"^### BPMN\n.*?(?=^### |\Z)", lambda _: block + "\n", desc, count=1, flags=re.S | re.M)
         elif re.search(r"^### HowToDemo\n", desc, re.M):
             desc = re.sub(r"^### HowToDemo\n", lambda _: block + "\n### HowToDemo\n", desc, count=1, flags=re.M)
         else:
             desc = desc.rstrip("\n") + "\n\n" + block
-        c.path.write_text(text[:a] + desc + text[b:], encoding="utf-8")
+        c.path.write_text(text[:a] + desc.rstrip("\n") + "\n" + text[b:], encoding="utf-8")
         c.mermaid = want
     return stale

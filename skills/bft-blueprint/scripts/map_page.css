@@ -129,7 +129,6 @@ body.open .side{transform:none}body.open .scrim{opacity:1;pointer-events:auto}bo
 /* цепочка, было → станет, критерии */
 /* схема */
 .src{font-size:12px;color:var(--muted);margin-top:8px}
-svg.idef{width:100%;max-width:600px;height:auto;display:block;margin:0 auto}
 /* шаг истории в панели */
 .vis{display:flex;gap:14px;flex-wrap:wrap;background:#f3f1ec;border-radius:14px;padding:14px;justify-content:center;margin:8px 0}.vis svg{width:170px;height:auto;display:block}
 .ctr{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:650;color:#3a3a3a;border:1px solid #e3dfd6;border-radius:999px;padding:3px 10px 3px 7px;background:#faf9f6}
@@ -169,7 +168,7 @@ body.showing .show{display:flex}body.showing{overflow:hidden}
  .show .scene{grid-template-columns:1fr;gap:16px}.show h2{font-size:22px}.show .say{font-size:16px}}
 @media print{.fab,.menu,.mscrim,.side,.scrim,.show{display:none}.ptitle{display:block;margin:0;padding:16px 24px 8px;font-size:20px}}
 /* описание процесса и схемы как код */
-.idefw{overflow-x:auto;border-radius:10px}
+.bpmnw{border-radius:10px;overflow:hidden;margin-top:10px}.bpmnw svg{display:block;width:100%;height:auto}
 .tool.pri{background:var(--ink);color:#fff;border-color:var(--ink)}.tool:disabled{opacity:.45;cursor:not-allowed}
 .dhint{display:block;font-size:12px;color:var(--muted);margin-top:8px}.dhint code{font-size:11.5px}
 /* требования к экрану: шапка, картинки, вкладки, стек заметок, заметка */
@@ -235,3 +234,6 @@ body.showing .show{display:flex}body.showing{overflow:hidden}
 .ref{font:inherit;font-size:11px;font-weight:700;color:#3a3a3a;background:#f1efea;border:0;border-radius:6px;padding:1px 6px;cursor:pointer;vertical-align:1px}.ref:hover{background:#e6e2da}
 .lnks{list-style:none;margin:0;padding:0;font-size:14px;line-height:1.45}.lnks li{padding:4px 0;border-top:1px solid #f0ede7}.lnks li:first-child{border-top:0}
 .lnks code,.tk code{font-size:12px;color:var(--muted)}.lnk{font:inherit;color:#2563c9;background:none;border:0;padding:0;cursor:pointer;text-align:left}.lnk:hover{text-decoration:underline}
+.us{margin:6px 0 4px;padding:12px 16px;border-left:4px solid #2563c9;background:#f4f7fb;border-radius:0 10px 10px 0;font-size:15px;line-height:1.5}
+ul.js{margin:0;padding-left:18px;font-size:14px;line-height:1.5}ul.js li{margin:4px 0}
+@media(max-width:700px){.bpmnw{overflow-x:auto}.bpmnw svg{min-width:640px}}

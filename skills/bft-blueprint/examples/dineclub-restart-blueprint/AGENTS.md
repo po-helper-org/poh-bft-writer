@@ -1,45 +1,48 @@
-
-<!-- BACKLOG.MD GUIDELINES START -->
-<!-- backlog.md-instructions-version: 1.54.0 -->
-<CRITICAL_INSTRUCTION>
-
-## Backlog.md Workflow
-
-This project uses Backlog.md for task and project management.
-
-**At the beginning of each conversation in this project, run `backlog instructions overview` before answering or taking action. Re-read it only if you have not read it yet in the current conversation.**
-
-Use the overview to decide whether to search, read, create, or update Backlog tasks.
-
-Before task lifecycle actions, read the matching detailed guide:
-- `backlog instructions task-creation` before creating or splitting tasks
-- `backlog instructions task-execution` before planning, changing status or assignee, adding a plan or implementation notes, or implementing task work
-- `backlog instructions task-finalization` before checking acceptance criteria, writing final summaries, or moving tasks to terminal statuses
-
-Use `backlog <command> --help` before running unfamiliar commands. Help shows options, fields, and examples.
-
-Do not edit Backlog task, draft, document, decision, or milestone markdown files directly. Use the `backlog` CLI so metadata, relationships, and history stay consistent.
-
-</CRITICAL_INSTRUCTION>
-<!-- BACKLOG.MD GUIDELINES END -->
-
 <!-- BFT-BLUEPRINT START -->
-## Service Blueprint
+# Service Blueprint «Перезапуск акции DineClub — «билет Acme Tickets = скидка 10%»»
 
-Проект — карта инициативы «Перезапуск акции DineClub — «билет Acme Tickets = скидка 10%»» (эпик `dineclub-restart`), собранная по БФТ `dineclub-restart.md`. Карта — это задачи и документы Backlog.md:
+Проект автономен: всё для работы — в этой папке, ничего ставить не нужно, кроме python3.
+Данные — проект [Backlog.md](https://github.com/MrLesk/Backlog.md) (формат 1.54); эпик `dineclub-restart`, источник — БФТ `dineclub-restart.md`.
 
-- **Что делаем** — задачи с меткой `stage:<этап>`: исполнитель — команда (`@teama`), описание — постановка для техлида, критерии приемки — чеклист;
-- **Как это работает** — их подзадачи с меткой `layer:employee|technology|backstage|support`: параметры IDEF0, схема, HowToDemo;
-- **документы** — «Карта» (команды и вопросы), «История» (этапы, шаги, экраны), `screens/` — требования к экранам для дизайнера.
+## Что здесь
 
-Правила — `.blueprint/rules/backlog_rules.md`. Факты — только из БФТ; чего в нём нет — `[УТОЧНИТЬ у {кого}]` и строка в «Вопросах» документа «Карта». Задачи и документы правь только через CLI `backlog`. Блок IDEF0 не пиши: его собирает сборка из «Параметров».
+| Путь | Что |
+|---|---|
+| `./backlog.py` | CLI Backlog.md, встроенный (`python3 backlog.py …` на Windows). Начни с `./backlog.py instructions overview` |
+| `./blueprint.py` | `lint` — проверка карты, `build` — страница `dineclub-restart-map.html` и архив `dineclub-restart-blueprint.zip`, `check` — без записи |
+| `backlog/tasks/` | задачи: «Что делаем» и их подзадачи «Как это работает» |
+| `backlog/docs/` | документы: «Карта» (команды, вопросы), «История» (этапы, шаги, экраны), `screens/` — требования к экранам |
+| `.blueprint/rules/` | правила: `backlog_rules.md` — карта, `screen_notes.md` — экраны, `story_line.md` — история |
+| `blueprint.html`, `dineclub-restart-map.html` | страница карты; в браузере — правой кнопкой замечание, меню «Замечания» — промпт агенту |
 
-После правок — из папки проекта:
+Установлен npm-пакет `backlog.md` — его `backlog board` и `backlog browser` работают с теми же файлами.
+
+## Карта — это задачи и документы
+
+- **Что делаем** — задача с меткой `stage:<этап>` и видом (`создать`, `доработать`, `используем`, `уточнить`), исполнитель — команда `@id` из «Карты» (неизвестна — метки `кандидат:<id>`). Описание: зачем; строка `Требования БФТ: …`; разделы `### ASIS`, `### GAP`, `### TOBE`, `### HowToDemo`, по желанию `### Дополнительно`. Чеклист приемки — критерии `--ac`.
+- **Как это работает** — подзадача (`-p BP-N`) с метками `stage:<этап>` и `layer:employee|technology|backstage|support`. Описание: суть; `### UserStory` «Как <роль>, я хочу …, чтобы …»; `### JobStory` — список «- Когда …, хочу …, чтобы …»; `### Параметры` (`- **Вход:** …`, `- **Управление:** …`, `- **Выход:** …`, `- **Механизм:** …`, значения через `;`, ссылка `(BP-8.1)` — связь с карточкой); `### Процесс` — шаги `- Участник: действие`, развилка `- ? вопрос` и под ней ветки `  - да → Участник: действие` или `  - нет → конец`; `### HowToDemo`. Блок `### BPMN` не пиши — его собирает `./blueprint.py build` из процесса.
+- **Требования к экрану** — документ `F3 · Название` в `backlog/docs/screens/`: `# Название`, картинки `![…](screen:F3)`, вкладки `## Product`, `## Design`, `## Functions`, заметки `### …` с `Источник: ФТ-1`.
+
+Задачи без метки `stage:` на карте не показываются — это обычная работа: план реализации, баги.
+
+## Правила
+
+1. Задачи и документы меняй только через `./backlog.py`: файлы руками не правь.
+2. Факты — только из БФТ и ответов PO. Неизвестное — `[УТОЧНИТЬ у {кого}]` в тексте и строка в «Вопросах» документа «Карта».
+3. Названия и суть — без API, протоколов, таблиц БД: это высота БФТ.
+4. После правок: `./blueprint.py lint` → 0 ошибок, затем `./blueprint.py build`.
+
+## Частые действия
 
 ```bash
-python3 .blueprint/scripts/bft-backlog-lint.py .
-python3 .blueprint/scripts/bft-backlog-build.py . --out-dir .
+./backlog.py task list -l stage:F --plain                       # задачи этапа
+./backlog.py task view BP-16 --plain                            # постановка целиком
+./backlog.py task edit BP-16 --ac "Отказ — с понятной причиной"  # добавить критерий приемки
+./backlog.py task edit BP-16 --add-ref https://jira.example.com/browse/DEMO-16 --notes "Ход работ"
+./backlog.py task create "Проверка часового пояса" -p BP-16 -a "" -l "stage:F,layer:backstage" --no-dod-defaults \
+  -d $'Суть.\n\n### UserStory\nКак …, я хочу …, чтобы …\n\n### JobStory\n- Когда …, хочу …, чтобы …\n\n### Параметры\n- **Вход:** …\n- **Управление:** …\n- **Выход:** …\n- **Механизм:** …\n\n### Процесс\n- Участник: действие\n- ? Вопрос?\n  - да → Участник: действие\n  - нет → конец\n\n### HowToDemo\n1. …\n2. …'
+./backlog.py doc view doc-1                                     # команды и вопросы
+./backlog.py doc update doc-1 --content "$(cat карта.md)"        # правка документа целиком
+./blueprint.py lint && ./blueprint.py build
 ```
-
-Сборка пишет страницу карты `dineclub-restart-map.html` и архив проекта `dineclub-restart-blueprint.zip`. Скрипты — только стандартная библиотека Python; в навыке они лежат в `<skills_path>/bft-blueprint/scripts/`.
 <!-- BFT-BLUEPRINT END -->

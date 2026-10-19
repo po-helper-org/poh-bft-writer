@@ -3,16 +3,18 @@
 
 Детерминированно, без ИИ:
 1. проверка проекта (`bft-backlog-lint.py`); с ошибками ничего не собирается — код 1;
-2. IDEF0 карточек «Как это работает» — mermaid из «Параметров» (блок `### IDEF0` в файле карточки);
+2. схема BPMN карточек «Как это работает» — mermaid из «Процесса» (блок `### BPMN` в файле карточки);
 3. `<epic>-map.html` — одна страница без CDN: «Что видят», «Что делаем», «Как это работает»;
-4. `<epic>-blueprint.zip` — автономный проект: папка Backlog.md, страница `blueprint.html` и
-   `.blueprint/` — эти скрипты и правила. Распаковал — ведёшь бэклог CLI `backlog` и пересобираешь
-   страницу `python3 .blueprint/scripts/bft-backlog-build.py .`
+4. папка проекта автономна: `.blueprint/` (эти скрипты и правила), `./backlog.py` — встроенный CLI
+   Backlog.md, `./blueprint.py` — проверка и сборка, CLAUDE.md, AGENTS.md, GEMINI.md, `.claude/settings.json`
+   (`bft-backlog-init.py`, `install()`); сборка их обновляет;
+5. `<epic>-blueprint.zip` — эта папка целиком и страница `blueprint.html`. Распаковал — отдаёшь любому
+   харнессу: `./backlog.py …`, `./blueprint.py build`, ничего ставить не нужно, кроме python3.
 
 Использование:
     python3 bft-backlog-build.py <проект> [--out-dir КАТАЛОГ] [--source БФТ.md | --no-source] [--check] [--no-zip]
 
---check — ничего не пишет: устаревший IDEF0 — ошибка (для CI и самотеста).
+--check — ничего не пишет: устаревшая схема BPMN, скрипты или инструкции проекта — ошибка (для CI и самотеста).
 По умолчанию файлы ложатся рядом с папкой проекта.
 """
 from __future__ import annotations
@@ -32,13 +34,17 @@ import bft_backlog as bl  # noqa: E402
 import bft_story as bs  # noqa: E402
 import bft_screens as bsn  # noqa: E402
 
-_spec = importlib.util.spec_from_file_location("bl_lint", HERE / "bft-backlog-lint.py")
-lint = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(lint)
 
-TOOLS = ("bft_blueprint.py", "bft_story.py", "bft_screens.py", "bft_backlog.py", "bft-blueprint-lint.py",
-         "bft-backlog-lint.py", "bft-backlog-build.py", "bft-backlog-init.py", "page_kit.js", "map_page.js", "map_page.css")
-RULES = ("backlog_rules.md", "screen_notes.md", "story_line.md")
+
+def _load(name: str, file: str):
+    spec = importlib.util.spec_from_file_location(name, HERE / file)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+lint = _load("bl_lint", "bft-backlog-lint.py")
+kit = _load("bl_init", "bft-backlog-init.py")
 ZIP_DATE = (1980, 1, 1, 0, 0, 0)
 
 PAGE = """<!doctype html>
@@ -117,7 +123,7 @@ def model(pr: bl.Project) -> dict:
                         "refs": [str(x) for x in t.refs], "docs": [str(x) for x in t.docs], "file": t.rel}
     tasks = [{**common(t), "cand": t.cand, "why": t.why, "reqs": t.reqs, "kind": t.kind, "notes": t.notes,
               "brief": {k: v[1] for k, v in t.sections.items()}, "ac": [[d, x] for d, x in t.ac]} for t in pr.tasks]
-    cards = [{**common(c), "task": c.parent, "layer": c.layer, "lead": c.lead,
+    cards = [{**common(c), "task": c.parent, "layer": c.layer, "lead": c.lead, "us": c.user_story, "js": c.job_stories, "proc": c.proc,
               "params": {k: [{"t": it.text, "r": it.refs} for it in v] for k, v in c.params.items()},
               "demo": c.sections.get("HowToDemo", (0, ""))[1]} for c in pr.cards]
     return {
@@ -153,32 +159,20 @@ def render(pr: bl.Project) -> str:
         js=(HERE / "map_page.js").read_text(encoding="utf-8"), data=data)
 
 
-def rules_dir() -> Path:
-    for p in (HERE.parent / "resources", HERE.parent / "rules"):
-        if p.is_dir():
-            return p
-    return HERE.parent / "resources"
-
-
 def build_zip(pr: bl.Project, page: str, out: Path) -> int:
     """Архив без дат и прав системы: тот же проект — тот же zip байт в байт."""
     name = f"{pr.meta.get('epic_slug', 'epic')}-blueprint"
     entries: dict[str, bytes] = {}
     for f in sorted(pr.root.rglob("*")):
         rel = f.relative_to(pr.root).as_posix()
-        if not f.is_file() or rel.startswith((".blueprint/", ".git/")) or "/" not in rel and f.suffix in (".html", ".zip"):
+        if not f.is_file() or rel.startswith(".git/") or "__pycache__" in rel or "/" not in rel and f.suffix in (".html", ".zip"):
             continue
         entries[rel] = f.read_bytes()
     entries["blueprint.html"] = page.encode("utf-8")
-    for t in TOOLS:
-        entries[f".blueprint/scripts/{t}"] = (HERE / t).read_bytes()
-    for r in RULES:
-        if (rules_dir() / r).is_file():
-            entries[f".blueprint/rules/{r}"] = (rules_dir() / r).read_bytes()
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
         for rel in sorted(entries):
             info = zipfile.ZipInfo(f"{name}/{rel}", date_time=ZIP_DATE)
-            info.external_attr = (0o755 if rel.endswith(".py") else 0o644) << 16
+            info.external_attr = (0o755 if rel.endswith(".py") or rel in ("backlog.py", "blueprint.py") else 0o644) << 16
             info.compress_type = zipfile.ZIP_DEFLATED
             z.writestr(info, entries[rel])
     return len(entries)
@@ -190,7 +184,7 @@ def main() -> int:
     ap.add_argument("--out-dir", type=Path, help="куда писать .html и .zip (по умолчанию — рядом с папкой проекта)")
     ap.add_argument("--source", help="путь к БФТ (по умолчанию — `source_doc` паспорта)")
     ap.add_argument("--no-source", action="store_true", help="не сверять с БФТ")
-    ap.add_argument("--check", action="store_true", help="ничего не писать: проверка и устаревшие IDEF0")
+    ap.add_argument("--check", action="store_true", help="ничего не писать: проверка, устаревшие схемы и скрипты")
     ap.add_argument("--no-zip", action="store_true", help="только страница")
     args = ap.parse_args()
     root = args.project.resolve()
@@ -203,13 +197,21 @@ def main() -> int:
         lint.report(pr, False, "backlog-build")
         print("backlog-build: проект с ошибками не собирается — исправь и запусти снова", file=sys.stderr)
         return 1
+    meta = (pr.title, pr.meta.get("epic_slug", ""), pr.meta.get("source_doc", ""))
     if args.check:
-        return lint.report(pr, False, "backlog-build")
-    synced = bl.sync_idef(pr, write=True)
+        rc = lint.report(pr, False, "backlog-build")
+        stale_kit = kit.install(root, *meta, write=False)
+        for rel in stale_kit:
+            print(f"{root / rel}:1: ERROR BL029 файл автономного проекта устарел — ./blueprint.py build обновит")
+        return 1 if rc or stale_kit else 0
+    synced = bl.sync_schema(pr, write=True)
     if synced:
-        print(f"backlog-build: IDEF0 пересобран из «Параметров» — {', '.join(c.id for c in synced)}")
+        print(f"backlog-build: схема BPMN пересобрана из «Процесса» — {', '.join(c.id for c in synced)}")
         pr = lint.run(root, args.source, args.no_source)
     lint.report(pr, False, "backlog-build")
+    kit_changed = kit.install(root, *meta)
+    if kit_changed:
+        print(f"backlog-build: обновлены скрипты, правила и инструкции проекта — {len(kit_changed)} файлов")
     out_dir = (args.out_dir or root.parent).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
     epic = pr.meta.get("epic_slug", "epic")

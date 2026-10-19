@@ -1,28 +1,33 @@
 #!/usr/bin/env python3
-"""bft-backlog-init — проект Backlog.md для карты инициативы из согласованной истории.
+"""bft-backlog-init — автономный проект Backlog.md для карты инициативы из согласованной истории.
 
-Создаёт папку `<epic>-blueprint/` — обычный проект Backlog.md (префикс задач `bp`, без git):
-документ «Карта» (паспорт <!-- bft-map -->, пустые «Команды» и «Вопросы») и документ «История»
-(история через экраны <!-- bft-story -->). Дальше агент ведёт бэклог через CLI `backlog`
-по `resources/backlog_rules.md`, а страницу и архив собирает `bft-backlog-build.py`.
+Создаёт папку `<epic>-blueprint/`, которую можно отдать любому харнессу и любой LLM — ничего ставить
+не нужно, кроме python3:
 
-Есть CLI `backlog` (npm i -g backlog.md) — проект создаётся им (`backlog init`, `backlog doc create`);
-нет — те же файлы пишутся напрямую в формате Backlog.md 1.54.
+  backlog/                   данные Backlog.md 1.54: config.yml, документы «Карта» и «История»
+  backlog.py                 встроенный CLI Backlog.md: ./backlog.py task list --plain
+  blueprint.py               проверка и сборка страницы карты: ./blueprint.py lint | build | check
+  .blueprint/scripts, rules  скрипты сборки и правила карты
+  CLAUDE.md, AGENTS.md,      инструкции агенту: что где лежит, правила, команды — без внешних ссылок
+  GEMINI.md
+  .claude/settings.json      Claude Code: команды проекта разрешены без запроса
 
-В README.md, CLAUDE.md и AGENTS.md проекта — блок «Service Blueprint»: что где лежит и как пересобрать.
-`--guides` обновляет только этот блок в уже созданном проекте.
+Тот же набор `install()` обновляет сборка (`bft-backlog-build.py`), поэтому проект и архив
+всегда несут текущие скрипты и правила. Установлен npm-пакет `backlog.md` — его `backlog`
+работает с теми же файлами (доска в браузере — `backlog browser`).
 
 Использование:
-    python3 bft-backlog-init.py <epic>-story.md [--dir ПАПКА] [--no-cli]
-    python3 bft-backlog-init.py --guides <проект>
+    python3 bft-backlog-init.py <epic>-story.md [--dir ПАПКА]
+    python3 bft-backlog-init.py --guides <проект>      обновить скрипты, правила и инструкции
 """
 from __future__ import annotations
 
 import argparse
+import contextlib
 import datetime as dt
-import re
-import shutil
-import subprocess
+import io
+import json
+import os
 import sys
 from pathlib import Path
 
@@ -30,33 +35,14 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import bft_backlog as bl  # noqa: E402
 import bft_story as bs  # noqa: E402
+import backlog_cli as cli  # noqa: E402
 
 START, END = "<!-- BFT-BLUEPRINT START -->", "<!-- BFT-BLUEPRINT END -->"
-GUIDELINES = """
-<!-- BACKLOG.MD GUIDELINES START -->
-<!-- backlog.md-instructions-version: 1.54.0 -->
-<CRITICAL_INSTRUCTION>
-
-## Backlog.md Workflow
-
-This project uses Backlog.md for task and project management.
-
-**At the beginning of each conversation in this project, run `backlog instructions overview` before answering or taking action. Re-read it only if you have not read it yet in the current conversation.**
-
-Use the overview to decide whether to search, read, create, or update Backlog tasks.
-
-Before task lifecycle actions, read the matching detailed guide:
-- `backlog instructions task-creation` before creating or splitting tasks
-- `backlog instructions task-execution` before planning, changing status or assignee, adding a plan or implementation notes, or implementing task work
-- `backlog instructions task-finalization` before checking acceptance criteria, writing final summaries, or moving tasks to terminal statuses
-
-Use `backlog <command> --help` before running unfamiliar commands. Help shows options, fields, and examples.
-
-Do not edit Backlog task, draft, document, decision, or milestone markdown files directly. Use the `backlog` CLI so metadata, relationships, and history stay consistent.
-
-</CRITICAL_INSTRUCTION>
-<!-- BACKLOG.MD GUIDELINES END -->
-"""
+NPM_START, NPM_END = "<!-- BACKLOG.MD GUIDELINES START -->", "<!-- BACKLOG.MD GUIDELINES END -->"
+TOOLS = ("backlog_cli.py", "bft_blueprint.py", "bft_story.py", "bft_screens.py", "bft_backlog.py", "bft-blueprint-lint.py",
+         "bft-backlog-lint.py", "bft-backlog-build.py", "bft-backlog-init.py", "page_kit.js", "map_page.js", "map_page.css")
+RULES = ("backlog_rules.md", "screen_notes.md", "story_line.md")
+AGENT_FILES = ("CLAUDE.md", "AGENTS.md", "GEMINI.md")
 CONFIG = """project_name: "{name}"
 default_status: "To Do"
 statuses: ["To Do", "In Progress", "Done"]
@@ -74,56 +60,151 @@ active_branch_days: 30
 task_prefix: "bp"
 """
 
+BACKLOG_SH = '''#!/usr/bin/env python3
+"""Backlog.md этого проекта — встроенный CLI, только python3: ./backlog.py task list --plain (Windows: python backlog.py …)"""
+import os, runpy, sys
+here = os.path.dirname(os.path.abspath(__file__))
+os.chdir(here)
+sys.argv[0] = "backlog"
+sys.path.insert(0, os.path.join(here, ".blueprint", "scripts"))
+runpy.run_path(os.path.join(here, ".blueprint", "scripts", "backlog_cli.py"), run_name="__main__")
+'''
+BLUEPRINT_SH = '''#!/usr/bin/env python3
+"""Карта этого проекта: ./blueprint.py lint | build | check   (build пишет страницу и архив в папку проекта)"""
+import os, subprocess, sys
+here = os.path.dirname(os.path.abspath(__file__))
+scripts = os.path.join(here, ".blueprint", "scripts")
+cmd, rest = (sys.argv[1] if len(sys.argv) > 1 else "help"), sys.argv[2:]
+if cmd == "lint":
+    run = ["bft-backlog-lint.py", here]
+elif cmd == "build":
+    run = ["bft-backlog-build.py", here, "--out-dir", here]
+elif cmd == "check":
+    run = ["bft-backlog-build.py", here, "--check"]
+else:
+    print("./blueprint.py lint   — проверить карту (коды BL, SN; правила — .blueprint/rules/backlog_rules.md)")
+    print("./blueprint.py build  — схемы BPMN из «Процесса», страница <epic>-map.html и архив <epic>-blueprint.zip")
+    print("./blueprint.py check  — проверка без записи: схемы и скрипты проекта актуальны")
+    print("доп. ключи: --source БФТ.md — сверка с БФТ, --strict — предупреждения тоже ошибки")
+    sys.exit(0 if cmd in ("help", "-h", "--help") else 2)
+sys.exit(subprocess.call([sys.executable, os.path.join(scripts, run[0]), *run[1:], *rest]))
+'''
+ALLOW = ["Bash(./backlog.py:*)", "Bash(./blueprint.py:*)", "Bash(python3 backlog.py:*)", "Bash(python3 blueprint.py:*)",
+         "Bash(python3 .blueprint/scripts/backlog_cli.py:*)", "Bash(python3 .blueprint/scripts/bft-backlog-lint.py:*)",
+         "Bash(python3 .blueprint/scripts/bft-backlog-build.py:*)", "Read(.blueprint/**)", "Read(backlog/**)"]
+
 
 def guide(title: str, epic: str, source: str) -> str:
     return f"""{START}
-## Service Blueprint
+# Service Blueprint «{title}»
 
-Проект — карта инициативы «{title}» (эпик `{epic}`), собранная по БФТ `{source}`. Карта — это задачи и документы Backlog.md:
+Проект автономен: всё для работы — в этой папке, ничего ставить не нужно, кроме python3.
+Данные — проект [Backlog.md](https://github.com/MrLesk/Backlog.md) (формат 1.54); эпик `{epic}`, источник — БФТ `{source}`.
 
-- **Что делаем** — задачи с меткой `stage:<этап>`: исполнитель — команда (`@teama`), описание — постановка для техлида, критерии приемки — чеклист;
-- **Как это работает** — их подзадачи с меткой `layer:employee|technology|backstage|support`: параметры IDEF0, схема, HowToDemo;
-- **документы** — «Карта» (команды и вопросы), «История» (этапы, шаги, экраны), `screens/` — требования к экранам для дизайнера.
+## Что здесь
 
-Правила — `.blueprint/rules/backlog_rules.md`. Факты — только из БФТ; чего в нём нет — `[УТОЧНИТЬ у {{кого}}]` и строка в «Вопросах» документа «Карта». Задачи и документы правь только через CLI `backlog`. Блок IDEF0 не пиши: его собирает сборка из «Параметров».
+| Путь | Что |
+|---|---|
+| `./backlog.py` | CLI Backlog.md, встроенный (`python3 backlog.py …` на Windows). Начни с `./backlog.py instructions overview` |
+| `./blueprint.py` | `lint` — проверка карты, `build` — страница `{epic}-map.html` и архив `{epic}-blueprint.zip`, `check` — без записи |
+| `backlog/tasks/` | задачи: «Что делаем» и их подзадачи «Как это работает» |
+| `backlog/docs/` | документы: «Карта» (команды, вопросы), «История» (этапы, шаги, экраны), `screens/` — требования к экранам |
+| `.blueprint/rules/` | правила: `backlog_rules.md` — карта, `screen_notes.md` — экраны, `story_line.md` — история |
+| `blueprint.html`, `{epic}-map.html` | страница карты; в браузере — правой кнопкой замечание, меню «Замечания» — промпт агенту |
 
-После правок — из папки проекта:
+Установлен npm-пакет `backlog.md` — его `backlog board` и `backlog browser` работают с теми же файлами.
+
+## Карта — это задачи и документы
+
+- **Что делаем** — задача с меткой `stage:<этап>` и видом (`создать`, `доработать`, `используем`, `уточнить`), исполнитель — команда `@id` из «Карты» (неизвестна — метки `кандидат:<id>`). Описание: зачем; строка `Требования БФТ: …`; разделы `### ASIS`, `### GAP`, `### TOBE`, `### HowToDemo`, по желанию `### Дополнительно`. Чеклист приемки — критерии `--ac`.
+- **Как это работает** — подзадача (`-p BP-N`) с метками `stage:<этап>` и `layer:employee|technology|backstage|support`. Описание: суть; `### UserStory` «Как <роль>, я хочу …, чтобы …»; `### JobStory` — список «- Когда …, хочу …, чтобы …»; `### Параметры` (`- **Вход:** …`, `- **Управление:** …`, `- **Выход:** …`, `- **Механизм:** …`, значения через `;`, ссылка `(BP-8.1)` — связь с карточкой); `### Процесс` — шаги `- Участник: действие`, развилка `- ? вопрос` и под ней ветки `  - да → Участник: действие` или `  - нет → конец`; `### HowToDemo`. Блок `### BPMN` не пиши — его собирает `./blueprint.py build` из процесса.
+- **Требования к экрану** — документ `F3 · Название` в `backlog/docs/screens/`: `# Название`, картинки `![…](screen:F3)`, вкладки `## Product`, `## Design`, `## Functions`, заметки `### …` с `Источник: ФТ-1`.
+
+Задачи без метки `stage:` на карте не показываются — это обычная работа: план реализации, баги.
+
+## Правила
+
+1. Задачи и документы меняй только через `./backlog.py`: файлы руками не правь.
+2. Факты — только из БФТ и ответов PO. Неизвестное — `[УТОЧНИТЬ у {{кого}}]` в тексте и строка в «Вопросах» документа «Карта».
+3. Названия и суть — без API, протоколов, таблиц БД: это высота БФТ.
+4. После правок: `./blueprint.py lint` → 0 ошибок, затем `./blueprint.py build`.
+
+## Частые действия
 
 ```bash
-python3 .blueprint/scripts/bft-backlog-lint.py .
-python3 .blueprint/scripts/bft-backlog-build.py . --out-dir .
+./backlog.py task list -l stage:F --plain                       # задачи этапа
+./backlog.py task view BP-16 --plain                            # постановка целиком
+./backlog.py task edit BP-16 --ac "Отказ — с понятной причиной"  # добавить критерий приемки
+./backlog.py task edit BP-16 --add-ref https://jira.example.com/browse/DEMO-16 --notes "Ход работ"
+./backlog.py task create "Проверка часового пояса" -p BP-16 -a "" -l "stage:F,layer:backstage" --no-dod-defaults \\
+  -d $'Суть.\\n\\n### UserStory\\nКак …, я хочу …, чтобы …\\n\\n### JobStory\\n- Когда …, хочу …, чтобы …\\n\\n### Параметры\\n- **Вход:** …\\n- **Управление:** …\\n- **Выход:** …\\n- **Механизм:** …\\n\\n### Процесс\\n- Участник: действие\\n- ? Вопрос?\\n  - да → Участник: действие\\n  - нет → конец\\n\\n### HowToDemo\\n1. …\\n2. …'
+./backlog.py doc view doc-1                                     # команды и вопросы
+./backlog.py doc update doc-1 --content "$(cat карта.md)"        # правка документа целиком
+./blueprint.py lint && ./blueprint.py build
 ```
-
-Сборка пишет страницу карты `{epic}-map.html` и архив проекта `{epic}-blueprint.zip`. Скрипты — только стандартная библиотека Python; в навыке они лежат в `<skills_path>/bft-blueprint/scripts/`.
 {END}
 """
 
 
-def put_block(path: Path, block: str, head: str = "") -> None:
-    text = path.read_text(encoding="utf-8") if path.is_file() else head
+def merge_block(text: str, block: str) -> str:
+    """Текст файла с нашим блоком: блок npm-версии Backlog.md уступает ему место — те же правила, команды ./backlog."""
+    if NPM_START in text and NPM_END in text:
+        text = (text[:text.index(NPM_START)] + text[text.index(NPM_END) + len(NPM_END):]).strip("\n") + "\n"
     if START in text and END in text:
         text = text[:text.index(START)] + block.rstrip("\n") + text[text.index(END) + len(END):]
     else:
         text = text.rstrip("\n") + ("\n\n" if text.strip() else "") + block
-    path.write_text(text if text.endswith("\n") else text + "\n", encoding="utf-8")
+    return text.strip("\n") + "\n"
 
 
-def write_guides(root: Path, title: str, epic: str, source: str) -> None:
+def rules_dir() -> Path:
+    for p in (HERE.parent / "resources", HERE.parent / "rules"):
+        if p.is_dir():
+            return p
+    return HERE.parent / "resources"
+
+
+def wanted(root: Path, title: str, epic: str, source: str) -> dict[str, bytes]:
+    """Файлы автономного проекта, которые держит навык: путь → содержимое."""
+    out: dict[str, bytes] = {}
+    for t in TOOLS:
+        out[f".blueprint/scripts/{t}"] = (HERE / t).read_bytes()
+    for r in RULES:
+        if (rules_dir() / r).is_file():
+            out[f".blueprint/rules/{r}"] = (rules_dir() / r).read_bytes()
+    out["backlog.py"], out["blueprint.py"] = BACKLOG_SH.encode(), BLUEPRINT_SH.encode()
     block = guide(title, epic, source)
-    put_block(root / "README.md", block, f"# {title}\n\nService Blueprint инициативы `{epic}` — проект [Backlog.md](https://github.com/MrLesk/Backlog.md). "
-              f"Доска: `backlog board` или `backlog browser`; страница карты — `blueprint.html` в архиве или `{epic}-map.html` после сборки.\n")
-    for name in ("CLAUDE.md", "AGENTS.md"):
-        put_block(root / name, block, GUIDELINES)
+    head = (f"# {title}\n\nService Blueprint инициативы `{epic}` — автономный проект Backlog.md. "
+            f"Доска: `./backlog.py board`; страница карты — `blueprint.html` или `{epic}-map.html` после `./blueprint.py build`.\n")
+    for name in AGENT_FILES + ("README.md",):
+        p = root / name
+        text = p.read_text(encoding="utf-8") if p.is_file() else (head if name == "README.md" else "")
+        out[name] = merge_block(text, block).encode()
+    settings = root / ".claude" / "settings.json"
+    try:
+        cur = json.loads(settings.read_text(encoding="utf-8")) if settings.is_file() else {}
+    except ValueError:
+        cur = {}
+    perms = cur.setdefault("permissions", {})
+    perms["allow"] = list(dict.fromkeys([*perms.get("allow", []), *ALLOW]))
+    out[".claude/settings.json"] = (json.dumps(cur, ensure_ascii=False, indent=2) + "\n").encode()
+    return out
 
 
-def now() -> str:
-    return dt.datetime.now().strftime("%Y-%m-%d %H:%M")
-
-
-def doc_file(root: Path, n: int, title: str, body: str) -> None:
-    f = root / "backlog" / "docs" / f"doc-{n} - {title.replace(' ', '-')}.md"
-    f.parent.mkdir(parents=True, exist_ok=True)
-    f.write_text(f"---\nid: doc-{n}\ntitle: {title}\ntype: specification\ncreated_date: '{now()}'\n---\n{body}", encoding="utf-8")
+def install(root: Path, title: str, epic: str, source: str, write: bool = True) -> list[str]:
+    """Скрипты, правила, обёртки и инструкции агенту в папке проекта. Возвращает изменённые пути."""
+    changed = []
+    for rel, data in wanted(root, title, epic, source).items():
+        p = root / rel
+        if p.is_file() and p.read_bytes() == data:
+            continue
+        changed.append(rel)
+        if write:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_bytes(data)
+            if rel in ("backlog.py", "blueprint.py"):
+                p.chmod(0o755)
+    return changed
 
 
 def bodies(story: Path, st: bs.Story) -> tuple[str, str]:
@@ -140,20 +221,30 @@ def bodies(story: Path, st: bs.Story) -> tuple[str, str]:
     return m, "<!-- bft-story" + fm.rstrip() + "\n-->" + rest
 
 
+def backlog(root: Path, *args: str) -> None:
+    cwd = os.getcwd()
+    os.chdir(root)
+    try:
+        with contextlib.redirect_stdout(io.StringIO()):
+            if cli.main(list(args)):
+                raise SystemExit(f"backlog {' '.join(args[:2])}: ошибка")
+    finally:
+        os.chdir(cwd)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("story", type=Path, nargs="?", help="<epic>-story.md — согласованная история")
     ap.add_argument("--dir", type=Path, help="папка проекта (по умолчанию <epic>-blueprint рядом с историей)")
-    ap.add_argument("--no-cli", action="store_true", help="не звать CLI backlog, писать файлы напрямую")
-    ap.add_argument("--guides", type=Path, metavar="ПРОЕКТ", help="только обновить блок «Service Blueprint» в README, CLAUDE.md, AGENTS.md")
+    ap.add_argument("--guides", type=Path, metavar="ПРОЕКТ", help="обновить скрипты, правила и инструкции агенту в проекте")
     args = ap.parse_args()
     if args.guides:
         pr = bl.parse(args.guides)
         if not pr.map_doc:
             print(f"{args.guides}: нет документа «Карта» — сначала создай проект", file=sys.stderr)
             return 1
-        write_guides(args.guides, pr.title, pr.meta.get("epic_slug", ""), pr.meta.get("source_doc", ""))
-        print(f"backlog-init: блок «Service Blueprint» обновлён в {args.guides}")
+        changed = install(args.guides, pr.title, pr.meta.get("epic_slug", ""), pr.meta.get("source_doc", ""))
+        print(f"backlog-init: {args.guides} — обновлено файлов {len(changed)}")
         return 0
     if not args.story or not args.story.is_file():
         ap.error("нужен файл истории <epic>-story.md")
@@ -169,27 +260,20 @@ def main() -> int:
     epic = st.meta["epic_slug"]
     root = args.dir or args.story.parent / f"{epic}-blueprint"
     if bl.find_backlog(root):
-        print(f"backlog-init: {root} уже проект Backlog.md — правь его через CLI backlog", file=sys.stderr)
+        print(f"backlog-init: {root} уже проект Backlog.md — правь его через ./backlog.py", file=sys.stderr)
         return 1
-    root.mkdir(parents=True, exist_ok=True)
     title = st.title.split(":", 1)[1].strip() if ":" in st.title else st.title
     map_body, story_body = bodies(args.story, st)
-    cli = None if args.no_cli else shutil.which("backlog")
-    if cli:
-        run = lambda *a: subprocess.run([cli, *a], cwd=root, check=True, capture_output=True, text=True)  # noqa: E731
-        run("init", title, "--no-git", "--defaults", "--agent-instructions", "claude,agents", "--integration-mode", "cli", "--task-prefix", "bp")
-        run("doc", "create", "Карта", "-t", "specification")
-        run("doc", "update", "doc-1", "--content", map_body)
-        run("doc", "create", "История", "-t", "specification")
-        run("doc", "update", "doc-2", "--content", story_body)
-    else:
-        (root / "backlog" / "tasks").mkdir(parents=True, exist_ok=True)
-        (root / "backlog" / "config.yml").write_text(CONFIG.format(name=title.replace('"', "'")), encoding="utf-8")
-        doc_file(root, 1, "Карта", map_body)
-        doc_file(root, 2, "История", story_body)
-    write_guides(root, title, epic, st.meta.get("source_doc", ""))
-    print(f"backlog-init: {root} — проект Backlog.md ({'CLI backlog' if cli else 'файлы напрямую'}): документы «Карта» и «История»")
-    print("дальше: команды и вопросы — в «Карту», задачи и карточки — `backlog task create` (resources/backlog_rules.md)")
+    (root / "backlog" / "tasks").mkdir(parents=True, exist_ok=True)
+    (root / "backlog" / "docs").mkdir(parents=True, exist_ok=True)
+    (root / "backlog" / "config.yml").write_text(CONFIG.format(name=title.replace('"', "'")), encoding="utf-8")
+    backlog(root, "doc", "create", "Карта", "-t", "specification")
+    backlog(root, "doc", "update", "doc-1", "--content", map_body)
+    backlog(root, "doc", "create", "История", "-t", "specification")
+    backlog(root, "doc", "update", "doc-2", "--content", story_body)
+    install(root, title, epic, st.meta.get("source_doc", ""))
+    print(f"backlog-init: {root} — автономный проект Backlog.md: документы «Карта» и «История», ./backlog.py, ./blueprint.py, инструкции агенту")
+    print("дальше: команды и вопросы — в «Карту», задачи и карточки — ./backlog.py task create (.blueprint/rules/backlog_rules.md)")
     return 0
 
 

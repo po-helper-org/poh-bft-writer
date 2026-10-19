@@ -325,18 +325,18 @@
     side.dataset.ctx = "task:" + id; side.dataset.note = "";
   }
 
-  /* карточка «Как это работает» — техническая задача: суть, параметры IDEF0, схема, HowToDemo, ссылки */
+  /* карточка «Как это работает» — техническая задача: UserStory, JobStory, процесс в BPMN, параметры, HowToDemo, ссылки */
   const PNAME = { in: "Вход", ctl: "Управление", out: "Выход", mech: "Механизм" };
-  const teamHex = t => !TEAM[t.team] ? "#c0392b" : getComputedStyle(document.documentElement).getPropertyValue(TEAM[t.team].c.slice(4, -1)).trim();
   function openProc(id) {
     const c = PROC[id], t = TASK[c.task], L = LAYER[c.layer], P = c.params || {};
     const row = k => (P[k] || []).length ? `<div class="pp"><span>${PNAME[k]}</span><ul>${P[k].map(it => `<li>${mdInline(it.t)}${it.r.length ? " " + it.r.map(idChip).join(" ") : ""}</li>`).join("")}</ul></div>` : "";
-    const f = { in: (P.in || []).map(x => x.t), ctl: (P.ctl || []).map(x => x.t), out: (P.out || []).map(x => x.t), mech: (P.mech || []).map(x => x.t) };
     const lnk = refList([t ? `Задача ${idChip(t.id)} ${esc(t.text)}` : "", ...c.docs.map(refItem), ...c.refs.map(refItem)].filter(Boolean));
+    const proc = (c.lead ? `<p class="tklead">${mdInline(c.lead)}</p>` : "") + ((c.proc || []).length ? `<div class="bpmnw">${BPK.bpmnSVG(c.proc, { uid: "c" })}</div>` : "");
     side.innerHTML = `<div class="snbar"><h3>${esc(c.text)}</h3><button class="x" aria-label="Закрыть">×</button></div><div class="snbody">
       <div class="tkmeta"><span class="lay" style="--c:${L[2]}">${L[0]}</span> · <span class="pteam" style="--c:${teamC(c)}"><i></i>${esc(teamN(c))}</span> · ${esc(COLS[colOf(c.stage)].name)} · ${esc(id)} · ${esc(c.status)}</div>
-      ${c.lead ? `<p class="tklead">${mdInline(c.lead)}</p>` : ""}${sec("Параметры", ["in", "ctl", "out", "mech"].map(row).join(""))}
-      ${f.out.length ? sec("IDEF0", `<div class="idefw">${BPK.idefSVG(f, { title: c.text, color: teamHex(c), dashed: !TEAM[c.team], uid: "c" })}</div>`) : ""}
+      ${c.us ? `<blockquote class="us">${mdInline(c.us)}</blockquote>` : ""}
+      ${sec("JobStory", (c.js || []).length ? `<ul class="js">${c.js.map(x => `<li>${mdInline(x)}</li>`).join("")}</ul>` : "")}
+      ${sec("Процесс", proc)}${sec("Параметры", ["in", "ctl", "out", "mech"].map(row).join(""))}
       ${sec("HowToDemo", mdHTML(c.demo || ""))}${sec("Вопросы", qList([...qOf(id), ...qOf(c.task)]))}${sec("Ссылки", lnk)}</div>`;
     body.classList.add("wide", "open"); side.scrollTop = 0;
     side.dataset.ctx = "proc:" + id; side.dataset.note = "";
@@ -351,7 +351,7 @@
   const ARTICLES = [["service-blueprint.md", "#2563c9", "SB", "Методология Service Blueprint и карта опыта", "Откуда эта карта: Service Blueprint, карта процесса-опыта, линии взаимодействия, видимости и внутреннего взаимодействия."],
     ["how-to-read.md", "#2f6b2a", "?", "Как читать карту", "Что видят, что делаем, как это работает — и куда нажимать."],
     ["product-storytelling.md", "#6b3fd4", "PS", "Product Storytelling: история через экраны", "Как устроен сюжет «было → шаги → стало» и почему история помогает проектировать."],
-    ["idef0.md", "#d06a12", "I0", "IDEF0: функция на одной схеме", "Входы, регуляторы, выходы, механизмы — и кому из команды это нужно."],
+    ["bpmn.md", "#d06a12", "BP", "BPMN: процесс по дорожкам", "Кто что делает, где развилка и куда ведёт каждая ветка."],
     ["bft.md", "#1c1c1c", "БФТ", "БФТ: бизнес-функциональные требования", "Откуда карта берёт каждый шаг и задачу и как вопросы с карты возвращаются в требования."]];
   function openGuide(kind) {
     if (kind === "help") openSide("Инструкции", "#555", "Как работать с картой", "", ARTICLES.map(([f, c, ic, t, d], i) => `<a class="art" href="${DOCS + f}" target="_blank" rel="noopener"><span class="ic" style="background:${c}">${ic}</span><span><b>${i + 1}. ${esc(t)}</b><span>${esc(d)}</span><em>Читать на GitHub ↗</em></span></a>`).join(""));
@@ -491,12 +491,12 @@
     const files = [...new Set(list.flatMap(c => c.file.split(", ")))], proj = F.project || "<epic>-blueprint";
     return [`Доработай Service Blueprint «${D.title}» (${D.epic}) по замечаниям с карты. Данные — проект Backlog.md ${proj}:`, "",
       ...list.map((c, i) => `${i + 1}. [${c.label}]${c.quote ? ` (по фрагменту «${c.quote}»)` : ""} ${c.text}\n   Файл: ${c.file}`), "",
-      "Правь только названное и только через CLI backlog: `backlog task edit <ID> …`, `backlog doc update <doc-id> --content …`; файлы руками не правь.",
-      `Источник фактов — БФТ ${F.source || ""}; чего в нём нет — [УТОЧНИТЬ у {кого}] и строка в «Вопросах» документа «Карта». IDEF0 карточки не пиши: схема собирается из «Параметров».`,
+      "Правь только названное и только через встроенный CLI: `./backlog.py task edit <ID> …`, `./backlog.py doc update <doc-id> --content …`; файлы руками не правь.",
+      `Источник фактов — БФТ ${F.source || ""}; чего в нём нет — [УТОЧНИТЬ у {кого}] и строка в «Вопросах» документа «Карта». Схему процесса не рисуй: она собирается из раздела «Процесс».`,
       `Файлы к правке: ${files.join(", ")}.`, "",
-      "После правок — обязательно, в этом порядке, из папки проекта:",
-      "1. python3 .blueprint/scripts/bft-backlog-lint.py .   (или <skills_path>/bft-blueprint/scripts/bft-backlog-lint.py <проект>)",
-      "2. python3 .blueprint/scripts/bft-backlog-build.py . --out-dir .   (пересобрать страницу и архив — без этого замечания придут повторно)"].join("\n");
+      "После правок — обязательно, из папки проекта:",
+      "1. ./blueprint.py lint   (0 ошибок)",
+      "2. ./blueprint.py build   (пересобрать страницу и архив — без этого замечания придут повторно)"].join("\n");
   }
   function cmPanel() {
     const list = cmOpen(), past = cmLoad().filter(c => c.closedAt);
