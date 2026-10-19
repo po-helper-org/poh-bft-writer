@@ -76,7 +76,7 @@ test('ссылки строятся только на существующие �
     '/ws/.bft/documentation/nolinks': ['nolinks.md'],
     '/ws/.bft/documentation/nolinks/nolinks.md': deepDoc('nolinks'),
     '/ws/.bft/documentation/links': ['links.md', 'links.html'],
-    '/ws/.bft/documentation/links/links.md': deepDoc('links', { pageId: '2272447498', jira: 'GDSLV-1409' }),
+    '/ws/.bft/documentation/links/links.md': deepDoc('links', { pageId: '1000000001', jira: 'ACME-1409' }),
   })
   const { tasks } = await scanWorkspace(loadConfig({ BFT_WORKSPACE_ROOT: '/ws', BFT_ENTIRE_BASE_URL: 'https://entire.io/t' }), ports)
   const [withLinks, without] = [tasks.find(t => t.id === 'links')!, tasks.find(t => t.id === 'nolinks')!]
@@ -84,8 +84,8 @@ test('ссылки строятся только на существующие �
   assert.equal(without.links.confluence, undefined)
   assert.equal(without.links.epic, undefined)
   assert.equal(without.links.html, undefined)
-  assert.equal(withLinks.links.confluence, 'https://confluence.mts.ru/pages/viewpage.action?pageId=2272447498')
-  assert.equal(withLinks.links.epic, 'https://jira.mts.ru/browse/GDSLV-1409')
+  assert.equal(withLinks.links.confluence, 'https://confluence.example.com/pages/viewpage.action?pageId=1000000001')
+  assert.equal(withLinks.links.epic, 'https://jira.example.com/browse/ACME-1409')
   assert.equal(withLinks.links.html, '.bft/documentation/links/links.html')
   assert.equal(withLinks.stage, 'DEEP-DONE')
   assert.deepEqual(withLinks.missing, [])
@@ -210,7 +210,7 @@ test('шапка документа попадает в строку очере�
     '| S (Specific) | Вывод кино на афишу |', '| M (Measurable) | Кино видно |',
     '', '### How to demo', '', '1. Открываю приложение.', '2. Вижу кино.', '',
     '### Общая информация', '', '| Поле | Значение |', '|---|---|',
-    '| Ответственный за продукт | Геворгян Виктория (коммерция) |',
+    '| Ответственный за продукт | Белова Виктория (коммерция) |',
   ].join('\n')
   const ports = fakePorts({
     '/ws/.bft/documentation': ['kino'],
@@ -220,7 +220,7 @@ test('шапка документа попадает в строку очере�
   const { tasks } = await scanWorkspace(loadConfig(ENV_BOARD), ports)
   assert.equal(tasks[0].smart, 'S (Specific): Вывод кино на афишу\nM (Measurable): Кино видно')
   assert.deepEqual(tasks[0].howToDemo, ['Открываю приложение.', 'Вижу кино.'])
-  assert.equal(tasks[0].customer, 'Геворгян Виктория (коммерция)')
+  assert.equal(tasks[0].customer, 'Белова Виктория (коммерция)')
 })
 
 test('эпик сброшен до fast, доска осталась на DEEP-REVIEW: стадия с доски, нехватка называет deep-документ', async () => {

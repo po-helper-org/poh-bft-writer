@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 from dataclasses import dataclass, asdict
@@ -89,7 +90,7 @@ def head_blocks_forbidden(stage: str) -> dict[str, str]:
 
 BORDER_TOKEN = "BFT-HEAD-END"
 
-# Канон MTS после урезания (ЗМ-016). Порядок фиксирован.
+# Корпоративный канон после урезания (ЗМ-016). Порядок фиксирован.
 CANON_SECTIONS = [
     "Проблема которую решаем",
     "Изменение в UJM",
@@ -653,7 +654,7 @@ def check_service_leak(doc: Doc, out: list[Finding]) -> None:
 def check_markup(doc: Doc, out: list[Finding]) -> None:
     """Заголовок, размеченный подчёркиванием (гейт 17, ЗМ-038).
 
-    Канон MTS исторически писался подчёркиванием: строка «Функциональные
+    Корпоративный канон исторически писался подчёркиванием: строка «Функциональные
     требования*», под ней «====». Форма легальна в markdown, но в этом
     репозитории снята. Причина не в эстетике: подчёркивание не видно в diff как
     заголовок, разъезжается от правки длины строки и уезжает на страницу
@@ -678,10 +679,12 @@ def check_markup(doc: Doc, out: list[Finding]) -> None:
 
 
 
-# Базовые адреса корпоративных систем MTS — те же, что в bft_standards.md и в
-# bft-deliver-check.py. Меняются здесь, если контур разворачивают в другом.
-JIRA_BROWSE = "https://jira.mts.ru/browse/"
-WIKI_PAGE = "https://confluence.mts.ru/pages/viewpage.action?pageId="
+# Базовые адреса корпоративных систем — те же, что в bft_standards.md и в
+# bft-deliver-check.py. Задаются BFT_JIRA_BROWSE_URL / BFT_WIKI_PAGE_URL (по умолчанию — заглушки example.com).
+JIRA_BROWSE = os.environ.get("BFT_JIRA_BROWSE_URL", "https://jira.example.com/browse/")
+WIKI_PAGE = os.environ.get(
+    "BFT_WIKI_PAGE_URL", "https://confluence.example.com/pages/viewpage.action?pageId="
+)
 
 # Ключ трекера: 2–10 заглавных латинских символов, дефис, номер. ID требований
 # БФТ кириллические (БТ-1, ПТ-1, ФТ-1), поэтому не пересекаются.

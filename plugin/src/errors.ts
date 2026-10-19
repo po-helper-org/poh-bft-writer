@@ -54,6 +54,17 @@ export class OkrHandoffError extends BftError {
   }
 }
 
+/**
+ * Переход с доски (влёт, готово, отказ) не выполнен: нет доски, не та стадия
+ * или `task edit` отказал. Причина — словами, в окно перехода.
+ */
+export class StageTransitionError extends BftError {
+  constructor(readonly id: string, reason: string) {
+    super(`Стадия требования ${id} не изменена: ${reason}`)
+    this.name = 'StageTransitionError'
+  }
+}
+
 /** По требованию уже идёт ход Claude Code — второй параллельно не запускается. */
 export class ChatBusyError extends BftError {
   constructor(readonly taskId: string, readonly runId: string) {

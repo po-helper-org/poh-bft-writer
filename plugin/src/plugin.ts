@@ -9,7 +9,9 @@
  */
 import z from '@deepseek-ai/schemastery'
 import { BftReader } from './bft-reader.js'
-import { BFT_CHANNEL, dispatch, type RpcResult } from './channel.js'
+import { CATALOG_GUARD_ORDER, CATALOG_GUARD_SECTION, catalogGuardText, isStale } from './catalog-guard.js'
+import { BFT_CHANNEL, BFT_ENDPOINTS, dispatch, type RpcResult } from './channel.js'
+import { bftFetchRoute, type BftFetchRoute } from './api-route.js'
 import { toBftConfig, type PluginConfig } from './plugin-config.js'
 import { BFT_SETTINGS_NS, DEFAULT_SYNC_PROMPT, type BftSettings } from './settings.js'
 
@@ -24,6 +26,8 @@ interface ConnectionLike {
       options?: { authority?: string },
     ) => () => Promise<void> | void
   }
+  /** Ядро 0.1.7+: точные маршруты на общем канале `/api` (см. src/api-route.ts). */
+  fetch?: { register: (route: BftFetchRoute) => () => Promise<void> | void }
 }
 
 interface HarnessContext {
@@ -55,6 +59,14 @@ interface AgentLike {
 const RECONCILE_DEBOUNCE_MS = 1500
 
 /**
+ * Форма реестра системного промпта (`ctx.systemPrompt`, @deepseek-ai/dsh-system-prompt):
+ * одна регистрация секции, текст — провайдер на каждую сборку. Структурно, как остальное.
+ */
+interface SystemPromptLike {
+  section(section: { name: string; order: number; text: string | (() => string) }): () => void
+}
+
+/**
  * Форма службы настроек харнесса (`ctx.settings`, @deepseek-ai/dsh-settings), которой нам
  * достаточно: одна регистрация пространства имён. Структурно, как и остальные службы здесь.
  */
@@ -81,6 +93,35 @@ const Settings: z<BftSettings> = z.object({
 })
 
 /**
+ * Схема строки профиля `bft-requirements`.
+ *
+ * Ядро 0.1.7 убрало `settings.register`: настройки, которые PO правит из интерфейса, теперь —
+ * поля Config самого плагина, помеченные `.volatile()`; служба настроек отдаёт их форме по id
+ * записи профиля и пишет правки в cordis.patch.yml профиля. Поэтому Config объявляет ВСЕ поля
+ * строки: схема schemastery отбрасывает незнакомые ключи, и неописанный `workspaceRoot` пропал
+ * бы из конфига ещё до apply(). Полей без умолчаний здесь нарочно нет (кроме трёх настроек PO):
+ * пустое значение по-прежнему означает «взять из окружения» (toBftConfig).
+ */
+export const Config: z<PluginConfig & BftSettings> = z.object({
+  workspaceRoot: z.string(),
+  docsPath: z.string(),
+  indexPath: z.string(),
+  taskType: z.string(),
+  backlogBin: z.string(),
+  entireBaseUrl: z.string(),
+  entireBranchUrl: z.string(),
+  entireRequired: z.boolean(),
+  sessionPath: z.string(),
+  skillsPath: z.string(),
+  claudeBin: z.string(),
+  claudeArgs: z.union([z.array(z.string()), z.string()]),
+  formUrl: z.string().default('').volatile(),
+  // Слой окружения — умолчание схемы: очистка поля в форме возвращает адрес из окружения.
+  sheetUrl: z.string().default(process.env.BFT_INITIATIVES_SHEET_URL?.trim() ?? '').volatile(),
+  syncPrompt: z.string().default(DEFAULT_SYNC_PROMPT).volatile(),
+}) as unknown as z<PluginConfig & BftSettings>
+
+/**
  * Поднимает раздел требований.
  *
  * Служба соединения берётся отложенной инъекцией, а не жёстким требованием:
@@ -96,6 +137,16 @@ export function apply(ctx: HarnessContext, config: PluginConfig): void {
 
   ctx.inject(['connection'], (scoped: HarnessContext) => {
     const connection = scoped.get('connection') as ConnectionLike
+    // Ядро 0.1.7+: маршрут на каждую подкоманду, см. src/api-route.ts.
+    const register = connection.fetch?.register
+    if (typeof register === 'function') {
+      const handler = (endpoint: string, payload: unknown) => dispatch(reader, endpoint, payload)
+      for (const endpoint of BFT_ENDPOINTS) {
+        scoped.effect(() => register(bftFetchRoute(endpoint, handler)), `poh-bft-plugin: /api/bft.${endpoint}`)
+      }
+      return
+    }
+    // Ядро 0.1.2: собственный канал /bft.
     scoped.effect(
       () => connection.rpc.handle(
         BFT_CHANNEL,
@@ -161,6 +212,38 @@ export function apply(ctx: HarnessContext, config: PluginConfig): void {
     }, 'poh-bft-plugin: сверка доски после хода агента')
   }
 
+  // Страж дублей (catalog-guard.ts): секция промпта с каталогом инициатив. Реестр промпта
+  // берётся отложенной инъекцией — композиция без агентов его не поднимает, и раздел без него
+  // жив. Провайдер текста синхронный по контракту реестра, поэтому он отдаёт последний снимок
+  // скана и лишь заказывает новый, когда снимок стар: первый ход после перезапуска увидит
+  // каталог, если стартовый скан ниже успел, иначе — инструкцию свериться через CLI.
+  if (config.catalogGuard !== false) {
+    let refreshing = false
+    const refresh = (): void => {
+      if (refreshing) return
+      refreshing = true
+      reader.catalogSnapshot()
+        .catch((error: unknown) => { console.warn('[poh-bft-plugin] снимок каталога:', error) })
+        .finally(() => { refreshing = false })
+    }
+    refresh()
+    ctx.inject(['systemPrompt'], (scoped: HarnessContext) => {
+      const systemPrompt = scoped.get('systemPrompt') as SystemPromptLike
+      scoped.effect(
+        () => systemPrompt.section({
+          name: CATALOG_GUARD_SECTION,
+          order: CATALOG_GUARD_ORDER,
+          text: () => {
+            const snapshot = reader.catalogSnapshotSync()
+            if (isStale(snapshot?.at, Date.now())) refresh()
+            return catalogGuardText(snapshot)
+          },
+        }),
+        'poh-bft-plugin: страж дублей каталога БФТ',
+      )
+    })
+  }
+
   // Служба настроек тоже необязательна: без неё раздел работает на умолчаниях, как и до
   // появления карточки. Адрес таблицы из окружения (`BFT_INITIATIVES_SHEET_URL`) кладётся
   // слоем композиции — тем самым настройка PO оказывается ВЫШЕ окружения по построению,
@@ -168,7 +251,9 @@ export function apply(ctx: HarnessContext, config: PluginConfig): void {
   // env» нигде нет: это слоение делает сама служба настроек.
   const sheetFromEnv = process.env.BFT_INITIATIVES_SHEET_URL?.trim()
   ctx.inject(['settings'], (scoped: HarnessContext) => {
-    const settings = scoped.get('settings') as SettingsLike
+    const settings = scoped.get('settings') as Partial<SettingsLike>
+    // Ядро 0.1.7+: регистрации нет, поля формы — volatile-поля Config (см. выше).
+    if (typeof settings.register !== 'function') return
     settings.register(BFT_SETTINGS_NS, Settings, sheetFromEnv ? { base: { sheetUrl: sheetFromEnv } } : {})
   })
 }

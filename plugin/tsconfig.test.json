@@ -13,6 +13,7 @@
     "src/client/**"
   ],
   "files": [
-    "src/client/session-view.ts"
+    "src/client/session-view.ts",
+    "src/client/harness-chat.ts"
   ]
 }

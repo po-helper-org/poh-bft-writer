@@ -1,7 +1,7 @@
 # poh-bft-writer
 
 Автономный генератор БФТ (бизнес-функциональных требований) для эпиков трекера в
-корпоративном формате MTS. Переносимый навык: подключается в любой воркспейс, сам строит
+корпоративном формате. Переносимый навык: подключается в любой воркспейс, сам строит
 контекст, генерирует БФТ уровня отлаженной методологии po-helper — без внешних зависимостей.
 
 **Функция [манифеста](https://github.com/po-helper-org/.github/blob/main/profile/README.md):**
@@ -14,7 +14,7 @@
 
 **Через терминал:**
 ```bash
-curl -ksSL https://raw.githubusercontent.com/po-helper-org/poh-bft-writer/main/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/po-helper-org/poh-bft-writer/main/install.sh | bash
 ```
 Скрипт спросит IDE-агента (Claude Code / Codex / Cline / DevX / Universal) и синкнет
 команды и навыки в нужный корень. После установки запусти `/bft-index` — навык проведёт
@@ -43,11 +43,15 @@ whisper.cpp — `brew install ffmpeg whisper-cpp`; модель распозна
 «Управление требованиями» в сайдбаре — очередь БФТ по стадиям с поиском,
 превью требования, детальную страницу с собранным HTML-документом и чатом с
 Claude Code рядом с ним (правки, уточняющие вопросы, отгрузка `/bft-deliver` в
-JIRA и Confluence — не уходя со страницы) и доску семи стадий (`To Do` →
-`NEED-CUSTDEV` → `FAST-DONE` → `DEEP-REVIEW` → `DEEP-DONE` → `OKR-ADDED`,
-`BFT-CANCELED`), с которой готовый БФТ одной кнопкой «Добавить в OKR» уходит в
-квартальное планирование — квартал, спринты по фазам, команды и ответственные
-пишутся в задачу Backlog.md в формате карточки KR раздела «Управление целями».
+JIRA и Confluence — не уходя со страницы) и доску девяти стадий (`To Do` →
+`NEED-CUSTDEV` → `FAST-DONE` → `DEEP-REVIEW` → `DEEP-DONE` → `OKR-ADDED` →
+`OKR-DONE`, `OKR-VLET`, `BFT-CANCELED`), с которой готовый БФТ одной кнопкой
+«Добавить в OKR» уходит в квартальное планирование — квартал, спринты по фазам,
+команды и ответственные пишутся в задачу Backlog.md в формате карточки KR раздела
+«Управление целями», — или «Оформить влётом» идёт в работу мимо плана, или
+«Отказ» (кто и на каком основании) закрывается. Плагин же ставит в чат харнесса
+стража дублей: `/bft-fast`/`/bft-deep` по теме, которая уже есть в каталоге,
+не запускаются, а отвечают карточкой инициативы (JIRA, Confluence, HTML, что осталось).
 
 ```sh
 cd plugin
@@ -84,8 +88,30 @@ bash update.sh --workspace /путь/к/воркспейсу   # обновит�
 Подробно — [`docs/guides/dsh-plugin-update.md`](docs/guides/dsh-plugin-update.md);
 в Claude Code — `/bft-update`.
 
+## В корпоративном LibreChat
+
+LibreChat с v0.8.6 умеет Agent Skills на тех же `SKILL.md` — семь навыков из `skills/`
+грузятся как есть, переписывать нечего. Адаптации требует не контент, а окружение:
+скрипты навыка живут в Code Interpreter (`/mnt/data/skills/…`), воркспейс `.bft/` — в
+MCP-сервере файловой системы, JIRA и Confluence — в MCP Atlassian с токенами каждого
+PO, пин `model: haiku` превращается в отдельного агента стадии, а фоновые форки
+`/bft-recon`, `/bft-custdev`, `/bft-deep` — в субагентов с `run_in_background`.
+Полный контур по шагам, вместе с граблями и честным списком того, что не переносится
+(распознавание записи встречи, пре-рендер PlantUML, раздел «Управление требованиями») —
+[`docs/guides/librechat-setup.md`](docs/guides/librechat-setup.md).
+
+Прав администратора нет — рабочее место с подключёнными MCP JIRA и Confluence и
+больше ничем? Навыки ставятся мышкой за 10 минут: `bash librechat-pack.sh` собирает
+архивы навыков и готовые инструкции для агента, дальше — по
+[`docs/guides/librechat-user-setup.md`](docs/guides/librechat-user-setup.md).
+
+**Адреса Jira и Confluence.** Линтеры и экспорт (`bft-lint.py`, `bft-html-export.py`, плагин) строят ссылки
+по заглушкам `https://jira.example.com/browse/` и `https://confluence.example.com/pages/viewpage.action?pageId=`.
+Для своей инсталляции задай переменные окружения `BFT_JIRA_BROWSE_URL` и `BFT_WIKI_PAGE_URL`
+(полный префикс, как в заглушках).
+
 ## Для ИИ-помощника (bootstrap)
-Если пользователь просит «Установи bft-writer»: (1) запусти `curl -ksSL <repo>/install.sh | bash`
+Если пользователь просит «Установи bft-writer»: (1) запусти `curl -sSL <repo>/install.sh | bash`
 или склонируй и запусти `install.sh`, выбрав IDE-агента пользователя; (2) после синка — сразу
 запусти `/bft-index` для первичной аналитики воркспейса; (3) покажи MANIFEST-покрытие и предложи
 `/bft-fast`.
@@ -105,7 +131,7 @@ bash update.sh --workspace /путь/к/воркспейсу   # обновит�
 1. «Установи bft-writer» или curl из README → навык в репозитории.
 2. Команды `/bft-*` доступны.
 3. `/bft-index` проводит первичную аналитику и строит контекст (`.bft/index/`).
-4. Полный контур: `/bft-fast → /bft-deep → /bft-deliver` (STOP-паузы, human-in-the-loop), плюс `/bft-html` для ревью в браузере и `/bft-custdev`, когда пробел закрывается только разговором с заказчиком.
+4. Полный контур: `/bft-fast → /bft-deep → /bft-deliver` (STOP-паузы, human-in-the-loop), плюс `/bft-html` для ревью в браузере, `/bft-custdev`, когда пробел закрывается только разговором с заказчиком, и `/bft-matrix` — матрица исполнения для кроссфункциональной инициативы.
 5. Единый растущий документ:
    `/bft-fast` — **стенографист**: наружу не ходит (ни JIRA, ни Confluence, ни индекс),
    фиксирует продиктованное PO в правильной форме. Письмо в чат + два csv-вложения +
@@ -139,10 +165,18 @@ bash update.sh --workspace /путь/к/воркспейсу   # обновит�
    (пробел / противоречие / edge-кейс / граница / термин / риск), затем пишет полный документ
    `<epic_slug>.md` с каноном из 11 разделов и обновляет страницу
    (форкается в фоне автоматически, `--no-deep` отключает, либо запускается вручную);
-   `/bft-deliver` — JIRA-эпик, **одна** страница Confluence, связи; страницу обновляет, не дублирует (ЗМ-031).
+   `/bft-deliver` — JIRA-эпик, **одна** страница Confluence, связи; страницу обновляет, не дублирует (ЗМ-031);
+   `/bft-matrix` — **координатор стыков**: по готовому deep-БФТ и итогам встречи-старта собирает
+   матрицу исполнения `<epic_slug>-matrix.md` — кто (команда и человек), что и где делает на стыках
+   команд и по какому проверяемому критерию работа принимается. Проще декомпозиции Jira: только
+   стыки, набор чеклистов по точкам паузы, у каждой строки один поставщик и проверяющий из другой
+   команды, каждое ФТ/ИТ/НФТ покрыто. Статусы строк и журнал возвратов показывают, кто где исполнил
+   и где ошибся. Страница `<epic_slug>-matrix.html` — тот же инструмент, что у БФТ: комментарии
+   мышью → промт, сводка по командам с фильтром строк; `/bft-deliver <epic_slug> --matrix` после
+   проверок качества публикует её дочерней страницей БФТ.
    Форк отключён, упал или про задачу забыли — открой блок «Довести до полного БФТ» внизу
    документа, скопируй промт в Claude Code и продолжи с любой точки.
-6. Результат соответствует практикам po-helper: **22 hard gate** (число и состав — `skills/bft-writer/resources/hard_gates.md`, единственный источник правды; из них машинные: 17 — структура, 18 — anti-slop лексика и редактура, 19 — сверка с источником, 20 — карта контекста `/bft-recon`, 22 — скрипт интервью `/bft-custdev`), стиль/голос, Lessons Learned, урезанный канон MTS (ЗМ-016), ранги якорей.
+6. Результат соответствует практикам po-helper: **23 hard gate** (число и состав — `skills/bft-writer/resources/hard_gates.md`, единственный источник правды; из них машинные: 17 — структура, 18 — anti-slop лексика и редактура, 19 — сверка с источником, 20 — карта контекста `/bft-recon`, 22 — скрипт интервью `/bft-custdev`, 23 — матрица исполнения `/bft-matrix`), стиль/голос, Lessons Learned, урезанный корпоративный канон (ЗМ-016), ранги якорей.
 
 ## Проверка шаблона (гейт 17)
 
@@ -211,12 +245,24 @@ bash <skills_path>/bft-writer/scripts/test-bft-custdev-lint.sh
 bash <skills_path>/bft-writer/scripts/test-bft-custdev-export.sh
 ```
 
+Матрицу исполнения `/bft-matrix` проверяет свой линтер (гейт 23): у строки один поставщик и
+проверяющий из другой команды, критерий отвечает «да/нет» и имеет доказательство, каждое
+ФТ/ИТ/НФТ БФТ покрыто нужными командами, возврат записан в журнал, согласованная матрица не держит
+`[УТОЧНИТЬ]`. Тело дочерней страницы Confluence собирает `bft-matrix-publish.py`:
+
+```bash
+python3 <skills_path>/bft-writer/scripts/bft-matrix-lint.py .bft/documentation/<epic_slug>/<epic_slug>-matrix.md
+bash <skills_path>/bft-writer/scripts/test-bft-matrix-lint.sh
+bash <skills_path>/bft-writer/scripts/test-bft-matrix-publish.sh
+```
+
 ## Быстрый старт
 
 1. `cp bft-config.template.md bft-config.md`, заполни (или оставь пусто — автодетект).
 2. `/bft-index` — построить контекст.
 3. `/bft-fast <источник> <epic>` — зафиксировать сказанное. Дальше `/bft-deep <epic>` и `/bft-deliver <epic>`.
 4. Скрипт CustDev-интервью собирается сам после разведки — вместе с `/bft-fast`. Канон собран (`/bft-deep` отработал) — пересобрать по нему: `/bft-custdev <epic>`. Разбор прогона целиком — в разделе ниже.
+5. Инициатива на несколько команд — после `/bft-deep`: `/bft-matrix <epic> <итоги встречи-старта>`, ревью на странице `<epic>-matrix.html`, затем `/bft-deliver <epic> --matrix`. Статусы строк — `/bft-matrix <epic> --status EX-NN …`.
 
 ## Документация
 
@@ -225,6 +271,9 @@ bash <skills_path>/bft-writer/scripts/test-bft-custdev-export.sh
 | [`docs/guides/first-run-for-beginners.md`](docs/guides/first-run-for-beginners.md) | первый запуск с нуля |
 | [`docs/guides/quickstart-generate-bft.md`](docs/guides/quickstart-generate-bft.md) | путь от диктовки до опубликованного БФТ |
 | [`docs/guides/custdev-interview.md`](docs/guides/custdev-interview.md) | CustDev-интервью: шесть исходов, лестница от решения к проблеме, как вести встречу |
+| [`docs/guides/librechat-user-setup.md`](docs/guides/librechat-user-setup.md) | LibreChat глазами обычного пользователя: без прав админа, за 10 минут, `librechat-pack.sh` |
+| [`docs/guides/librechat-setup.md`](docs/guides/librechat-setup.md) | полный контур БФТ в корпоративном LibreChat: навыки, Code Interpreter, MCP, агенты по стадиям |
+| [`docs/guides/exec-matrix.md`](docs/guides/exec-matrix.md) | матрица исполнения: зачем, как собрать, договориться на старте и вести статусы; откуда взята форма |
 | [`docs/guides/dsh-plugin-setup.md`](docs/guides/dsh-plugin-setup.md) | установка плагина для DeepSeek Harness |
 | [`docs/guides/dsh-plugin-update.md`](docs/guides/dsh-plugin-update.md) | обновление плагина и навыков в харнессе до последнего `main`: `update.sh --check` / `update.sh` |
 | [`docs/guides/plugin-playbooks/`](docs/guides/plugin-playbooks/README.md) | плейбуки раздела «Управление требованиями»: шесть сценариев со скриншотами каждого шага |
@@ -281,7 +330,7 @@ bash <skills_path>/bft-writer/scripts/test-bft-custdev-export.sh
 
 | | Плохо | Хорошо |
 |---|---|---|
-| Запрос | Расширить кафка-топики для получения информации | Вывести КИНО на VibeApp, чтобы заработать деньги |
+| Запрос | Расширить кафка-топики для получения информации | Вывести КИНО на AppV, чтобы заработать деньги |
 | Почему | это решение: неизвестно, чья боль, как принимать и чем мерить | назван носитель, эффект и по чему считать |
 
 Скрипт такой запрос требованием не принимает. Лестница вверх: что произойдёт, если не

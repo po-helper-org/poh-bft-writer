@@ -8,12 +8,14 @@ const task = (id: string, stage: BftTaskSummary['stage'], title = id): BftTaskSu
 
 const TASKS = [
   task('PO-7', 'To Do', 'Проблема с непрогруженными билетами'),
-  task('PO-21', 'FAST-DONE', 'Vibeapp — фильтровать заказы с возвратом'),
-  task('PO-22', 'DEEP-REVIEW', 'Билеты в кино в Vibe App'),
+  task('PO-21', 'FAST-DONE', 'AppV — фильтровать заказы с возвратом'),
+  task('PO-22', 'DEEP-REVIEW', 'Билеты в кино в App V'),
   task('PO-1', 'DEEP-DONE', 'Отгружено'),
   task('PO-2', 'BFT-CANCELED', 'Отменено'),
   task('PO-3', 'OKR-ADDED', 'В квартальном плане'),
   task('PO-8', 'NEED-CUSTDEV', 'Нужно интервью'),
+  task('PO-4', 'OKR-DONE', 'Реализовано'),
+  task('PO-5', 'OKR-VLET', 'Влётом'),
 ]
 
 test('очередь идёт от почти готового к нетронутому', () => {
@@ -24,15 +26,15 @@ test('пустые стадии в панели не показываются', 
   assert.deepEqual(queueGroups([task('PO-7', 'To Do')]).map(g => g.stage), ['To Do'])
 })
 
-test('завершённые, переданные в OKR и отменённые в счётчик очереди не идут', () => {
+test('завершённые, переданные в OKR, реализованные, влетевшие и отменённые в счётчик очереди не идут', () => {
   assert.equal(queueSize(TASKS), 4)
 })
 
 test('доска сохраняет пустые колонки — «сюда ничего не дошло» тоже смысл', () => {
   const columns = boardColumns([task('PO-7', 'To Do')])
-  assert.equal(columns.length, 7)
+  assert.equal(columns.length, 9)
   assert.deepEqual(columns.map(c => c.stage),
-    ['To Do', 'NEED-CUSTDEV', 'FAST-DONE', 'DEEP-REVIEW', 'DEEP-DONE', 'OKR-ADDED', 'BFT-CANCELED'])
+    ['To Do', 'NEED-CUSTDEV', 'FAST-DONE', 'DEEP-REVIEW', 'DEEP-DONE', 'OKR-ADDED', 'OKR-DONE', 'OKR-VLET', 'BFT-CANCELED'])
   assert.deepEqual(columns.find(c => c.stage === 'DEEP-REVIEW')?.tasks, [])
 })
 
@@ -44,7 +46,7 @@ test('поиск не различает регистр и вид дефиса',
 
 test('поиск идёт и по названию', () => {
   assert.deepEqual(searchTasks(TASKS, 'вибе').map(t => t.id), [])
-  assert.deepEqual(searchTasks(TASKS, 'Vibeapp').map(t => t.id), ['PO-21'])
+  assert.deepEqual(searchTasks(TASKS, 'AppV').map(t => t.id), ['PO-21'])
 })
 
 test('пустой запрос отдаёт всё', () => {

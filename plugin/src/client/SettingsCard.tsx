@@ -13,7 +13,7 @@
 // Type-only: даёт слияние SlotMap с записью 'settings.plugin.item'.
 import type {} from '@deepseek-ai/dsh-client-ui-settings-plugins/client'
 import { useEffect, useRef, useState } from 'react'
-import { IconChevronDownOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconChevronDownOutline14 } from './icons.js'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { BftLocaleKey } from './locales.js'
 import { panelClassNames as css } from './Panel.styles.js'
@@ -64,64 +64,7 @@ export function SettingsCard(props: BftSettingsCardProps) {
         {state.dirty && <span className={css.cardPending}>{t('settingsUnsaved')}</span>}
         <IconChevronDownOutline14 className={chevron} />
       </button>
-      {open && (
-        <div className={css.cardBody}>
-          {disabled && <p className={css.cardReadOnly} role="status">{t('settingsReadOnly')}</p>}
-          <Field
-            id="bft-settings-form-url"
-            field="formUrl"
-            state={state.formUrl}
-            label={t('settingsFormUrl')}
-            hint={t('settingsFormUrlHint')}
-            t={t}
-            disabled={disabled}
-            onEdit={props.edit}
-            onReset={props.resetField}
-          />
-          <Field
-            id="bft-settings-sheet-url"
-            field="sheetUrl"
-            state={state.sheetUrl}
-            label={t('settingsSheetUrl')}
-            hint={t('settingsSheetUrlHint')}
-            t={t}
-            disabled={disabled}
-            onEdit={props.edit}
-            onReset={props.resetField}
-          />
-          <Field
-            id="bft-settings-sync-prompt"
-            field="syncPrompt"
-            state={state.syncPrompt}
-            label={t('settingsSyncPrompt')}
-            hint={t('settingsSyncPromptHint')}
-            t={t}
-            disabled={disabled}
-            multiline
-            onEdit={props.edit}
-            onReset={props.resetField}
-          />
-          <div className={css.cardFooter}>
-            {state.failed && <p className={css.cardFailed} role="status">{t('settingsSaveFailed')}</p>}
-            <button
-              type="button"
-              className={css.cardDiscard}
-              disabled={!state.dirty || state.saving}
-              onClick={props.discard}
-            >
-              {t('settingsDiscard')}
-            </button>
-            <button
-              type="button"
-              className={css.cardSave}
-              disabled={!state.dirty || state.invalid || state.saving || disabled}
-              onClick={props.save}
-            >
-              {t(state.saving ? 'settingsSaving' : 'settingsSave')}
-            </button>
-          </div>
-        </div>
-      )}
+      {open && <SettingsBody {...props} />}
     </li>
   )
 }
@@ -188,4 +131,85 @@ function Field({ id, field, state, label, hint, t, disabled, multiline, onEdit, 
       </p>
     </div>
   )
+}
+
+/**
+ * Поля и кнопки формы — общие для карточки (ядро 0.1.2, слот `settings.plugin.item`) и страницы
+ * раздела «Плагины» (ядро 0.1.7, слот `plugins.item`).
+ */
+function SettingsBody(props: Pick<BftSettingsCardProps, 't' | 'useBftSettingsCard' | 'edit' | 'resetField' | 'discard' | 'save'>) {
+  const { t } = props
+  const state = props.useBftSettingsCard(snapshot => snapshot)
+  const disabled = !state.writable
+  return (
+    <div className={css.cardBody}>
+      {disabled && <p className={css.cardReadOnly} role="status">{t('settingsReadOnly')}</p>}
+      <Field
+        id="bft-settings-form-url"
+        field="formUrl"
+        state={state.formUrl}
+        label={t('settingsFormUrl')}
+        hint={t('settingsFormUrlHint')}
+        t={t}
+        disabled={disabled}
+        onEdit={props.edit}
+        onReset={props.resetField}
+      />
+      <Field
+        id="bft-settings-sheet-url"
+        field="sheetUrl"
+        state={state.sheetUrl}
+        label={t('settingsSheetUrl')}
+        hint={t('settingsSheetUrlHint')}
+        t={t}
+        disabled={disabled}
+        onEdit={props.edit}
+        onReset={props.resetField}
+      />
+      <Field
+        id="bft-settings-sync-prompt"
+        field="syncPrompt"
+        state={state.syncPrompt}
+        label={t('settingsSyncPrompt')}
+        hint={t('settingsSyncPromptHint')}
+        t={t}
+        disabled={disabled}
+        multiline
+        onEdit={props.edit}
+        onReset={props.resetField}
+      />
+      <div className={css.cardFooter}>
+        {state.failed && <p className={css.cardFailed} role="status">{t('settingsSaveFailed')}</p>}
+        <button
+          type="button"
+          className={css.cardDiscard}
+          disabled={!state.dirty || state.saving}
+          onClick={props.discard}
+        >
+          {t('settingsDiscard')}
+        </button>
+        <button
+          type="button"
+          className={css.cardSave}
+          disabled={!state.dirty || state.invalid || state.saving || disabled}
+          onClick={props.save}
+        >
+          {t(state.saving ? 'settingsSaving' : 'settingsSave')}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Страница «Требования» в «Настройках → Плагины» ядра 0.1.7: одна строка-описание в списке
+ * (`view: 'summary'`), форма — когда страницу открыли. Пока хост не отдаёт запись
+ * `bft-requirements`, регистрации нет вовсе (см. whileServed в client/index.tsx).
+ */
+export function SettingsPage(props: Omit<BftSettingsCardProps, keyof PropsRuntime<'settings.plugin.item'>> & { view?: string }) {
+  const { t } = props
+  const state = props.useBftSettingsCard(snapshot => snapshot)
+  if (props.view === 'summary') return <>{t('settingsDescription')}</>
+  if (!state.available) return <p className={css.cardReadOnly} role="status">{t('settingsUnavailable')}</p>
+  return <SettingsBody {...props} />
 }

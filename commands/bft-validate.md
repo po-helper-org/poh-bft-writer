@@ -95,7 +95,7 @@ description: 'Внутренняя команда контура /bft-deep (ст
   | Файл | Стадия |
   |---|---|
   | <epic>-fast.md | шапка, стадия fast |
-  | <epic>.md | шапка + канон MTS, стадия deep |
+  | <epic>.md | шапка + корпоративный канон, стадия deep |
   | personas.csv / requirements.csv | вложения письма fast |
   | context_map.md | карта разведки /bft-recon, опц. |
   | artefacts/validation.md | hard gates + Светофор |

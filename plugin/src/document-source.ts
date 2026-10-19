@@ -9,9 +9,9 @@
  * у которого страницы может не быть вовсе. Благодаря последнему шагу раздел
  * показывает документ уже после `/bft-fast`, а не только после `/bft-deep`.
  *
- * `{slug}-custdev.html` из выбора исключён совсем. Это страница встречи, а не
- * документ требования, и по алфавиту она обходит `{slug}-fast.html`: без явного
- * исключения раздел показывал бы скрипт интервью вместо самого БФТ.
+ * `{slug}-custdev.html` и `{slug}-matrix.html` из выбора исключены совсем. Это страница
+ * встречи и матрица исполнения, а не документ требования; без явного исключения раздел
+ * показывал бы скрипт интервью или матрицу вместо самого БФТ.
  */
 
 export type DocumentKind = 'html' | 'markdown'
@@ -32,10 +32,10 @@ export function chooseDocument(slug: string, entries: readonly string[]): Docume
   const fastHtml = pick(`${slug}-fast.html`)
   if (fastHtml) return { name: fastHtml, kind: 'html' }
 
-  const custdevHtml = `${slug}-custdev.html`.toLowerCase()
+  const companions = new Set([`${slug}-custdev.html`, `${slug}-matrix.html`].map(n => n.toLowerCase()))
   const otherHtml = entries
     .filter(entry => entry.toLowerCase().endsWith('.html'))
-    .filter(entry => entry.toLowerCase() !== custdevHtml)
+    .filter(entry => !companions.has(entry.toLowerCase()))
     .sort()[0]
   if (otherHtml) return { name: otherHtml, kind: 'html' }
 

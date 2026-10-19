@@ -6,10 +6,10 @@
 
 | Ранг | Тип якоря | Когда валиден | Пример |
 |---|---|---|---|
-| **R1** 🥇 | **Код** `file:line` (через sa-helper graph/repomix или прямой код) | **ТОЛЬКО As-Is** (текущее поведение системы) | `extapi/order.go:142` |
-> Якорь и его упоминание — разное. В теле документа ссылаются только на Confluence и JIRA; внутренний источник (выгрузка чата, локальная заметка, OKR-файл) называется в «Якорях истины», а не в требовании (ЗМ-043). OKR в теле пишется строкой `Q{квартал}{год} KR{N}.{M} команда {команда}, PO {ФИО}` — например `Q32026 KR2.7 команда GDS, PO Ишманов Алексей` (ЗМ-044).
+| **R1** 🥇 | **Код** `file:line` (через sa-helper graph/repomix или прямой код) | **ТОЛЬКО As-Is** (текущее поведение системы) | `api/order.go:142` |
+> Якорь и его упоминание — разное. В теле документа ссылаются только на Confluence и JIRA; внутренний источник (выгрузка чата, локальная заметка, OKR-файл) называется в «Якорях истины», а не в требовании (ЗМ-043). OKR в теле пишется строкой `Q{квартал}{год} KR{N}.{M} команда {команда}, PO {ФИО}` — например `Q32026 KR2.7 команда GDS, PO Петров Иван` (ЗМ-044).
 
-| **R2** 🥈 | Задача трекера (`KEY-123`), страница wiki (`pageId`), бизнес-правило (`BR-*`), ADR (`ADR-ID`) | As-Is и To-Be | `[TLND-16189](https://jira.mts.ru/browse/TLND-16189)`, `[Confluence 2272447498](https://confluence.mts.ru/pages/viewpage.action?pageId=2272447498)`, `BR-DATA-002` |
+| **R2** 🥈 | Задача трекера (`KEY-123`), страница wiki (`pageId`), бизнес-правило (`BR-*`), ADR (`ADR-ID`) | As-Is и To-Be | `[SHOP-16189](https://jira.example.com/browse/SHOP-16189)`, `[Confluence 1000000001](https://confluence.example.com/pages/viewpage.action?pageId=1000000001)`, `BR-DATA-002` |
 | **R3** 🥉 | Решение PO/заказчика: **кто ответил + дата + источник** (встреча/почта/ТЗ) | To-Be (forward-looking) | `PO (Иванов, 21.06, встреча)` |
 | **R4** ❌ | «Обычно так», «лучшая практика», общие знания | **НЕ валиден** | — |
 
@@ -33,10 +33,10 @@
 
 | Факт в БФТ | Якорь | Ранг | Тип |
 |---|---|---|---|
-| `/api/persons` уже возвращает `faq` | [TLND-16189](https://jira.mts.ru/browse/TLND-16189) | R2 | JIRA |
+| `/api/persons` уже возвращает `faq` | [SHOP-16189](https://jira.example.com/browse/SHOP-16189) | R2 | JIRA |
 | текущая бронь хранится в Redis с TTL | `booking/service.go:88` | R1 | Код (As-Is) |
 | TTL = мин среди поставщиков | `PO (Иванов, 21.06, встреча)` | R3 | Решение PO |
-| FAQ отдаётся в SSR для SEO | [Confluence 2182856408](https://confluence.mts.ru/pages/viewpage.action?pageId=2182856408) | R2 | Confluence |
+| FAQ отдаётся в SSR для SEO | [Confluence 1000000003](https://confluence.example.com/pages/viewpage.action?pageId=1000000003) | R2 | Confluence |
 
 > Ссылки Jira/Confluence — markdown-ссылкой (ЗМ-004), не голым ключом/pageId.
 

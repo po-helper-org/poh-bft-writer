@@ -110,7 +110,7 @@ test('правка PO к fast-документу: без команды навы
 test('правка PO к deep-документу на отгрузке — всё равно /bft-deep, не /bft-deliver', () => {
   const deep = { ...task, stage: 'DEEP-REVIEW' as const, artifactStage: 'DEEP-REVIEW' as const, artifacts: artifacts({ deep: true, deepHtml: true }), missing: ['ссылка на страницу Confluence', 'ссылка на эпик JIRA'] }
   assert.equal(nextCommand(deep, undefined), '/bft-deliver po-21', 'без правки — отгрузка')
-  const handoff = buildHandoff(deep, null, config, { note: 'Убери раздел про MRS.' })
+  const handoff = buildHandoff(deep, null, config, { note: 'Убери раздел про UnitB.' })
   assert.equal(handoff.command, '/bft-deep po-21')
   assert.ok(handoff.prompt.startsWith('/bft-deep po-21\n'), handoff.prompt)
 })
@@ -121,9 +121,9 @@ test('правка PO к deep-документу — доработка чере
     artifacts: artifacts({ fast: true, fastHtml: true, deep: true, deepHtml: true }),
     links: { other: [], html: '.bft/documentation/po-21/po-21.html' },
   }
-  const handoff = buildHandoff(deep, null, config, { ...inChat, note: 'Убери раздел про MRS.' })
+  const handoff = buildHandoff(deep, null, config, { ...inChat, note: 'Убери раздел про UnitB.' })
   assert.equal(handoff.command, '/bft-deep po-21')
-  assert.match(handoff.prompt, /Правка PO к документу documentation\/po-21\/po-21\.md:\nУбери раздел про MRS\./)
+  assert.match(handoff.prompt, /Правка PO к документу documentation\/po-21\/po-21\.md:\nУбери раздел про UnitB\./)
   assert.ok(!handoff.prompt.includes('bft-lint.py'), 'deep сам гоняет линтер и пересобирает страницу')
 })
 

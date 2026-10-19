@@ -28,7 +28,7 @@ domain-profile, superset/paf). Подключается в любой воркс
    (human-in-the-loop).
 5. **v2 workflow.** Автономные режимы `fast` + `deep` (ноль STOP, `[УТОЧНИТЬ]`-маркеры).
 6. **Качество = po-helper.** Результат соответствует всем отлаженным в po-helper практикам БФТ:
-   16 hard gates, стиль/голос (Humanizer), Lessons Learned (review_feedback), корп-шаблон MTS v10,
+   16 hard gates, стиль/голос (Humanizer), Lessons Learned (review_feedback), корп-шаблон v10,
    ранги якорей, CATWOE, adversarial-дебаты, golden-референсы.
 
 ## Принцип изоляции
@@ -36,7 +36,7 @@ domain-profile, superset/paf). Подключается в любой воркс
 **Меняем источник грудинга, сохраняем методологию.** Все ресурсы качества переносятся
 **verbatim** (hard_gates, bft_standards, writing_style, review_feedback, anchor_rules, catwoe,
 debate_rules, examples/golden_*). Изменяется только то, **откуда** пайплайн берёт факты:
-раньше CORTEX/Nexus/People Graph → теперь само-генерируемый индекс воркспейса + live-MCP
+раньше WORKSPACE/Nexus/People Graph → теперь само-генерируемый индекс воркспейса + live-MCP
 (JIRA/Confluence) как опция.
 
 Нулевой допуск к галлюцинациям сохраняется: каждый факт → якорь-источник
@@ -143,7 +143,7 @@ Cline `.clinerules/` / DevX / Universal), синк управляемых под
 ### Декаплинг от po-helper (чистка при переносе)
 
 Вырезать/заменить во всех перенесённых файлах:
-- CORTEX-пути (`CORTEX/_context-packs/…`), кортексы C1/C3/C5 как внешняя база → индекс `.bft/index/`.
+- CORTEX-пути (`WORKSPACE/_context-packs/…`), кортексы C1/C3/C5 как внешняя база → индекс `.bft/index/`.
 - Nexus / People Graph / repowise → индекс (`stakeholders.md`, `architecture.md`).
 - § «Синхронизация с доской Backlog.md» в bft-writer/SKILL.md → удалить (операционная инфра po-helper).
 - `domain-profile.md`, `{wiki.space}`, `{tracker.projects}`, `{bft_store}` → `bft-config.md`.

@@ -23,7 +23,7 @@ echo -e "${BLUE}Какой IDE-агент?${NC}"
 echo "  1) Claude Code   (.claude/)"
 echo "  2) Codex         (.agents/)"
 echo "  3) Cline         (.clinerules/)"
-echo "  4) DevX (МТС)    (.clinerules/)"
+echo "  4) DevX    (.clinerules/)"
 echo "  5) Universal     (.agents/)"
 if [ -n "${BFT_WRITER_AGENT:-}" ]; then
   choice="$BFT_WRITER_AGENT"
@@ -47,7 +47,7 @@ esac
 # Список явный, а не «всё из commands/»: снятая команда, уехавшая в воркспейс,
 # снова начнёт конкурировать за выбор навыка (issue #25). Архив в docs/archive/
 # не синкается вовсе.
-COMMANDS="bft-index bft-fast bft-transcribe bft-recon bft-custdev bft-deep bft-draft bft-validate bft-html bft-deliver bft-wireframe bft-blueprint bft-update"
+COMMANDS="bft-index bft-fast bft-transcribe bft-recon bft-custdev bft-deep bft-draft bft-validate bft-html bft-deliver bft-matrix bft-wireframe bft-blueprint bft-update"
 mkdir -p "$ROOT/$CMD_DIR"
 for cmd in $COMMANDS; do
   if [ -f "$SRC/commands/$cmd.md" ]; then

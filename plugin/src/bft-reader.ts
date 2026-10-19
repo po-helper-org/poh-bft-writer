@@ -9,13 +9,15 @@
 import { randomUUID } from 'node:crypto'
 import { isAbsolute, join, relative, resolve } from 'node:path'
 import { applyBacklogEdits, planBacklogEdits, type BacklogEditResult } from './backlog-writer.js'
+import { TRANSITION_RULES, transitionArgs, transitionSummary, type TransitionRequest } from './board-transition.js'
+import { catalogRows, type CatalogRow } from './catalog-guard.js'
 import type { ChatEvent } from './chat-events.js'
 import { ClaudeChatService, type ChatPoll, type ChatRun, type ChatRunStatus } from './claude-chat.js'
 import type { BftPluginConfig } from './config.js'
 import { chooseCustdevDocument, chooseDocument, type DocumentKind } from './document-source.js'
 import {
   ChatRunNotFoundError, ChatUnavailableError, DocumentOutsideWorkspaceError, InvalidTaskIdError,
-  OkrHandoffError, TaskNotFoundError,
+  OkrHandoffError, StageTransitionError, TaskNotFoundError,
 } from './errors.js'
 import { buildCreateDraft, buildHandoff, parseTaskViewJson, type Handoff } from './handoff.js'
 import { OKR_READY_STAGE, type BftTask } from './model.js'
@@ -81,8 +83,28 @@ export class BftReader {
       : null
   }
 
-  private scan(): Promise<WorkspaceScan> {
-    return scanWorkspace(this.config, this.ports)
+  private async scan(): Promise<WorkspaceScan> {
+    const scan = await scanWorkspace(this.config, this.ports)
+    this.catalog = { at: new Date().toISOString(), rows: catalogRows(scan.tasks) }
+    return scan
+  }
+
+  /**
+   * Снимок каталога для стража дублей (`catalog-guard.ts`): строится из каждого
+   * скана, а не отдельным походом на диск — секцию промпта харнесс собирает
+   * синхронно на каждый ход, и ходить за файлами оттуда нельзя.
+   */
+  private catalog: { at: string; rows: CatalogRow[] } | null = null
+
+  /** Последний снимок каталога; `null` — воркспейс ещё не сканировали. */
+  catalogSnapshotSync(): { at: string; rows: CatalogRow[] } | null {
+    return this.catalog
+  }
+
+  /** Свежий снимок каталога — со сканом. */
+  async catalogSnapshot(): Promise<{ at: string; rows: CatalogRow[] }> {
+    await this.scan()
+    return this.catalog!
   }
 
   /**
@@ -266,6 +288,41 @@ export class BftReader {
       const now = new Date().toISOString()
       const opened = startWork(log, { epic: id, stage: task.stage, startedAt: now })
       return finishWork(opened, id, now, `OKR-ADDED, квартал ${handoff.quarter}`)
+    })
+    return this.getTask(id)
+  }
+
+  /**
+   * Переход одной кнопкой с доски: влёт, готово по OKR, отказ (`board-transition.ts`).
+   *
+   * Те же условия, что у `addToOkr`, и по тем же причинам: доска включена,
+   * задача на ней есть, стадия ровно та, откуда переход разрешён. Пишется только
+   * стадия и строка к заметкам; журнал получает закрытый отрезок с тем же итогом,
+   * чтобы следующий заход по требованию видел, чем кончился прошлый.
+   */
+  async transition(id: string, request: TransitionRequest): Promise<BftTask> {
+    this.assertSlug(id)
+    if (!this.config.backlogBin) throw new StageTransitionError(id, 'доска Backlog.md выключена в настройках раздела')
+    const scan = await this.scan()
+    const task = scan.tasks.find(item => item.id === id)
+    if (!task) throw new TaskNotFoundError(id)
+    if (!task.board) throw new StageTransitionError(id, 'у требования нет задачи на доске Backlog.md')
+    const rule = TRANSITION_RULES[request.kind]
+    if (task.stage !== rule.from) {
+      throw new StageTransitionError(id, `в ${rule.to} переводится только ${rule.from}, а требование в стадии ${task.stage}`)
+    }
+
+    const args = transitionArgs(id, request)
+    const { stdout, stderr, code } = await this.ports.runCommand(this.config.backlogBin, args, this.config.workspaceRoot)
+    if (code !== 0) {
+      const first = `${stderr ?? ''}\n${stdout}`.split('\n').map(line => line.trim()).find(line => line !== '')
+      throw new StageTransitionError(id, first ?? `backlog task edit: код ${code}`)
+    }
+
+    await this.updateLog((log) => {
+      const now = new Date().toISOString()
+      const opened = startWork(log, { epic: id, stage: task.stage, startedAt: now })
+      return finishWork(opened, id, now, transitionSummary(request))
     })
     return this.getTask(id)
   }

@@ -4,7 +4,7 @@
 
 **Goal:** Изолировать BFT-слой po-helper в самодостаточный репозиторий poh-bft-writer с нативной файловой само-индексацией и мульти-агентной установкой, без единой зависимости от po-helper.
 
-**Architecture:** Пайплайн генерации БФТ якорится на само-генерируемый markdown-индекс воркспейса (`.bft/index/`) вместо внешних CORTEX/Nexus/People Graph. Новый навык `bft-indexer` + команда `/bft-index` строят индекс из локальных доков, кода (serena) и трекера (JIRA/Confluence MCP, опц.). Практики качества (16 hard gates, Humanizer, Lessons Learned, корп-шаблон v10, golden-референсы) переносятся verbatim. Установка — `install.sh` в стиле sa-helper (мульти-агент).
+**Architecture:** Пайплайн генерации БФТ якорится на само-генерируемый markdown-индекс воркспейса (`.bft/index/`) вместо внешних WORKSPACE/Nexus/People Graph. Новый навык `bft-indexer` + команда `/bft-index` строят индекс из локальных доков, кода (serena) и трекера (JIRA/Confluence MCP, опц.). Практики качества (16 hard gates, Humanizer, Lessons Learned, корп-шаблон v10, golden-референсы) переносятся verbatim. Установка — `install.sh` в стиле sa-helper (мульти-агент).
 
 **Tech Stack:** Markdown skill/command файлы (Claude Code формат), bash (install.sh), serena MCP (семантика кода), Atlassian MCP (JIRA/Confluence, опц.).
 
@@ -14,9 +14,9 @@
 - **Практики качества — verbatim.** Файлы `skills/bft-writer/resources/{hard_gates,bft_standards,writing_style,review_feedback,anchor_rules,catwoe,debate_rules}.md` и `examples/{golden_bft_example,ideal_bft}.md` переносятся без изменений методологии; допускается только чистка явных утечек лесов инструмента (пути CORTEX, авторы-роботы).
 - **Нулевой допуск галлюцинаций.** Каждый факт → якорь. Нет источника → `[УТОЧНИТЬ у {кого}]`. Пусто ≠ «нет данных».
 - **Индекс-путь:** `.bft/index/`. Артефакты эпика: `.bft/documentation/<epic>/`. Оба под gitignore по умолчанию.
-- **Язык контента:** русский (домен MTS). Диаграммы — только PlantUML.
+- **Язык контента:** русский (корпоративный домен). Диаграммы — только PlantUML.
 - **Источник переноса:** локальная копия `kibarik/po-helper` main в `<scratchpad>/po-helper.git` (bare-ish clone уже сделан). Целевые файлы уже скопированы в `poh-bft-writer/commands/` (9 шт) и `poh-bft-writer/skills/` (bft-writer, bft-fast, bft-deep-swarm) — port-задачи редактируют их на месте.
-- **Рабочая директория:** `/Users/aleksishmanov/projects/poh-org/poh-bft-writer` (локальный git, без remote).
+- **Рабочая директория:** `/path/to/poh-bft-writer` (локальный git, без remote).
 
 ---
 
@@ -75,10 +75,10 @@ poh-bft-writer/
 Всё опционально — незаданное автодетектится или пропускается (в MANIFEST помечается UNAVAILABLE).
 
 ## tracker_projects
-Коды проектов трекера через запятую (напр. `GDSLV, BOOK`). Пусто → JIRA-подтяжка выключена.
+Коды проектов трекера через запятую (напр. `ACME, BOOK`). Пусто → JIRA-подтяжка выключена.
 
 ## wiki_space
-Ключ пространства Confluence для публикации БФТ (напр. `GDS`). Пусто → публикация ручная.
+Ключ пространства Confluence для публикации БФТ (напр. `DEMO`). Пусто → публикация ручная.
 
 ## source_globs
 Glob-паттерны локальных источников для индексации (по строке на паттерн):
@@ -100,7 +100,7 @@ Glob-паттерны локальных источников для индек�
 # poh-bft-writer
 
 Автономный генератор БФТ (бизнес-функциональных требований) для эпиков трекера в
-корпоративном формате MTS. Переносимый навык: подключается в любой воркспейс, сам строит
+корпоративном формате. Переносимый навык: подключается в любой воркспейс, сам строит
 контекст, генерирует БФТ уровня отлаженной методологии po-helper — без внешних зависимостей.
 
 ## Установка
@@ -109,7 +109,7 @@ Glob-паттерны локальных источников для индек�
 
 **Через терминал:**
 ```bash
-curl -ksSL https://raw.githubusercontent.com/kibarik/poh-bft-writer/main/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/po-helper-org/poh-bft-writer/main/install.sh | bash
 ```
 Скрипт спросит IDE-агента (Claude Code / Codex / Cline / DevX / Universal) и синкнет
 команды и навыки в нужный корень. После установки запусти `/bft-index` — навык проведёт
@@ -180,7 +180,7 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 - Consumes: структура `commands/` и `skills/` репозитория.
 - Produces: синк управляемых подпапок в корень выбранного IDE-агента + инъекцию frontmatter в SKILL.md (аналог sa-helper `sync_canonical_skills`).
 
-**Reference:** паттерн взят из `/Users/aleksishmanov/projects/poh-org/poh-news/sa-helper/install.sh` (функции `sync_managed_tree`, `sync_canonical_skills`).
+**Reference:** паттерн взят из `/path/to/poh-news/sa-helper/install.sh` (функции `sync_managed_tree`, `sync_canonical_skills`).
 
 - [ ] **Step 1: Verification-first**
 
@@ -192,7 +192,7 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 #!/bin/bash
 set -e
 GREEN='\033[0;32m'; BLUE='\033[0;34m'; YELLOW='\033[1;33m'; NC='\033[0m'
-REPO_URL="https://github.com/kibarik/poh-bft-writer.git"
+REPO_URL="https://github.com/po-helper-org/poh-bft-writer.git"
 TEMP_DIR=".bft_writer_temp"
 
 # Источник: если запущено из клона — текущая папка; если через curl — клонируем
@@ -209,7 +209,7 @@ echo -e "${BLUE}Какой IDE-агент?${NC}"
 echo "  1) Claude Code   (.claude/)"
 echo "  2) Codex         (.agents/)"
 echo "  3) Cline         (.clinerules/)"
-echo "  4) DevX (МТС)    (.clinerules/)"
+echo "  4) DevX    (.clinerules/)"
 echo "  5) Universal     (.agents/)"
 read -rp "Выбор [1]: " choice
 choice="${choice:-1}"
@@ -339,7 +339,7 @@ JIRA-key / Confluence-URL / doc). На него ссылаются пакеты 
 ## Роль
 Ты — Context Builder. Навык проводит первичную аналитику воркспейса и строит
 само-генерируемый индекс `.bft/index/` — основу грудинга для всего пайплайна БФТ.
-Заменяет внешние базы знаний (CORTEX/Nexus): всё собирается локально из того, что есть.
+Заменяет внешние базы знаний (WORKSPACE/Nexus): всё собирается локально из того, что есть.
 
 ## Принцип нулевого допуска
 Каждый факт в индексе → якорь-источник (`path:line`, doc, JIRA-key, Confluence-URL),
@@ -422,7 +422,7 @@ cd poh-bft-writer
 git add skills/bft-indexer commands/bft-index.md
 git commit -m "feat: bft-indexer skill + /bft-index command
 
-Само-генерируемый индекс воркспейса как замена CORTEX/Nexus.
+Само-генерируемый индекс воркспейса как замена WORKSPACE/Nexus.
 
 Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 ```
@@ -494,7 +494,7 @@ diff <(git -C "<scratchpad>/po-helper.git" show origin/main:.claude/skills/bft-w
 grep -c "гейт" skills/bft-writer/resources/hard_gates.md
 ```
 Expected: `hard_gates VERBATIM` (или отличия только в чистке путей CORTEX). 16 гейтов на месте.
-Если в resources есть утечки (`CORTEX/_context-packs`, автор `Claude (bft-draft)`) — почистить их
+Если в resources есть утечки (`WORKSPACE/_context-packs`, автор `Claude (bft-draft)`) — почистить их
 и зафиксировать отдельным под-шагом, методологию не трогать.
 
 - [ ] **Step 7: Commit**
@@ -504,7 +504,7 @@ cd poh-bft-writer
 git add skills/bft-writer
 git commit -m "refactor: decouple bft-writer skill from po-helper infra
 
-Грудинг repoint CORTEX/Nexus → .bft/index/; удалён Backlog.md-раздел;
+Грудинг repoint WORKSPACE/Nexus → .bft/index/; удалён Backlog.md-раздел;
 конфиг → bft-config. Практики качества (16 gates, Humanizer, Lessons
 Learned, golden) — verbatim.
 
@@ -742,7 +742,7 @@ Expected: `cmds: 10  skills: 4`; frontmatter-строка `---` или суще�
 
 ```markdown
 ## Для ИИ-помощника (bootstrap)
-Если пользователь просит «Установи bft-writer»: (1) запусти `curl -ksSL <repo>/install.sh | bash`
+Если пользователь просит «Установи bft-writer»: (1) запусти `curl -sSL <repo>/install.sh | bash`
 или склонируй и запусти `install.sh`, выбрав IDE-агента пользователя; (2) после синка — сразу
 запусти `/bft-index` для первичной аналитики воркспейса; (3) покажи MANIFEST-покрытие и предложи
 `/bft-context-gen`.
