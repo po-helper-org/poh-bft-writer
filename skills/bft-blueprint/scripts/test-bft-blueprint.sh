@@ -101,7 +101,7 @@ expect_story() {  # <имя> <ожидаемый rc> <файл> <коды чер
   ok "история · $name"
 }
 
-# БФТ эталона (перезапуск акции Bartello) в репозиторий не входит — сверка с источником на фикстуре
+# БФТ эталона (перезапуск акции DineClub) в репозиторий не входит — сверка с источником на фикстуре
 expect_story "эталон проходит строго"     0 "$SGOLD" "" --no-source --strict
 expect_story "эталон без БФТ рядом"       1 "$SGOLD" "ST013"
 expect_story "структура"                  1 "$FIX/broken_story_structure.md" "ST001 ST002 ST003"
@@ -143,7 +143,7 @@ python3 "$SRENDER" "$FIX/broken_story_screens.md" --out-dir "$tmp/sbad" >/dev/nu
 # --- карта инициативы: проект Backlog.md -------------------------------------------------
 BLINT="$DIR/scripts/bft-backlog-lint.py"
 BBUILD="$DIR/scripts/bft-backlog-build.py"
-BGOLD="$DIR/examples/bartello-restart-blueprint"
+BGOLD="$DIR/examples/dineclub-restart-blueprint"
 BOK="$FIX/backlog_ok"
 
 expect_bl() {  # <имя> <ожидаемый rc> <проект> <коды через пробел> [доп. аргументы линтера]
@@ -227,27 +227,27 @@ expect_bl "экраны · битые заметки"        1 "$tmp/bad/screens
 python3 "$BBUILD" "$BGOLD" --no-source --check >/dev/null 2>&1 \
   && ok "карта · эталон: IDEF0 карточек совпадает с «Параметрами»" || fail "карта · эталон: устаревший IDEF0 — python3 $BBUILD $BGOLD --no-source"
 cp -r "$BGOLD" "$tmp/gold" && python3 "$BBUILD" "$tmp/gold" --out-dir "$tmp/bout" >/dev/null 2>&1 \
-  && cmp -s "$tmp/bout/bartello-restart-map.html" "$DIR/examples/bartello-restart-map.html" \
-  && ok "карта · html: совпадает с examples/bartello-restart-map.html" \
+  && cmp -s "$tmp/bout/dineclub-restart-map.html" "$DIR/examples/dineclub-restart-map.html" \
+  && ok "карта · html: совпадает с examples/dineclub-restart-map.html" \
   || fail "карта · html разошёлся с эталоном — пересобери: python3 $BBUILD $BGOLD --out-dir $DIR/examples --no-zip"
 python3 - "$tmp/bout" <<'PY' && ok "карта · страница: 19 задач, 20 карточек в четырёх слоях, стрелки, заметки экранов" || fail "карта · данные страницы не те"
 import json, re, sys
 from pathlib import Path
-d = json.loads(re.search(r'id="map-data">(.*?)</script>', (Path(sys.argv[1]) / "bartello-restart-map.html").read_text(encoding="utf-8"), re.S).group(1))
+d = json.loads(re.search(r'id="map-data">(.*?)</script>', (Path(sys.argv[1]) / "dineclub-restart-map.html").read_text(encoding="utf-8"), re.S).group(1))
 assert len(d["tasks"]) == 19 and len(d["cards"]) == 20, (len(d["tasks"]), len(d["cards"]))
 assert {c["layer"] for c in d["cards"]} == {"employee", "technology", "backstage", "support"}
 assert all(c["params"].get("out") and c["demo"] for c in d["cards"])
 assert all(t["brief"].get("ASIS") and t["ac"] for t in d["tasks"])
 assert len(d["links"]) >= 20 and len(d["notes"]) == 12
 PY
-cp "$tmp/bout/bartello-restart-blueprint.zip" "$tmp/first.zip"
-python3 "$BBUILD" "$tmp/gold" --out-dir "$tmp/bout" >/dev/null 2>&1 && cmp -s "$tmp/bout/bartello-restart-blueprint.zip" "$tmp/first.zip" \
+cp "$tmp/bout/dineclub-restart-blueprint.zip" "$tmp/first.zip"
+python3 "$BBUILD" "$tmp/gold" --out-dir "$tmp/bout" >/dev/null 2>&1 && cmp -s "$tmp/bout/dineclub-restart-blueprint.zip" "$tmp/first.zip" \
   && ok "карта · zip: та же карта — тот же архив байт в байт" || fail "карта · zip: архив не детерминирован"
 python3 - "$tmp/first.zip" "$tmp/unz" <<'PY' || fail "карта · zip: распаковка не удалась"
 import sys, zipfile; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])
 PY
-( cd "$tmp/unz/bartello-restart-blueprint" && python3 .blueprint/scripts/bft-backlog-build.py . --out-dir . >/dev/null 2>&1 \
-  && cmp -s blueprint.html bartello-restart-map.html && test -f CLAUDE.md && test -f .blueprint/rules/backlog_rules.md ) \
+( cd "$tmp/unz/dineclub-restart-blueprint" && python3 .blueprint/scripts/bft-backlog-build.py . --out-dir . >/dev/null 2>&1 \
+  && cmp -s blueprint.html dineclub-restart-map.html && test -f CLAUDE.md && test -f .blueprint/rules/backlog_rules.md ) \
   && ok "карта · zip: распакованный проект сам пересобирает ту же страницу" || fail "карта · zip: распакованный проект не собирается сам"
 
 # IDEF0 собирается из «Параметров»: правка параметров → сборка переписывает блок mermaid
@@ -255,7 +255,7 @@ python3 - "$tmp/gold" <<'PY'
 import sys
 from pathlib import Path
 f = next(Path(sys.argv[1]).glob("backlog/tasks/bp-16.1 - *.md")); t = f.read_text(encoding="utf-8")
-f.write_text(t.replace("- **Механизм:** GDS; Сервис проверки билетов", "- **Механизм:** GDS; Сервис проверки билетов; Журнал проверок"), encoding="utf-8")
+f.write_text(t.replace("- **Механизм:** TeamA; Сервис проверки билетов", "- **Механизм:** TeamA; Сервис проверки билетов; Журнал проверок"), encoding="utf-8")
 PY
 python3 "$BBUILD" "$tmp/gold" --check >/dev/null 2>&1; rc=$?
 python3 "$BBUILD" "$tmp/gold" --out-dir "$tmp/bout2" --no-zip >/dev/null 2>&1 \
@@ -275,7 +275,7 @@ python3 "$DIR/scripts/bft-backlog-init.py" "$DIR/scripts/fixtures/broken_story_s
 
 # проект читает настоящий CLI Backlog.md — если он установлен
 if command -v backlog >/dev/null 2>&1; then
-  ( cd "$tmp/unz/bartello-restart-blueprint" && [ "$(backlog task list --plain 2>/dev/null | grep -c 'BP-')" -eq 39 ] ) \
+  ( cd "$tmp/unz/dineclub-restart-blueprint" && [ "$(backlog task list --plain 2>/dev/null | grep -c 'BP-')" -eq 39 ] ) \
     && ok "карта · CLI backlog видит 19 задач и 20 карточек" || fail "карта · CLI backlog не читает проект"
 fi
 

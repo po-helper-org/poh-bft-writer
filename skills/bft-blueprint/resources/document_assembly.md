@@ -121,7 +121,7 @@ python3 <skills_path>/bft-blueprint/scripts/bft-story-render.py <docs_path>/<epi
 
 ## Карта
 
-Карта собирается после согласованной истории — проектом Backlog.md `<epic_slug>-blueprint/` рядом с историей. Создаёт его `bft-backlog-init.py`, разбирает `scripts/bft_backlog.py`, форму и смысл держит `bft-backlog-lint.py` по `resources/backlog_rules.md`. Эталон — `examples/bartello-restart-blueprint/`.
+Карта собирается после согласованной истории — проектом Backlog.md `<epic_slug>-blueprint/` рядом с историей. Создаёт его `bft-backlog-init.py`, разбирает `scripts/bft_backlog.py`, форму и смысл держит `bft-backlog-lint.py` по `resources/backlog_rules.md`. Эталон — `examples/dineclub-restart-blueprint/`.
 
 ```
 <epic_slug>-blueprint/

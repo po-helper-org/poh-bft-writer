@@ -484,7 +484,7 @@ Agenda». Справа выезжает список вопросов с отм�
 проект: распаковал — ведёшь бэклог (`backlog board`, `backlog browser`) и пересобираешь страницу
 `python3 .blueprint/scripts/bft-backlog-build.py . --out-dir .` Стандарт —
 [`resources/backlog_rules.md`](skills/bft-blueprint/resources/backlog_rules.md), эталон —
-[`examples/bartello-restart-blueprint/`](skills/bft-blueprint/examples/bartello-restart-blueprint).
+[`examples/dineclub-restart-blueprint/`](skills/bft-blueprint/examples/dineclub-restart-blueprint).
 
 **Файлы рядом с БФТ.** `<epic>-story.md` + `.html`, проект `<epic>-blueprint/`,
 `<epic>-map.html`, `<epic>-blueprint.zip`. Прежняя слоевая схема `<epic>-blueprint.md`

@@ -60,14 +60,12 @@
 <text class="t-lane" x="138" y="518">Витрина</text>
 <rect class="band-a" x="118" y="596" width="1290" height="260"/>
 <rect class="strip-back" x="118" y="596" width="8" height="260"/>
-<text class="t-lane" x="138" y="717">Direct</text>
-<text class="t-owner" x="138" y="733">Разработка (Дмитрий</text>
-<text class="t-owner" x="138" y="745">Ананьев)</text>
+<text class="t-lane" x="138" y="723">Direct</text>
+<text class="t-owner" x="138" y="739">Разработка (техлид)</text>
 <rect class="band-b" x="118" y="860" width="1290" height="109"/>
 <rect class="strip-back" x="118" y="860" width="8" height="109"/>
-<text class="t-lane" x="138" y="906">Сайт</text>
-<text class="t-owner" x="138" y="922">Разработка (Дмитрий</text>
-<text class="t-owner" x="138" y="934">Ананьев)</text>
+<text class="t-lane" x="138" y="912">Сайт</text>
+<text class="t-owner" x="138" y="928">Разработка (техлид)</text>
 <rect class="band-a" x="118" y="981" width="1290" height="124"/>
 <rect class="strip-sup" x="118" y="981" width="8" height="124"/>
 <text class="t-lane" x="138" y="1040">Поисковые системы</text>

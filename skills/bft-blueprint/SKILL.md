@@ -28,7 +28,7 @@ description: "Service Blueprint по БФТ в два согласуемых э�
 | ── линия внутреннего взаимодействия ── | | |
 | Support | общие ресурсы и внешние каналы: макеты, каналы, аналитика | НФТ, «Зависимости» |
 
-Стандарт карты — `resources/backlog_rules.md`, истории — `resources/story_line.md`. Эталон — перезапуск акции Bartello (`examples/golden_story.md`, проект `examples/bartello-restart-blueprint/`).
+Стандарт карты — `resources/backlog_rules.md`, истории — `resources/story_line.md`. Эталон — перезапуск акции DineClub (`examples/golden_story.md`, проект `examples/dineclub-restart-blueprint/`).
 
 ## Принципы
 
@@ -67,7 +67,7 @@ description: "Service Blueprint по БФТ в два согласуемых э�
       python3 <skills_path>/bft-blueprint/scripts/bft-story-render.py <docs_path>/<epic>/<epic>-story.md
       ```
    6. **STOP** — путь к `-story.html`, «было → стало» по персонажам, открытые вопросы «кому — что». Ответ PO «да» — `status: Согласован`, дальше этап 3. *Готово, когда* PO согласовал историю.
-3. **map** — карта инициативы в проекте Backlog.md. Стандарт — `resources/backlog_rules.md`, эталон — `examples/bartello-restart-blueprint/`.
+3. **map** — карта инициативы в проекте Backlog.md. Стандарт — `resources/backlog_rules.md`, эталон — `examples/dineclub-restart-blueprint/`.
    1. *проект* — `bft-backlog-init.py <epic>-story.md`: папка `<epic>-blueprint/` с документами «Карта» и «История». Дальше — только CLI `backlog` (`backlog instructions overview` перед первой командой).
    2. *команды и вопросы* — в «Карту»: команды из «Зависимостей» и вводной PO; каждый `[УТОЧНИТЬ у …]` — строка «Вопросов» с «Где» — ID задачи или карточки.
    3. *задачи «Что делаем»* — по ФТ, ИТ, НФТ: одна задача — один результат одной команды на этапе (до 80 знаков). `backlog task create` с исполнителем `@команда` (неизвестна — метки `кандидат:…`), метками `stage:…` и вида, описанием (зачем, «Требования БФТ: …», ASIS, GAP, TOBE, HowToDemo, дополнительно) и критериями приемки `--ac`.
@@ -96,7 +96,7 @@ description: "Service Blueprint по БФТ в два согласуемых э�
 - `resources/screen_notes.md` — требования к экранам для дизайнера: документы `screens/`, вкладки Product, Design, Functions, коды `SN`.
 - `resources/document_assembly.md` — форма `-story.md`, проекта карты и прежнего `-blueprint.md`.
 - Гейты: `scripts/bft-story-lint.py` (`ST001`–`ST023`), `scripts/bft-backlog-lint.py` (`BL001`–`BL028`, `SN`). Проект: `scripts/bft-backlog-init.py`. Страницы: `scripts/bft-story-render.py`, `scripts/bft-backlog-build.py` (страница, IDEF0 из параметров, zip; общий набор `page_kit.js`).
-- Эталоны: `examples/golden_story.md` и проект `examples/bartello-restart-blueprint/` со страницей `examples/bartello-restart-map.html` (Bartello: 2 персонажа, 6 этапов, 19 задач, 20 карточек, 12 экранов). БФТ эталона в репозиторий не входит — самотест сверяет эталон без него, сверку с источником проверяют фикстуры. Прототипы формы — `examples/prototypes/`.
+- Эталоны: `examples/golden_story.md` и проект `examples/dineclub-restart-blueprint/` со страницей `examples/dineclub-restart-map.html` (DineClub: 2 персонажа, 6 этапов, 19 задач, 20 карточек, 12 экранов). БФТ эталона в репозиторий не входит — самотест сверяет эталон без него, сверку с источником проверяют фикстуры.
 - Backlog.md: `npm i -g backlog.md`, `backlog board`, `backlog browser` — доска и редактор в браузере, mermaid карточек там рисуется.
 - Голос и стоп-слова: `../bft-writer/resources/writing_style.md`; высота БФТ — `../bft-writer/resources/bft_standards.md` §«Различение типов».
 - Самотест: `bash skills/bft-blueprint/scripts/test-bft-blueprint.sh` из корня репозитория.

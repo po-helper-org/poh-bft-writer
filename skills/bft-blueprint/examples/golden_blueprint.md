@@ -3,7 +3,7 @@ epic_slug: direct-faq
 stage: blueprint
 source_doc: ../../bft-deep-swarm/examples/golden_deep_document.md
 source_stage: deep
-source_rev: c019d8e57a03
+source_rev: 3b6ad3dc22bc
 version: 1
 revised: 2026-10-17
 status: Черновик
@@ -33,8 +33,8 @@ status: Черновик
 
 | ID | Слой | Название | Команда / система |
 | --- | --- | --- | --- |
-| direct | сервис | Direct | Разработка (Дмитрий Ананьев) |
-| site | сервис | Сайт | Разработка (Дмитрий Ананьев) |
+| direct | сервис | Direct | Разработка (техлид) |
+| site | сервис | Сайт | Разработка (техлид) |
 | search | основа | Поисковые системы | Внешняя зависимость |
 
 ## Карточки

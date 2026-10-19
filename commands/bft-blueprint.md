@@ -18,9 +18,9 @@ description: 'Service Blueprint по БФТ в два согласуемых э�
 ## Примеры
 
 ```
-/bft-blueprint bartello-restart
-/bft-blueprint bartello-restart --story
-/bft-blueprint bartello-restart --map "сканер делает Bartello, проверку билета — GDS"
+/bft-blueprint dineclub-restart
+/bft-blueprint dineclub-restart --story
+/bft-blueprint dineclub-restart --map "сканер делает DineClub, проверку билета — TeamA"
 ```
 
 ## Что делает
@@ -56,7 +56,7 @@ description: 'Service Blueprint по БФТ в два согласуемых э�
 
 ## Инструкция для LLM
 
-Навык — `../skills/bft-blueprint/SKILL.md`. Порядок — этапы оттуда: resolve → **story** со своим STOP → **map** → STOP. Стандарты — `resources/story_line.md`, `resources/story_interview.md`, `resources/backlog_rules.md`; эталоны — `examples/golden_story.md`, проект `examples/bartello-restart-blueprint/`.
+Навык — `../skills/bft-blueprint/SKILL.md`. Порядок — этапы оттуда: resolve → **story** со своим STOP → **map** → STOP. Стандарты — `resources/story_line.md`, `resources/story_interview.md`, `resources/backlog_rules.md`; эталоны — `examples/golden_story.md`, проект `examples/dineclub-restart-blueprint/`.
 
 ### Гейт перед показом PO (обязателен)
 
