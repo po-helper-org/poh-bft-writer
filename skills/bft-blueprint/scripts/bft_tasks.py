@@ -9,6 +9,7 @@
     ## HowToDemo            нумерованный E2E-сценарий: 1. … 2. …
     ## Чеклист приемки      Definition of Done: - [ ] …
     ## Дополнительно        по желанию: ссылки, ограничения, контекст
+    ## Исполнение           по желанию: «JIRA: ссылка», «Confluence: ссылка», заметка исполнителя
 
 Требования БФТ и открытые вопросы задачи страница добавляет к «Дополнительно» сама — из карты.
 Неизвестное — `[УТОЧНИТЬ у {кого}]`. Стандарт — `resources/task_brief.md`.
@@ -34,8 +35,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import bft_blueprint as bb  # noqa: E402
 
 DIR = "tasks"
-SECTIONS = ("ASIS", "GAP", "TOBE", "HowToDemo", "Чеклист приемки", "Дополнительно")
-OPTIONAL = {"Дополнительно"}
+SECTIONS = ("ASIS", "GAP", "TOBE", "HowToDemo", "Чеклист приемки", "Дополнительно", "Исполнение")
+OPTIONAL = {"Дополнительно", "Исполнение"}
 STEP_RE = re.compile(r"^\d+\.\s+\S")
 CHECK_RE = re.compile(r"^[-*]\s+\[[ xX]\]\s+\S")
 

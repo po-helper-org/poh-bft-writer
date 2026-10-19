@@ -143,11 +143,13 @@
       <nav class="snseg">${d.tabs.map((x, i) => `<button data-sntab="${i}"${x === t ? ' class="on"' : ""}>${esc(x.name)}</button>`).join("")}</nav>
       <ul class="snstack">${(t ? t.notes : []).map((n, i) => `<li data-snnote="${i}" tabindex="0"><b>${esc(n.title)}</b><span>${esc(notePreview(n))}</span>${n.md.includes(MARK) ? '<i class="q"></i>' : ""}</li>`).join("")}</ul></div>`;
     body.classList.remove("wide"); body.classList.add("open"); side.scrollTop = 0;
+    side.dataset.ctx = "screen:" + snCur; side.dataset.note = "";
   }
   function openNote(i) {
     const d = SCR[snCur], n = d.tabs[snTab].notes[i];
     gallery = n.md.split(/\n{2,}/).map(b => b.trim().match(IMG_MD)).filter(Boolean).map(m => ({ alt: m[1], src: imgSrc(m[2]) }));
     side.innerHTML = snHead(n.title, true) + `<div class="snbody"><div class="snmd">${mdHTML(n.md)}</div></div>`; side.scrollTop = 0;
+    side.dataset.ctx = "screen:" + snCur; side.dataset.note = `${d.tabs[snTab].name} · заметка «${n.title}»`;
   }
   /* просмотр картинки: крупно, ‹ › если их несколько; Esc или клик мимо — закрыть */
   const LB = document.getElementById("lb"); let lbI = 0;
@@ -239,6 +241,7 @@
   /* ---------- боковая панель ---------- */
   const side = document.getElementById("side");
   function openSide(tag, color, title, meta, html, wide) {
+    side.dataset.ctx = ""; side.dataset.note = "";
     side.innerHTML = `<div class="stop"><span class="tag" style="--c:${color}">${esc(tag)}</span><h3>${esc(title)}</h3><div class="meta">${meta}</div><button class="x" aria-label="Закрыть">×</button></div><div class="sin">${html}</div>`;
     body.classList.toggle("wide", !!wide); body.classList.add("open"); side.scrollTop = 0;
   }
@@ -251,12 +254,43 @@
       <h5>${esc(st.title)}</h5><p>${esc(st.text)}</p>${st.was ? `<div class="was"><b>Раньше</b>${esc(st.was)}</div>` : ""}
       ${qHTML(D.storyQuestions.filter(q => q.where === st.id || st.screens.includes(q.where)).map(q => ({ ...q, kind: "вопрос" })))}<div class="src">Источник: ${esc(st.source)}</div></div>`).join("");
     openSide(p.name, "#2f6b2a", col.name, `${esc(p.lane)} · ${s.steps.length} ${s.steps.length === 1 ? "шаг" : "шага"}`, html);
+    side.dataset.ctx = "seen:" + key;
   }
 
   /* задача «Что делаем» — постановка для техлида из tasks/<ID>.md: ASIS, GAP, TOBE, HowToDemo,
      чеклист приемки, дополнительно; требования БФТ и открытые вопросы задачи добавляются из карты */
   const dodKey = id => `bp-dod-${D.epic}-${id}`;
-  function openTask(id) {
+  /* «Исполнение»: ссылки на JIRA и Confluence и заметка исполнителя. Начальные значения — из раздела
+     «## Исполнение» файла задачи, правки — в браузере; «Скопировать для файла» отдаёт раздел целиком */
+  let taskTab = 0;
+  const execKey = id => `bp-exec-${D.epic}-${id}`;
+  function execOf(id, br) {
+    let v = null; try { v = JSON.parse(localStorage.getItem(execKey(id)) || "null") } catch (e) { }
+    if (v) return v;
+    const lines = (br["Исполнение"] || "").split("\n"), pick = k => lines.filter(l => l.toLowerCase().startsWith(k + ":")).map(l => l.slice(k.length + 1).trim()).join(" ");
+    return { jira: pick("jira"), conf: pick("confluence"), note: lines.filter(l => !/^(jira|confluence):/i.test(l)).join("\n").trim() };
+  }
+  const links = s => (s || "").split(/[\s,]+/).filter(u => /^https?:\/\//.test(u)).map(u => `<a href="${esc(u)}" target="_blank" rel="noopener">${esc(u.replace(/^https?:\/\//, "").slice(0, 48))}</a>`).join("");
+  function execHTML(id, br) {
+    const v = execOf(id, br);
+    return `<div class="exec" data-exec="${esc(id)}">
+      <label>JIRA<input data-ex="jira" value="${esc(v.jira)}" placeholder="Ссылка на задачу или эпик"></label><div class="exl">${links(v.jira)}</div>
+      <label>Confluence<input data-ex="conf" value="${esc(v.conf)}" placeholder="Ссылка на страницу"></label><div class="exl">${links(v.conf)}</div>
+      <label>Заметка<textarea data-ex="note" placeholder="Ход работ, решения, договорённости">${esc(v.note)}</textarea></label>
+      <button class="tool" data-excopy="${esc(id)}">Скопировать для tasks/${esc(id)}.md</button></div>`;
+  }
+  function execMd(id) {
+    const v = execOf(id, (D.briefs || {})[id] || {});
+    return ["## Исполнение", v.jira ? "JIRA: " + v.jira : "", v.conf ? "Confluence: " + v.conf : "", v.note ? "\n" + v.note : ""].filter(Boolean).join("\n");
+  }
+  document.addEventListener("input", e => {
+    const f = e.target.closest && e.target.closest("[data-ex]"); if (!f) return;
+    const box = f.closest("[data-exec]"), id = box.dataset.exec, v = execOf(id, (D.briefs || {})[id] || {});
+    v[f.dataset.ex] = f.value; try { localStorage.setItem(execKey(id), JSON.stringify(v)) } catch (er) { }
+    if (f.dataset.ex !== "note") f.parentElement.nextElementSibling.innerHTML = links(f.value);
+  });
+  function openTask(id, tab) {
+    if (tab != null) taskTab = tab;
     const t = TASK[id], br = (D.briefs || {})[id] || {}, qs = [...qOf(id), ...D.processes.filter(p => p.task === id).flatMap(p => qOf(p.id))];
     let done = {}; try { done = JSON.parse(localStorage.getItem(dodKey(id)) || "{}") } catch (e) { }
     let k = -1;
@@ -268,8 +302,10 @@
       .map(m => { k++; return `<label class="dod"><input type="checkbox" data-dod="${id}:${k}"${done[k] || m[1] !== " " ? " checked" : ""}><span>${mdInline(m[2])}</span></label>` }).join("");
     const html = br.ASIS ? sec("ASIS", mdHTML(br.ASIS)) + sec("GAP", mdHTML(br.GAP || "")) + sec("TOBE", mdHTML(br.TOBE || "")) + sec("HowToDemo", mdHTML(br.HowToDemo || "")) + sec("Чеклист приемки", dod) + sec("Дополнительно", extra)
       : `<p class="tkno">Постановки нет — tasks/${esc(id)}.md</p>` + sec("Дополнительно", extra);
-    side.innerHTML = `<div class="snbar"><h3>${esc(t.text)}</h3><button class="x" aria-label="Закрыть">×</button></div><div class="snbody"><div class="tkmeta"><span class="pteam" style="--c:${teamC(t)}"><i></i>${esc(teamN(t))}</span> · ${esc(COLS[colOf(t.stage)].name)} · задача ${esc(t.id)}</div>${html}</div>`;
+    const tabs = `<nav class="snseg tktabs">${["Требования", "Исполнение"].map((n, i) => `<button data-tktab="${i}"${i === taskTab ? ' class="on"' : ""}>${n}</button>`).join("")}</nav>`;
+    side.innerHTML = `<div class="snbar"><h3>${esc(t.text)}</h3><button class="x" aria-label="Закрыть">×</button></div><div class="snbody"><div class="tkmeta"><span class="pteam" style="--c:${teamC(t)}"><i></i>${esc(teamN(t))}</span> · ${esc(COLS[colOf(t.stage)].name)} · задача ${esc(t.id)}</div>${tabs}${taskTab ? execHTML(id, br) : html}</div>`;
     body.classList.remove("wide"); body.classList.add("open"); side.scrollTop = 0;
+    side.dataset.ctx = "task:" + id; side.dataset.note = "";
   }
 
 
@@ -347,6 +383,7 @@
       <button class="tool" data-ai="copy" data-kind="dsl" data-id="${id}">Скопировать промпт</button><a class="tool" data-ai="open" data-kind="dsl" data-id="${id}" target="_blank" rel="noopener">Открыть в Claude ↗</a></div>
       <small class="dhint">Правка живёт в этом браузере. В документ — блок через <code>bft-diagram-apply.py</code>, затем перерисовать карту.</small></div>`;
     openSide(`${L[0]} · ${L[1]}`, L[2], p.text, `<span class="pteam" style="--c:${teamC(t)}"><i></i>${esc(teamN(t))}</span> · задача ${t.id} «${esc(t.text)}» · ${esc(COLS[colOf(p.stage)].name)}`, x, true);
+    side.dataset.ctx = "proc:" + id;
     const ta = document.getElementById("pnote");
     ta.addEventListener("input", () => { lsSet(noteKey(id), ta.value); refreshAi() });
     dslTab(tab || "seq");
@@ -504,7 +541,7 @@ ${cur}
     if (tf) { teamFilter(tf.classList.contains("on") ? "" : tf.dataset.tf); return menu(false) }
     const g = t.closest("[data-guide]"); if (g) return openGuide(g.dataset.guide);
     const pr = t.closest("[data-proc]"); if (pr) return openProc(pr.dataset.proc);
-    const tk = t.closest("[data-task]"); if (tk) return openTask(tk.dataset.task);
+    const tk = t.closest("[data-task]"); if (tk) return openTask(tk.dataset.task, 0);
     /* кадр с требованиями: открыть экран, который сейчас виден в кадре */
     const scr = t.closest("[data-screens]");
     if (scr) { const ids = scr.dataset.screens.split(","), pic = scr.querySelector(".pic"), now = ids[+(pic && pic.dataset.i) || 0]; return openScreen(NOTE_OF[now] ? now : ids.find(id => NOTE_OF[id]), 0) }
@@ -522,5 +559,109 @@ ${cur}
     if (e.key === "Enter" && e.target.matches && e.target.matches("[data-snnote]")) openNote(+e.target.dataset.snnote);
     if ((e.key === "Enter" || e.key === " ") && e.target.matches && e.target.matches("[data-seen]")) { e.preventDefault(); openSeen(e.target.dataset.seen) }
   });
-  window.BPMAP = { setView, aiPrompt, dslPrompt, openProc, openTask, openSeen, openScreen, openNote, zoom, dslTab, dslCheck };
+  /* ---------- замечания: правой кнопкой по любой секции → список → промпт для ИИ-агента ----------
+     Как в bft-writer: замечания хранятся в браузере; пересобранная карта (новая ревизия) закрывает
+     открытые замечания — они ушли в доработку и в следующий промпт не попадают. */
+  const CM_KEY = `bp-cm-${D.epic}`, CM_REV = CM_KEY + "-rev", CM_ITER = CM_KEY + "-iter";
+  const cmLoad = () => { try { return JSON.parse(localStorage.getItem(CM_KEY) || "[]") } catch (e) { return [] } };
+  const cmSave = list => { try { localStorage.setItem(CM_KEY, JSON.stringify(list)) } catch (e) { } };
+  const cmOpen = () => cmLoad().filter(c => !c.closedAt);
+  (function syncRevision() {
+    let seen = null; try { seen = localStorage.getItem(CM_REV) } catch (e) { return }
+    if (seen && seen !== D.rev) {
+      const now = new Date().toISOString(), iter = +(localStorage.getItem(CM_ITER) || 1), list = cmLoad(); let n = 0;
+      list.forEach(c => { if (!c.closedAt) { c.closedAt = now; c.iteration = iter; n++ } });
+      if (n) { cmSave(list); try { localStorage.setItem(CM_ITER, String(iter + 1)) } catch (e) { } }
+    }
+    try { localStorage.setItem(CM_REV, D.rev) } catch (e) { }
+  })();
+  const DOCS_ = D.docs || {}, mapDoc = DOCS_.map || "map.md", storyDoc = DOCS_.story || "story.md";
+  /* что именно под курсором: ключ для метки, подпись для промпта, файл, который править */
+  function cmTarget(el) {
+    if (el.closest("#side")) {
+      const [kind, id] = (side.dataset.ctx || ":").split(":"), note = side.dataset.note || "";
+      if (kind === "task") { const sec = el.closest(".tk"); return { key: "task:" + id, label: `Задача ${id} «${TASK[id].text}»${sec ? " · раздел " + sec.querySelector("h4").textContent : ""}`, file: `tasks/${id}.md` } }
+      if (kind === "screen") { const li = el.closest("[data-snnote]"), tab = side.querySelector(".snseg .on");
+        const what = note || (li ? `${tab ? tab.textContent : ""} · заметка «${li.querySelector("b").textContent}»` : "");
+        return { key: "screen:" + id, label: `Экран ${id} «${SCR[id].title}»${what ? " · " + what : ""}`, file: `screens/${id}.md` } }
+      if (kind === "proc") { const cr = el.closest(".crit li"); return { key: "proc:" + id, label: `Процесс ${id} «${PROC[id].text}»${cr ? " · критерий «" + cr.textContent.trim().slice(0, 60) + "»" : el.closest(".seqw,.dsl") ? " · схема" : el.closest(".idef,.idefw") ? " · IDEF0" : ""}`, file: mapDoc } }
+      if (kind === "seen") return { key: "seen:" + id, label: `Шаги истории «${id}»`, file: storyDoc };
+      return { key: "map", label: "Карта", file: mapDoc };
+    }
+    const fr = el.closest(".fr"); if (fr) { const cap = fr.querySelector(".cap").textContent, ids = (fr.dataset.screens || "").split(",").filter(Boolean);
+      fr.dataset.cmk = "fr:" + cap; return { key: "fr:" + cap, label: `Что видят · шаг «${cap}»`, file: storyDoc + (ids.length ? `, screens/${NOTE_OF[ids[0]] || ids[0]}.md` : "") } }
+    const wk = el.closest("[data-task]"); if (wk) { const id = wk.dataset.task; wk.dataset.cmk = "task:" + id; return { key: "task:" + id, label: `Задача ${id} «${TASK[id].text}»`, file: `${mapDoc}, tasks/${id}.md` } }
+    const hw = el.closest("[data-proc]"); if (hw) { const id = hw.dataset.proc; hw.dataset.cmk = "proc:" + id; return { key: "proc:" + id, label: `Процесс ${id} «${PROC[id].text}»`, file: mapDoc } }
+    const hd = el.closest(".hh,.mh:not(.corner)"); if (hd) { const name = hd.querySelector("b").textContent; hd.dataset.cmk = "stage:" + name; return { key: "stage:" + name, label: `Этап «${name}»`, file: storyDoc } }
+    const row = el.closest(".hl,.ml"); if (row) { const name = row.textContent.trim().split("\n")[0].slice(0, 40); return { key: "row:" + name, label: `Ряд «${name}»`, file: row.closest(".hero") ? storyDoc : mapDoc } }
+    return { key: "map", label: "Карта", file: mapDoc };
+  }
+  function cmPaint() {
+    const open = cmOpen(), keys = new Set(open.map(c => c.key));
+    document.querySelectorAll("[data-cmk]").forEach(x => x.classList.toggle("cm-has", keys.has(x.dataset.cmk)));
+    const n = open.length, cmn = document.getElementById("cmn"), chip = document.getElementById("cmchip");
+    cmn.hidden = !n; cmn.textContent = n; chip.hidden = !n; chip.textContent = `Замечания · ${n}`;
+  }
+  /* поле замечания у курсора */
+  let cmPop = null;
+  function cmClose() { if (cmPop) { cmPop.remove(); cmPop = null } }
+  function cmAsk(x, y, tgt, quote) {
+    cmClose();
+    const had = cmOpen().filter(c => c.key === tgt.key);
+    cmPop = document.createElement("div"); cmPop.className = "cmpop";
+    cmPop.innerHTML = `<div class="cmwhere">${esc(tgt.label)}</div>${quote ? `<div class="cmq">«${esc(quote)}»</div>` : ""}${had.map(c => `<div class="cmold">${esc(c.text)}</div>`).join("")}
+      <textarea placeholder="Замечание для доработки (Ctrl+Enter — сохранить)"></textarea><div class="cmrow"><button class="cmsave">Сохранить</button><button class="cmcancel">Отмена</button></div>`;
+    document.body.appendChild(cmPop);
+    cmPop.style.left = Math.max(8, Math.min(x, innerWidth - cmPop.offsetWidth - 8)) + "px";
+    cmPop.style.top = Math.max(8, Math.min(y, innerHeight - cmPop.offsetHeight - 8)) + "px";
+    const ta = cmPop.querySelector("textarea"); ta.focus();
+    const save = () => { const text = ta.value.trim(); if (!text) return cmClose(); const list = cmLoad(); list.push({ ts: new Date().toISOString(), ...tgt, quote, text }); cmSave(list); cmClose(); cmPaint(); if (side.dataset.ctx === "cm") cmPanel() };
+    cmPop.querySelector(".cmsave").addEventListener("click", save);
+    cmPop.querySelector(".cmcancel").addEventListener("click", cmClose);
+    ta.addEventListener("keydown", e => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) save(); if (e.key === "Escape") { e.stopPropagation(); cmClose() } });
+  }
+  document.addEventListener("contextmenu", e => {
+    if (e.shiftKey || e.target.closest(".cmpop,.zoombox,textarea,input")) return;
+    if (!e.target.closest(".hero,.wrap,#side,.mstack")) return;
+    e.preventDefault();
+    const sel = String(window.getSelection() || "").trim().replace(/\s+/g, " ").slice(0, 200);
+    cmAsk(e.clientX, e.clientY, cmTarget(e.target), sel);
+  });
+  document.addEventListener("mousedown", e => { if (cmPop && !e.target.closest(".cmpop")) cmClose() });
+  function cmPrompt(list) {
+    if (!list.length) return "";
+    const files = [...new Set(list.flatMap(c => c.file.split(", ")))];
+    return [`Доработай Service Blueprint «${D.title}» (${D.epic}) по замечаниям с карты:`, "",
+      ...list.map((c, i) => `${i + 1}. [${c.label}]${c.quote ? ` (по фрагменту «${c.quote}»)` : ""} ${c.text}\n   Файл: ${c.file}`), "",
+      `Правь только названное. Источник фактов — БФТ ${DOCS_.source || ""}; чего в нём нет — [УТОЧНИТЬ у {кого}] и строка в «Вопросах». Схемы — блоками seq/idef0 через bft-diagram-apply.py.`,
+      `Файлы к правке: ${files.join(", ")}.`, "",
+      "После правок — обязательно, в этом порядке:",
+      `1. python3 <skills_path>/bft-blueprint/scripts/bft-story-lint.py ${storyDoc}   (если правилась история)`,
+      `2. python3 <skills_path>/bft-blueprint/scripts/bft-map-lint.py ${mapDoc}`,
+      `3. python3 <skills_path>/bft-blueprint/scripts/bft-map-render.py ${mapDoc}   (пересобрать страницу — без этого замечания придут повторно)`].join("\n");
+  }
+  function cmPanel() {
+    const list = cmOpen(), past = cmLoad().filter(c => c.closedAt);
+    side.innerHTML = `<div class="snbar"><h3>Замечания${list.length ? " · " + list.length : ""}</h3><button class="x" aria-label="Закрыть">×</button></div><div class="snbody">
+      ${list.length ? `<ul class="cmlist">${list.map(c => `<li><small>${esc(c.label)}</small>${c.quote ? `<i>«${esc(c.quote)}»</i>` : ""}<span>${esc(c.text)}</span><button data-cmdel="${esc(c.ts)}">удалить</button></li>`).join("")}</ul>
+      <h4 class="cmh">Промпт для ИИ-агента</h4><textarea class="cmout" readonly>${esc(cmPrompt(list))}</textarea><button class="tool pri" data-cmcopy>Скопировать промпт</button>`
+      : '<p class="cmempty">Замечаний нет. Правой кнопкой мыши по кадру, этапу, задаче, процессу или заметке — оставить замечание.</p>'}
+      ${past.length ? `<details class="cmpast"><summary>Учтено в прошлых кругах · ${past.length}</summary><ul class="cmlist">${past.map(c => `<li><small>${esc(c.label)} · круг ${c.iteration || 1}</small><span>${esc(c.text)}</span></li>`).join("")}</ul></details>` : ""}</div>`;
+    side.dataset.ctx = "cm"; body.classList.remove("wide"); body.classList.add("open"); side.scrollTop = 0;
+  }
+  document.addEventListener("click", e => {
+    const p = e.target.closest("[data-cmpanel]"); if (p) { menu(false); return cmPanel() }
+    const tt = e.target.closest("[data-tktab]"); if (tt) return openTask(side.dataset.ctx.split(":")[1], +tt.dataset.tktab);
+    const xc = e.target.closest("[data-excopy]"); if (xc) return copyText(execMd(xc.dataset.excopy), xc);
+    const d = e.target.closest("[data-cmdel]"); if (d) { cmSave(cmLoad().filter(c => c.ts !== d.dataset.cmdel)); cmPaint(); return cmPanel() }
+    const c = e.target.closest("[data-cmcopy]"); if (c) return copyText(side.querySelector(".cmout").value, c);
+  });
+  /* метки на элементах с замечаниями: ключи проставляются заранее */
+  hero.querySelectorAll(".fr").forEach(f => f.dataset.cmk = "fr:" + f.querySelector(".cap").textContent);
+  grid.querySelectorAll("[data-task]").forEach(x => x.dataset.cmk = "task:" + x.dataset.task);
+  grid.querySelectorAll("[data-proc]").forEach(x => x.dataset.cmk = "proc:" + x.dataset.proc);
+  document.querySelectorAll(".hh,.mh:not(.corner)").forEach(x => x.dataset.cmk = "stage:" + x.querySelector("b").textContent);
+  cmPaint();
+
+  window.BPMAP = { setView, cmPanel, cmTarget, cmPrompt, aiPrompt, dslPrompt, openProc, openTask, openSeen, openScreen, openNote, zoom, dslTab, dslCheck };
 })();

@@ -17,6 +17,7 @@ Functions, заметки в markdown, картинки крупно), без т
 from __future__ import annotations
 
 import argparse
+import hashlib
 import html
 import json
 import sys
@@ -35,13 +36,14 @@ PAGE = """<!doctype html>
 {css}</style></head>
 <body>
 <h1 class="ptitle">{h1}</h1>
-<div class="fab"><button class="burger" id="burger" aria-label="Меню карты" aria-expanded="false" aria-controls="menu"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 4h11M2.5 8h11M2.5 12h11"/></svg><span class="bdot" id="bdot"></span></button><nav class="views" aria-label="Слой карты"><button data-view="see" class="on">Что видят</button><button data-view="do">Что делаем</button></nav><span id="fchip"></span></div>
+<div class="fab"><button class="burger" id="burger" aria-label="Меню карты" aria-expanded="false" aria-controls="menu"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 4h11M2.5 8h11M2.5 12h11"/></svg><span class="bdot" id="bdot"></span></button><nav class="views" aria-label="Слой карты"><button data-view="see" class="on">Что видят</button><button data-view="do">Что делаем</button></nav><span id="fchip"></span><button class="cmchip" id="cmchip" data-cmpanel hidden></button></div>
 <div class="mscrim"></div>
 <nav class="menu" id="menu" aria-label="Меню карты"><div class="mtop"><div><span class="draft{status_cls}">{status}</span><h1>{h1}</h1></div><button class="x" data-menu="close" aria-label="Закрыть">×</button></div>
 <button class="play" id="play">▶ Рассказать историю</button>
 <div class="mlist"><span id="blk"></span>
 <button class="mi" data-guide="help"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 3h4.5A1.5 1.5 0 0 1 8 4.5V14a1.5 1.5 0 0 0-1.5-1.5H2zM14 3H9.5A1.5 1.5 0 0 0 8 4.5V14a1.5 1.5 0 0 1 1.5-1.5H14z"/></svg>Инструкции</button>
-<button class="mi" data-guide="legend"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2.5" width="4" height="4" rx="1"/><path d="M8.5 4.5H14"/><circle cx="4" cy="11.5" r="2"/><path d="M8.5 11.5H14"/></svg>Легенда</button></div>
+<button class="mi" data-guide="legend"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2.5" width="4" height="4" rx="1"/><path d="M8.5 4.5H14"/><circle cx="4" cy="11.5" r="2"/><path d="M8.5 11.5H14"/></svg>Легенда</button>
+<button class="mi" data-cmpanel><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 3.5h11v7.5H7l-3 2.5V11H2.5z"/></svg>Замечания<b class="cnt cmn" id="cmn" hidden></b></button></div>
 <div class="mlab">Команды — показать работу одной</div><div class="teams" id="teams"></div></nav>
 <section class="hero" id="hero" aria-label="Что видят люди — путь слева направо"></section>
 <div class="wrap" id="work"><div id="grid"></div></div>
@@ -137,7 +139,11 @@ def step_json(s: bs.Step) -> dict:
 
 
 def render(mp: bm.Map) -> str:
-    data = json.dumps(model(mp), ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
+    m = model(mp)
+    m["docs"] = {"map": mp.path.name, "story": mp.meta.get("story_doc", ""), "source": mp.meta.get("source_doc", "")}
+    # ревизия страницы: пересобранная карта закрывает замечания прошлого круга
+    m["rev"] = hashlib.sha1(json.dumps(m, ensure_ascii=False, sort_keys=True).encode()).hexdigest()[:12]
+    data = json.dumps(m, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
     status = mp.meta.get("status", "")
     return PAGE.format(
         title_tag=html.escape(f"Карта · {mp.meta.get('epic_slug', '')}"),
