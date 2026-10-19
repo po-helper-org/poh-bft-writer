@@ -15,6 +15,8 @@
 правки документа, и уже данные ответы остаются на своих вопросах, а не съезжают
 на соседние.
 """
+from __future__ import annotations
+
 import argparse
 import hashlib
 import html as htmlmod

@@ -32,7 +32,7 @@ test('текст секции: правило, снимок и по строке
     task('PO-31', 'To Do', { missing: ['документ БФТ'] }),
     task('PO-22', 'DEEP-DONE', {
       slug: 'vibe-kino', title: 'Билеты в кино | Vibe',
-      links: { other: [], epic: 'https://jira/browse/GDSLV-1', confluence: 'https://wiki/page?pageId=1', html: 'bft/documentation/vibe-kino/vibe-kino.html' },
+      links: { other: [], epic: 'https://jira.example.com/browse/ACME-1', confluence: 'https://wiki/page?pageId=1', html: 'bft/documentation/vibe-kino/vibe-kino.html' },
     }),
   ])
   const text = catalogGuardText({ at: '2026-09-18T10:00:00.000Z', rows })
@@ -44,7 +44,7 @@ test('текст секции: правило, снимок и по строке
   const todo = lines.findIndex(line => line.startsWith('PO-31 | To Do'))
   assert.ok(deep > 0 && todo > deep, 'DEEP-DONE выше To Do')
   // Разделитель колонок внутри значения заменяется, чтобы строка не сломала таблицу.
-  assert.equal(lines[deep], 'PO-22 (vibe-kino) | DEEP-DONE | Билеты в кино / Vibe | БФТ готов: передать в OKR или оформить влётом | https://jira/browse/GDSLV-1 | https://wiki/page?pageId=1 | bft/documentation/vibe-kino/vibe-kino.html')
+  assert.equal(lines[deep], 'PO-22 (vibe-kino) | DEEP-DONE | Билеты в кино / Vibe | БФТ готов: передать в OKR или оформить влётом | https://jira.example.com/browse/ACME-1 | https://wiki/page?pageId=1 | bft/documentation/vibe-kino/vibe-kino.html')
   assert.equal(lines[todo], 'PO-31 | To Do | Тема PO-31 | документ БФТ → /bft-fast PO-31 | — | — | —')
 })
 

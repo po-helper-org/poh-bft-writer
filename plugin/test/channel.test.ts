@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
+import { readFileSync } from 'node:fs'
 import { BftReader } from '../src/bft-reader.js'
-import { dispatch } from '../src/channel.js'
+import { BFT_ENDPOINTS, dispatch } from '../src/channel.js'
 import { loadConfig } from '../src/config.js'
 import type { BftPorts } from '../src/ports.js'
 
@@ -160,4 +161,11 @@ test('чат Claude Code: ход, опрос, неизвестный ход — 
   assert.equal((poll as { value: { events: unknown[] } }).value.events.length, 1)
   assert.equal((await dispatch(r, 'chatPoll', { runId: 'nope', since: 0 }) as { error: { code: string } }).error.code, 'chat-run-not-found')
   assert.deepEqual(await dispatch(r, 'chatStop', { runId }), { ok: true, value: true })
+})
+
+test('каждая подкоманда канала есть в списке маршрутов /api (ядро 0.1.7+)', () => {
+  // иначе на 0.1.7 подкоманда не получит маршрут и браузер увидит 405
+  const src = readFileSync(new URL('../../src/channel.ts', import.meta.url), 'utf8')
+  const cases = [...src.matchAll(/case '(\w+)'/g)].map((m) => m[1]).filter((c) => !['internal'].includes(c))
+  for (const c of cases) assert.ok(BFT_ENDPOINTS.includes(c), `нет в BFT_ENDPOINTS: ${c}`)
 })

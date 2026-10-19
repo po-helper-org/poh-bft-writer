@@ -38,8 +38,8 @@ test('стадия по артефактам выше — доска подни�
 })
 
 test('после отгрузки доска получает ссылки на эпик JIRA и страницу Confluence; уже записанные не дублируются', () => {
-  const jira = 'https://jira.mts.ru/browse/GDSLV-1610'
-  const wiki = 'https://confluence.mts.ru/pages/viewpage.action?pageId=123'
+  const jira = 'https://jira.example.com/browse/ACME-1610'
+  const wiki = 'https://confluence.example.com/pages/viewpage.action?pageId=123'
   const edits = planBacklogEdits([
     row({ id: 'PO-1', board: { stage: 'DEEP-REVIEW', refs: ['bft/documentation/a/a.html'] }, artifactStage: 'DEEP-DONE', html: 'bft/documentation/a/a.html', epic: jira, confluence: wiki }),
     row({ id: 'PO-2', board: { stage: 'DEEP-DONE', refs: ['bft/documentation/b/b.html', jira.toUpperCase(), wiki] }, artifactStage: 'DEEP-DONE', html: 'bft/documentation/b/b.html', epic: jira, confluence: wiki }),
@@ -83,13 +83,13 @@ test('запись: одна команда на задачу, аргумент�
   const calls: string[][] = []
   const ports = fakePorts(async (_bin, args) => { calls.push(args); return { stdout: 'Status: ○ FAST-DONE', code: 0 } })
   const results = await applyBacklogEdits(
-    [{ id: 'PO-11', stage: 'FAST-DONE', addRefs: ['bft/documentation/po-11/po-11-fast.html'] }, { id: 'PO-12', addRefs: ['x', 'https://jira.mts.ru/browse/X-1'] }],
+    [{ id: 'PO-11', stage: 'FAST-DONE', addRefs: ['bft/documentation/po-11/po-11-fast.html'] }, { id: 'PO-12', addRefs: ['x', 'https://jira.example.com/browse/X-1'] }],
     loadConfig({ BFT_WORKSPACE_ROOT: '/ws', BFT_ENTIRE_REQUIRED: '0', BFT_BACKLOG_BIN: '/opt/backlog' }),
     ports,
   )
   assert.deepEqual(calls, [
     ['task', 'edit', 'PO-11', '-s', 'FAST-DONE', '--add-ref', 'bft/documentation/po-11/po-11-fast.html', '--plain'],
-    ['task', 'edit', 'PO-12', '--add-ref', 'x', '--add-ref', 'https://jira.mts.ru/browse/X-1', '--plain'],
+    ['task', 'edit', 'PO-12', '--add-ref', 'x', '--add-ref', 'https://jira.example.com/browse/X-1', '--plain'],
   ])
   assert.ok(results.every(r => r.ok))
 })

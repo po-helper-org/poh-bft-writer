@@ -29,4 +29,4 @@ export * from './errors.js'
 // `apply` и `name` здесь cordis отвергает пакет («invalid plugin, expect
 // function or object with an "apply" method»). Реэкспорт именной, а не
 // `export *`, чтобы barrel не тянул из plugin.js ничего сверх контракта.
-export { name, apply } from './plugin.js'
+export { name, apply, Config } from './plugin.js'

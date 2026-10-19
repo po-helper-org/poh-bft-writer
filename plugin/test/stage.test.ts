@@ -6,7 +6,7 @@ const deepDoc = (opts: { stage?: string; pageId?: string; jira?: string } = {}) 
   `---\npageId: ${opts.pageId ?? 'pending'}\njira: "${opts.jira ?? '[СОЗДАТЬ эпик]'}"\n` +
   `epic_slug: epic\nstage: ${opts.stage ?? 'deep'}\n---\n\n# [БФТ] epic: Название\n`
 
-const READY = { stage: 'deep', pageId: '2272447498', jira: 'GDSLV-1409' }
+const READY = { stage: 'deep', pageId: '1000000001', jira: 'ACME-1409' }
 
 test('пустой каталог эпика — To Do, и сказано, чего нет', () => {
   assert.deepEqual(stageFromArtifacts('epic', { entries: [] }),
@@ -102,7 +102,7 @@ test('нехватка от стадии доски: DEEP-REVIEW без deep-д�
 
 test('нехватка от стадии доски: deep-документ есть — только его пробелы, как у вердикта', () => {
   const entries = ['alpha.md', 'alpha.html']
-  const deep = '---\nstage: deep\npageId: 2272447498\njira: "[СОЗДАТЬ эпик]"\n---\n'
+  const deep = '---\nstage: deep\npageId: 1000000001\njira: "[СОЗДАТЬ эпик]"\n---\n'
   assert.deepEqual(gapsToward('DEEP-DONE', 'alpha', { entries, deepDocument: deep }), ['ссылка на эпик JIRA'])
   assert.deepEqual(gapsToward('OKR-ADDED', 'alpha', { entries, deepDocument: deep }), ['ссылка на эпик JIRA'])
 })

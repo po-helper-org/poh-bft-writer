@@ -5,8 +5,8 @@ import {
 } from '../src/okr-handoff.js'
 
 const FORM = {
-  confluence: 'https://confluence.mts.ru/pages/viewpage.action?pageId=1',
-  epic: 'https://jira.mts.ru/browse/GDSLV-1',
+  confluence: 'https://confluence.example.com/pages/viewpage.action?pageId=1',
+  epic: 'https://jira.example.com/browse/ACME-1',
   quarter: '2026-Q4',
   stages: {
     research: { sprint: null, resources: '' },
@@ -38,7 +38,7 @@ test('без ссылок и квартала в OKR не передаётся �
   const cases: Array<[unknown, RegExp]> = [
     [null, /форма/],
     [{ ...FORM, confluence: '' }, /Confluence/],
-    [{ ...FORM, epic: 'GDSLV-1' }, /эпик/],
+    [{ ...FORM, epic: 'ACME-1' }, /эпик/],
     [{ ...FORM, quarter: 'Q4 2026' }, /2026-Q3/],
     [{ ...FORM, stages: { ...FORM.stages, dev: { sprint: 6, resources: '' } } }, /dev/],
   ]
@@ -92,7 +92,7 @@ test('кварталы на выбор — текущий и следующие,
 test('missingRefs: регистр и пробелы не различают, запятая — не ссылка для доски', async () => {
   const { missingRefs } = await import('../src/refs.js')
   assert.deepEqual(
-    missingRefs([' https://jira.mts.ru/browse/X-1 '], ['https://JIRA.mts.ru/browse/x-1', 'https://wiki/a', 'https://wiki/b,c', undefined, 'https://wiki/a']),
+    missingRefs([' https://jira.example.com/browse/X-1 '], ['https://jira.example.com/browse/x-1', 'https://wiki/a', 'https://wiki/b,c', undefined, 'https://wiki/a']),
     ['https://wiki/a'],
   )
 })

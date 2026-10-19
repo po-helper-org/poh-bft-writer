@@ -26,9 +26,8 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 // Реальные компонент кнопки и иконки харнесса (Task 4 визуального выравнивания) вместо
 // hand-drawn inline SVG и локальных .btn/.btnOutline — см. Panel.tsx.
-import {
-  Button, IconChevronLeftOutline14, IconPlusOutline16, IconWarningOutline16,
-} from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconChevronLeftOutline14, IconPlusOutline16, IconWarningOutline16 } from './icons.js'
 import { TRANSITION_RULES, type BoardTransition, type TransitionRequest } from '../board-transition.js'
 import type { RpcResult } from '../channel.js'
 import { OKR_READY_STAGE, type BftStage } from '../model.js'
