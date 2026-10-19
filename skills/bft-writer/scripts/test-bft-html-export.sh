@@ -221,7 +221,7 @@ if python3 "$EXPORT" "$TMP/mx/direct-faq-matrix.md" >/dev/null 2>&1 && [ -f "$TM
   check 'href="direct-faq.html#ft-1"' "ФТ-N ведёт на строку требования на странице БФТ"
   check 'class="mx-summary"' "сводка исполнения по командам"
   check 'data-team="SEO и аналитика"' "кнопка фильтра на каждую команду"
-  if grep -q 'jira.mts.ru/browse/EX-' "$M"; then
+  if grep -q '/browse/EX-' "$M"; then
     echo "FAIL  матрица: EX-NN превратился в ссылку на Jira"
     fails=$((fails + 1))
   else
