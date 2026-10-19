@@ -425,7 +425,7 @@ Agenda». Справа выезжает список вопросов с отм�
 | `/bft-custdev` | Методолог интервью | скрипт интервью `<epic>-custdev.md` + страница встречи `<epic>-custdev.html`. Собирается по свежайшему документу эпика: `deep`, если есть, иначе `fast` |
 | `/bft-deep` | Deep swarm | тот же документ, обогащённый каноном |
 | `/bft-wireframe` | Раскадровщик интерфейса (опционально) | блок(и) `wireloom-storyboard` в шапке — StepByStep-визуализация `How to demo` в рамке браузера/телефона. Не вызывается `/bft-fast`/`/bft-deep` — см. ниже |
-| `/bft-blueprint` | Картограф инициативы (опционально) | сначала `<epic>-story.md` + страница — история через экраны от лица каждого персонажа; затем проект Backlog.md `<epic>-blueprint/` и страница карты — что видят люди, что делает каждая команда, как это работает (Employee Actions, Technology, Backstage, Support) с технической карточкой; автономный zip проекта. Не вызывается `/bft-fast`/`/bft-deep` — см. ниже |
+| `/bft-blueprint` | Картограф инициативы (опционально) | **перенесён в [poh-blueprint-writer](https://github.com/po-helper-org/poh-blueprint-writer)** — ставится отдельно, см. ниже |
 | `/bft-update` | Обслуживание установки | обновление навыков воркспейса и плагина DeepSeek Harness до последнего `main` (`update.sh`); `--check` — только отчёт |
 
 **Внутренние.** `/bft-draft` (генератор текста канона) и `/bft-validate` (прогон 22 гейтов) вызываются оркестрацией `/bft-deep`, руками их запускать не нужно; отдельный запуск `/bft-validate` остаётся возможным, когда нужно перепроверить готовый документ.
@@ -455,52 +455,20 @@ Agenda». Справа выезжает список вопросов с отм�
 `[УТОЧНИТЬ: навык bft-wireframing не установлен]` вместо картинки — сборка документа
 от этого не падает.
 
-## Опционально: Service Blueprint (`bft-blueprint`)
+## Опционально: Service Blueprint (`bft-blueprint`) — отдельный репозиторий
 
-`/bft-blueprint` по готовому БФТ собирает общую картину кроссфункциональной инициативы
-в два согласуемых этапа. Обе страницы — автономный HTML без `npm` и CDN.
+Навык `/bft-blueprint` перенесён в отдельный репозиторий
+**[po-helper-org/poh-blueprint-writer](https://github.com/po-helper-org/poh-blueprint-writer)**.
+Там код, эталон, самотест и инструкция по установке. Навык по готовому БФТ собирает Service Blueprint
+кроссфункциональной инициативы: историю через экраны и карту в автономном проекте Backlog.md.
 
-**Этап 1 — история через экраны.** Простая нетехническая история: что инициатива меняет
-для каждого, кто будет ей пользоваться. Каждый персонаж — ряд, который читается слева
-направо: «Знакомьтесь» → шаги → «И с тех пор». Карточка шага — упрощённый экран, контур
-(витрина, письмо, SMS, приложение), заголовок и пояснение; красная точка — открытый вопрос.
-Где БФТ молчит, агент сам задаёт PO один раунд вопросов с вариантами из БФТ. Стандарт —
-[`resources/story_line.md`](skills/bft-blueprint/resources/story_line.md).
-
-**Этап 2 — карта инициативы**, после согласования истории. Карта живёт в проекте
-[Backlog.md](https://github.com/MrLesk/Backlog.md) `<epic>-blueprint/`: агент исследует БФТ и
-раскладывает его в бэклог встроенным CLI `./backlog.py`. Задачи «Что делаем» — один результат одной команды
-с постановкой для техлида (ASIS, GAP, TOBE, HowToDemo, критерии приемки). Их подзадачи
-«Как это работает» — технические карточки в слоях Employee Actions, Technology, Backstage, Support:
-UserStory, JobStory, «Параметры» (вход, управление, выход, механизм), процесс схемой BPMN, HowToDemo, ссылки.
-Требования к экранам для дизайнера, история и паспорт карты — документы Backlog.md.
-
-Страницу `<epic>-map.html` и архив `<epic>-blueprint.zip` скрипт собирает из проекта
-детерминированно: BPMN — из «Процесса», стрелки — из ссылок на карточки. Слои «Что видят»,
-«Что делаем» и «Как это работает» — по экрану на каждый. Клик по задаче — «Требования» и
-«Исполнение» (JIRA, Confluence, заметка → команда `./backlog.py task edit`), по карточке — UserStory,
-JobStory, процесс в BPMN, параметры, HowToDemo, ссылки, по кадру — требования к экрану. Правой кнопкой мыши по
-любой секции — замечание; меню «Замечания» собирает промпт для ИИ-агента. Папка проекта и архив
-автономны: внутри `./backlog.py` (CLI Backlog.md), `./blueprint.py build`, скрипты и правила,
-CLAUDE.md, AGENTS.md, GEMINI.md — любому харнессу хватает python3 Стандарт —
-[`resources/backlog_rules.md`](skills/bft-blueprint/resources/backlog_rules.md), эталон —
-[`examples/dineclub-restart-blueprint/`](skills/bft-blueprint/examples/dineclub-restart-blueprint).
-
-**Файлы рядом с БФТ.** `<epic>-story.md` + `.html`, проект `<epic>-blueprint/`,
-`<epic>-map.html`, `<epic>-blueprint.zip`. Прежняя слоевая схема `<epic>-blueprint.md`
-(+ `.html`, `.svg`) осталась режимом `--layers` для документов, собранных раньше.
-
-**Не входит в контур по умолчанию.** Ни `/bft-fast`, ни `/bft-deep` команду не вызывают —
-только явный `/bft-blueprint <epic_slug>`. БФТ не трогает.
+Ставится рядом с этим репозиторием, в тот же воркспейс:
 
 ```bash
-python3 <skills_path>/bft-blueprint/scripts/bft-story-lint.py .bft/documentation/<epic_slug>/<epic_slug>-story.md
-python3 <skills_path>/bft-blueprint/scripts/bft-story-render.py .bft/documentation/<epic_slug>/<epic_slug>-story.md
-python3 <skills_path>/bft-blueprint/scripts/bft-backlog-init.py .bft/documentation/<epic_slug>/<epic_slug>-story.md
-python3 <skills_path>/bft-blueprint/scripts/bft-backlog-lint.py .bft/documentation/<epic_slug>/<epic_slug>-blueprint --source .bft/documentation/<epic_slug>/<epic_slug>.md
-python3 <skills_path>/bft-blueprint/scripts/bft-backlog-build.py .bft/documentation/<epic_slug>/<epic_slug>-blueprint --source .bft/documentation/<epic_slug>/<epic_slug>.md
-bash skills/bft-blueprint/scripts/test-bft-blueprint.sh   # самотест из клона репозитория
+curl -fsSL https://raw.githubusercontent.com/po-helper-org/poh-blueprint-writer/main/install.sh | bash
 ```
+
+Уже установленная копия `skills/bft-blueprint` продолжит работать. Обновления приходят только из нового репозитория.
 
 ## Как это работает
 
