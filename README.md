@@ -84,6 +84,23 @@ bash update.sh --workspace /путь/к/воркспейсу   # обновит�
 Подробно — [`docs/guides/dsh-plugin-update.md`](docs/guides/dsh-plugin-update.md);
 в Claude Code — `/bft-update`.
 
+## В корпоративном LibreChat
+
+LibreChat с v0.8.6 умеет Agent Skills на тех же `SKILL.md` — семь навыков из `skills/`
+грузятся как есть, переписывать нечего. Адаптации требует не контент, а окружение:
+скрипты навыка живут в Code Interpreter (`/mnt/data/skills/…`), воркспейс `.bft/` — в
+MCP-сервере файловой системы, JIRA и Confluence — в MCP Atlassian с токенами каждого
+PO, пин `model: haiku` превращается в отдельного агента стадии, а фоновые форки
+`/bft-recon`, `/bft-custdev`, `/bft-deep` — в субагентов с `run_in_background`.
+Полный контур по шагам, вместе с граблями и честным списком того, что не переносится
+(распознавание записи встречи, пре-рендер PlantUML, раздел «Управление требованиями») —
+[`docs/guides/librechat-setup.md`](docs/guides/librechat-setup.md).
+
+Прав администратора нет — рабочее место с подключёнными MCP JIRA и Confluence и
+больше ничем? Навыки ставятся мышкой за 10 минут: `bash librechat-pack.sh` собирает
+архивы навыков и готовые инструкции для агента, дальше — по
+[`docs/guides/librechat-user-setup.md`](docs/guides/librechat-user-setup.md).
+
 **Адреса Jira и Confluence.** Линтеры и экспорт (`bft-lint.py`, `bft-html-export.py`, плагин) строят ссылки
 по заглушкам `https://jira.example.com/browse/` и `https://confluence.example.com/pages/viewpage.action?pageId=`.
 Для своей инсталляции задай переменные окружения `BFT_JIRA_BROWSE_URL` и `BFT_WIKI_PAGE_URL`
@@ -250,6 +267,8 @@ bash <skills_path>/bft-writer/scripts/test-bft-matrix-publish.sh
 | [`docs/guides/first-run-for-beginners.md`](docs/guides/first-run-for-beginners.md) | первый запуск с нуля |
 | [`docs/guides/quickstart-generate-bft.md`](docs/guides/quickstart-generate-bft.md) | путь от диктовки до опубликованного БФТ |
 | [`docs/guides/custdev-interview.md`](docs/guides/custdev-interview.md) | CustDev-интервью: шесть исходов, лестница от решения к проблеме, как вести встречу |
+| [`docs/guides/librechat-user-setup.md`](docs/guides/librechat-user-setup.md) | LibreChat глазами обычного пользователя: без прав админа, за 10 минут, `librechat-pack.sh` |
+| [`docs/guides/librechat-setup.md`](docs/guides/librechat-setup.md) | полный контур БФТ в корпоративном LibreChat: навыки, Code Interpreter, MCP, агенты по стадиям |
 | [`docs/guides/exec-matrix.md`](docs/guides/exec-matrix.md) | матрица исполнения: зачем, как собрать, договориться на старте и вести статусы; откуда взята форма |
 | [`docs/guides/dsh-plugin-setup.md`](docs/guides/dsh-plugin-setup.md) | установка плагина для DeepSeek Harness |
 | [`docs/guides/dsh-plugin-update.md`](docs/guides/dsh-plugin-update.md) | обновление плагина и навыков в харнессе до последнего `main`: `update.sh --check` / `update.sh` |
