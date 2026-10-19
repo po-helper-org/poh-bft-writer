@@ -169,13 +169,13 @@ render "$LEGACY" "legacy" && {
   # Голые упоминания внешних систем в старом документе страница линкует сама
   # (ЗМ-041): гейт LN001/LN002 бережёт новые документы, но не переписывает
   # написанные раньше — читателю нужен переход, а не сверка ключа глазами.
-  if grep -q 'href="https://jira.mts.ru/browse/GDSLV-1409"' "$TMP/legacy.html"; then
+  if grep -q 'href="https://jira.example.com/browse/ACME-1409"' "$TMP/legacy.html"; then
     echo "ok    голый ключ трекера стал ссылкой в JIRA"
   else
     echo "FAIL  голый ключ трекера ссылкой не стал"
     fails=$((fails + 1))
   fi
-  if grep -q 'viewpage.action?pageId=1777883376"' "$TMP/legacy.html"; then
+  if grep -q 'viewpage.action?pageId=1000000002"' "$TMP/legacy.html"; then
     echo "ok    голый pageId стал ссылкой в Confluence"
   else
     echo "FAIL  голый pageId ссылкой не стал"
@@ -198,6 +198,43 @@ render "$LEGACY" "legacy" && {
     fails=$((fails + 1))
   fi
 }
+
+# Матрица исполнения (stage: matrix) собирается тем же движком: комментарии мышью и
+# промт работают так же, но промт, отгрузка и проверки — свои, а строки фильтруются по
+# команде. Рядом кладём БФТ под именем из source — ФТ-N должны вести на его страницу.
+MATRIX="skills/bft-exec-matrix/examples/golden_exec_matrix.md"
+mkdir -p "$TMP/mx"
+cp "$DEEP" "$TMP/mx/direct-faq.md"
+sed -e 's#^source: .*#source: direct-faq.md#' "$MATRIX" > "$TMP/mx/direct-faq-matrix.md"
+if python3 "$EXPORT" "$TMP/mx/direct-faq-matrix.md" >/dev/null 2>&1 && [ -f "$TMP/mx/direct-faq-matrix.html" ]; then
+  echo "ok    собрана страница матрицы исполнения"
+  M="$TMP/mx/direct-faq-matrix.html"
+  check() {  # $1 — что ищем (grep -E), $2 — описание
+    if grep -qE "$1" "$M"; then echo "ok    матрица: $2"; else echo "FAIL  матрица: $2"; fails=$((fails + 1)); fi
+  }
+  check 'Доработай матрицу исполнения direct-faq-matrix.md' "промт адресован матрице, а не БФТ"
+  check 'bft-matrix-lint.py direct-faq-matrix.md' "после правок — гейт 23"
+  check '/bft-deliver direct-faq --matrix' "отгрузка — дочерней страницей матрицы"
+  check 'bft-matrix-comments-direct-faq' "комментарии матрицы не смешиваются с комментариями БФТ"
+  check '<tr id="ex-02" data-teams="Direct\|Витрина сайта"' "строка — якорь и несёт команды для фильтра"
+  check 'class="st st-returned">↩' "возврат помечен знаком"
+  check 'href="direct-faq.html#ft-1"' "ФТ-N ведёт на строку требования на странице БФТ"
+  check 'class="mx-summary"' "сводка исполнения по командам"
+  check 'data-team="SEO и аналитика"' "кнопка фильтра на каждую команду"
+  if grep -q '/browse/EX-' "$M"; then
+    echo "FAIL  матрица: EX-NN превратился в ссылку на Jira"
+    fails=$((fails + 1))
+  else
+    echo "ok    матрица: EX-NN не принят за ключ трекера"
+  fi
+  if grep -q 'Доработай БФТ-документ' "$M"; then
+    echo "FAIL  матрица: в промте остался текст БФТ"
+    fails=$((fails + 1))
+  fi
+else
+  echo "FAIL  страница матрицы не собралась"
+  fails=$((fails + 1))
+fi
 
 if [ "$fails" -eq 0 ]; then
   echo "Все проверки пройдены."

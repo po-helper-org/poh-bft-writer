@@ -62,6 +62,11 @@
   var DOC_NAME = __DOC_NAME_JSON__;
   var DOC_REV = __DOC_REV_JSON__;      // хэш содержимого документа
   var EPIC = __EPIC_JSON__;
+  // Тексты, которые различаются у БФТ и матрицы исполнения: что дорабатывать,
+  // чем проверить после правок и какой командой отгружать.
+  var PROMPT_HEAD = __PROMPT_HEAD_JSON__;
+  var PROMPT_STEPS = __PROMPT_STEPS_JSON__;
+  var SHIP_CMD = __SHIP_CMD_JSON__;
   var REV_KEY = STORE_KEY + "-rev";    // ревизия, на которой писались комментарии
   var ITER_KEY = STORE_KEY + "-iter";  // номер текущего круга правок
 
@@ -140,12 +145,16 @@
     var top = el;
     while(top && top.parentElement !== main) top = top.parentElement;
     if(!top) return "Документ";
+    // Комментарий внутри строки с ID (ФТ-1, EX-03) адресуется строке: по одной цитате
+    // агент ищет место наугад, а одинаковые формулировки в таблице бывают не раз.
+    var tr = el.closest && el.closest("tr[id]");
+    var rowId = tr ? " · " + (tr.querySelector("td.rid") || tr.cells[0]).textContent.trim() : "";
     var node = top;
     while(node){
-      if(node.tagName === "H2") return node.textContent.trim();
+      if(node.tagName === "H2") return node.textContent.trim() + rowId;
       node = node.previousElementSibling;
     }
-    return "Документ";
+    return "Документ" + rowId;
   }
   function addComment(section, quote, text, uncId){
     if(!text || !text.trim()) return;
@@ -195,7 +204,7 @@
   // Отгрузка. Страница лежит файлом на диске и открыть чат агента не может,
   // поэтому кнопка делает единственное честное: кладёт команду в буфер.
   document.getElementById("shipBtn").addEventListener("click", function(){
-    var cmd = "/bft-deliver " + EPIC;
+    var cmd = SHIP_CMD;
     var hint = document.getElementById("shipHint");
     var ok = copyText(cmd);
     var left = openComments().length;
@@ -208,7 +217,7 @@
 
   function buildPrompt(list){
     if(!list.length) return "";
-    var lines = ["Доработай БФТ-документ " + DOC_NAME + " с учётом следующей обратной связи по разделам:", ""];
+    var lines = [PROMPT_HEAD, ""];
     list.forEach(function(item, i){
       var ref = item.quote ? (" (по фрагменту: «" + item.quote + "»)") : "";
       lines.push((i+1) + ". [" + item.section + "]" + ref + " " + item.text);
@@ -218,10 +227,7 @@
     // следующий промт повторно.
     lines.push("");
     lines.push("После правок — обязательно, в этом же порядке:");
-    lines.push("1. python3 <skills_path>/bft-writer/scripts/bft-lint.py " + DOC_NAME +
-               "  (ненулевой код — исправить, документ с ошибками не сохранять)");
-    lines.push("2. python3 <skills_path>/bft-writer/scripts/bft-html-export.py " + DOC_NAME +
-               "  (пересобрать страницу ревью — без этого замечания придут повторно)");
+    PROMPT_STEPS.forEach(function(step, i){ lines.push((i+1) + ". " + step); });
     return lines.join("\n");
   }
 

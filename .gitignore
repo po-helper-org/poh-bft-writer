@@ -5,3 +5,4 @@
 *.pyc
 .mcp.json
 node_modules/
+dist/
