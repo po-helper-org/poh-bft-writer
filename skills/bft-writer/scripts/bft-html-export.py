@@ -11,8 +11,8 @@ actor-level, только ->/-->/alt/else/end/note right of, без message-сх
 
 Страница — статичный документ (ч/б, без промо-палитры): нумерованные ID
 требований (БТ-1/ПТ-1/ИТ-1/ФТ-N/НФТ-N) становятся якорями и авто-ссылками
-на первое упоминание; голый ключ трекера («GDSLV-1409») и pageId вики
-(«confluence:1777883376») становятся ссылками в корпоративные системы.
+на первое упоминание; голый ключ трекера («ACME-1409») и pageId вики
+(«confluence:1000000002») становятся ссылками в корпоративные системы.
 Слева — рейка из двух выезжающих панелей: оглавление
 по реальным <h2>/<h3> и быстрый обход всех [УТОЧНИТЬ]. Клик по точке или по
 выделению текста открывает форму комментария; прокомментированная точка
@@ -74,8 +74,10 @@ def parse_frontmatter(text: str):
 
 # Базовые адреса корпоративных систем MTS — те же, что в bft_standards.md,
 # bft-lint.py (гейт LN001/LN002) и bft-deliver-check.py.
-JIRA_BROWSE = "https://jira.mts.ru/browse/"
-WIKI_PAGE = "https://confluence.mts.ru/pages/viewpage.action?pageId="
+JIRA_BROWSE = os.environ.get("BFT_JIRA_BROWSE_URL", "https://jira.example.com/browse/")
+WIKI_PAGE = os.environ.get(
+    "BFT_WIKI_PAGE_URL", "https://confluence.example.com/pages/viewpage.action?pageId="
+)
 
 # Ключ трекера: 2–10 заглавных латинских символов, дефис, номер. ID требований
 # БФТ кириллические (БТ-1, ПТ-1), поэтому не пересекаются.
@@ -90,7 +92,7 @@ NOT_TRACKER_PREFIX = frozenset({
     "CSS", "SQL", "PDF", "PNG", "JPEG", "GIF", "SVG",
 })
 
-# «confluence:1777883376», «Confluence 1777883376», «pageId 1777883376» — одной
+# «confluence:1000000002», «Confluence 1000000002», «pageId 1000000002» — одной
 # альтернативой, а не двумя проходами: второй проход поймал бы «pageId=» внутри
 # ссылки, которую только что поставил первый, и вложил ссылку в ссылку.
 WIKI_REF_RE = re.compile(r"\b(?:confluence\s*[:#]?\s*|pageid\s*[:=]?\s*)(\d{4,})\b", re.IGNORECASE)

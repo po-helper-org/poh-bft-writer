@@ -169,13 +169,13 @@ render "$LEGACY" "legacy" && {
   # Голые упоминания внешних систем в старом документе страница линкует сама
   # (ЗМ-041): гейт LN001/LN002 бережёт новые документы, но не переписывает
   # написанные раньше — читателю нужен переход, а не сверка ключа глазами.
-  if grep -q 'href="https://jira.mts.ru/browse/GDSLV-1409"' "$TMP/legacy.html"; then
+  if grep -q 'href="https://jira.example.com/browse/ACME-1409"' "$TMP/legacy.html"; then
     echo "ok    голый ключ трекера стал ссылкой в JIRA"
   else
     echo "FAIL  голый ключ трекера ссылкой не стал"
     fails=$((fails + 1))
   fi
-  if grep -q 'viewpage.action?pageId=1777883376"' "$TMP/legacy.html"; then
+  if grep -q 'viewpage.action?pageId=1000000002"' "$TMP/legacy.html"; then
     echo "ok    голый pageId стал ссылкой в Confluence"
   else
     echo "FAIL  голый pageId ссылкой не стал"

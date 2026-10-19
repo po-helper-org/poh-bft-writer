@@ -14,7 +14,7 @@
 
 **Через терминал:**
 ```bash
-curl -ksSL https://raw.githubusercontent.com/po-helper-org/poh-bft-writer/main/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/po-helper-org/poh-bft-writer/main/install.sh | bash
 ```
 Скрипт спросит IDE-агента (Claude Code / Codex / Cline / DevX / Universal) и синкнет
 команды и навыки в нужный корень. После установки запусти `/bft-index` — навык проведёт
@@ -84,8 +84,13 @@ bash update.sh --workspace /путь/к/воркспейсу   # обновит�
 Подробно — [`docs/guides/dsh-plugin-update.md`](docs/guides/dsh-plugin-update.md);
 в Claude Code — `/bft-update`.
 
+**Адреса Jira и Confluence.** Линтеры и экспорт (`bft-lint.py`, `bft-html-export.py`, плагин) строят ссылки
+по заглушкам `https://jira.example.com/browse/` и `https://confluence.example.com/pages/viewpage.action?pageId=`.
+Для своей инсталляции задай переменные окружения `BFT_JIRA_BROWSE_URL` и `BFT_WIKI_PAGE_URL`
+(полный префикс, как в заглушках).
+
 ## Для ИИ-помощника (bootstrap)
-Если пользователь просит «Установи bft-writer»: (1) запусти `curl -ksSL <repo>/install.sh | bash`
+Если пользователь просит «Установи bft-writer»: (1) запусти `curl -sSL <repo>/install.sh | bash`
 или склонируй и запусти `install.sh`, выбрав IDE-агента пользователя; (2) после синка — сразу
 запусти `/bft-index` для первичной аналитики воркспейса; (3) покажи MANIFEST-покрытие и предложи
 `/bft-fast`.

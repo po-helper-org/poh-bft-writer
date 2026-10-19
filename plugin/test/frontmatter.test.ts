@@ -34,5 +34,5 @@ test('опубликованным считается только реальн�
   assert.equal(isPublished({ pageId: 'pending' }), false)
   assert.equal(isPublished({ pageId: '[УТОЧНИТЬ]' }), false)
   assert.equal(isPublished({}), false)
-  assert.equal(isPublished({ pageId: '2272447498' }), true)
+  assert.equal(isPublished({ pageId: '1000000001' }), true)
 })
