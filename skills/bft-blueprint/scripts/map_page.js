@@ -71,11 +71,10 @@
   grid.style.gridTemplateColumns = `96px repeat(${COLS.length}, minmax(224px, 1fr))`;
   grid.style.minWidth = `${96 + COLS.length * 236}px`;
   let h = `<div class="mh corner"></div>` + COLS.map((c, i) => `<div class="mh"><span class="n">${i === COLS.length - 1 ? "✓" : i + 1}</span><span class="hx"><b>${esc(c.name)}</b>${c.when ? `<small>${esc(c.when)}</small>` : ""}</span></div>`).join("");
-  h += `<div class="ml">Что делаем</div>` + COLS.map((col, c) => `<div class="mc">${D.tasks.filter(t => t.stage === col.id).map(taskHTML).join("")}</div>`).join("");
+  h += `<div class="ml do">Что делаем</div>` + COLS.map((col, c) => `<div class="mc do">${D.tasks.filter(t => t.stage === col.id).map(taskHTML).join("")}</div>`).join("");
   if (D.processes.length) {
-    h += `<div class="hsec"><span>Как это работает</span></div>`;
     ["front", "back", "sup"].filter(l => D.processes.some(p => p.layer === l)).forEach(l => {
-      h += `<div class="ml hrow l-${l}">${LAYER[l][0]}<small>${LAYER[l][1]}</small></div>` + COLS.map(col => `<div class="mc how l-${l}">${D.processes.filter(p => p.layer === l && p.stage === col.id).map(procHTML).join("")}</div>`).join("");
+      h += `<div class="ml hrow how l-${l}">${LAYER[l][0]}<small>${LAYER[l][1]}</small></div>` + COLS.map(col => `<div class="mc how l-${l}">${D.processes.filter(p => p.layer === l && p.stage === col.id).map(procHTML).join("")}</div>`).join("");
     });
   }
   grid.innerHTML = h;
@@ -83,6 +82,7 @@
   /* стрелки между процессами — из «Цепочки» */
   function drawLinks() {
     grid.querySelector("svg.hwl")?.remove();
+    if (body.dataset.view !== "how") return;
     const g = grid.getBoundingClientRect();
     const R = el => { const r = el.getBoundingClientRect(); return { l: r.left - g.left, r: r.right - g.left, t: r.top - g.top, b: r.bottom - g.top, cx: (r.left + r.right) / 2 - g.left, cy: (r.top + r.bottom) / 2 - g.top } };
     let s = `<svg class="hwl" width="${grid.scrollWidth}" height="${grid.scrollHeight}"><defs><marker id="mh" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0L10,5L0,10z" fill="#8c877d"/></marker></defs>`;
@@ -215,18 +215,20 @@
     pic.closest(".fr").querySelectorAll(".dots i").forEach((x, k) => x.classList.toggle("on", k === i));
   }
 
-  /* ---------- два слоя: «Что видят» и «Что делаем» — переключатель, а не прокрутка страницы ----------
+  /* ---------- три слоя: «Что видят», «Что делаем», «Как это работает» — переключатель, а не прокрутка страницы ----------
+     «Что делаем» и «Как это работает» — одна сетка с общей строкой этапов, слой прячет чужие ряды.
      При переключении открывается тот же этап, что был слева на экране. */
   const work = document.getElementById("work");
   function setView(v) {
-    if (body.dataset.view === v) return;
+    const was = body.dataset.view; if (was === v) return;
     const hs = document.getElementById("hscroll"), hh = [...hero.querySelectorAll(".hh")], mh = [...grid.querySelectorAll(".mh:not(.corner)")];
     const firstVisible = (els, box, pad) => Math.max(0, els.findIndex(el => el.getBoundingClientRect().right > box.getBoundingClientRect().left + pad + 24));
-    const col = v === "do" ? firstVisible(hh, hs, 132) : firstVisible(mh, work, 96);
+    const col = was === "see" ? firstVisible(hh, hs, 132) : firstVisible(mh, work, 96);
     body.dataset.view = v;
     document.querySelectorAll("button[data-view]").forEach(b => b.classList.toggle("on", b.dataset.view === v));
-    if (v === "do") { work.scrollLeft = mh[col] ? mh[col].offsetLeft - 96 : 0; drawLinks() }
-    else hs.scrollLeft = hh[col] ? hh[col].offsetLeft - 132 : 0;
+    if (v === "see") hs.scrollLeft = hh[col] ? hh[col].offsetLeft - 132 : 0;
+    else { work.scrollTop = 0; work.scrollLeft = mh[col] ? mh[col].offsetLeft - 96 : 0 }
+    drawLinks();
   }
   body.dataset.view = "see";
 

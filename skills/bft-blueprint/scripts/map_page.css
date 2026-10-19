@@ -12,7 +12,8 @@ button{font:inherit;color:inherit}
 /* два слоя на десктопе: один экран, без прокрутки страницы */
 .views{display:flex;background:#fff;border:1px solid var(--line);border-radius:12px;padding:3px;box-shadow:0 2px 10px rgba(0,0,0,.08)}
 .views button{border:0;background:none;border-radius:9px;padding:7px 14px;font-size:13.5px;font-weight:600;color:#6b6b6b;cursor:pointer}.views button.on{background:var(--ink);color:#fff}
-@media(min-width:701px){html,body{height:100%;overflow:hidden}body[data-view="do"] .hero,body:not([data-view="do"]) .wrap{display:none}}
+@media(min-width:701px){html,body{height:100%;overflow:hidden}body[data-view="do"] .hero,body[data-view="how"] .hero,body:not([data-view="do"]):not([data-view="how"]) .wrap{display:none}
+ body[data-view="do"] .how,body[data-view="how"] .do{display:none}}
 .burger{position:relative;width:40px;height:40px;border-radius:12px;border:1px solid var(--line);background:#fff;box-shadow:0 2px 10px rgba(0,0,0,.08);display:flex;align-items:center;justify-content:center;cursor:pointer}
 .burger:hover{box-shadow:0 4px 14px rgba(0,0,0,.12)}.burger svg{width:18px;height:18px;stroke:var(--ink);stroke-width:1.8;stroke-linecap:round;fill:none}
 .bdot:empty{display:none}.bdot{position:absolute;top:-6px;right:-6px;min-width:18px;height:18px;border-radius:9px;background:var(--red);color:#fff;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;padding:0 5px;border:2px solid #fff}
@@ -101,8 +102,6 @@ body.mopen .menu{transform:none}body.mopen .mscrim{opacity:1;pointer-events:auto
 .qn{margin-left:auto;min-width:17px;height:17px;border-radius:9px;background:#fbe3e0;color:var(--red);font-size:10.5px;font-weight:800;display:inline-flex;align-items:center;justify-content:center;padding:0 5px}
 .dim{opacity:.15}
 /* как это работает */
-.hsec{grid-column:1/-1;padding:22px 24px 8px!important;border-top:1px solid var(--line);background:#fff}
-.hsec span{font-size:13px;font-weight:800;letter-spacing:.8px;text-transform:uppercase;position:sticky;left:24px;display:inline-block}
 .ml.hrow{text-transform:none;letter-spacing:0;font-size:13px;color:var(--ink);background:#fff}.ml.hrow small{display:block;font-size:11px;font-weight:400;color:var(--muted);margin-top:1px}
 .mc.how{background:#fff;padding:14px 8px!important;justify-content:center}
 .l-front{border-top:1.5px solid #cfcac0}.l-back{border-top:1.5px dashed #9a958c}.l-sup{border-top:1.5px dotted #9a958c}
