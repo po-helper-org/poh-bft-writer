@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./backlog.py:*)",
+      "Bash(./blueprint.py:*)",
+      "Bash(python3 backlog.py:*)",
+      "Bash(python3 blueprint.py:*)",
+      "Bash(python3 .blueprint/scripts/backlog_cli.py:*)",
+      "Bash(python3 .blueprint/scripts/bft-backlog-lint.py:*)",
+      "Bash(python3 .blueprint/scripts/bft-backlog-build.py:*)",
+      "Read(.blueprint/**)",
+      "Read(backlog/**)"
+    ]
+  }
+}
