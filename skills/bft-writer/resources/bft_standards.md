@@ -123,13 +123,13 @@ H1: `# [БФТ] {epic_slug}: {Название}`. Проверяется гей�
 
 | Источник | Голый текст ❌ | Markdown-ссылка ✅ |
 | --- | --- | --- |
-| Jira | `JIRA GDSLV-1409` | `[JIRA GDSLV-1409](https://jira.mts.ru/browse/GDSLV-1409)` |
-| Confluence (pageId) | `Confluence 2272447498` | `[Confluence 2272447498](https://confluence.mts.ru/pages/viewpage.action?pageId=2272447498)` |
+| Jira | `JIRA ACME-1409` | `[JIRA ACME-1409](https://jira.example.com/browse/ACME-1409)` |
+| Confluence (pageId) | `Confluence 1000000001` | `[Confluence 1000000001](https://confluence.example.com/pages/viewpage.action?pageId=1000000001)` |
 
 **Правило 3 — при публикации в Confluence: макросы для превью (ЗМ-009).** На отгружаемой странице (`/bft-deliver`) предпочтительны **макросы Confluence** — они дают быстрый доступ и live-превью со статусом, а не просто гиперссылку:
 - Jira-задача → **Jira-макрос** (ключ + актуальный статус + hover-превью).
-  - storage: `<ac:structured-macro ac:name="jira"><ac:parameter ac:name="key">GDSLV-1610</ac:parameter></ac:structured-macro>`
-  - wiki: `{jira:key=GDSLV-1610}`
+  - storage: `<ac:structured-macro ac:name="jira"><ac:parameter ac:name="key">ACME-1610</ac:parameter></ac:structured-macro>`
+  - wiki: `{jira:key=ACME-1610}`
 - Confluence-страница → **smart-link/inline-card** или макрос `include`/`excerpt-include` для превью содержимого.
   - storage-ссылка на страницу по заголовку: `<ac:link><ri:page ri:content-title="<Заголовок>"/></ac:link>`
   - wiki: `[<Заголовок страницы>]` или `{include:<Space>:<Заголовок>}`
@@ -150,16 +150,16 @@ Q{квартал}{год} KR{N}.{M} команда {команда}, PO {ФИО}
 
 | Объект | Голый текст ❌ | Ссылка ✅ |
 | --- | --- | --- |
-| JIRA-задача | `GDSLV-1409` | `[GDSLV-1409](https://jira.mts.ru/browse/GDSLV-1409)` |
-| JIRA-проект | `проект GDSLV` | `[проект GDSLV](https://jira.mts.ru/projects/GDSLV)` |
-| Confluence-страница | `Confluence 2272447498` | `[Confluence 2272447498](https://confluence.mts.ru/pages/viewpage.action?pageId=2272447498)` |
-| Confluence-пространство | `space MTSLIVE` | `[space MTSLIVE](https://confluence.mts.ru/display/MTSLIVE)` |
+| JIRA-задача | `ACME-1409` | `[ACME-1409](https://jira.example.com/browse/ACME-1409)` |
+| JIRA-проект | `проект ACME` | `[проект ACME](https://jira.example.com/projects/ACME)` |
+| Confluence-страница | `Confluence 1000000001` | `[Confluence 1000000001](https://confluence.example.com/pages/viewpage.action?pageId=1000000001)` |
+| Confluence-пространство | `space SPACE` | `[space SPACE](https://confluence.example.com/display/SPACE)` |
 
-**Базовые URL** (корпоративные, поправь под свой проект):
-- Jira задача: `https://jira.mts.ru/browse/{KEY}`
-- Jira проект: `https://jira.mts.ru/projects/{PROJECT}`
-- Confluence страница: `https://confluence.mts.ru/pages/viewpage.action?pageId={pageId}`
-- Confluence пространство: `https://confluence.mts.ru/display/{SPACE}`
+**Базовые URL** (в репозитории — заглушки `example.com`; для своей Jira/Confluence задай `BFT_JIRA_BROWSE_URL` и `BFT_WIKI_PAGE_URL`, см. README):
+- Jira задача: `https://jira.example.com/browse/{KEY}`
+- Jira проект: `https://jira.example.com/projects/{PROJECT}`
+- Confluence страница: `https://confluence.example.com/pages/viewpage.action?pageId={pageId}`
+- Confluence пространство: `https://confluence.example.com/display/{SPACE}`
 
 Касается **всех** мест: «Связанные требования», «Якоря истины», блоки шапки «Документация» и «Общая информация» (проект, эпик), frontmatter `source`, текст разделов. Текст ссылки сохраняет ключ/pageId/имя для читаемости, URL — в скобках. Локальный идентификатор требования (`{TYPE}-{N}`) ссылкой НЕ оборачивается — ссылку получает трекер-ключ в «Связанных требованиях». Бизнес-правила (`BR-*`) и `US#N` — не внешние артефакты, ссылкой не оборачиваются.
 
@@ -223,7 +223,7 @@ Story-формат: `**Когда** я (актор) {действие} **Я хо
 | --- | --- |
 | **ДЛЯ КОГО** | `<актор-бенефициар>` |
 | **ЧТО ДЕЛАЕМ** | `<одно предложение сути доработки>` |
-| **ASIS** | `<текущее поведение одной строкой>` ([JIRA KEY](https://jira.mts.ru/browse/KEY)) |
+| **ASIS** | `<текущее поведение одной строкой>` ([JIRA KEY](https://jira.example.com/browse/KEY)) |
 | **ПРОБЛЕМА** | `<ul><li>`в чём боль для бизнеса/пользователя`</li><li>`разрыв`</li></ul>` |
 | **TOBE** | `<ul><li>`целевое поведение`</li><li>`целевое поведение`</li></ul>` |
 

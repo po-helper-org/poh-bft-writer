@@ -16,7 +16,7 @@ test('ссылка внутрь каталога документов норма
 })
 
 test('ссылка наружу — не связь', () => {
-  assert.equal(normalizeDocsRef('https://confluence.mts.ru/pages/viewpage.action?pageId=1', DOCS), null)
+  assert.equal(normalizeDocsRef('https://confluence.example.com/pages/viewpage.action?pageId=1', DOCS), null)
   assert.equal(normalizeDocsRef('https://host/bft/documentation/alpha/alpha.html', 'bft/documentation'), null)
   assert.equal(normalizeDocsRef('okr:PO-78', DOCS), null)
   assert.equal(normalizeDocsRef('GROUND/NEXUS/pulse.md', DOCS), null)

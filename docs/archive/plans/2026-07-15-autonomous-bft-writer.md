@@ -16,7 +16,7 @@
 - **Индекс-путь:** `.bft/index/`. Артефакты эпика: `.bft/documentation/<epic>/`. Оба под gitignore по умолчанию.
 - **Язык контента:** русский (домен MTS). Диаграммы — только PlantUML.
 - **Источник переноса:** локальная копия `kibarik/po-helper` main в `<scratchpad>/po-helper.git` (bare-ish clone уже сделан). Целевые файлы уже скопированы в `poh-bft-writer/commands/` (9 шт) и `poh-bft-writer/skills/` (bft-writer, bft-fast, bft-deep-swarm) — port-задачи редактируют их на месте.
-- **Рабочая директория:** `/Users/aleksishmanov/projects/poh-org/poh-bft-writer` (локальный git, без remote).
+- **Рабочая директория:** `/path/to/poh-bft-writer` (локальный git, без remote).
 
 ---
 
@@ -75,7 +75,7 @@ poh-bft-writer/
 Всё опционально — незаданное автодетектится или пропускается (в MANIFEST помечается UNAVAILABLE).
 
 ## tracker_projects
-Коды проектов трекера через запятую (напр. `GDSLV, BOOK`). Пусто → JIRA-подтяжка выключена.
+Коды проектов трекера через запятую (напр. `ACME, BOOK`). Пусто → JIRA-подтяжка выключена.
 
 ## wiki_space
 Ключ пространства Confluence для публикации БФТ (напр. `GDS`). Пусто → публикация ручная.
@@ -109,7 +109,7 @@ Glob-паттерны локальных источников для индек�
 
 **Через терминал:**
 ```bash
-curl -ksSL https://raw.githubusercontent.com/kibarik/poh-bft-writer/main/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/po-helper-org/poh-bft-writer/main/install.sh | bash
 ```
 Скрипт спросит IDE-агента (Claude Code / Codex / Cline / DevX / Universal) и синкнет
 команды и навыки в нужный корень. После установки запусти `/bft-index` — навык проведёт
@@ -180,7 +180,7 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 - Consumes: структура `commands/` и `skills/` репозитория.
 - Produces: синк управляемых подпапок в корень выбранного IDE-агента + инъекцию frontmatter в SKILL.md (аналог sa-helper `sync_canonical_skills`).
 
-**Reference:** паттерн взят из `/Users/aleksishmanov/projects/poh-org/poh-news/sa-helper/install.sh` (функции `sync_managed_tree`, `sync_canonical_skills`).
+**Reference:** паттерн взят из `/path/to/poh-news/sa-helper/install.sh` (функции `sync_managed_tree`, `sync_canonical_skills`).
 
 - [ ] **Step 1: Verification-first**
 
@@ -192,7 +192,7 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 #!/bin/bash
 set -e
 GREEN='\033[0;32m'; BLUE='\033[0;34m'; YELLOW='\033[1;33m'; NC='\033[0m'
-REPO_URL="https://github.com/kibarik/poh-bft-writer.git"
+REPO_URL="https://github.com/po-helper-org/poh-bft-writer.git"
 TEMP_DIR=".bft_writer_temp"
 
 # Источник: если запущено из клона — текущая папка; если через curl — клонируем
@@ -742,7 +742,7 @@ Expected: `cmds: 10  skills: 4`; frontmatter-строка `---` или суще�
 
 ```markdown
 ## Для ИИ-помощника (bootstrap)
-Если пользователь просит «Установи bft-writer»: (1) запусти `curl -ksSL <repo>/install.sh | bash`
+Если пользователь просит «Установи bft-writer»: (1) запусти `curl -sSL <repo>/install.sh | bash`
 или склонируй и запусти `install.sh`, выбрав IDE-агента пользователя; (2) после синка — сразу
 запусти `/bft-index` для первичной аналитики воркспейса; (3) покажи MANIFEST-покрытие и предложи
 `/bft-context-gen`.
