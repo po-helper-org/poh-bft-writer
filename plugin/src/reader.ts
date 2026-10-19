@@ -22,8 +22,8 @@ import type { BftPorts } from './ports.js'
 import { artifactsOf, gapsToward, stageFromArtifacts } from './stage.js'
 import { lastFinished, lastSession, parseWorkLog, WORKLOG_FILE, type WorkLog } from './worklog.js'
 
-const JIRA_BROWSE = 'https://jira.mts.ru/browse/'
-const WIKI_PAGE = 'https://confluence.mts.ru/pages/viewpage.action?pageId='
+const JIRA_BROWSE = process.env.BFT_JIRA_BROWSE_URL ?? 'https://jira.example.com/browse/'
+const WIKI_PAGE = process.env.BFT_WIKI_PAGE_URL ?? 'https://confluence.example.com/pages/viewpage.action?pageId='
 
 export interface WorkspaceScan {
   /** Каталог документов, который в итоге нашёлся (относительно корня воркспейса). */

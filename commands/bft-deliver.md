@@ -154,10 +154,10 @@ PO: подтверди «ок» (или поправь параметры) → �
 
 Если скрипт недоступен/нет времени на map — делай вручную по тем же правилам:
 - **`storage`** — макросы как XHTML (надёжно для Jira-макроса).
-  - Jira: `[JIRA GDSLV-1610](…)` → `<ac:structured-macro ac:name="jira"><ac:parameter ac:name="key">GDSLV-1610</ac:parameter></ac:structured-macro>`
+  - Jira: `[JIRA ACME-1610](…)` → `<ac:structured-macro ac:name="jira"><ac:parameter ac:name="key">ACME-1610</ac:parameter></ac:structured-macro>`
   - Confluence-страница: → `<ac:link><ri:page ri:content-title="<Заголовок>"/></ac:link>` (или макрос `include`/`excerpt-include` для превью содержимого).
 - **`wiki`** — легче совмещать макросы с таблицами/текстом:
-  - Jira: `{jira:key=GDSLV-1610}` · Confluence: `[<Заголовок страницы>]` или `{include:<Space>:<Заголовок>}`.
+  - Jira: `{jira:key=ACME-1610}` · Confluence: `[<Заголовок страницы>]` или `{include:<Space>:<Заголовок>}`.
 
 HTML-разметки в ячейках таблиц нет и при публикации не появляется (ЗМ-021): ячейка — одна короткая формулировка. Списком её не верстать ни тегами `<ul><li>`, ни глифом `•` — если содержимое просится в список, формулировка слишком длинная.
 
@@ -197,7 +197,7 @@ HTML-разметки в ячейках таблиц нет и при публи
      ```
 
      - `X-Atlassian-Token: nocheck` **обязателен** — без него multipart-загрузка отдаётся 403.
-     - `$CONFLUENCE_BASE`: Server/DC (напр. `https://confluence.mts.ru`) → путь `/rest/api/…` как выше. Confluence **Cloud** → база с суффиксом `/wiki`, т.е. `/wiki/rest/api/…`.
+     - `$CONFLUENCE_BASE`: Server/DC (напр. `https://confluence.example.com`) → путь `/rest/api/…` как выше. Confluence **Cloud** → база с суффиксом `/wiki`, т.е. `/wiki/rest/api/…`.
      - Ответ содержит `results[0].title` — это имя вложения для `ri:filename` на п.4.
   4. **Замена в теле.** `confluence_update_page`: замени каждый `[[PLANTUML-<N>]]` на `<ac:image ac:align="center"><ri:attachment ri:filename="<имя вложения из ответа п.3>"/></ac:image>`. Имя бери **из ответа загрузки** (REST — `results[0].title`; MCP — поле имени вложения), не подставляй `diagram-<N>.png` вслепую: Confluence может нормализовать имя файла, и тогда картинка не найдётся.
 - **Опционально — макрос «PlantUML»** (только `plantuml_render: macro` И плагин подтверждён в целевом пространстве): storage `<ac:structured-macro ac:name="plantuml"><ac:plain-text-body><![CDATA[@startuml … @enduml]]></ac:plain-text-body></ac:structured-macro>`, wiki `{plantuml}@startuml … @enduml{plantuml}`. `plantuml_render: auto` — по умолчанию картинка (п.1–4); макрос только если плагин **подтверждён явно**: PO подтвердил в сухом прогоне (режим показан в STOP-отчёте) либо в `bft-config.md` у ключа `plantuml_render` прямо указано, что плагин установлен. Плагин не подтверждён — **не гадать и не проверять эвристикой**, публиковать картинкой. Голый блок кода как финал недопустим ни при каком режиме.

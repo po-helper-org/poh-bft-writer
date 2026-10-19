@@ -239,10 +239,10 @@ test('сверка: провал CLI — причина словом у зада
 // ── «Добавить в OKR» ──────────────────────────────────────────────────────────
 
 const deepDoc = (slug: string, title: string) =>
-  `---\npageId: 2272447498\njira: "GDSLV-1409"\nepic_slug: ${slug}\nstage: deep\n---\n\n# [БФТ] ${slug}: ${title}\n`
+  `---\npageId: 1000000001\njira: "ACME-1409"\nepic_slug: ${slug}\nstage: deep\n---\n\n# [БФТ] ${slug}: ${title}\n`
 const OKR_FORM = {
-  confluence: 'https://confluence.mts.ru/pages/viewpage.action?pageId=2272447498',
-  epic: 'https://jira.mts.ru/browse/GDSLV-1409',
+  confluence: 'https://confluence.example.com/pages/viewpage.action?pageId=1000000001',
+  epic: 'https://jira.example.com/browse/ACME-1409',
   quarter: '2026-Q4',
   stages: {
     research: { sprint: null, resources: '' },
