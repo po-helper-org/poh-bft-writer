@@ -9,7 +9,7 @@ LINT="skills/bft-writer/scripts/bft-ground-lint.py"
 LEAK="skills/bft-writer/scripts/fixtures/leaked_document.md"
 LEAK_SOURCE="skills/bft-fast/examples/golden_summary_precision.md"
 # Токены чужого эпика, которые фикстура обязана поднять. Пропал — линтер ослаб.
-EXPECTED_TOKENS=(MRS FAQ)
+EXPECTED_TOKENS=(UnitB FAQ)
 
 PRECISION="skills/bft-writer/scripts/fixtures/fabricated_precision.md"
 PRECISION_SOURCE="skills/bft-writer/scripts/fixtures/soft_source.md"

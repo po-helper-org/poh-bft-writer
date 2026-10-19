@@ -12,13 +12,27 @@
 """
 import argparse
 import json
+import os
 import re
 import sys
 from pathlib import Path
 
-JIRA_LINK_RE = re.compile(r"\[([^\]]*)\]\((https?://jira\.mts\.ru/browse/([A-Z][A-Z0-9_]+-\d+))\)")
+# Базовые адреса задаются так же, как в bft-lint.py / bft-html-export.py
+# (по умолчанию — заглушки example.com).
+JIRA_BROWSE = os.environ.get("BFT_JIRA_BROWSE_URL", "https://jira.example.com/browse/")
+WIKI_PAGE = os.environ.get(
+    "BFT_WIKI_PAGE_URL", "https://confluence.example.com/pages/viewpage.action?pageId="
+)
+
+
+def _base(url: str) -> str:
+    """Адрес без схемы: http(s) в ссылке документа допускаются оба."""
+    return re.escape(re.sub(r"^https?://", "", url))
+
+
+JIRA_LINK_RE = re.compile(r"\[([^\]]*)\]\((https?://" + _base(JIRA_BROWSE) + r"([A-Z][A-Z0-9_]+-\d+))\)")
 CONFLUENCE_LINK_RE = re.compile(
-    r"\[([^\]]*)\]\((https?://confluence\.mts\.ru/pages/viewpage\.action\?pageId=(\d+))\)"
+    r"\[([^\]]*)\]\((https?://" + _base(WIKI_PAGE) + r"(\d+))\)"
 )
 BARE_PAGEID_RE = re.compile(r"(?<!\()\bpageId\s+(\d+)\b")
 # Must match bft-render-plantuml.py's PLANTUML_BLOCK_RE exactly — a block this

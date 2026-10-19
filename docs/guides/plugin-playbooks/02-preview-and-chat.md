@@ -34,14 +34,14 @@ FAST-DONE», а «Не хватает до стадии» называет, че
 пространства чата:
 
 ```
-/bft-deep vibe-kino-user-data
+/bft-deep appv-cinema-user-data
 
-Продолжи работу над БФТ PO-22 «Билеты в Кино от P24/Kinopass в приложении Vibeapp».
+Продолжи работу над БФТ PO-22 «Билеты в Кино от SrcP/CinemaPartner в приложении AppV».
 Стадия на доске: DEEP-REVIEW; по артефактам на диске: FAST-DONE.
-До следующей стадии не хватает: единый документ vibe-kino-user-data.md со stage: deep, …
+До следующей стадии не хватает: единый документ appv-cinema-user-data.md со stage: deep, …
 
-Документ: documentation/vibe-kino-user-data/vibe-kino-user-data-fast.md, страница ревью:
-documentation/vibe-kino-user-data/vibe-kino-user-data-fast.html (пути от рабочего пространства чата).
+Документ: documentation/appv-cinema-user-data/appv-cinema-user-data-fast.md, страница ревью:
+documentation/appv-cinema-user-data/appv-cinema-user-data-fast.html (пути от рабочего пространства чата).
 ```
 
 Ничего не отправлено — прочитай, поправь, если нужно, и нажми Enter сам.

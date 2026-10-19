@@ -8,8 +8,8 @@ const task = (id: string, stage: BftTaskSummary['stage'], title = id): BftTaskSu
 
 const TASKS = [
   task('PO-7', 'To Do', 'Проблема с непрогруженными билетами'),
-  task('PO-21', 'FAST-DONE', 'Vibeapp — фильтровать заказы с возвратом'),
-  task('PO-22', 'DEEP-REVIEW', 'Билеты в кино в Vibe App'),
+  task('PO-21', 'FAST-DONE', 'AppV — фильтровать заказы с возвратом'),
+  task('PO-22', 'DEEP-REVIEW', 'Билеты в кино в App V'),
   task('PO-1', 'DEEP-DONE', 'Отгружено'),
   task('PO-2', 'BFT-CANCELED', 'Отменено'),
   task('PO-3', 'OKR-ADDED', 'В квартальном плане'),
@@ -46,7 +46,7 @@ test('поиск не различает регистр и вид дефиса',
 
 test('поиск идёт и по названию', () => {
   assert.deepEqual(searchTasks(TASKS, 'вибе').map(t => t.id), [])
-  assert.deepEqual(searchTasks(TASKS, 'Vibeapp').map(t => t.id), ['PO-21'])
+  assert.deepEqual(searchTasks(TASKS, 'AppV').map(t => t.id), ['PO-21'])
 })
 
 test('пустой запрос отдаёт всё', () => {

@@ -31,10 +31,10 @@ Run swarm on fixture summary -> grade output:
 2. SOURCE-tier recall — of C1-C6, fraction grounded correctly. **Gate: 6/6.** A missing/wrong SOURCE claim = quality regression vs PO = FAIL.
 3. Gap precision — of C7-C11, fraction correctly flagged [УТОЧНИТЬ] with right owner where the table names one (C7/C8/C9=Ирина; C10/C11 leave owner open → not checked). **Gate: 5/5 gaps flagged, none silently dropped (No Silent Skip).**
 4. False-gap rate — SOURCE claims wrongly flagged [УТОЧНИТЬ] instead of grounded. **Gate: 0** (over-flagging = worse than PO who'd just state it).
-5. Structural completeness — canon MTS sections present (ASIS/PROBLEM/TOBE, БТ/ПТ/ИТ/ФТ/НФТ). **Gate: all present.**
+5. Structural completeness — corporate canon sections present (ASIS/PROBLEM/TOBE, БТ/ПТ/ИТ/ФТ/НФТ). **Gate: all present.**
 6. Anchor validity — every SOURCE claim cites a resolvable anchor. **Gate: 100%.**
 7. Канон-паритет — обогащённый выход покрывает все 3 оси (ценность/what-if/границы),
-   уложен в канон-структуру MTS (ASIS/PROBLEM/TOBE, БТ/ПТ/ИТ/ФТ/НФТ) и проходит
+   уложен в канон-структуру (ASIS/PROBLEM/TOBE, БТ/ПТ/ИТ/ФТ/НФТ) и проходит
    канонические hard-gates /bft-validate на уровне старого БФТ (ориентир). Gate: 🟢/🟡, не 🔴.
 
 ## Judge protocol

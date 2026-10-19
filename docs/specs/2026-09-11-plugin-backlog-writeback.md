@@ -15,8 +15,8 @@ scope: plugin
 2. задача доски Backlog.md перешла в `FAST-DONE`;
 3. к задаче прикреплена ссылка на страницу.
 
-Факт (прогон PO-11, 2026-09-11): в `bft/documentation/ai-harness-ticketland-php/` лежат
-`letter.md` и `ai-harness-ticketland-php.md` (deep-форк), ни `-fast.md`, ни `.html`;
+Факт (прогон PO-11, 2026-09-11): в `bft/documentation/ai-harness-acme-tickets-php/` лежат
+`letter.md` и `ai-harness-acme-tickets-php.md` (deep-форк), ни `-fast.md`, ни `.html`;
 задача `PO-11` — `status: To Do`, `references` пусто, `updated_date` 2026-09-02.
 
 ## Диагноз
@@ -28,12 +28,12 @@ scope: plugin
 |---|---|
 | `.html` не собран | Харнесс читает только `SKILL.md` (skill-filesystem; `.claude/commands` не читает). Шаг «`python3 … bft-html-export.py`» есть только в `commands/bft-fast.md` (§«Страница ревью — по умолчанию»); в `skills/bft-fast/SKILL.md` этап 6 `emit` его не содержит. В рабочем воркспейсе к тому же стоит старый снимок навыка без HTML вовсе. |
 | Статус не обновился | Никто не пишет. Плагин доску только читает (`task list --plain`, `reader.ts` → `withBacklog`); навыки про Backlog.md не знают (grep по `skills/`, `commands/` — ноль совпадений). Конвенция воркспейса (`bft-needed-list/docs/upravlenie-bft-trebovaniyami.md`): «`FAST-DONE` — PO вручную после `/bft-fast`». |
-| Ссылка не прикреплена | Тот же ноль. Хуже: плагин сливает задачу доски с эпиком **только по равенству id и слага** (`reader.ts`, `withBacklog`), а `PO-11` ≠ `ai-harness-ticketland-php` — в очереди будут две строки: задача без документа и документ без задачи. Issue #28 это и фиксировал: «настоящий ИИ-агент в харнессе не гонялся». |
+| Ссылка не прикреплена | Тот же ноль. Хуже: плагин сливает задачу доски с эпиком **только по равенству id и слага** (`reader.ts`, `withBacklog`), а `PO-11` ≠ `ai-harness-acme-tickets-php` — в очереди будут две строки: задача без документа и документ без задачи. Issue #28 это и фиксировал: «настоящий ИИ-агент в харнессе не гонялся». |
 
 Отдельно — среда, в которой симптом снят. Живой харнесс грузит не этот плагин:
 `harness-ui/.dsh-data/profiles/web/package.json` ссылается на `dsh-plugin-bft` из
-`ishmanov-cortex/harness-ui-plugins/` (прототип, из которого портирован `poh-bft-plugin`),
-а навыки берёт из `ishmanov-cortex/.claude/skills`, где `bft-fast` пишет `letter.md`, а в
+`my-workspace/harness-ui-plugins/` (прототип, из которого портирован `poh-bft-plugin`),
+а навыки берёт из `my-workspace/.claude/skills`, где `bft-fast` пишет `letter.md`, а в
 `bft-writer/scripts/` лежит только `bft-render-html.py`. У прототипа те же дыры: стадию
 он берёт из доски, ссылку — из `references` задачи, и ни то ни другое никто не заполняет.
 
@@ -58,7 +58,7 @@ scope: plugin
 Без него правки плагина не проверить на живом харнессе. **Выполнен 2026-09-12**: харнесс
 на 3082 грузит `poh-bft-plugin` (симлинк `harness-ui-plugins/poh-bft-plugin`, источник
 истины — `harness-ui-ops/config/bft-plugin.cordis.yml`), навыки в воркспейсе обновлены
-`install.sh`, раздел открывается, `PO-11` виден из доски, `ai-harness-ticketland-php` — из
+`install.sh`, раздел открывается, `PO-11` виден из доски, `ai-harness-acme-tickets-php` — из
 артефактов, отдельной строкой (та самая развилка шага 1).
 
 1. Профиль харнесса переключить на `poh-bft-plugin`. В
@@ -208,7 +208,7 @@ scope: plugin
 
 ## Прогон HowToDemo — 2026-09-12
 
-Живой харнесс (3082, `poh-bft-plugin`, Claude Sonnet 5), задача `PO-140` «Vibeapp —
+Живой харнесс (3082, `poh-bft-plugin`, Claude Sonnet 5), задача `PO-140` «AppV —
 признак заказа, оформленного через приложение», `To Do`, документа нет.
 
 1. Панель → `PO-140` → «Детальная страница» → «Создать документ»: в композере черновик
@@ -243,7 +243,7 @@ scope: plugin
 
 ## Что не решается здесь
 
-- Прототип `dsh-plugin-bft` в `ishmanov-cortex` не дорабатывается: после шага 0 харнесс
+- Прототип `dsh-plugin-bft` в `my-workspace` не дорабатывается: после шага 0 харнесс
   грузит `poh-bft-plugin`, прототип остаётся историей.
 - Автоматический перевод в `REVIEW-DONE`/`DEEP-WORK` — нет факта на диске, по которому
   их можно вывести честно.

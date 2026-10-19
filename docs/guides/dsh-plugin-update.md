@@ -57,11 +57,11 @@ bash update.sh --workspace /путь/к/воркспейсу   # обновит�
 ```
 харнесс:    DSH_HOME=/…/harness-ui/.dsh-data, профиль web
 ok    профиль грузит плагин из этого чекаута: /…/poh-bft-writer/plugin
-воркспейс:  /…/ishmanov-cortex
+воркспейс:  /…/my-workspace
 чекаут:     5d48684 (main, 2026-09-12); origin/main 5d48684 (2026-09-12); отстаёт на 0, впереди на 0
 ok    чекаут на последнем main
 ok    plugin/lib собран из текущих исходников
-FAIL  навыки в /…/ishmanov-cortex/.claude отстают от чекаута
+FAIL  навыки в /…/my-workspace/.claude отстают от чекаута
 ok    харнесс отвечает 200 на http://127.0.0.1:3082/
 ```
 
