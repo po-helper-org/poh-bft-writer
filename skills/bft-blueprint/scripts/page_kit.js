@@ -1,5 +1,6 @@
 /* bft-blueprint · общий набор страницы: упрощённый экран, контуры, экранирование.
-   Подключается перед story_page.js и map_page.js — экраны на истории и на карте рисуются одинаково. */
+   Подключается перед story_page.js и map_page.js — экраны на истории и на карте рисуются одинаково;
+   здесь же IDEF0 карточки «Как это работает». */
 const BPK = (function () {
   "use strict";
   const esc = s => String(s == null ? "" : s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -58,5 +59,25 @@ const BPK = (function () {
     const alt = t.view === "альтернативный" ? `<rect x="1" y="1" width="${W - 2}" height="${H - 2}" rx="${t.device === "web" || t.device === "mail" ? 10 : 22}" fill="none" stroke="#c0392b" stroke-width="2.2"/>` : "";
     return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(label)}">${frame}${out}${alt}</svg>`;
   }
-  return { esc, wrapT, ICON, contourIcon, chip, mockSVG };
+  /* ---------- IDEF0 карточки «Как это работает»: функция A0 и четыре стороны ---------- */
+  const MARK = "[УТОЧНИТЬ", U = t => String(t || "").includes(MARK);
+  const tsp = (ls, x, dy) => ls.map((l, i) => `<tspan x="${x}" dy="${i ? dy : 0}">${esc(l)}</tspan>`).join("");
+  /* IDEF0 A0: вход слева, выход справа, управление сверху, механизмы снизу */
+  function idefSVG(m, o) {
+    const bh = Math.max(130, 58 * Math.max(m.in.length, m.out.length)), W = 560, H = 340 + bh, bx = 195, by = 170, bw = 170, col = o.color, mk = "ia" + (o.uid || "");
+    const red = x => U(x) ? "#c0392b" : "#1c1c1c";
+    let s = `<svg class="idef" viewBox="0 0 ${W} ${H}" role="img" aria-label="IDEF0"><defs><marker id="${mk}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0L10,5L0,10z" fill="#1c1c1c"/></marker></defs><rect x="0" y="0" width="${W}" height="${H}" rx="10" fill="#faf9f6"/>`;
+    const cap = (x, y, txt, a) => `<text x="${x}" y="${y}" font-size="11" font-weight="700" fill="#6b6b6b" letter-spacing=".6" text-anchor="${a}">${txt}</text>`;
+    s += cap(8, by - 14, "ВХОД", "start") + cap(W - 8, by - 14, "ВЫХОД", "end") + cap(W / 2, 14, "УПРАВЛЕНИЕ — правила и ограничения", "middle") + cap(W / 2, H - 6, "МЕХАНИЗМЫ — кто и чем исполняет", "middle");
+    s += `<rect x="${bx}" y="${by}" width="${bw}" height="${bh}" rx="3" fill="#fff" stroke="${col}" stroke-width="2.2" ${o.dashed ? 'stroke-dasharray="6 3"' : ""}/><rect x="${bx}" y="${by}" width="${bw}" height="6" fill="${col}"/>`;
+    const fl = wrapT(m.fn || o.title, 18).slice(0, 5); s += `<text x="${bx + bw / 2}" y="${by + bh / 2 - (fl.length - 1) * 8 + 4}" font-size="13.5" font-weight="700" text-anchor="middle">${tsp(fl, bx + bw / 2, 16)}</text><text x="${bx + bw - 6}" y="${by + bh - 6}" font-size="11" fill="#6b6b6b" text-anchor="end">A0</text>`;
+    m.in.forEach((v, i) => { const y = by + bh * (i + 1) / (m.in.length + 1), ls = wrapT(v, 22).slice(0, 3); s += `<path d="M8,${y} H${bx}" stroke="#1c1c1c" stroke-width="1.6" marker-end="url(#${mk})"/><text x="8" y="${y - 6 - (ls.length - 1) * 15}" font-size="13" fill="${red(v)}">${tsp(ls, 8, 15)}</text>` });
+    m.out.forEach((v, i) => { const y = by + bh * (i + 1) / (m.out.length + 1), ls = wrapT(v, 22).slice(0, 3); s += `<path d="M${bx + bw},${y} H${W - 8}" stroke="#1c1c1c" stroke-width="1.6" marker-end="url(#${mk})"/><text x="${bx + bw + 8}" y="${y - 6 - (ls.length - 1) * 15}" font-size="13" fill="${red(v)}">${tsp(ls, bx + bw + 8, 15)}</text>` });
+    const sideTxt = (arr, topSide) => { const k = arr.length, sl = W / k; arr.forEach((v, i) => { const ax = bx + bw * (i + 1) / (k + 1), tx = sl * i + sl / 2, ls = wrapT(v, Math.max(14, Math.floor(sl / 7.6))).slice(0, 4);
+      s += topSide ? `<path d="M${tx},102 L${tx},116 L${ax},136 L${ax},${by}" fill="none" stroke="#1c1c1c" stroke-width="1.6" marker-end="url(#${mk})"/><text x="${tx}" y="34" font-size="13" text-anchor="middle" fill="${red(v)}">${tsp(ls, tx, 15)}</text>`
+        : `<path d="M${tx},${H - 76} L${tx},${H - 90} L${ax},${by + bh + 26} L${ax},${by + bh}" fill="none" stroke="#1c1c1c" stroke-width="1.6" marker-end="url(#${mk})"/><text x="${tx}" y="${H - 58}" font-size="13" text-anchor="middle" fill="${red(v)}">${tsp(ls, tx, 15)}</text>` }) };
+    sideTxt(m.ctl, true); sideTxt(m.mech, false);
+    return s + "</svg>";
+  }
+  return { esc, wrapT, ICON, contourIcon, chip, mockSVG, idefSVG };
 })();

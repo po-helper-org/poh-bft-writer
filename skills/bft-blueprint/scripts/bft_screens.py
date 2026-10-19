@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Требования к экранам — заметки для дизайнера, по файлу `screens/<ID>.md` на экран истории.
+"""Требования к экранам — заметки для дизайнера: документ Backlog.md на экран истории.
 
-Файл — обычный markdown: заметками удобно управлять в любом редакторе.
+Документ лежит в `backlog/docs/screens/`, его заголовок — «F3 · Название экрана» (ID экрана истории
+и название). Тело — обычный markdown:
 
     # Заголовок экрана
     ![Подпись](screen:F3)        ← картинки экрана до первой вкладки: 0, 1 или несколько
@@ -15,7 +16,7 @@ Product — job stories «Когда …, хочу …, чтобы …»; Design
 Неизвестное — `[УТОЧНИТЬ у {кого}]`. Стандарт — `resources/screen_notes.md`.
 
   ОШИБКИ                                        ПРЕДУПРЕЖДЕНИЯ
-  SN001  файл не по экрану истории              SN020  вкладка без заметок
+  SN001  экрана из заголовка нет в истории       SN020  вкладка без заметок
   SN002  нет заголовка `# …`                    SN021  заметка без «Источник:» и без [УТОЧНИТЬ]
   SN003  вкладки не те, не по порядку,          SN022  Product: заметка не в форме «Когда …, хочу …»
          текст вне заметки                      SN023  экран истории без требований
@@ -61,12 +62,13 @@ class ScreenDoc:
     images: list[tuple[str, str, int]] = field(default_factory=list)  # (подпись, источник, строка)
     notes: list[Note] = field(default_factory=list)
     text: str = ""
+    rel: str = ""    # путь документа от корня проекта
 
 
-def parse(path: Path, issues: list) -> ScreenDoc:
-    rel = f"{DIR}/{path.name}"
-    doc = ScreenDoc(path.stem, path, text=path.read_text(encoding="utf-8"))
-    err = lambda n, code, msg: issues.append(bb.Issue(n, "ERROR", code, msg, rel))  # noqa: E731
+def parse(sid: str, path: Path, text: str, rel: str, off: int, issues: list) -> ScreenDoc:
+    """Тело документа без frontmatter Backlog.md; `off` — строк до тела, номера строк — по файлу."""
+    doc = ScreenDoc(sid, path, text=text, rel=rel)
+    err = lambda n, code, msg: issues.append(bb.Issue(n + off, "ERROR", code, msg, rel))  # noqa: E731
     tabs: list[str] = []
     tab, note, body = None, None, []
 
@@ -111,6 +113,9 @@ def parse(path: Path, issues: list) -> ScreenDoc:
             else:
                 err(n, "SN003", "текст вне заметки — под `### Заголовок заметки`")
     close()
+    for x in doc.notes:
+        x.line += off
+    doc.images = [(alt, src, n + off) for alt, src, n in doc.images]
     if not doc.title:
         err(1, "SN002", "нет заголовка `# Название экрана`")
     known = [t for t in TABS if t in tabs]
@@ -122,25 +127,24 @@ def parse(path: Path, issues: list) -> ScreenDoc:
     return doc
 
 
-def check(map_path: Path, screen_ids: set[str]) -> tuple[dict[str, ScreenDoc], list]:
-    """Все файлы `screens/*.md` рядом с картой: разбор и проверка. Нет папки — нет требований (SN023)."""
-    issues: list = []
-    folder = map_path.parent / DIR
-    docs: dict[str, ScreenDoc] = {}
-    files = sorted(folder.glob("*.md")) if folder.is_dir() else []
-    for f in files:
-        rel = f"{DIR}/{f.name}"
-        doc = parse(f, issues)
-        if f.stem not in screen_ids:
-            issues.append(bb.Issue(1, "ERROR", "SN001", f"экрана {f.stem} нет в истории — имя файла = ID экрана", rel))
+def check(docs: list[ScreenDoc], screen_ids: set[str], issues: list) -> dict[str, ScreenDoc]:
+    """Проверка разобранных документов экранов. Экран без требований — SN023."""
+    out: dict[str, ScreenDoc] = {}
+    for doc in docs:
+        rel = doc.rel
+        if doc.id not in screen_ids:
+            issues.append(bb.Issue(1, "ERROR", "SN001", f"экрана {doc.id} нет в истории — заголовок документа «F3 · Название»", rel))
             continue
-        docs[f.stem] = doc
+        if doc.id in out:
+            issues.append(bb.Issue(1, "ERROR", "SN001", f"второй документ экрана {doc.id} — один документ на экран", rel))
+            continue
+        out[doc.id] = doc
         for alt, src, n in doc.images + [(m.group(1), m.group(2), x.line) for x in doc.notes for m in INLINE_IMG.finditer(x.md)]:
             if src.startswith("screen:"):
                 if src[7:] not in screen_ids:
                     issues.append(bb.Issue(n, "ERROR", "SN006", f"картинка «{alt}»: экрана {src[7:]} нет в истории", rel))
-            elif not re.match(r"^(https?:|data:)", src) and not (f.parent / src).is_file():
-                issues.append(bb.Issue(n, "ERROR", "SN006", f"картинка «{alt}»: файла {src} нет рядом с {rel}", rel))
+            elif not re.match(r"^(https?:|data:)", src) and not (doc.path.parent / src).is_file():
+                issues.append(bb.Issue(n, "ERROR", "SN006", f"картинка «{alt}»: файла {src} нет рядом с документом", rel))
         for t in TABS:
             if not any(x.tab == t for x in doc.notes):
                 issues.append(bb.Issue(1, "WARN", "SN020", f"вкладка {t} без заметок", rel))
@@ -151,12 +155,11 @@ def check(map_path: Path, screen_ids: set[str]) -> tuple[dict[str, ScreenDoc], l
                 issues.append(bb.Issue(x.line, "WARN", "SN021", f"«{x.title}»: нет строки «Источник:» с ID требований", rel))
             if x.tab == "Product" and not re.search(r"Когда .+хочу", x.md.replace("**", "")):
                 issues.append(bb.Issue(x.line, "WARN", "SN022", f"«{x.title}»: история в форме «Когда …, хочу …, чтобы …»", rel))
-    covered = set(docs) | {src[7:] for d in docs.values() for _, src, _ in d.images if src.startswith("screen:")}
+    covered = set(out) | {src[7:] for d in out.values() for _, src, _ in d.images if src.startswith("screen:")}
     missing = sorted(screen_ids - covered)
     if missing:
-        where = f"нет файлов {DIR}/<ID>.md" if not files else "нет файлов"
-        issues.append(bb.Issue(1, "WARN", "SN023", f"экраны без требований для дизайнера ({where}): {', '.join(missing)}"))
-    return docs, issues
+        issues.append(bb.Issue(1, "WARN", "SN023", f"экраны без требований для дизайнера (документ «F3 · …» в docs/{DIR}/): {', '.join(missing)}"))
+    return out
 
 
 def page_md(doc: ScreenDoc) -> str:

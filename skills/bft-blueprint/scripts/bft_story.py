@@ -311,9 +311,11 @@ def _table_of(st: Story, secs, name: str):
     return good
 
 
-def parse(path: Path) -> Story:
+def parse(path: Path, text: str | None = None) -> Story:
+    """Разбор истории. `text` — если история не в своём файле (документ «История» проекта Backlog.md)."""
     st = Story(path=path)
-    text = path.read_text(encoding="utf-8")
+    if text is None:
+        text = path.read_text(encoding="utf-8")
     lines = text.splitlines()
     st.meta, _ = bb.frontmatter(text)
 

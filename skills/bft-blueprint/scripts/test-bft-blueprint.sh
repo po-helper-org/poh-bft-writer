@@ -1,10 +1,9 @@
 #!/bin/bash
 # Самотест bft-blueprint: линтер ловит каждый код на фикстурах, эталон проходит строго,
 # рендерер не пишет файлов по сломанному документу, стрелки не пересекают чужие карточки.
-# Вторая часть — история через экраны (bft-story-*), третья — карта инициативы (bft-map-*):
-# те же гарантии для каждого этапа. Четвёртая — схемы как код: коды DG на блоках,
-# совпадение разбора JS (страница) и Python (линтер), вставка блока в карту.
-# Пятая — требования к экранам (screens/<ID>.md) и постановки задач (tasks/<ID>.md): коды SN, TK.
+# Вторая часть — история через экраны (bft-story-*), третья — карта инициативы в проекте Backlog.md
+# (bft-backlog-*): коды BL и SN на сломанных копиях, страница эталона байт в байт, детерминированный
+# автономный zip, IDEF0 из «Параметров», новый проект из истории.
 # Запуск из корня репозитория: bash skills/bft-blueprint/scripts/test-bft-blueprint.sh
 set -u
 
@@ -141,15 +140,16 @@ cmp -s "$spage" "$DIR/examples/golden_story.html" \
 python3 "$SRENDER" "$FIX/broken_story_screens.md" --out-dir "$tmp/sbad" >/dev/null 2>&1; rc=$?
 { [ "$rc" -eq 1 ] && [ ! -e "$tmp/sbad" ]; } && ok "история · битый документ: код 1, файлов нет" || fail "история · битый документ отрендерился или код не 1"
 
-# --- карта инициативы ------------------------------------------------------------------
-MLINT="$DIR/scripts/bft-map-lint.py"
-MRENDER="$DIR/scripts/bft-map-render.py"
-MGOLD="$DIR/examples/golden_map.md"
+# --- карта инициативы: проект Backlog.md -------------------------------------------------
+BLINT="$DIR/scripts/bft-backlog-lint.py"
+BBUILD="$DIR/scripts/bft-backlog-build.py"
+BGOLD="$DIR/examples/bartello-restart-blueprint"
+BOK="$FIX/backlog_ok"
 
-expect_map() {  # <имя> <ожидаемый rc> <файл> <коды через пробел> [доп. аргументы линтера]
-  local name="$1" rc_want="$2" file="$3" codes="$4"; shift 4
+expect_bl() {  # <имя> <ожидаемый rc> <проект> <коды через пробел> [доп. аргументы линтера]
+  local name="$1" rc_want="$2" proj="$3" codes="$4"; shift 4
   local out rc
-  out="$(python3 "$MLINT" "$file" "$@" 2>&1)"; rc=$?
+  out="$(python3 "$BLINT" "$proj" "$@" 2>&1)"; rc=$?
   [ "$rc" -eq "$rc_want" ] || { fail "карта · $name: код выхода $rc, ожидался $rc_want"; return; }
   for c in $codes; do
     grep -q " $c " <<<"$out" || { fail "карта · $name: нет $c в выводе"; return; }
@@ -157,128 +157,127 @@ expect_map() {  # <имя> <ожидаемый rc> <файл> <коды чере
   ok "карта · $name"
 }
 
-expect_map "эталон проходит строго"   0 "$MGOLD" "" --no-source --strict
-expect_map "эталон без БФТ рядом"     1 "$MGOLD" "MP015"
-expect_map "структура"                1 "$FIX/broken_map_structure.md" "MP001 MP002 MP003"
-expect_map "ссылки"                   1 "$FIX/broken_map_refs.md" "MP006 MP007 MP008 MP009 MP010 MP011 MP012 MP013 DG001 DG003 DG007"
-expect_map "смысл: ошибки"            1 "$FIX/broken_map_semantics.md" "MP014 MP016 MP017 MP018"
-expect_map "смысл: предупреждения"    1 "$FIX/broken_map_semantics.md" "MP020 MP021 MP022 MP023 MP025 MP026 MP027 MP028 DG020 DG025"
-sed 's/^story_doc: .*/story_doc: нет-такой-истории.md/' "$MGOLD" > "$DIR/examples/.tmp_map.md"
-expect_map "история не найдена"       1 "$DIR/examples/.tmp_map.md" "MP004" --no-source
-rm -f "$DIR/examples/.tmp_map.md"
+expect_bl "эталон проходит строго"        0 "$BGOLD" "" --no-source --strict
+expect_bl "эталон без БФТ рядом"          0 "$BGOLD" "BL015"
+expect_bl "явный --source не найден"      1 "$BGOLD" "BL015" --source "$tmp/нет.md"
+expect_bl "вторая инициатива сверена с БФТ" 0 "$BOK" ""
 
-python3 "$MRENDER" "$MGOLD" --out-dir "$tmp/mout" >/dev/null 2>&1 && ok "карта · эталон отрендерен" || fail "карта · эталон не отрендерился"
-mpage="$tmp/mout/golden_map.html"
-if grep -Eq 'src="https?://|href="https?://|@import' "$mpage"; then fail "карта · html: внешние ресурсы"; else ok "карта · html: без внешних ресурсов"; fi
-python3 - "$mpage" <<'PY' && ok "карта · html: 19 задач, 20 процессов, схемы и критерии у каждого процесса" || fail "карта · html: данные страницы не те"
+# сломанные копии второй инициативы: каждая правка — свой код
+python3 - "$BOK" "$tmp/bad" "$FIX/screens_bad" <<'PY'
+import re, shutil, sys
+from pathlib import Path
+src, out, sbad = Path(sys.argv[1]), Path(sys.argv[2]), Path(sys.argv[3])
+def copy(name):
+    d = out / name; shutil.copytree(src, d); return d
+def edit(d, glob, a, b, count=1):
+    f = next(d.glob(glob)); t = f.read_text(encoding="utf-8")
+    assert a in t, (glob, a); f.write_text(t.replace(a, b, count), encoding="utf-8")
+T1, T2 = "backlog/tasks/bp-1 - *.md", "backlog/tasks/bp-2 - *.md"
+C1, C21, C22 = "backlog/tasks/bp-1.1 - *.md", "backlog/tasks/bp-2.1 - *.md", "backlog/tasks/bp-2.2 - *.md"
+MAP, STORY = "backlog/docs/doc-1 - *.md", "backlog/docs/doc-2 - *.md"
+
+d = copy("noproject"); (d / "backlog/config.yml").unlink()
+d = copy("structure")
+edit(d, MAP, "<!-- bft-map\nepic_slug: demo-story\n", "<!-- bft-map\n")
+edit(d, MAP, "| ID | Команда |", "| ID | Команда | Лишняя |")
+edit(d, STORY, "## Этапы", "## Этапы и ещё")
+(d / "backlog/tasks/bp-9 - Мусор.md").write_text("просто текст\n", encoding="utf-8")
+d = copy("refs")
+edit(d, T1, "  - 'stage:A'\n  - создать", "  - 'stage:Z'")
+edit(d, T2, "  - '@rest'", "  - '@nobody'")
+edit(d, T2, "### ASIS\nСкидка по брони.\n\n", "")
+edit(d, T2, "1. Официант сканирует билет\n2.", "Официант сканирует билет.")
+edit(d, T2, "- [ ] #1 Скидка 10% по предъявлению билета\n- [ ] #2 Отказ — с причиной\n", "")
+edit(d, C1, "parent_task_id: BP-1", "parent_task_id: BP-77")
+edit(d, C21, "layer:employee", "layer:frontstage")
+edit(d, C22, "- **Выход:** Ответ проверки (BP-2.1)", "- **Результат:** Ответ проверки (BP-9.9)")
+edit(d, MAP, "| BP-2.1 | вопрос |", "| BP-99 | разговор |")
+edit(d, T1, "dependencies: []", "dependencies: []\ndocumentation:\n  - doc-42")
+d = copy("semantics")
+edit(d, T1, "title: Блок акции на странице после покупки", "title: Блок акции на странице после покупки с очень длинным названием, которое не читается за секунду")
+edit(d, T2, "Скидка выдаётся по билету", "Скидка выдаётся по билету через REST API")
+edit(d, T1, "Требования БФТ: ПТ-2, ИТ-1", "Требования БФТ: ПТ-2, ФТ-77")
+edit(d, C1, "Один офер (ИТ-1)", "Один офер")
+d = copy("warnings")
+edit(d, T2, "  - 'stage:B'", "  - 'stage:A'")
+for g in (C21, C22):
+    next(d.glob(g)).unlink()
+edit(d, C1, "- **Управление:** Один офер (ИТ-1)\n", "")
+edit(d, C1, "Гость выбрал ресторан (BP-2.1)", "Скидка через 99 минут")
+edit(d, C1, 'A0 --> out1["Блок «скидка 10%»"]', 'A0 --> out1["Старое"]')
+edit(d, MAP, "| В1 | PO | Что видит официант при отказе? | BP-2.1 |", "| В1 | PO | Что видит официант при отказе? | BP-2 |")
+d = copy("screens")
+for f in sorted(sbad.glob("*.md")):
+    t = f.read_text(encoding="utf-8")
+    title = re.search(r"^# (.+)$", t, re.M)
+    hdr = f"{f.stem} · {title.group(1) if title else 'без заголовка'}"
+    (d / "backlog/docs/screens").mkdir(parents=True, exist_ok=True)
+    (d / f"backlog/docs/screens/doc-{30 + len(list((d / 'backlog/docs/screens').glob('*')))} - {f.stem}.md").write_text(
+        f"---\nid: doc-{30 + len(list((d / 'backlog/docs/screens').glob('*')))}\ntitle: {hdr}\ntype: specification\ncreated_date: '2026-10-19 10:00'\n---\n{t}", encoding="utf-8")
+(d / "backlog/docs/screens/doc-40 - Без-ID.md").write_text("---\nid: doc-40\ntitle: Просто экран\ntype: specification\n---\n# Экран\n", encoding="utf-8")
+PY
+expect_bl "не проект Backlog.md"          1 "$tmp/bad/noproject" "BL001"
+expect_bl "структура"                     1 "$tmp/bad/structure" "BL002 BL003 BL004 BL005" --no-source
+expect_bl "задачи и карточки"             1 "$tmp/bad/refs" "BL006 BL007 BL008 BL009 BL010 BL011" --no-source
+expect_bl "смысл: ошибки"                 1 "$tmp/bad/semantics" "BL014 BL016 BL017 BL018" --source "$FIX/story_source.md"
+expect_bl "смысл: предупреждения"         1 "$tmp/bad/warnings" "BL020 BL021 BL022 BL023 BL026 BL027 BL028" --strict --source "$FIX/story_source.md"
+expect_bl "экраны · битые заметки"        1 "$tmp/bad/screens" "SN001 SN002 SN003 SN004 SN005 SN006 SN020 SN021 SN022 SN023" --no-source
+
+# сборка: эталон совпадает со страницей в examples, архив — тот же байт в байт и автономный
+python3 "$BBUILD" "$BGOLD" --no-source --check >/dev/null 2>&1 \
+  && ok "карта · эталон: IDEF0 карточек совпадает с «Параметрами»" || fail "карта · эталон: устаревший IDEF0 — python3 $BBUILD $BGOLD --no-source"
+cp -r "$BGOLD" "$tmp/gold" && python3 "$BBUILD" "$tmp/gold" --out-dir "$tmp/bout" >/dev/null 2>&1 \
+  && cmp -s "$tmp/bout/bartello-restart-map.html" "$DIR/examples/bartello-restart-map.html" \
+  && ok "карта · html: совпадает с examples/bartello-restart-map.html" \
+  || fail "карта · html разошёлся с эталоном — пересобери: python3 $BBUILD $BGOLD --out-dir $DIR/examples --no-zip"
+python3 - "$tmp/bout" <<'PY' && ok "карта · страница: 19 задач, 20 карточек в четырёх слоях, стрелки, заметки экранов" || fail "карта · данные страницы не те"
 import json, re, sys
-page = open(sys.argv[1], encoding="utf-8").read()
-d = json.loads(re.search(r'<script type="application/json" id="map-data">(.*?)</script>', page, re.S).group(1))
-assert len(d["tasks"]) == 19 and len(d["processes"]) == 20, (len(d["tasks"]), len(d["processes"]))
-assert all(p["steps"] and p["criteria"] for p in d["processes"])
-assert all(t["idef"] for t in d["tasks"])
-assert {s["col"] for s in d["seen"]} == set(range(7))
+from pathlib import Path
+d = json.loads(re.search(r'id="map-data">(.*?)</script>', (Path(sys.argv[1]) / "bartello-restart-map.html").read_text(encoding="utf-8"), re.S).group(1))
+assert len(d["tasks"]) == 19 and len(d["cards"]) == 20, (len(d["tasks"]), len(d["cards"]))
+assert {c["layer"] for c in d["cards"]} == {"employee", "technology", "backstage", "support"}
+assert all(c["params"].get("out") and c["demo"] for c in d["cards"])
+assert all(t["brief"].get("ASIS") and t["ac"] for t in d["tasks"])
+assert len(d["links"]) >= 20 and len(d["notes"]) == 12
 PY
-cmp -s "$mpage" "$DIR/examples/golden_map.html" \
-  && ok "карта · html: совпадает с examples/golden_map.html" \
-  || fail "карта · html: разошёлся с examples/golden_map.html — пересобери: python3 $MRENDER $MGOLD --out-dir $DIR/examples"
-python3 "$MLINT" "$FIX/map_ok.md" >/dev/null 2>&1 && python3 "$MRENDER" "$FIX/map_ok.md" --out-dir "$tmp/mok" >/dev/null 2>&1 \
-  && ok "карта · вторая инициатива: проходит и рисуется" || fail "карта · fixtures/map_ok.md не прошла линтер или не отрисовалась"
-python3 "$MRENDER" "$FIX/broken_map_refs.md" --out-dir "$tmp/mbad" >/dev/null 2>&1; rc=$?
-{ [ "$rc" -eq 1 ] && [ ! -e "$tmp/mbad" ]; } && ok "карта · битый документ: код 1, файлов нет" || fail "карта · битый документ отрендерился или код не 1"
-
-# --- постановки задач для техлида: tasks/<ID>.md рядом с картой --------------------------------
-python3 - "$mpage" <<'PY' && ok "задачи · эталон: постановки у 19 задач — ASIS, GAP, TOBE, HowToDemo, чеклист" || fail "задачи · эталон: постановок на странице нет или они неполные"
-import json, re, sys
-d = json.loads(re.search(r'id="map-data">(.*?)</script>', open(sys.argv[1], encoding="utf-8").read(), re.S).group(1))
-assert len(d["briefs"]) == 19, sorted(d["briefs"])
-assert all(all(b.get(k) for k in ("ASIS", "GAP", "TOBE", "HowToDemo", "Чеклист приемки")) for b in d["briefs"].values())
+cp "$tmp/bout/bartello-restart-blueprint.zip" "$tmp/first.zip"
+python3 "$BBUILD" "$tmp/gold" --out-dir "$tmp/bout" >/dev/null 2>&1 && cmp -s "$tmp/bout/bartello-restart-blueprint.zip" "$tmp/first.zip" \
+  && ok "карта · zip: та же карта — тот же архив байт в байт" || fail "карта · zip: архив не детерминирован"
+python3 - "$tmp/first.zip" "$tmp/unz" <<'PY' || fail "карта · zip: распаковка не удалась"
+import sys, zipfile; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])
 PY
-mkdir -p "$tmp/tk" && cp "$FIX/map_ok.md" "$FIX/story_ok.md" "$tmp/tk/" && cp -r "$FIX/tasks_bad" "$tmp/tk/tasks"
-expect_map "задачи · битые постановки" 1 "$tmp/tk/map_ok.md" "TK001 TK002 TK003 TK004 TK005 TK020" --no-source
+( cd "$tmp/unz/bartello-restart-blueprint" && python3 .blueprint/scripts/bft-backlog-build.py . --out-dir . >/dev/null 2>&1 \
+  && cmp -s blueprint.html bartello-restart-map.html && test -f CLAUDE.md && test -f .blueprint/rules/backlog_rules.md ) \
+  && ok "карта · zip: распакованный проект сам пересобирает ту же страницу" || fail "карта · zip: распакованный проект не собирается сам"
 
-# --- требования к экранам: screens/<ID>.md рядом с картой ------------------------------------
-python3 - "$mpage" <<'PY' && ok "экраны · эталон: требования у 12 экранов, вкладки Product, Design, Functions" || fail "экраны · эталон: требований к экранам на странице нет или они не те"
-import json, re, sys
-d = json.loads(re.search(r'id="map-data">(.*?)</script>', open(sys.argv[1], encoding="utf-8").read(), re.S).group(1))
-assert len(d["notes"]) == 12, sorted(d["notes"])
-assert all("## Product" in t and "## Design" in t and "## Functions" in t for t in d["notes"].values())
+# IDEF0 собирается из «Параметров»: правка параметров → сборка переписывает блок mermaid
+python3 - "$tmp/gold" <<'PY'
+import sys
+from pathlib import Path
+f = next(Path(sys.argv[1]).glob("backlog/tasks/bp-16.1 - *.md")); t = f.read_text(encoding="utf-8")
+f.write_text(t.replace("- **Механизм:** GDS; Сервис проверки билетов", "- **Механизм:** GDS; Сервис проверки билетов; Журнал проверок"), encoding="utf-8")
 PY
-mkdir -p "$tmp/sn" && cp "$FIX/map_ok.md" "$FIX/story_ok.md" "$tmp/sn/" && cp -r "$FIX/screens_bad" "$tmp/sn/screens"
-expect_map "экраны · битые заметки" 1 "$tmp/sn/map_ok.md" "SN001 SN002 SN003 SN004 SN005 SN006 SN020 SN021 SN022 SN023" --no-source
-python3 "$MRENDER" "$tmp/sn/map_ok.md" --out-dir "$tmp/snout" >/dev/null 2>&1; rc=$?
-{ [ "$rc" -eq 1 ] && [ ! -e "$tmp/snout" ]; } && ok "экраны · битые заметки: страница не рисуется" || fail "экраны · страница с битыми заметками отрисовалась"
+python3 "$BBUILD" "$tmp/gold" --check >/dev/null 2>&1; rc=$?
+python3 "$BBUILD" "$tmp/gold" --out-dir "$tmp/bout2" --no-zip >/dev/null 2>&1 \
+  && [ "$rc" -eq 1 ] && grep -q 'mech3\["Журнал проверок"\] == механизм ==> A0' "$tmp/gold/backlog/tasks/bp-16.1 - "*.md \
+  && python3 "$BBUILD" "$tmp/gold" --check >/dev/null 2>&1 \
+  && ok "карта · IDEF0: --check ловит устаревшую схему, сборка переписывает mermaid" || fail "карта · IDEF0 не пересобрался из параметров"
+python3 "$BBUILD" "$tmp/bad/refs" --out-dir "$tmp/bbad" --no-source >/dev/null 2>&1; rc=$?
+{ [ "$rc" -eq 1 ] && [ ! -e "$tmp/bbad" ]; } && ok "карта · сломанный проект — код 1, файлов нет" || fail "карта · сборка по сломанному проекту (rc=$rc)"
 
-# --- схемы как код: блоки seq и idef0 -----------------------------------------------------
-DSL="$DIR/scripts/diagram_dsl.py"
-DFIX="$FIX/diagrams"
-expect_dsl() {  # <файл в fixtures/diagrams> <ожидаемый rc> <коды через пробел>
-  local f="$1" rc_want="$2" codes="$3" out rc
-  out="$(python3 "$DSL" "$DFIX/$f" --parts "$DFIX/parts.json" 2>&1)"; rc=$?
-  [ "$rc" -eq "$rc_want" ] || { fail "схема · $f: код выхода $rc, ожидался $rc_want"; return; }
-  for c in $codes; do
-    grep -q " $c " <<<"$out" || { fail "схема · $f: нет $c в выводе"; return; }
-  done
-  ok "схема · $f${codes:+ → $codes}"
-}
-expect_dsl seq_ok.txt        0 ""
-expect_dsl seq_decl.txt      0 "DG023"
-expect_dsl seq_nodesc.txt    0 "DG025"
-expect_dsl seq_limits.txt    0 "DG020 DG021 DG022 DG023 DG026"
-expect_dsl seq_syntax.txt    1 "DG001 DG002 DG004 DG005 DG007 DG008"
-expect_dsl seq_branches.txt  1 "DG003 DG006 DG024"
-expect_dsl seq_empty.txt     1 "DG008"
-expect_dsl seq_badhead.txt   1 "DG000"
-expect_dsl none.txt          1 "DG000"
-expect_dsl idef_ok.txt       0 ""
-expect_dsl idef_ctx.txt      0 ""
-expect_dsl idef_feedback.txt 0 ""
-expect_dsl idef_bad.txt      1 "DG030 DG031 DG032 DG033 DG034 DG035 DG036 DG040 DG041 DG042"
-expect_dsl idef_one.txt      1 "DG033"
+# новый проект из согласованной истории — без CLI backlog
+python3 "$DIR/scripts/bft-backlog-init.py" "$FIX/story_ok.md" --dir "$tmp/init" --no-cli >/dev/null 2>&1 \
+  && python3 "$BLINT" "$tmp/init" --no-source >/dev/null 2>&1 \
+  && grep -q "BFT-BLUEPRINT START" "$tmp/init/CLAUDE.md" && grep -q "BACKLOG.MD GUIDELINES START" "$tmp/init/AGENTS.md" \
+  && ok "карта · init: проект из истории, «Карта» и «История», инструкции агенту" || fail "карта · bft-backlog-init.py не собрал проект"
+python3 "$DIR/scripts/bft-backlog-init.py" "$DIR/scripts/fixtures/broken_story_semantics.md" --dir "$tmp/init2" --no-cli >/dev/null 2>&1; rc=$?
+{ [ "$rc" -eq 1 ] && [ ! -e "$tmp/init2" ]; } && ok "карта · init: история с ошибками — проект не создаётся" || fail "карта · init по сломанной истории (rc=$rc)"
 
-# редактор на странице разбирает так же, как линтер: модель и проблемы совпадают до символа
-if command -v node >/dev/null 2>&1; then
-  node "$DIR/scripts/diagram-check.js" "$DFIX/parts.json" "$DFIX"/*.txt > "$tmp/js.jsonl" 2>"$tmp/js.err" \
-  && python3 - "$DFIX" "$tmp/js.jsonl" "$DIR/scripts" <<'PY' && ok "схема · diagram_kit.js = diagram_dsl.py на всех блоках, рисунки без исключений" || fail "схема · JS и Python разбирают по-разному: $(cat "$tmp/js.err")"
-import glob, json, sys
-sys.path.insert(0, sys.argv[3])
-import diagram_dsl as dd
-parts = json.load(open(sys.argv[1] + "/parts.json", encoding="utf-8"))
-files = sorted(glob.glob(sys.argv[1] + "/*.txt"))
-js = [json.loads(l) for l in open(sys.argv[2], encoding="utf-8")]
-assert len(js) == len(files), (len(js), len(files))
-for f, j in zip(files, js):
-    assert dd.check_text(open(f, encoding="utf-8").read(), parts) == j, f
-PY
-else
-  echo "skip  схема · node не найден — совпадение JS и Python не проверено"
+# проект читает настоящий CLI Backlog.md — если он установлен
+if command -v backlog >/dev/null 2>&1; then
+  ( cd "$tmp/unz/bartello-restart-blueprint" && [ "$(backlog task list --plain 2>/dev/null | grep -c 'BP-')" -eq 39 ] ) \
+    && ok "карта · CLI backlog видит 19 задач и 20 карточек" || fail "карта · CLI backlog не читает проект"
 fi
-
-# эталон: описание у каждого процесса, декомпозиция у 6.3 и 7.3
-python3 - "$mpage" <<'PY' && ok "схема · эталон: описания процессов и декомпозиции IDEF0 на странице" || fail "схема · эталон: нет описаний или декомпозиций"
-import json, re, sys
-d = json.loads(re.search(r'id="map-data">(.*?)</script>', open(sys.argv[1], encoding="utf-8").read(), re.S).group(1))
-assert all(p["desc"] and p["src"].startswith("```seq " + p["id"]) for p in d["processes"])
-dec = {t["id"]: len(t["idef"]["children"]) for t in d["tasks"] if t["idef"]["children"]}
-assert dec == {"6.3": 2, "7.3": 2}, dec
-PY
-
-# вставка блока в карту: заменяет, не трогает карту при ошибке, проверяет ID
-APPLY="$DIR/scripts/bft-diagram-apply.py"
-mkdir -p "$tmp/ap" && cp "$MGOLD" "$DIR/examples/golden_story.md" "$tmp/ap/" && cp -r "$DIR/examples/screens" "$DIR/examples/tasks" "$tmp/ap/"
-printf 'Ответ ИИ:\n```seq П15\nописание: GDS проверяет билет и гасит его.\nсистема Val: Сервис валидации\nApp -> Gd: штрихкод\nGd -> Val: проверка условий\nVal --> Gd: валиден\nGd --> App: валиден\n```\n' > "$tmp/ap/ok.txt"
-python3 "$APPLY" "$tmp/ap/golden_map.md" "$tmp/ap/ok.txt" >/dev/null 2>&1 \
-  && grep -q '^система Val: Сервис валидации$' "$tmp/ap/golden_map.md" \
-  && [ "$(grep -c '^```seq П15$' "$tmp/ap/golden_map.md")" -eq 1 ] \
-  && python3 "$MLINT" "$tmp/ap/golden_map.md" --no-source --strict >/dev/null 2>&1 \
-  && ok "схема · apply: блок заменён, карта проходит строго" || fail "схема · apply: блок не встал или карта сломалась"
-cp "$tmp/ap/golden_map.md" "$tmp/ap/before.md"
-printf '```seq П15\nApp -> Zz: штрихкод\n```\n' > "$tmp/ap/bad.txt"
-printf '```seq П99\nописание: нет такого\nApp -> Gd: штрихкод\n```\n' > "$tmp/ap/unknown.txt"
-python3 "$APPLY" "$tmp/ap/golden_map.md" "$tmp/ap/bad.txt" >/dev/null 2>&1; rc1=$?
-python3 "$APPLY" "$tmp/ap/golden_map.md" "$tmp/ap/unknown.txt" >/dev/null 2>&1; rc2=$?
-{ [ "$rc1" -eq 1 ] && [ "$rc2" -eq 1 ] && cmp -s "$tmp/ap/golden_map.md" "$tmp/ap/before.md"; } \
-  && ok "схема · apply: ошибка в блоке или чужой ID — код 1, карта не тронута" || fail "схема · apply: битый блок изменил карту или код не 1"
 
 echo
 [ "$fails" -eq 0 ] && echo "bft-blueprint: все проверки пройдены" || echo "bft-blueprint: провалено проверок — $fails"

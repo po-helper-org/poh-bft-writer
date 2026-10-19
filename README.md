@@ -376,7 +376,7 @@ Agenda». Справа выезжает список вопросов с отм�
 | `/bft-custdev` | Методолог интервью | скрипт интервью `<epic>-custdev.md` + страница встречи `<epic>-custdev.html`. Собирается по свежайшему документу эпика: `deep`, если есть, иначе `fast` |
 | `/bft-deep` | Deep swarm | тот же документ, обогащённый каноном |
 | `/bft-wireframe` | Раскадровщик интерфейса (опционально) | блок(и) `wireloom-storyboard` в шапке — StepByStep-визуализация `How to demo` в рамке браузера/телефона. Не вызывается `/bft-fast`/`/bft-deep` — см. ниже |
-| `/bft-blueprint` | Картограф инициативы (опционально) | сначала `<epic>-story.md` + страница — история через экраны от лица каждого персонажа; затем `<epic>-map.md` + страница — карта инициативы: что видят люди, что делает каждая команда, как это работает (Frontstage, Backstage, Support) с карточкой процесса для техлида. Не вызывается `/bft-fast`/`/bft-deep` — см. ниже |
+| `/bft-blueprint` | Картограф инициативы (опционально) | сначала `<epic>-story.md` + страница — история через экраны от лица каждого персонажа; затем проект Backlog.md `<epic>-blueprint/` и страница карты — что видят люди, что делает каждая команда, как это работает (Employee Actions, Technology, Backstage, Support) с технической карточкой; автономный zip проекта. Не вызывается `/bft-fast`/`/bft-deep` — см. ниже |
 | `/bft-update` | Обслуживание установки | обновление навыков воркспейса и плагина DeepSeek Harness до последнего `main` (`update.sh`); `--check` — только отчёт |
 
 **Внутренние.** `/bft-draft` (генератор текста канона) и `/bft-validate` (прогон 22 гейтов) вызываются оркестрацией `/bft-deep`, руками их запускать не нужно; отдельный запуск `/bft-validate` остаётся возможным, когда нужно перепроверить готовый документ.
@@ -418,35 +418,28 @@ Agenda». Справа выезжает список вопросов с отм�
 Где БФТ молчит, агент сам задаёт PO один раунд вопросов с вариантами из БФТ. Стандарт —
 [`resources/story_line.md`](skills/bft-blueprint/resources/story_line.md).
 
-**Этап 2 — карта инициативы**, после согласования истории. Колонки — шаги пути, ряды:
-«Что видят» (первый экран на всю высоту — раскадровка: путь каждого персонажа через экраны-картинки, прокрутка вправо), «Что делаем» (задачи: одна строка — один результат одной
-команды, цвет и фильтр по команде), «Как это работает» (Frontstage, Backstage, Support).
-Клик по задаче «Что делаем» открывает постановку для техлида — `tasks/<ID>.md`: ASIS, GAP, TOBE, HowToDemo,
-чеклист приемки, дополнительно; вкладка «Исполнение» — ссылки на JIRA, Confluence и заметка.
-Слои «Что видят», «Что делаем» и «Как это работает» — по экрану на каждый, переключатель рядом с меню; этапы закреплены сверху.
-Правой кнопкой мыши по любой секции — замечание; в меню «Замечания» — промпт для ИИ-агента, как в ревью БФТ.
-Клик по кадру открывает требования к экрану для дизайнера — `screens/<ID>.md` рядом с картой:
-вкладки Product (job stories), Design, Functions (Gherkin), стек заметок, заметка — обычный markdown.
-Шапки нет: название, «Рассказать историю», блокеры, инструкции, легенда и фильтр по команде — в меню-бургере поверх карты.
-Клик по процессу открывает карточку для техлида: «← до · этот процесс · после →»,
-было → станет, чек-лист «что требуется» (✓ / уточнить / блокер), sequence-схема с линией
-видимости и списком скрытых от гостя шагов, описание процесса, IDEF0 с декомпозицией, заметка и промпт для системной
-аналитики с ИИ. Каждое ФТ, ИТ и НФТ обязано попасть в задачу или критерий — иначе `MP017`;
-эндпоинты, протоколы и таблицы линтер отклоняет. Стандарт —
-[`resources/map_rules.md`](skills/bft-blueprint/resources/map_rules.md), эталон —
-[`examples/golden_map.md`](skills/bft-blueprint/examples/golden_map.md) и его страница.
+**Этап 2 — карта инициативы**, после согласования истории. Карта живёт в проекте
+[Backlog.md](https://github.com/MrLesk/Backlog.md) `<epic>-blueprint/`: агент исследует БФТ и
+раскладывает его в бэклог через CLI `backlog`. Задачи «Что делаем» — один результат одной команды
+с постановкой для техлида (ASIS, GAP, TOBE, HowToDemo, критерии приемки). Их подзадачи
+«Как это работает» — технические карточки в слоях Employee Actions, Technology, Backstage, Support:
+суть, «Параметры» IDEF0 (вход, управление, выход, механизм), схема mermaid, HowToDemo, ссылки.
+Требования к экранам для дизайнера, история и паспорт карты — документы Backlog.md.
 
-**Схемы как код.** Sequence-схема процесса и IDEF0 задачи — короткие текстовые блоки
-```` ```seq П3 ```` и ```` ```idef0 1.2 ````. LLM пишет только текст; синтаксис и стрелки
-проверяет `diagram_dsl.py` (коды `DG`), рисует `diagram_kit.js` — тот же разбор работает
-в редакторе карточки процесса: проверка на лету, предпросмотр, «применить к карточке»,
-промпт «собрать схему с ИИ». Одна схема попадает в карту через `bft-diagram-apply.py`
-без переписывания файла. Грамматика —
-[`resources/diagram_dsl.md`](skills/bft-blueprint/resources/diagram_dsl.md).
+Страницу `<epic>-map.html` и архив `<epic>-blueprint.zip` скрипт собирает из проекта
+детерминированно: IDEF0 — из «Параметров», стрелки — из ссылок на карточки. Слои «Что видят»,
+«Что делаем» и «Как это работает» — по экрану на каждый. Клик по задаче — «Требования» и
+«Исполнение» (JIRA, Confluence, заметка → команда `backlog task edit`), по карточке — суть,
+параметры, IDEF0, HowToDemo, ссылки, по кадру — требования к экрану. Правой кнопкой мыши по
+любой секции — замечание; меню «Замечания» собирает промпт для ИИ-агента. Архив — автономный
+проект: распаковал — ведёшь бэклог (`backlog board`, `backlog browser`) и пересобираешь страницу
+`python3 .blueprint/scripts/bft-backlog-build.py . --out-dir .` Стандарт —
+[`resources/backlog_rules.md`](skills/bft-blueprint/resources/backlog_rules.md), эталон —
+[`examples/bartello-restart-blueprint/`](skills/bft-blueprint/examples/bartello-restart-blueprint).
 
-**Файлы рядом с БФТ.** `<epic>-story.md` + `.html`, `<epic>-map.md` + `.html`. Прежняя
-слоевая схема `<epic>-blueprint.md` (+ `.html`, `.svg`) осталась режимом `--layers` для
-документов, собранных раньше.
+**Файлы рядом с БФТ.** `<epic>-story.md` + `.html`, проект `<epic>-blueprint/`,
+`<epic>-map.html`, `<epic>-blueprint.zip`. Прежняя слоевая схема `<epic>-blueprint.md`
+(+ `.html`, `.svg`) осталась режимом `--layers` для документов, собранных раньше.
 
 **Не входит в контур по умолчанию.** Ни `/bft-fast`, ни `/bft-deep` команду не вызывают —
 только явный `/bft-blueprint <epic_slug>`. БФТ не трогает.
@@ -454,9 +447,9 @@ Agenda». Справа выезжает список вопросов с отм�
 ```bash
 python3 <skills_path>/bft-blueprint/scripts/bft-story-lint.py .bft/documentation/<epic_slug>/<epic_slug>-story.md
 python3 <skills_path>/bft-blueprint/scripts/bft-story-render.py .bft/documentation/<epic_slug>/<epic_slug>-story.md
-python3 <skills_path>/bft-blueprint/scripts/bft-map-lint.py .bft/documentation/<epic_slug>/<epic_slug>-map.md
-python3 <skills_path>/bft-blueprint/scripts/bft-map-render.py .bft/documentation/<epic_slug>/<epic_slug>-map.md
-python3 <skills_path>/bft-blueprint/scripts/bft-diagram-apply.py .bft/documentation/<epic_slug>/<epic_slug>-map.md блок.txt
+python3 <skills_path>/bft-blueprint/scripts/bft-backlog-init.py .bft/documentation/<epic_slug>/<epic_slug>-story.md
+python3 <skills_path>/bft-blueprint/scripts/bft-backlog-lint.py .bft/documentation/<epic_slug>/<epic_slug>-blueprint --source .bft/documentation/<epic_slug>/<epic_slug>.md
+python3 <skills_path>/bft-blueprint/scripts/bft-backlog-build.py .bft/documentation/<epic_slug>/<epic_slug>-blueprint --source .bft/documentation/<epic_slug>/<epic_slug>.md
 bash skills/bft-blueprint/scripts/test-bft-blueprint.sh   # самотест из клона репозитория
 ```
 

@@ -1,6 +1,6 @@
-/* bft-blueprint · карта инициативы. Данные — #map-data (собирает bft-map-render.py).
+/* bft-blueprint · карта инициативы. Данные — #map-data (собирает bft-backlog-build.py из проекта Backlog.md).
    Три слоя чтения: «Что видят» (история), «Что делаем» (задачи команд), «Как это работает»
-   (Frontstage, Backstage, Support). Подробности — по клику, в боковой панели. */
+   (Employee Actions, Technology, Backstage, Support). Подробности — по клику, в боковой панели. */
 (function () {
   "use strict";
   const D = JSON.parse(document.getElementById("map-data").textContent);
@@ -13,15 +13,16 @@
   const COLS = [...D.stages, { id: "стало", name: "Итог", when: "" }];
   const colOf = st => COLS.findIndex(c => c.id === st);
   const TEAM = {}; D.teams.forEach((t, i) => TEAM[t.id] = { name: t.name, c: `var(--t${i % 10})` });
-  const teamC = t => t.team === "?" ? "var(--red)" : TEAM[t.team].c;
-  const teamN = t => t.team === "?" ? "Команда?" : TEAM[t.team].name;
+  const teamC = t => t.team === "?" || !TEAM[t.team] ? "var(--red)" : TEAM[t.team].c;
+  const teamN = t => t.team === "?" || !TEAM[t.team] ? "Команда?" : TEAM[t.team].name;
   const TASK = {}; D.tasks.forEach(t => TASK[t.id] = t);
-  const PROC = {}; D.processes.forEach(p => PROC[p.id] = p);
+  const PROC = {}; D.cards.forEach(p => PROC[p.id] = p);
   const qOf = where => D.questions.filter(q => q.where === where && q.open);
   const asks = id => qOf(id).filter(q => q.kind === "вопрос").length;
   const blocks = id => qOf(id).filter(q => q.kind === "блокер");
   const scrOpen = id => D.storyQuestions.some(q => q.where === id);
-  const LAYER = { front: ["Frontstage", "видит гость", "#0f8b8d"], back: ["Backstage", "за кадром", "#2563c9"], sup: ["Support", "основа", "#6b5fb0"] };
+  /* слои Service Blueprint: на виду у гостя — сотрудник и технологии; за линией видимости — Backstage; ниже — Support */
+  const LAYER = { employee: ["Employee Actions", "действия сотрудника", "#a8541a"], technology: ["Technology", "что видит гость", "#0f8b8d"], backstage: ["Backstage", "за кадром", "#2563c9"], support: ["Support", "основа", "#6b5fb0"] };
   const PERSONA_ICON = ['<circle cx="8" cy="5.5" r="2.6"/><path d="M3 14c.6-3 2.6-4.5 5-4.5s4.4 1.5 5 4.5"/>', '<path d="M4 2v5a2 2 0 0 0 2 2v5M6 2v4M8 2v5a2 2 0 0 1-2 2M12 14V2c-1.5 1-2.5 3-2.5 5.5H12"/>'];
   const who = p => `<span class="who"><svg viewBox="0 0 16 16">${PERSONA_ICON[Math.min(1, D.personas.findIndex(x => x.id === p.id))]}</svg>${esc(p.name)}</span>`;
   const mock = (id, w) => `<span class="scrw" style="position:relative;display:block${w ? `;width:${w}px` : ""}">${scrOpen(id) ? '<span class="dot" style="top:-4px;right:-5px"></span>' : ""}${mockSVG(D.screens[id], D.screens[id].contour)}</span>`;
@@ -62,8 +63,8 @@
     return `<button class="wk${b ? " blk" : ""}" data-task="${t.id}" data-team="${t.team}" style="--c:${teamC(t)}"><span class="tm${t.team === "?" ? " u" : ""}"><i></i>${esc(teamN(t))}${b ? '<span class="bl">Блокер</span>' : a ? `<span class="qn" title="Открытых вопросов: ${a}">${a}</span>` : ""}</span><span class="tx">${esc(t.text)}</span></button>`;
   }
   function procHTML(p) {
-    const t = TASK[p.task], b = blocks(p.id).length + blocks(p.task).length;
-    return `<button class="hw ${p.layer}${b ? " blk" : ""}" data-proc="${p.id}" data-team="${t.team}" style="--c:${teamC(t)}"><span>${esc(p.text)}</span><i title="${esc(teamN(t))}"></i></button>`;
+    const b = blocks(p.id).length + blocks(p.task).length;
+    return `<button class="hw ${p.layer}${b ? " blk" : ""}" data-proc="${p.id}" data-team="${p.team}" style="--c:${teamC(p)}"><span>${esc(p.text)}</span><i title="${esc(teamN(p))}"></i></button>`;
   }
 
   /* ---------- холст ---------- */
@@ -72,14 +73,13 @@
   grid.style.minWidth = `${96 + COLS.length * 236}px`;
   let h = `<div class="mh corner"></div>` + COLS.map((c, i) => `<div class="mh"><span class="n">${i === COLS.length - 1 ? "✓" : i + 1}</span><span class="hx"><b>${esc(c.name)}</b>${c.when ? `<small>${esc(c.when)}</small>` : ""}</span></div>`).join("");
   h += `<div class="ml do">Что делаем</div>` + COLS.map((col, c) => `<div class="mc do">${D.tasks.filter(t => t.stage === col.id).map(taskHTML).join("")}</div>`).join("");
-  if (D.processes.length) {
-    ["front", "back", "sup"].filter(l => D.processes.some(p => p.layer === l)).forEach(l => {
-      h += `<div class="ml hrow how l-${l}">${LAYER[l][0]}<small>${LAYER[l][1]}</small></div>` + COLS.map(col => `<div class="mc how l-${l}">${D.processes.filter(p => p.layer === l && p.stage === col.id).map(procHTML).join("")}</div>`).join("");
-    });
-  }
+  /* все четыре ряда — даже пустой: «сотрудника на виду у гостя нет» — тоже ответ */
+  Object.keys(LAYER).forEach(l => {
+    h += `<div class="ml hrow how l-${l}">${LAYER[l][0]}<small>${LAYER[l][1]}</small></div>` + COLS.map(col => `<div class="mc how l-${l}">${D.cards.filter(p => p.layer === l && p.stage === col.id).map(procHTML).join("")}</div>`).join("");
+  });
   grid.innerHTML = h;
 
-  /* стрелки между процессами — из «Цепочки» */
+  /* стрелки между карточками — из ссылок в «Параметрах»: вход от карточки, выход к карточке */
   function drawLinks() {
     grid.querySelector("svg.hwl")?.remove();
     if (body.dataset.view !== "how") return;
@@ -103,7 +103,7 @@
   }
   window.addEventListener("load", drawLinks); window.addEventListener("resize", drawLinks);
 
-  /* ---------- требования к экранам: screens/<ID>.md — вкладки и стек заметок ---------- */
+  /* ---------- требования к экранам: документы «F3 · …» в backlog/docs/screens — вкладки и стек заметок ---------- */
   const IMG_MD = /^!\[(.*?)\]\((.+?)\)$/, SCR = {}, NOTE_OF = {};
   /* файл экрана: # заголовок, картинки до первой вкладки, ## вкладка, ### заметка, ниже — markdown */
   function parseNotes(text) {
@@ -234,7 +234,7 @@
 
   /* ---------- телефон: шаг за шагом сверху вниз ---------- */
   document.getElementById("mstack").innerHTML = COLS.map((col, c) => {
-    const tasks = D.tasks.filter(t => t.stage === col.id), procs = D.processes.filter(p => p.stage === col.id);
+    const tasks = D.tasks.filter(t => t.stage === col.id), procs = D.cards.filter(p => p.stage === col.id);
     return `<section class="ms"><div class="mh2"><span class="n">${c === COLS.length - 1 ? "✓" : c + 1}</span><div><b>${esc(col.name)}</b>${col.when ? `<small>${esc(col.when)}</small>` : ""}</div></div>
       <div class="wl">${seenHTML(c)}</div>${tasks.length ? `<span class="lb">Что делаем</span><div class="wl">${tasks.map(taskHTML).join("")}</div>` : ""}
       ${procs.length ? `<span class="lb">Как это работает</span><div class="wl">${procs.map(procHTML).join("")}</div>` : ""}</section>`;
@@ -259,226 +259,88 @@
     side.dataset.ctx = "seen:" + key;
   }
 
-  /* задача «Что делаем» — постановка для техлида из tasks/<ID>.md: ASIS, GAP, TOBE, HowToDemo,
-     чеклист приемки, дополнительно; требования БФТ и открытые вопросы задачи добавляются из карты */
+  /* задача «Что делаем» — постановка для техлида, задача Backlog.md. «Требования»: зачем, ASIS, GAP, TOBE,
+     HowToDemo, критерии приемки, дополнительно. «Исполнение»: ссылки на JIRA и Confluence (references) и
+     заметка (Implementation Notes); правки — в браузере, в проект — командой `backlog task edit` */
   const dodKey = id => `bp-dod-${D.epic}-${id}`;
-  /* «Исполнение»: ссылки на JIRA и Confluence и заметка исполнителя. Начальные значения — из раздела
-     «## Исполнение» файла задачи, правки — в браузере; «Скопировать для файла» отдаёт раздел целиком */
   let taskTab = 0;
   const execKey = id => `bp-exec-${D.epic}-${id}`;
-  function execOf(id, br) {
-    let v = null; try { v = JSON.parse(localStorage.getItem(execKey(id)) || "null") } catch (e) { }
+  const isJira = u => /jira|\/browse\/[A-Z][A-Z0-9]+-\d+/i.test(u), isConf = u => !isJira(u) && /confluence|wiki|\/pages\//i.test(u);
+  function execOf(t) {
+    let v = null; try { v = JSON.parse(localStorage.getItem(execKey(t.id)) || "null") } catch (e) { }
     if (v) return v;
-    const lines = (br["Исполнение"] || "").split("\n"), pick = k => lines.filter(l => l.toLowerCase().startsWith(k + ":")).map(l => l.slice(k.length + 1).trim()).join(" ");
-    return { jira: pick("jira"), conf: pick("confluence"), note: lines.filter(l => !/^(jira|confluence):/i.test(l)).join("\n").trim() };
+    const urls = t.refs.filter(u => /^https?:\/\//.test(u));
+    return { jira: urls.filter(isJira).join(" "), conf: urls.filter(isConf).join(" "), note: t.notes || "" };
   }
   const links = s => (s || "").split(/[\s,]+/).filter(u => /^https?:\/\//.test(u)).map(u => `<a href="${esc(u)}" target="_blank" rel="noopener">${esc(u.replace(/^https?:\/\//, "").slice(0, 48))}</a>`).join("");
-  function execHTML(id, br) {
-    const v = execOf(id, br);
-    return `<div class="exec" data-exec="${esc(id)}">
+  function execHTML(t) {
+    const v = execOf(t);
+    return `<div class="exec" data-exec="${esc(t.id)}">
       <label>JIRA<input data-ex="jira" value="${esc(v.jira)}" placeholder="Ссылка на задачу или эпик"></label><div class="exl">${links(v.jira)}</div>
       <label>Confluence<input data-ex="conf" value="${esc(v.conf)}" placeholder="Ссылка на страницу"></label><div class="exl">${links(v.conf)}</div>
       <label>Заметка<textarea data-ex="note" placeholder="Ход работ, решения, договорённости">${esc(v.note)}</textarea></label>
-      <button class="tool" data-excopy="${esc(id)}">Скопировать для tasks/${esc(id)}.md</button></div>`;
+      <button class="tool" data-excopy="${esc(t.id)}">Скопировать команду для бэклога</button></div>`;
   }
-  function execMd(id) {
-    const v = execOf(id, (D.briefs || {})[id] || {});
-    return ["## Исполнение", v.jira ? "JIRA: " + v.jira : "", v.conf ? "Confluence: " + v.conf : "", v.note ? "\n" + v.note : ""].filter(Boolean).join("\n");
+  /* команда CLI Backlog.md: ссылки JIRA и Confluence заменяют прежние такие же, остальные references остаются */
+  const sh = x => `'${String(x).replace(/'/g, "'\\''")}'`;
+  function execCmd(id) {
+    const t = TASK[id], v = execOf(t), split = s => (s || "").split(/[\s,]+/).filter(Boolean);
+    const keep = t.refs.filter(u => !(/^https?:\/\//.test(u) && (isJira(u) || isConf(u))));
+    const refs = [...keep, ...split(v.jira), ...split(v.conf)];
+    return `backlog task edit ${id} ${refs.length ? refs.map(r => "--ref " + sh(r)).join(" ") : "--clear-refs"} --notes ${sh(v.note || "")}`;
   }
   document.addEventListener("input", e => {
     const f = e.target.closest && e.target.closest("[data-ex]"); if (!f) return;
-    const box = f.closest("[data-exec]"), id = box.dataset.exec, v = execOf(id, (D.briefs || {})[id] || {});
+    const id = f.closest("[data-exec]").dataset.exec, v = execOf(TASK[id]);
     v[f.dataset.ex] = f.value; try { localStorage.setItem(execKey(id), JSON.stringify(v)) } catch (er) { }
     if (f.dataset.ex !== "note") f.parentElement.nextElementSibling.innerHTML = links(f.value);
   });
+  const sec = (name, html) => html ? `<section class="tk"><h4>${name}</h4>${html}</section>` : "";
+  const uniqQ = qs => [...new Map(qs.map(q => [q.text, q])).values()];
+  const qList = qs => qs.length ? `<ul class="tkq">${uniqQ(qs).map(q => `<li class="${q.kind === "блокер" ? "b" : ""}">${q.kind === "блокер" ? "<b>Блокер.</b> " : ""}${esc(q.text)} <span>— ${esc(q.to)}</span></li>`).join("")}</ul>` : "";
+  /* ссылка на другую задачу или карточку, документ, страницу */
+  const idChip = id => PROC[id] ? `<button class="ref" data-proc="${id}" title="${esc(PROC[id].text)}">${esc(id)}</button>` : TASK[id] ? `<button class="ref" data-task="${id}" title="${esc(TASK[id].text)}">${esc(id)}</button>` : `<code>${esc(id)}</code>`;
+  function refItem(r) {
+    if (/^https?:\/\//.test(r)) return `<a href="${esc(r)}" target="_blank" rel="noopener">${esc(r.replace(/^https?:\/\//, "").slice(0, 60))}</a>`;
+    const d = D.docs[r.toLowerCase().split(" ")[0]];
+    if (d) return d.screen && NOTE_OF[d.screen] ? `<button class="lnk" data-screen-doc="${esc(d.screen)}">${esc(d.title)}</button>` : `<span>${esc(d.title)}</span> <code>${esc(d.file)}</code>`;
+    if (PROC[r] || TASK[r]) return `${idChip(r)} ${esc((PROC[r] || TASK[r]).text)}`;
+    return `<code>${esc(r)}</code>`;
+  }
+  const refList = items => items.length ? `<ul class="lnks">${items.map(x => `<li>${x}</li>`).join("")}</ul>` : "";
   function openTask(id, tab) {
     if (tab != null) taskTab = tab;
-    const t = TASK[id], br = (D.briefs || {})[id] || {}, qs = [...qOf(id), ...D.processes.filter(p => p.task === id).flatMap(p => qOf(p.id))];
+    const t = TASK[id], br = t.brief || {}, cards = D.cards.filter(c => c.task === id);
+    const qs = [...qOf(id), ...cards.flatMap(c => qOf(c.id))];
     let done = {}; try { done = JSON.parse(localStorage.getItem(dodKey(id)) || "{}") } catch (e) { }
-    let k = -1;
-    const sec = (name, html) => html ? `<section class="tk"><h4>${name}</h4>${html}</section>` : "";
+    const ac = t.ac.map(([d, x], k) => `<label class="dod"><input type="checkbox" data-dod="${id}:${k}"${(done[k] != null ? done[k] : d) ? " checked" : ""}><span>${mdInline(x)}</span></label>`).join("");
     const extra = [br["Дополнительно"] ? mdHTML(br["Дополнительно"]) : "",
       t.reqs.length ? `<p class="tkreq">Требования БФТ: ${t.reqs.map(esc).join(", ")}</p>` : "",
-      qs.length ? `<ul class="tkq">${[...new Map(qs.map(q => [q.text, q])).values()].map(q => `<li class="${q.kind === "блокер" ? "b" : ""}">${q.kind === "блокер" ? "<b>Блокер.</b> " : ""}${esc(q.text)} <span>— ${esc(q.to)}</span></li>`).join("")}</ul>` : ""].join("");
-    const dod = (br["Чеклист приемки"] || "").split("\n").map(l => l.trim().match(/^[-*]\s+\[([ xX])\]\s+(.*)$/)).filter(Boolean)
-      .map(m => { k++; return `<label class="dod"><input type="checkbox" data-dod="${id}:${k}"${done[k] || m[1] !== " " ? " checked" : ""}><span>${mdInline(m[2])}</span></label>` }).join("");
-    const html = br.ASIS ? sec("ASIS", mdHTML(br.ASIS)) + sec("GAP", mdHTML(br.GAP || "")) + sec("TOBE", mdHTML(br.TOBE || "")) + sec("HowToDemo", mdHTML(br.HowToDemo || "")) + sec("Чеклист приемки", dod) + sec("Дополнительно", extra)
-      : `<p class="tkno">Постановки нет — tasks/${esc(id)}.md</p>` + sec("Дополнительно", extra);
+      refList([...cards.map(c => `${idChip(c.id)} ${esc(c.text)}`), ...t.docs.map(refItem), ...t.refs.filter(r => !/^https?:\/\//.test(r)).map(refItem)]), qList(qs)].join("");
+    const html = (t.why ? `<p class="tklead">${mdInline(t.why)}</p>` : "") + sec("ASIS", mdHTML(br.ASIS || "")) + sec("GAP", mdHTML(br.GAP || "")) + sec("TOBE", mdHTML(br.TOBE || "")) +
+      sec("HowToDemo", mdHTML(br.HowToDemo || "")) + sec("Чеклист приемки", ac) + sec("Дополнительно", extra);
     const tabs = `<nav class="snseg tktabs">${["Требования", "Исполнение"].map((n, i) => `<button data-tktab="${i}"${i === taskTab ? ' class="on"' : ""}>${n}</button>`).join("")}</nav>`;
-    side.innerHTML = `<div class="snbar"><h3>${esc(t.text)}</h3><button class="x" aria-label="Закрыть">×</button></div><div class="snbody"><div class="tkmeta"><span class="pteam" style="--c:${teamC(t)}"><i></i>${esc(teamN(t))}</span> · ${esc(COLS[colOf(t.stage)].name)} · задача ${esc(t.id)}</div>${tabs}${taskTab ? execHTML(id, br) : html}</div>`;
+    side.innerHTML = `<div class="snbar"><h3>${esc(t.text)}</h3><button class="x" aria-label="Закрыть">×</button></div><div class="snbody"><div class="tkmeta"><span class="pteam" style="--c:${teamC(t)}"><i></i>${esc(t.team === "?" && t.cand ? "Команда? " + t.cand : teamN(t))}</span> · ${esc(COLS[colOf(t.stage)].name)} · ${esc(id)} · ${esc(t.status)}</div>${tabs}${taskTab ? execHTML(t) : html}</div>`;
     body.classList.remove("wide"); body.classList.add("open"); side.scrollTop = 0;
     side.dataset.ctx = "task:" + id; side.dataset.note = "";
   }
 
-
-  /* цепочка процесса: что до и что после */
-  function chainChip(id, lab) {
-    if (!PROC[id]) return `<span class="cc ev">${esc(id)}</span>`;
-    const p = PROC[id], t = TASK[p.task];
-    return `<button class="cc" data-proc="${id}" style="--c:${teamC(t)}"><i></i><span><b>${esc(p.text)}</b><small>${esc(lab)}</small></span></button>`;
+  /* карточка «Как это работает» — техническая задача: суть, параметры IDEF0, схема, HowToDemo, ссылки */
+  const PNAME = { in: "Вход", ctl: "Управление", out: "Выход", mech: "Механизм" };
+  const teamHex = t => !TEAM[t.team] ? "#c0392b" : getComputedStyle(document.documentElement).getPropertyValue(TEAM[t.team].c.slice(4, -1)).trim();
+  function openProc(id) {
+    const c = PROC[id], t = TASK[c.task], L = LAYER[c.layer], P = c.params || {};
+    const row = k => (P[k] || []).length ? `<div class="pp"><span>${PNAME[k]}</span><ul>${P[k].map(it => `<li>${mdInline(it.t)}${it.r.length ? " " + it.r.map(idChip).join(" ") : ""}</li>`).join("")}</ul></div>` : "";
+    const f = { in: (P.in || []).map(x => x.t), ctl: (P.ctl || []).map(x => x.t), out: (P.out || []).map(x => x.t), mech: (P.mech || []).map(x => x.t) };
+    const lnk = refList([t ? `Задача ${idChip(t.id)} ${esc(t.text)}` : "", ...c.docs.map(refItem), ...c.refs.map(refItem)].filter(Boolean));
+    side.innerHTML = `<div class="snbar"><h3>${esc(c.text)}</h3><button class="x" aria-label="Закрыть">×</button></div><div class="snbody">
+      <div class="tkmeta"><span class="lay" style="--c:${L[2]}">${L[0]}</span> · <span class="pteam" style="--c:${teamC(c)}"><i></i>${esc(teamN(c))}</span> · ${esc(COLS[colOf(c.stage)].name)} · ${esc(id)} · ${esc(c.status)}</div>
+      ${c.lead ? `<p class="tklead">${mdInline(c.lead)}</p>` : ""}${sec("Параметры", ["in", "ctl", "out", "mech"].map(row).join(""))}
+      ${f.out.length ? sec("IDEF0", `<div class="idefw">${BPK.idefSVG(f, { title: c.text, color: teamHex(c), dashed: !TEAM[c.team], uid: "c" })}</div>`) : ""}
+      ${sec("HowToDemo", mdHTML(c.demo || ""))}${sec("Вопросы", qList([...qOf(id), ...qOf(c.task)]))}${sec("Ссылки", lnk)}</div>`;
+    body.classList.add("wide", "open"); side.scrollTop = 0;
+    side.dataset.ctx = "proc:" + id; side.dataset.note = "";
   }
-  function critHTML(p) {
-    return p.criteria.map(c => `<li class="${c.state}"><span class="ic">${c.state === "blocker" ? "!" : c.state === "ask" ? "?" : "✓"}</span><span>${esc(c.text.replace(/\s*—\s*БЛОКЕР/, ""))}${c.state === "blocker" ? "<em>Блокер</em>" : ""}<small>${esc(c.source)}</small></span></li>`).join("");
-  }
-  /* ---------- схемы как код: документ или правка в этом браузере ---------- */
-  const lsGet = k => { try { return localStorage.getItem(k) || "" } catch (e) { return "" } };
-  const lsSet = (k, v) => { try { if (v) localStorage.setItem(k, v); else localStorage.removeItem(k) } catch (e) { } };
-  const dslKey = (kind, id, draft) => `bp-dsl-${D.epic}-${kind}-${id}${draft ? "-draft" : ""}`;
-  const hasErr = m => m.issues.some(i => i.level === "ERROR");
-  /* текст блока из документа; блока нет — заготовка с ключами грамматики */
-  const BLANK = { seq: "описание: \nA -> B: ", idef0: "вход: \nуправление: \nвыход: \nмеханизм: " };
-  const docSrc = (kind, id) => (kind === "seq" ? PROC[id].src : TASK[id].idef && TASK[id].idef.src) || `\`\`\`${kind} ${id}\n${BLANK[kind]}\n\`\`\``;
-  /* проверка блока для этой карточки: разбор как у линтера + ID блока совпадает с карточкой */
-  function checkFor(kind, id, text) {
-    const m = BPD.checkText(text, D.parts), off = BPD.extract(text).offset;
-    if (m.kind && (m.kind !== kind || m.id !== id)) m.issues.unshift({ line: 0, level: "ERROR", code: "DG000", msg: `здесь блок \`\`\`${kind} ${id}\`\`\`, а не \`\`\`${m.kind} ${m.id}\`\`\`` });
-    return { m, off };
-  }
-  /* действующая схема: применённая правка (если она без ошибок), иначе — документ */
-  function seqOf(p) {
-    const ov = lsGet(dslKey("seq", p.id));
-    if (ov) { const { m } = checkFor("seq", p.id, ov); if (!hasErr(m)) return { ...m, local: true } }
-    return { desc: p.desc, parts: p.parts, steps: p.steps, local: false };
-  }
-  function idefOf(t) {
-    const ov = lsGet(dslKey("idef0", t.id));
-    if (ov) { const { m } = checkFor("idef0", t.id, ov); if (!hasErr(m)) return { ...m, local: true } }
-    return t.idef ? { ...t.idef, local: false } : null;
-  }
-  const teamHex = t => t.team === "?" ? "#c0392b" : getComputedStyle(document.documentElement).getPropertyValue(TEAM[t.team].c.slice(4, -1)).trim();
-  const pname = (m, k) => ((m.parts && m.parts[k]) || D.parts[k] || [k])[0];
-  const LOCAL = '<span class="loc">правка в браузере</span>';
-  function seqHTML(m, uid) {
-    const hid = BPD.hiddenSteps(m, D.parts);
-    let x = `<div class="seqw">${BPD.seqSVG(m, D.parts, uid)}</div><div class="seqk"><span><i style="background:#2f6b2a"></i>видно человеку</span><span><i style="background:#2563c9"></i>скрыто от гостя</span><span>- - → ответ</span></div>`;
-    if (hid.length) x += `<details class="pd"><summary>Что скрыто от гостя · ${hid.length}</summary><ol class="hidl">${hid.map(([n, s]) => `<li value="${n}"><b>${esc(pname(m, s.src))} → ${esc(pname(m, s.dst))}</b> ${esc(s.text)}</li>`).join("")}</ol></details>`;
-    return x;
-  }
-  function idefHTML(t, f, uid) {
-    const o = { title: t.text, color: teamHex(t), dashed: t.team === "?", uid };
-    return BPD.idefSVG(f, o) + (f.children && f.children.length ? `<div class="lb2">Декомпозиция A0 → A1…A${f.children.length}</div><div class="idefw">${BPD.idefDecompSVG(f, { ...o, uid: uid + "d" })}</div>` : "");
-  }
-
-  function openProc(id, tab) {
-    const p = PROC[id], t = TASK[p.task], L = LAYER[p.layer], sq = seqOf(p), fd = idefOf(t);
-    const pre = D.links.filter(l => l.dst === id), post = D.links.filter(l => l.src === id);
-    let x = `<div class="pchain"><div class="pc"><span class="lb">← До</span>${pre.map(l => chainChip(l.src, l.what)).join("") || '<span class="cc ev">—</span>'}</div>
-      <div class="pc"><span class="lb">Этот процесс</span><div class="meb">${esc(p.text)}</div></div>
-      <div class="pc"><span class="lb">После →</span>${post.map(l => chainChip(l.dst, l.what)).join("") || '<span class="cc ev">—</span>'}</div></div>`;
-    if (p.before || p.after) x += `<div class="pab"><div><span class="lb">Было</span>${esc(p.before || "—")}</div><span class="ar">→</span><div><span class="lb">Станет</span><b>${esc(p.after || "—")}</b></div></div>`;
-    if (p.criteria.length) x += `<h4>Что требуется</h4><ul class="crit">${critHTML(p)}</ul>`;
-    const qs = [...qOf(id), ...qOf(p.task)]; if (qs.length) x += `<h4>Вопросы и блокеры</h4>${qHTML(qs)}`;
-    x += `<h4 id="phow">Как устроено ${sq.local ? LOCAL : ""}</h4>`;
-    if (sq.desc) x += `<p class="pdesc${U(sq.desc) ? " ask" : ""}">${esc(sq.desc)}</p>`;
-    x += sq.steps.length ? seqHTML(sq, "m") : '<div class="pempty">Схемы пока нет — соберите её в «Схеме как коде» ниже</div>';
-    if (fd) x += `<details class="pd"${fd.local ? " open" : ""}><summary>Задача целиком — IDEF0${fd.children && fd.children.length ? ` · декомпозиция на ${fd.children.length}` : ""}</summary>${fd.local ? LOCAL : ""}${idefHTML(t, fd, "p")}</details>`;
-    x += `<details class="pd"><summary>Требования БФТ · ${t.reqs.length}</summary><div class="reqs">${t.reqs.map(r => `<span>${r}</span>`).join("")}</div>${p.source ? `<div class="src">Источник: ${esc(p.source)}</div>` : ""}</details>`;
-    x += `<div class="pwork"><h4>Дополнить</h4><textarea id="pnote" placeholder="Контекст техлида: что подправить, что уже известно, ссылки">${esc(lsGet(noteKey(id)))}</textarea>
-      <div class="pai"><div><b>Системная аналитика с ИИ</b><small>промпт собран из карточки: требования, цепочка, схема, вопросы и ваша заметка</small></div>
-      <button class="tool" data-ai="copy" data-kind="sa" data-id="${id}">Скопировать промпт</button><a class="tool" data-ai="open" data-kind="sa" data-id="${id}" target="_blank" rel="noopener">Открыть в Claude ↗</a></div></div>`;
-    x += `<div class="pwork dsl" id="dsl" data-id="${id}"><h4>Схема как код</h4>
-      <div class="dtabs" role="tablist"><button data-dt="seq">Sequence · ${id}</button><button data-dt="idef0">IDEF0 · задача ${t.id}</button></div>
-      <textarea class="dsrc" spellcheck="false" aria-label="Текст схемы"></textarea>
-      <div class="dstat" aria-live="polite"></div><ul class="diss"></ul><div class="dprev"></div>
-      <div class="dbtn"><button class="tool pri" data-dsl="apply">Применить к карточке</button><button class="tool" data-dsl="copy">Скопировать блок</button><button class="tool" data-dsl="reset">Вернуть из документа</button></div>
-      <div class="pai"><div><b>Собрать схему с ИИ</b><small>промпт: грамматика, участники и контекст карточки. Ответ ИИ вставьте в поле — проверка сразу</small></div>
-      <button class="tool" data-ai="copy" data-kind="dsl" data-id="${id}">Скопировать промпт</button><a class="tool" data-ai="open" data-kind="dsl" data-id="${id}" target="_blank" rel="noopener">Открыть в Claude ↗</a></div>
-      <small class="dhint">Правка живёт в этом браузере. В документ — блок через <code>bft-diagram-apply.py</code>, затем перерисовать карту.</small></div>`;
-    openSide(`${L[0]} · ${L[1]}`, L[2], p.text, `<span class="pteam" style="--c:${teamC(t)}"><i></i>${esc(teamN(t))}</span> · задача ${t.id} «${esc(t.text)}» · ${esc(COLS[colOf(p.stage)].name)}`, x, true);
-    side.dataset.ctx = "proc:" + id;
-    const ta = document.getElementById("pnote");
-    ta.addEventListener("input", () => { lsSet(noteKey(id), ta.value); refreshAi() });
-    dslTab(tab || "seq");
-    const src = side.querySelector(".dsrc"); let tm = 0;
-    src.addEventListener("input", () => { const d = side.querySelector("#dsl"); lsSet(dslKey(d.dataset.kind, d.dataset.target, true), src.value); clearTimeout(tm); tm = setTimeout(dslCheck, 150) });
-  }
-  const noteKey = id => `bp-note-${D.epic}-${id}`;
-
-  /* редактор: вкладка, проверка, предпросмотр */
-  function dslTab(kind) {
-    const d = side.querySelector("#dsl"), p = PROC[d.dataset.id], target = kind === "seq" ? p.id : p.task;
-    d.dataset.kind = kind; d.dataset.target = target;
-    d.querySelectorAll("[data-dt]").forEach(b => { b.classList.toggle("on", b.dataset.dt === kind); b.setAttribute("aria-selected", b.dataset.dt === kind) });
-    d.querySelector(".dsrc").value = lsGet(dslKey(kind, target, true)) || lsGet(dslKey(kind, target)) || docSrc(kind, target);
-    dslCheck(); refreshAi();
-  }
-  function dslCheck() {
-    const d = side.querySelector("#dsl"); if (!d) return null;
-    const kind = d.dataset.kind, target = d.dataset.target, { m, off } = checkFor(kind, target, d.querySelector(".dsrc").value);
-    const err = m.issues.filter(i => i.level === "ERROR").length, warn = m.issues.length - err;
-    d.querySelector(".dstat").className = "dstat " + (err ? "bad" : "good");
-    d.querySelector(".dstat").textContent = err ? `✗ Ошибок: ${err}${warn ? ` · предупреждений: ${warn}` : ""} — схема не применится` : `✓ Синтаксис в порядке${warn ? ` · предупреждений: ${warn}` : ""}`;
-    d.querySelector(".diss").innerHTML = m.issues.map(i => `<li class="${i.level === "ERROR" ? "e" : "w"}"><b>стр. ${i.line + off}</b><code>${i.code}</code>${esc(i.msg)}</li>`).join("");
-    const t = TASK[PROC[d.dataset.id].task];
-    const same = blockKey(d.querySelector(".dsrc").value) === blockKey(lsGet(dslKey(kind, target)) || docSrc(kind, target));
-    d.querySelector(".dprev").innerHTML = err ? "" : same ? '<div class="psame">Совпадает со схемой в карточке — измените текст или вставьте ответ ИИ</div>'
-      : `<div class="lb2">Предпросмотр</div>${kind === "seq" ? seqHTML(m, "v") : idefHTML(t, m, "v")}`;
-    d.querySelector('[data-dsl="apply"]').disabled = !!err;
-    return { m, err };
-  }
-  /* блок без пустых строк и отступов — чтобы сравнить «то же самое» */
-  const blockKey = text => { const ex = BPD.extract(text); return ex.kind ? [ex.kind, ex.id, ...ex.body.map(l => l.trim()).filter(Boolean)].join("\n") : text.trim() };
-  function dslAction(act) {
-    const d = side.querySelector("#dsl"), kind = d.dataset.kind, target = d.dataset.target, ta = d.querySelector(".dsrc");
-    if (act === "copy") { const ex = BPD.extract(ta.value); return copyText(ex.kind ? [`\`\`\`${ex.kind} ${ex.id}`, ...ex.body, "```"].join("\n") : ta.value, d.querySelector('[data-dsl="copy"]')) }
-    if (act === "apply") { const r = dslCheck(); if (!r || r.err) return; const ex = BPD.extract(ta.value); lsSet(dslKey(kind, target), [`\`\`\`${ex.kind} ${ex.id}`, ...ex.body, "```"].join("\n")) }
-    if (act === "reset") lsSet(dslKey(kind, target), "");
-    lsSet(dslKey(kind, target, true), "");
-    openProc(d.dataset.id, kind);
-    if (act === "apply") { const h = side.querySelector(kind === "seq" ? "#phow" : "details.pd"); if (h) side.scrollTop = h.offsetTop - 110 }
-  }
-
-  /* ---------- промпты для ИИ ---------- */
-  function procContext(id) {
-    const p = PROC[id], t = TASK[p.task], nm = x => PROC[x] ? PROC[x].text : x, note = lsGet(noteKey(id));
-    return `Процесс ${id}: ${p.text}
-Задача ${t.id} «${t.text}», команда: ${teamN(t)}, шаг пути: ${COLS[colOf(p.stage)].name}, слой: ${LAYER[p.layer][0]}.
-Было: ${p.before || "—"}. Станет: ${p.after || "—"}.
-До: ${D.links.filter(l => l.dst === id).map(l => `${nm(l.src)} (${l.what})`).join("; ") || "—"}.
-После: ${D.links.filter(l => l.src === id).map(l => `${nm(l.dst)} (${l.what})`).join("; ") || "—"}.
-
-Что требуется (из БФТ):
-${p.criteria.map(c => `- ${c.text} (${c.source})`).join("\n") || "—"}
-
-Открытые вопросы:
-${[...qOf(id), ...qOf(p.task)].map(q => `- ${q.kind === "блокер" ? "БЛОКЕР: " : ""}${q.text} (кому: ${q.to})`).join("\n") || "—"}
-${note ? `\nЗаметка техлида: ${note}\n` : ""}
-Источник: БФТ ${D.epic}${p.source ? `, ${p.source}` : ""}.`;
-  }
-  function aiPrompt(id) {
-    const p = PROC[id], sq = seqOf(p);
-    let n = 0; const steps = sq.steps.map(s => `${++n}. ${s.branch ? `[${s.branch}] ` : ""}${pname(sq, s.src)} → ${pname(sq, s.dst)}: ${s.text}`);
-    return `Ты — системный аналитик. Проведи системную аналитику процесса инициативы «${D.title}».
-
-${procContext(id)}
-
-Как устроено${sq.desc ? `: ${sq.desc}` : ""}
-${steps.join("\n") || "—"}
-
-Задача:
-1) найди пробелы, противоречия и неявные зависимости в процессе;
-2) опиши альтернативные и ошибочные сценарии, которых нет в БФТ;
-3) предложи, какие состояния, данные и интеграции нужны — помечай это как гипотезу для СА;
-4) сформулируй вопросы «кому — что», без которых процесс не запустить.`;
-  }
-  function dslPrompt(id, kind) {
-    const p = PROC[id], t = TASK[p.task], target = kind === "seq" ? id : t.id;
-    const cur = lsGet(dslKey(kind, target, true)) || lsGet(dslKey(kind, target)) || docSrc(kind, target);
-    const parts = Object.keys(D.parts).map(k => `${k}: ${D.parts[k][0]} (${{ p: "человек", i: "интерфейс", s: "система", x: "внешний" }[D.parts[k][1]]})`).join("; ");
-    return `Ты — системный аналитик. Собери ${kind === "seq" ? `sequence-схему процесса ${id}` : `IDEF0 задачи ${t.id} «${t.text}» с декомпозицией на функции`} инициативы «${D.title}». Опирайся только на контекст ниже; чего в нём нет — пиши [УТОЧНИТЬ у <кого>], не придумывай.
-
-Грамматика — строго:
-${BPD.GRAMMAR[kind]}
-${kind === "seq" ? `\nУчастники карты: ${parts}.\n` : ""}
-${procContext(id)}
-
-Сейчас:
-${cur}
-
-Верни только один блок \`\`\`${kind} ${target} … \`\`\` без пояснений до и после.`;
-  }
-  function promptFor(el) { return el.dataset.kind === "dsl" ? dslPrompt(el.dataset.id, side.querySelector("#dsl").dataset.kind) : aiPrompt(el.dataset.id) }
-  function refreshAi() { side.querySelectorAll('[data-ai="open"]').forEach(a => a.href = "https://claude.ai/new?q=" + encodeURIComponent(promptFor(a))) }
   function copyText(txt, btn) {
     const lab = btn.textContent, done = () => { btn.textContent = "Скопировано ✓"; setTimeout(() => btn.textContent = lab, 1600) };
     (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject()).then(done).catch(() => { const ta = document.createElement("textarea"); ta.value = txt; document.body.appendChild(ta); ta.select(); try { document.execCommand("copy"); done() } catch (er) { } ta.remove() });
@@ -498,8 +360,8 @@ ${cur}
       <h4>Что видят</h4><div class="row"><i><span class="box" style="background:#fff;border:1px solid var(--line)"></span></i><span>Экран и фраза гостя или ресторана<small>по клику — все шаги этапа, экраны, вопросы</small></span></div>
       <h4>Что делаем — цвет команды</h4>${D.teams.filter(t => used[t.id]).map(t => `<div class="row"><i><span class="sw" style="background:${TEAM[t.id].c}"></span></i><span>${esc(t.name)}</span></div>`).join("")}${used["?"] ? `<div class="row"><i><span class="sw" style="border:1.5px dashed var(--red)"></span></i><span>Команда не определена</span></div>` : ""}
       <div class="row"><i><span class="qn">2</span></i><span>Открытые вопросы</span></div><div class="row"><i><span class="bl" style="margin:0">Блокер</span></i><span>Без решения задача не стартует</span></div>
-      <h4>Как это работает</h4><div class="row"><i><span class="box" style="background:#e5f3f4"></span></i><span>Frontstage<small>то, что видит гость</small></span></div><div class="row"><i><span class="box" style="background:#e7edf8"></span></i><span>Backstage<small>за кадром</small></span></div><div class="row"><i><span class="box" style="background:#efecf6"></span></i><span>Support<small>общие ресурсы и внешние каналы</small></span></div>
-      <div class="row"><i><span class="ln1"></span></i><span>Линия взаимодействия</span></div><div class="row"><i><span class="ln2"></span></i><span>Линия видимости</span></div><div class="row"><i><span class="ln3"></span></i><span>Линия внутреннего взаимодействия</span></div>
+      <h4>Как это работает</h4><div class="row"><i><span class="box" style="background:#f7ece3"></span></i><span>Employee Actions<small>сотрудник на виду у гостя: официант, оператор</small></span></div><div class="row"><i><span class="box" style="background:#e5f3f4"></span></i><span>Technology<small>интерфейсы, которые видит гость</small></span></div><div class="row"><i><span class="box" style="background:#e7edf8"></span></i><span>Backstage<small>за кадром</small></span></div><div class="row"><i><span class="box" style="background:#efecf6"></span></i><span>Support<small>общие ресурсы и внешние каналы</small></span></div>
+      <div class="row"><i><span class="ln2"></span></i><span>Линия видимости</span></div><div class="row"><i><span class="ln3"></span></i><span>Линия внутреннего взаимодействия</span></div>
       <div class="row"><i><span class="dot inl"></span></i><span>На экране есть вопрос</span></div></div>`);
   }
 
@@ -532,13 +394,7 @@ ${cur}
     if (t.closest("#menu [data-guide]") || t.closest("#menu .play")) menu(false);
     const sl = t.closest("[data-sl]"); if (sl) return slide(sl.closest(".pic"), +sl.dataset.sl);
     const dd = t.closest("[data-dot]"); if (dd) return slide(dd.closest(".fr").querySelector(".pic"), 0, +dd.dataset.dot);
-    const ai = t.closest("[data-ai]");
-    if (ai) {
-      if (ai.dataset.ai === "open") { ai.href = "https://claude.ai/new?q=" + encodeURIComponent(promptFor(ai)); return }
-      return copyText(promptFor(ai), ai);
-    }
-    const dt = t.closest("[data-dt]"); if (dt) return dslTab(dt.dataset.dt);
-    const da = t.closest("[data-dsl]"); if (da) return dslAction(da.dataset.dsl);
+    const sd = t.closest("[data-screen-doc]"); if (sd) return openScreen(sd.dataset.screenDoc, 0);
     const tf = t.closest("[data-tf]");
     if (tf) { teamFilter(tf.classList.contains("on") ? "" : tf.dataset.tf); return menu(false) }
     const g = t.closest("[data-guide]"); if (g) return openGuide(g.dataset.guide);
@@ -577,23 +433,23 @@ ${cur}
     }
     try { localStorage.setItem(CM_REV, D.rev) } catch (e) { }
   })();
-  const DOCS_ = D.docs || {}, mapDoc = DOCS_.map || "map.md", storyDoc = DOCS_.story || "story.md";
-  /* что именно под курсором: ключ для метки, подпись для промпта, файл, который править */
+  const F = D.files || {}, mapDoc = F.map || "backlog/docs", storyDoc = F.story || "backlog/docs";
+  /* что именно под курсором: ключ для метки, подпись для промпта, файл проекта Backlog.md, который править */
   function cmTarget(el) {
     if (el.closest("#side")) {
       const [kind, id] = (side.dataset.ctx || ":").split(":"), note = side.dataset.note || "";
-      if (kind === "task") { const sec = el.closest(".tk"); return { key: "task:" + id, label: `Задача ${id} «${TASK[id].text}»${sec ? " · раздел " + sec.querySelector("h4").textContent : ""}`, file: `tasks/${id}.md` } }
+      if (kind === "task") { const s = el.closest(".tk"); return { key: "task:" + id, label: `Задача ${id} «${TASK[id].text}»${s ? " · раздел " + s.querySelector("h4").textContent : side.querySelector(".exec") ? " · исполнение" : ""}`, file: TASK[id].file } }
       if (kind === "screen") { const li = el.closest("[data-snnote]"), tab = side.querySelector(".snseg .on");
         const what = note || (li ? `${tab ? tab.textContent : ""} · заметка «${li.querySelector("b").textContent}»` : "");
-        return { key: "screen:" + id, label: `Экран ${id} «${SCR[id].title}»${what ? " · " + what : ""}`, file: `screens/${id}.md` } }
-      if (kind === "proc") { const cr = el.closest(".crit li"); return { key: "proc:" + id, label: `Процесс ${id} «${PROC[id].text}»${cr ? " · критерий «" + cr.textContent.trim().slice(0, 60) + "»" : el.closest(".seqw,.dsl") ? " · схема" : el.closest(".idef,.idefw") ? " · IDEF0" : ""}`, file: mapDoc } }
+        return { key: "screen:" + id, label: `Экран ${id} «${SCR[id].title}»${what ? " · " + what : ""}`, file: (D.noteFiles || {})[id] || storyDoc } }
+      if (kind === "proc") { const s = el.closest(".tk"); return { key: "proc:" + id, label: `Карточка ${id} «${PROC[id].text}»${s ? " · раздел " + s.querySelector("h4").textContent : ""}`, file: PROC[id].file } }
       if (kind === "seen") return { key: "seen:" + id, label: `Шаги истории «${id}»`, file: storyDoc };
       return { key: "map", label: "Карта", file: mapDoc };
     }
     const fr = el.closest(".fr"); if (fr) { const cap = fr.querySelector(".cap").textContent, ids = (fr.dataset.screens || "").split(",").filter(Boolean);
-      fr.dataset.cmk = "fr:" + cap; return { key: "fr:" + cap, label: `Что видят · шаг «${cap}»`, file: storyDoc + (ids.length ? `, screens/${NOTE_OF[ids[0]] || ids[0]}.md` : "") } }
-    const wk = el.closest("[data-task]"); if (wk) { const id = wk.dataset.task; wk.dataset.cmk = "task:" + id; return { key: "task:" + id, label: `Задача ${id} «${TASK[id].text}»`, file: `${mapDoc}, tasks/${id}.md` } }
-    const hw = el.closest("[data-proc]"); if (hw) { const id = hw.dataset.proc; hw.dataset.cmk = "proc:" + id; return { key: "proc:" + id, label: `Процесс ${id} «${PROC[id].text}»`, file: mapDoc } }
+      fr.dataset.cmk = "fr:" + cap; return { key: "fr:" + cap, label: `Что видят · шаг «${cap}»`, file: storyDoc + (ids.length && (D.noteFiles || {})[NOTE_OF[ids[0]]] ? `, ${D.noteFiles[NOTE_OF[ids[0]]]}` : "") } }
+    const wk = el.closest("[data-task]"); if (wk) { const id = wk.dataset.task; wk.dataset.cmk = "task:" + id; return { key: "task:" + id, label: `Задача ${id} «${TASK[id].text}»`, file: TASK[id].file } }
+    const hw = el.closest("[data-proc]"); if (hw) { const id = hw.dataset.proc; hw.dataset.cmk = "proc:" + id; return { key: "proc:" + id, label: `Карточка ${id} «${PROC[id].text}»`, file: PROC[id].file } }
     const hd = el.closest(".hh,.mh:not(.corner)"); if (hd) { const name = hd.querySelector("b").textContent; hd.dataset.cmk = "stage:" + name; return { key: "stage:" + name, label: `Этап «${name}»`, file: storyDoc } }
     const row = el.closest(".hl,.ml"); if (row) { const name = row.textContent.trim().split("\n")[0].slice(0, 40); return { key: "row:" + name, label: `Ряд «${name}»`, file: row.closest(".hero") ? storyDoc : mapDoc } }
     return { key: "map", label: "Карта", file: mapDoc };
@@ -632,29 +488,29 @@ ${cur}
   document.addEventListener("mousedown", e => { if (cmPop && !e.target.closest(".cmpop")) cmClose() });
   function cmPrompt(list) {
     if (!list.length) return "";
-    const files = [...new Set(list.flatMap(c => c.file.split(", ")))];
-    return [`Доработай Service Blueprint «${D.title}» (${D.epic}) по замечаниям с карты:`, "",
+    const files = [...new Set(list.flatMap(c => c.file.split(", ")))], proj = F.project || "<epic>-blueprint";
+    return [`Доработай Service Blueprint «${D.title}» (${D.epic}) по замечаниям с карты. Данные — проект Backlog.md ${proj}:`, "",
       ...list.map((c, i) => `${i + 1}. [${c.label}]${c.quote ? ` (по фрагменту «${c.quote}»)` : ""} ${c.text}\n   Файл: ${c.file}`), "",
-      `Правь только названное. Источник фактов — БФТ ${DOCS_.source || ""}; чего в нём нет — [УТОЧНИТЬ у {кого}] и строка в «Вопросах». Схемы — блоками seq/idef0 через bft-diagram-apply.py.`,
+      "Правь только названное и только через CLI backlog: `backlog task edit <ID> …`, `backlog doc update <doc-id> --content …`; файлы руками не правь.",
+      `Источник фактов — БФТ ${F.source || ""}; чего в нём нет — [УТОЧНИТЬ у {кого}] и строка в «Вопросах» документа «Карта». IDEF0 карточки не пиши: схема собирается из «Параметров».`,
       `Файлы к правке: ${files.join(", ")}.`, "",
-      "После правок — обязательно, в этом порядке:",
-      `1. python3 <skills_path>/bft-blueprint/scripts/bft-story-lint.py ${storyDoc}   (если правилась история)`,
-      `2. python3 <skills_path>/bft-blueprint/scripts/bft-map-lint.py ${mapDoc}`,
-      `3. python3 <skills_path>/bft-blueprint/scripts/bft-map-render.py ${mapDoc}   (пересобрать страницу — без этого замечания придут повторно)`].join("\n");
+      "После правок — обязательно, в этом порядке, из папки проекта:",
+      "1. python3 .blueprint/scripts/bft-backlog-lint.py .   (или <skills_path>/bft-blueprint/scripts/bft-backlog-lint.py <проект>)",
+      "2. python3 .blueprint/scripts/bft-backlog-build.py . --out-dir .   (пересобрать страницу и архив — без этого замечания придут повторно)"].join("\n");
   }
   function cmPanel() {
     const list = cmOpen(), past = cmLoad().filter(c => c.closedAt);
     side.innerHTML = `<div class="snbar"><h3>Замечания${list.length ? " · " + list.length : ""}</h3><button class="x" aria-label="Закрыть">×</button></div><div class="snbody">
       ${list.length ? `<ul class="cmlist">${list.map(c => `<li><small>${esc(c.label)}</small>${c.quote ? `<i>«${esc(c.quote)}»</i>` : ""}<span>${esc(c.text)}</span><button data-cmdel="${esc(c.ts)}">удалить</button></li>`).join("")}</ul>
       <h4 class="cmh">Промпт для ИИ-агента</h4><textarea class="cmout" readonly>${esc(cmPrompt(list))}</textarea><button class="tool pri" data-cmcopy>Скопировать промпт</button>`
-      : '<p class="cmempty">Замечаний нет. Правой кнопкой мыши по кадру, этапу, задаче, процессу или заметке — оставить замечание.</p>'}
+      : '<p class="cmempty">Замечаний нет. Правой кнопкой мыши по кадру, этапу, задаче, карточке или заметке — оставить замечание.</p>'}
       ${past.length ? `<details class="cmpast"><summary>Учтено в прошлых кругах · ${past.length}</summary><ul class="cmlist">${past.map(c => `<li><small>${esc(c.label)} · круг ${c.iteration || 1}</small><span>${esc(c.text)}</span></li>`).join("")}</ul></details>` : ""}</div>`;
     side.dataset.ctx = "cm"; body.classList.remove("wide"); body.classList.add("open"); side.scrollTop = 0;
   }
   document.addEventListener("click", e => {
     const p = e.target.closest("[data-cmpanel]"); if (p) { menu(false); return cmPanel() }
     const tt = e.target.closest("[data-tktab]"); if (tt) return openTask(side.dataset.ctx.split(":")[1], +tt.dataset.tktab);
-    const xc = e.target.closest("[data-excopy]"); if (xc) return copyText(execMd(xc.dataset.excopy), xc);
+    const xc = e.target.closest("[data-excopy]"); if (xc) return copyText(execCmd(xc.dataset.excopy), xc);
     const d = e.target.closest("[data-cmdel]"); if (d) { cmSave(cmLoad().filter(c => c.ts !== d.dataset.cmdel)); cmPaint(); return cmPanel() }
     const c = e.target.closest("[data-cmcopy]"); if (c) return copyText(side.querySelector(".cmout").value, c);
   });
@@ -665,5 +521,5 @@ ${cur}
   document.querySelectorAll(".hh,.mh:not(.corner)").forEach(x => x.dataset.cmk = "stage:" + x.querySelector("b").textContent);
   cmPaint();
 
-  window.BPMAP = { setView, cmPanel, cmTarget, cmPrompt, aiPrompt, dslPrompt, openProc, openTask, openSeen, openScreen, openNote, zoom, dslTab, dslCheck };
+  window.BPMAP = { setView, cmPanel, cmTarget, cmPrompt, execCmd, openProc, openTask, openSeen, openScreen, openNote, zoom };
 })();

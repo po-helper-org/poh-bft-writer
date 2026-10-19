@@ -1,6 +1,6 @@
 # Скелет документов blueprint (document_assembly.md)
 
-Единственный источник формы `<epic_slug>-story.md` (история через экраны, первый этап — §«История»), `<epic_slug>-map.md` (карта инициативы, второй этап — §«Карта») и прежней слоевой схемы `<epic_slug>-blueprint.md`. Формат — markdown-таблицы, как весь БФТ: документ ревьюится глазами и публикуется в Confluence без конвертации. Разбирает его `scripts/bft_blueprint.py`; форму держит линтер `bft-blueprint-lint.py`.
+Единственный источник формы `<epic_slug>-story.md` (история через экраны, первый этап — §«История»), проекта карты `<epic_slug>-blueprint/` (второй этап — §«Карта», проект Backlog.md) и прежней слоевой схемы `<epic_slug>-blueprint.md`. Формат — markdown-таблицы, как весь БФТ: документ ревьюится глазами и публикуется в Confluence без конвертации. Разбирает его `scripts/bft_blueprint.py`; форму держит линтер `bft-blueprint-lint.py`.
 
 ## Путь файлов
 
@@ -10,10 +10,9 @@
 |---|---|---|
 | `<epic_slug>-story.md` | история через экраны — верхняя линия, источник правды | ты |
 | `<epic_slug>-story.html` | страница истории: ряды персонажей слева направо, подробности шага, рассказ по шагам, открытые вопросы | `bft-story-render.py` |
-| `<epic_slug>-map.md` | карта инициативы — источник правды | ты |
-| `<epic_slug>-map.html` | страница карты: что видят, что делаем, как это работает; карточки задач и процессов, схемы как код с проверкой, промпты для ИИ, требования к экранам | `bft-map-render.py` |
-| `tasks/<ID>.md` | постановка задачи для техлида: ASIS, GAP, TOBE, HowToDemo, чеклист приемки, дополнительно (`resources/task_brief.md`) | ты |
-| `screens/<ID>.md` | требования к экрану для дизайнера: Product, Design, Functions — заметки в markdown (`resources/screen_notes.md`) | ты |
+| `<epic_slug>-blueprint/` | карта инициативы — проект Backlog.md, источник правды: задачи «Что делаем», карточки «Как это работает», документы «Карта», «История», требования к экранам (`resources/backlog_rules.md`) | ты, через CLI `backlog` |
+| `<epic_slug>-map.html` | страница карты: что видят, что делаем, как это работает; постановки задач, карточки, требования к экранам, замечания | `bft-backlog-build.py` |
+| `<epic_slug>-blueprint.zip` | автономный проект: папка Backlog.md, страница и `.blueprint/` со скриптами и правилами | `bft-backlog-build.py` |
 | `<epic_slug>-blueprint.md` | прежняя слоевая схема (режим `--layers`) | ты |
 | `<epic_slug>-blueprint.html` | страница ревью: образ результата, диаграмма, «что реализовать по слоям», покрытие требований, список `[УТОЧНИТЬ]` | `bft-blueprint-render.py` |
 | `<epic_slug>-blueprint.svg` | диаграмма отдельной картинкой для Confluence | `bft-blueprint-render.py` |
@@ -122,68 +121,23 @@ python3 <skills_path>/bft-blueprint/scripts/bft-story-render.py <docs_path>/<epi
 
 ## Карта
 
-`<epic_slug>-map.md` собирается после согласованной истории и ссылается на неё (`story_doc`). Разбирает его `scripts/bft_map.py`, форму держит `bft-map-lint.py`, смысл — `map_rules.md`. Эталон — `examples/golden_map.md`.
-
-Frontmatter — девять ключей: восемь, как у истории, но `stage: map`, плюс `story_doc` — путь к `-story.md` относительно карты.
+Карта собирается после согласованной истории — проектом Backlog.md `<epic_slug>-blueprint/` рядом с историей. Создаёт его `bft-backlog-init.py`, разбирает `scripts/bft_backlog.py`, форму и смысл держит `bft-backlog-lint.py` по `resources/backlog_rules.md`. Эталон — `examples/bartello-restart-blueprint/`.
 
 ```
-# [Карта] <epic_slug>: <название инициативы из БФТ>
-
-## Команды
-| ID | Команда |
-ID — латиница-слаг (vit, gds). Цвет назначает страница по порядку строк.
-
-## Задачи
-| ID | Этап | Команда | Задача | Зачем | Требования | Статус |
-ID — 1.2 (этап.номер). Этап — ID этапа истории или `стало`. Команда — ID или `? (кандидаты)`.
-Статус: создать | доработать | используем | уточнить.
-
-## IDEF0
-```idef0 1.2
-вход: …; …
-управление: …
-выход: …
-механизм: …
-
-A1 Функция          ← декомпозиция по желанию, 2–6 функций
-  вход: …
-  управление: …
-  выход: …
+<epic_slug>-blueprint/
+  README.md, CLAUDE.md, AGENTS.md          инструкции Backlog.md и блок «Service Blueprint»
+  backlog/config.yml                       task_prefix: "bp"
+  backlog/docs/doc-1 - Карта.md            <!-- bft-map паспорт -->, «Команды», «Вопросы»
+  backlog/docs/doc-2 - История.md          <!-- bft-story frontmatter истории -->, история целиком
+  backlog/docs/screens/doc-N - F3 · ….md   требования к экрану (resources/screen_notes.md)
+  backlog/tasks/bp-N - ….md                «Что делаем»: stage:…, вид, @команда, постановка, критерии приемки
+  backlog/tasks/bp-N.M - ….md              «Как это работает»: stage:…, layer:…, суть, Параметры, IDEF0, HowToDemo
 ```
-По блоку на задачу. Грамматика и проверки — resources/diagram_dsl.md.
 
-## Процессы
-| ID | Задача | Этап | Слой | Процесс | Было | Станет | Источник |
-ID — П1, П2… Слой: фронтстейдж | бэкстейдж | поддержка.
-
-## Участники
-| ID | Участник | Вид |
-ID — латиница до 8 знаков (G, App, Gd). Вид: человек | интерфейс | система | внешний.
-
-## Схемы
-```seq П1
-описание: суть процесса одной-двумя фразами
-G -> V: вызов
-V --> G: ответ
-если условие … иначе условие … конец
-```
-По блоку на процесс. Участники — ID из «Участников» или объявление в блоке.
-Вне блоков в «IDEF0» и «Схемах» — только пустые строки.
-
-## Критерии
-| Процесс | Критерий | Источник |
-
-## Цепочка
-| Откуда | Куда | Что передаётся |
-Конец — ID процесса или событие текстом; хотя бы один конец — процесс.
-
-## Вопросы
-| ID | Кому | Вопрос | Где | Тип | Ответ |
-ID — В1… «Где» — ID задачи или процесса. Тип: вопрос | блокер. «Ответ» — текст с `(PO, дата)` или прочерк.
-```
+Паспорт «Карты» — семь ключей: `epic_slug`, `source_doc`, `source_stage`, `source_rev`, `version`, `revised`, `status`.
 
 ```bash
-python3 <skills_path>/bft-blueprint/scripts/bft-map-lint.py <docs_path>/<epic_slug>/<epic_slug>-map.md
-python3 <skills_path>/bft-writer/scripts/bft-style-lint.py <docs_path>/<epic_slug>/<epic_slug>-map.md
-python3 <skills_path>/bft-blueprint/scripts/bft-map-render.py <docs_path>/<epic_slug>/<epic_slug>-map.md
+python3 <skills_path>/bft-blueprint/scripts/bft-backlog-init.py <docs_path>/<epic_slug>/<epic_slug>-story.md
+python3 <skills_path>/bft-blueprint/scripts/bft-backlog-lint.py <docs_path>/<epic_slug>/<epic_slug>-blueprint --source <docs_path>/<epic_slug>/<epic_slug>.md
+python3 <skills_path>/bft-blueprint/scripts/bft-backlog-build.py <docs_path>/<epic_slug>/<epic_slug>-blueprint --source <docs_path>/<epic_slug>/<epic_slug>.md
 ```
