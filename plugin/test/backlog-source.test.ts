@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import { parseTaskList } from '../src/backlog-source.js'
 
 const OUT = `To Do:
-  TASK-1 - Билеты в кино в Vibe App (ac: 0/1)
+  TASK-1 - Билеты в кино в AppV (ac: 0/1)
   [HIGH] [bft] TASK-2 - БФТ: Возвраты заказов
   [other] TASK-3 - Чужой тип
 FAST-DONE:
@@ -32,7 +32,7 @@ test('чужой тип отбрасывается, а задачи без ти�
 
 test('служебные хвосты вывода CLI в название не попадают', () => {
   const tasks = parseTaskList(OUT)
-  assert.equal(tasks[0].title, 'Билеты в кино в Vibe App')
+  assert.equal(tasks[0].title, 'Билеты в кино в AppV')
   assert.equal(tasks[1].title, 'Возвраты заказов')
 })
 

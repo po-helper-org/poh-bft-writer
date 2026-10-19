@@ -251,7 +251,7 @@ const OKR_FORM = {
     qa: { sprint: null, resources: '' },
     release: { sprint: null, resources: '' },
   },
-  teams: 'GDS/Платформа',
+  teams: 'TeamA/Платформа',
   techLeads: '',
   executors: '',
   comment: 'Ждём Финтех',
@@ -277,7 +277,7 @@ test('добавить в OKR: стадия OKR-ADDED, план и коммен�
   const edit = calls.find(c => c[1] === 'edit')
   assert.deepEqual(edit, [
     'task', 'edit', 'PO-140', '-s', 'OKR-ADDED',
-    '--plan', 'quarter: 2026-Q4\nanalyze: спринт 3 / SA\ndev: спринт 4 / BE\nteams: GDS/Платформа',
+    '--plan', 'quarter: 2026-Q4\nanalyze: спринт 3 / SA\ndev: спринт 4 / BE\nteams: TeamA/Платформа',
     '--append-notes', 'OKR: Ждём Финтех',
     '--add-ref', OKR_FORM.confluence,
     '--add-ref', OKR_FORM.epic,
@@ -465,13 +465,13 @@ test('ход Claude Code: черновик в stdin, cwd — рабочее пр
   )
   assert.equal(reader.chatAvailable(), true)
 
-  const started = await reader.chatStart('alpha', 'Убери раздел про MRS.')
+  const started = await reader.chatStart('alpha', 'Убери раздел про UnitB.')
   assert.equal(started.status, 'running')
   assert.equal(spawned.length, 1)
   assert.equal(spawned[0].bin, '/opt/claude')
   assert.equal(spawned[0].cwd, '/ws/.bft', 'родитель каталога документов')
   assert.ok(spawned[0].input.startsWith('/bft-deep alpha\n'), spawned[0].input)
-  assert.match(spawned[0].input, /Правка PO к документу documentation\/alpha\/alpha\.md:\nУбери раздел про MRS\./)
+  assert.match(spawned[0].input, /Правка PO к документу documentation\/alpha\/alpha\.md:\nУбери раздел про UnitB\./)
   const sessionArg = spawned[0].args.indexOf('--session-id')
   assert.ok(sessionArg >= 0, spawned[0].args.join(' '))
   assert.equal(spawned[0].args[sessionArg + 1], started.sessionId)

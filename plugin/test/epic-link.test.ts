@@ -11,7 +11,7 @@ test('ссылка внутрь каталога документов норма
   assert.equal(normalizeDocsRef('./.bft/documentation/alpha/alpha.md', DOCS), '.bft/documentation/alpha/alpha.md')
   // Прежнее имя каталога и префикс репозитория — то, что реально встречается в задачах.
   assert.equal(normalizeDocsRef('bft/documentation/alpha/letter.md', DOCS), '.bft/documentation/alpha/letter.md')
-  assert.equal(normalizeDocsRef('ishmanov-cortex/bft/documentation/alpha/alpha.html', 'bft/documentation'), 'bft/documentation/alpha/alpha.html')
+  assert.equal(normalizeDocsRef('my-workspace/bft/documentation/alpha/alpha.html', 'bft/documentation'), 'bft/documentation/alpha/alpha.html')
   assert.equal(normalizeDocsRef('bft\\documentation\\alpha\\alpha.html', 'bft/documentation'), 'bft/documentation/alpha/alpha.html')
 })
 
@@ -39,7 +39,7 @@ test('H1 даёт ключ и название', () => {
 })
 
 test('название сравнивается без регистра, кавычек, пробелов и префикса «БФТ:»', () => {
-  assert.equal(normalizeTitle('БФТ:  AI Harness  агент для «Ticketland» PHP'), 'ai harness агент для ticketland php')
+  assert.equal(normalizeTitle('БФТ:  AI Harness  агент для «Acme Tickets» PHP'), 'ai harness агент для acme tickets php')
   assert.equal(normalizeTitle('БФТ (упрощенно): Взаиморасчёты'), 'взаиморасчёты')
 })
 

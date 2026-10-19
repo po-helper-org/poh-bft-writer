@@ -210,7 +210,7 @@ test('шапка документа попадает в строку очере�
     '| S (Specific) | Вывод кино на афишу |', '| M (Measurable) | Кино видно |',
     '', '### How to demo', '', '1. Открываю приложение.', '2. Вижу кино.', '',
     '### Общая информация', '', '| Поле | Значение |', '|---|---|',
-    '| Ответственный за продукт | Геворгян Виктория (коммерция) |',
+    '| Ответственный за продукт | Белова Виктория (коммерция) |',
   ].join('\n')
   const ports = fakePorts({
     '/ws/.bft/documentation': ['kino'],
@@ -220,7 +220,7 @@ test('шапка документа попадает в строку очере�
   const { tasks } = await scanWorkspace(loadConfig(ENV_BOARD), ports)
   assert.equal(tasks[0].smart, 'S (Specific): Вывод кино на афишу\nM (Measurable): Кино видно')
   assert.deepEqual(tasks[0].howToDemo, ['Открываю приложение.', 'Вижу кино.'])
-  assert.equal(tasks[0].customer, 'Геворгян Виктория (коммерция)')
+  assert.equal(tasks[0].customer, 'Белова Виктория (коммерция)')
 })
 
 test('эпик сброшен до fast, доска осталась на DEEP-REVIEW: стадия с доски, нехватка называет deep-документ', async () => {

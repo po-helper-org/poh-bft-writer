@@ -72,7 +72,7 @@ def parse_frontmatter(text: str):
 
 # ---------- inline markdown ----------
 
-# Базовые адреса корпоративных систем MTS — те же, что в bft_standards.md,
+# Базовые адреса корпоративных систем — те же, что в bft_standards.md,
 # bft-lint.py (гейт LN001/LN002) и bft-deliver-check.py.
 JIRA_BROWSE = os.environ.get("BFT_JIRA_BROWSE_URL", "https://jira.example.com/browse/")
 WIKI_PAGE = os.environ.get(
@@ -220,7 +220,7 @@ def parse_blocks(body: str):
             blocks.append(("heading", level, text))
             i += 1
             continue
-        # Заголовок-подчёркивание (setext): канон MTS размечает свои разделы
+        # Заголовок-подчёркивание (setext): корпоративный канон размечает свои разделы
         # именно так — «Функциональные требования*», а под ним строка «====».
         # Без этой ветки раздел канона уезжал на страницу абзацем вместе с
         # подчёркиванием («План демонстрации ====…»), не попадал в оглавление

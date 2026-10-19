@@ -11,15 +11,15 @@ trap 'rm -rf "$TMP"' EXIT
 fails=0
 
 DOCS="$TMP/ws/.bft/documentation"
-mkdir -p "$DOCS/direct-faq" "$DOCS/vibeapp"
+mkdir -p "$DOCS/direct-faq" "$DOCS/appv"
 
 # Эпик после /bft-deep: единый документ плюс собранная страница ревью.
 cp "$REPO/skills/bft-deep-swarm/examples/golden_deep_document.md" "$DOCS/direct-faq/direct-faq.md"
 python3 "$REPO/skills/bft-writer/scripts/bft-html-export.py" "$DOCS/direct-faq/direct-faq.md" >/dev/null 2>&1
 
 # Эпик после одного /bft-fast: только шапка.
-cp "$REPO/skills/bft-fast/examples/golden_document.md" "$DOCS/vibeapp/vibeapp-fast.md"
-python3 "$REPO/skills/bft-writer/scripts/bft-html-export.py" "$DOCS/vibeapp/vibeapp-fast.md" >/dev/null 2>&1
+cp "$REPO/skills/bft-fast/examples/golden_document.md" "$DOCS/appv/appv-fast.md"
+python3 "$REPO/skills/bft-writer/scripts/bft-html-export.py" "$DOCS/appv/appv-fast.md" >/dev/null 2>&1
 
 ( cd "$REPO/plugin" && pnpm build >/dev/null ) || { echo "FAIL  плагин не собрался"; exit 1; }
 
@@ -80,13 +80,13 @@ check "оба эпика попали в очередь" "len(d['tasks']) == 2"
 check "эпик после deep получил стадию DEEP-REVIEW" \
       "[t for t in d['tasks'] if t['id']=='direct-faq'][0]['stage'] == 'DEEP-REVIEW'"
 check "эпик после одного fast получил стадию FAST-DONE" \
-      "[t for t in d['tasks'] if t['id']=='vibeapp'][0]['stage'] == 'FAST-DONE'"
+      "[t for t in d['tasks'] if t['id']=='appv'][0]['stage'] == 'FAST-DONE'"
 check "название взято из H1 документа, а не из имени папки" \
       "'Вопрос-ответ' in [t for t in d['tasks'] if t['id']=='direct-faq'][0]['title']"
 check "ссылка на страницу ревью указывает на собранный экспортёром файл" \
       "[t for t in d['tasks'] if t['id']=='direct-faq'][0]['html'] == '.bft/documentation/direct-faq/direct-faq.html'"
 check "страница ревью fast распознана как своя, а не как страница deep" \
-      "[t for t in d['tasks'] if t['id']=='vibeapp'][0]['artifacts'] == {'fast': True, 'fastHtml': True, 'deep': False, 'deepHtml': False, 'custdev': False, 'custdevHtml': False}"
+      "[t for t in d['tasks'] if t['id']=='appv'][0]['artifacts'] == {'fast': True, 'fastHtml': True, 'deep': False, 'deepHtml': False, 'custdev': False, 'custdevHtml': False}"
 
 # Эталон deep собран, но не отгружен: страницы Confluence и эпика в нём нет.
 # Это ровно тот случай, который обязан вернуться в DEEP-REVIEW с объяснением.
@@ -114,8 +114,8 @@ else
       && sed -i.bak 's/^statuses:.*/statuses: ["To Do", "FAST-DONE", "REVIEW-DONE", "DEEP-WORK", "DEEP-REVIEW", "DEEP-DONE", "Cancelled"]/' backlog/config.yml \
       && sed -i.bak 's/^task_prefix:.*/task_prefix: "PO"/' backlog/config.yml \
       && { grep -q '^types:' backlog/config.yml && sed -i.bak 's/^types:.*/types: ["task", "bft"]/' backlog/config.yml || printf 'types: ["task", "bft"]\n' >> backlog/config.yml; } \
-      && backlog task create "БФТ: Билеты в Vibe App" --type bft --plain >/dev/null \
-      && backlog task edit PO-1 --add-ref .bft/documentation/vibeapp/vibeapp-fast.md --plain >/dev/null \
+      && backlog task create "БФТ: Билеты в AppV" --type bft --plain >/dev/null \
+      && backlog task edit PO-1 --add-ref .bft/documentation/appv/appv-fast.md --plain >/dev/null \
       && backlog task create "БФТ: Блок «Вопрос-ответ» на карточках Direct" --type bft --plain >/dev/null \
       && backlog task create "БФТ: Без документа" --type bft --plain >/dev/null
   ) || { echo "FAIL  не удалось поднять доску Backlog.md во временном воркспейсе"; fails=$((fails + 1)); }
@@ -144,13 +144,13 @@ sys.exit(0 if ($2) else 1)
   bcheck "задача со ссылкой в папку эпика связалась с ним и поднялась до FAST-DONE" \
         "board['PO-1']['status'] == 'FAST-DONE'"
   bcheck "ссылка на собранную страницу ревью записана в задачу" \
-        "'.bft/documentation/vibeapp/vibeapp-fast.html' in board['PO-1']['references']"
+        "'.bft/documentation/appv/appv-fast.html' in board['PO-1']['references']"
   bcheck "задача, связанная названием в H1, получила стадию deep-документа и ссылку" \
         "board['PO-2']['status'] == 'DEEP-REVIEW' and '.bft/documentation/direct-faq/direct-faq.html' in board['PO-2']['references']"
   bcheck "задача без документа осталась в To Do и без ссылок" \
         "board['PO-3']['status'] == 'To Do' and board['PO-3']['references'] == []"
   bcheck "в очереди одна строка на требование: id задачи, слаг каталога" \
-        "sorted((t['id'], t.get('slug')) for t in r1['tasks']) == [('PO-1', 'vibeapp'), ('PO-2', 'direct-faq'), ('PO-3', None)]"
+        "sorted((t['id'], t.get('slug')) for t in r1['tasks']) == [('PO-1', 'appv'), ('PO-2', 'direct-faq'), ('PO-3', None)]"
   bcheck "все правки первой сверки прошли" \
         "len(r1['edits']) == 2 and all(e['ok'] for e in r1['edits'])"
   bcheck "повторная сверка ничего не пишет" \

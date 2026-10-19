@@ -15,7 +15,7 @@ const FORM = {
     qa: { sprint: 4, resources: '' },
     release: { sprint: null, resources: 'RM' },
   },
-  teams: 'GDS/Платформа',
+  teams: 'TeamA/Платформа',
   techLeads: '',
   executors: 'Иванов',
   comment: 'Ждём Финтех',
@@ -28,8 +28,8 @@ function parsed(body: unknown): OkrHandoff {
 }
 
 test('форма разбирается: строки обрезаются, план и комментарий как есть', () => {
-  const value = parsed({ ...FORM, teams: '  GDS/Платформа ', comment: ' Ждём Финтех ' })
-  assert.equal(value.teams, 'GDS/Платформа')
+  const value = parsed({ ...FORM, teams: '  TeamA/Платформа ', comment: ' Ждём Финтех ' })
+  assert.equal(value.teams, 'TeamA/Платформа')
   assert.equal(value.comment, 'Ждём Финтех')
   assert.deepEqual(value.stages.analyze, { sprint: 2, resources: 'SA' })
 })
@@ -63,7 +63,7 @@ test('блок плана — формат карточки KR плагина OK
     'dev: спринт 4 / BE',
     'qa: спринт 5',
     'release: — / RM',
-    'teams: GDS/Платформа',
+    'teams: TeamA/Платформа',
     'executors: Иванов',
   ].join('\n'))
 })
