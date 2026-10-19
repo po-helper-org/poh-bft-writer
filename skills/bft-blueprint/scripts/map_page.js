@@ -190,12 +190,14 @@
         else x += `<div class="hcell">${s.steps.map(st => frame(s, st)).join("")}</div>`;
       });
     });
-    hero.innerHTML = `<div class="hscroll" id="hscroll">${x}</div></div><button class="hnav prev" aria-label="Назад по пути">‹</button><button class="hnav next" aria-label="Дальше по пути">›</button><a class="hdown" href="#work">Что делают команды и как это работает <span aria-hidden="true">↓</span></a>`;
+    hero.innerHTML = `<div class="hscroll" id="hscroll">${x}</div></div><button class="hnav prev" aria-label="Назад по пути">‹</button><button class="hnav next" aria-label="Дальше по пути">›</button>`;
     const sc = document.getElementById("hscroll"), prev = hero.querySelector(".prev"), next = hero.querySelector(".next");
     const sync = () => { prev.hidden = sc.scrollLeft < 8; next.hidden = sc.scrollLeft + sc.clientWidth > sc.scrollWidth - 8 };
     sc.addEventListener("scroll", sync, { passive: true }); window.addEventListener("resize", sync); sync();
     prev.addEventListener("click", () => sc.scrollBy({ left: -sc.clientWidth * .8, behavior: "smooth" }));
     next.addEventListener("click", () => sc.scrollBy({ left: sc.clientWidth * .8, behavior: "smooth" }));
+    /* вертикального содержимого у раскадровки нет: колесо мыши листает путь вправо-влево */
+    sc.addEventListener("wheel", e => { if (Math.abs(e.deltaY) > Math.abs(e.deltaX) && !e.ctrlKey) { e.preventDefault(); sc.scrollBy({ left: e.deltaY, behavior: "instant" }) } }, { passive: false });
 
     /* кадры внутри шага: сами листаются каждые 3 с, пока кадр на экране и под ним нет курсора */
     const multi = [...hero.querySelectorAll('.pic:not([data-n="0"]):not([data-n="1"])')].filter(el => el.dataset.n);
@@ -210,6 +212,21 @@
     pic.dataset.i = i; pic.querySelector(".track").style.transform = `translateX(${-i * 100}%)`;
     pic.closest(".fr").querySelectorAll(".dots i").forEach((x, k) => x.classList.toggle("on", k === i));
   }
+
+  /* ---------- два слоя: «Что видят» и «Что делаем» — переключатель, а не прокрутка страницы ----------
+     При переключении открывается тот же этап, что был слева на экране. */
+  const work = document.getElementById("work");
+  function setView(v) {
+    if (body.dataset.view === v) return;
+    const hs = document.getElementById("hscroll"), hh = [...hero.querySelectorAll(".hh")], mh = [...grid.querySelectorAll(".mh:not(.corner)")];
+    const firstVisible = (els, box, pad) => Math.max(0, els.findIndex(el => el.getBoundingClientRect().right > box.getBoundingClientRect().left + pad + 24));
+    const col = v === "do" ? firstVisible(hh, hs, 132) : firstVisible(mh, work, 96);
+    body.dataset.view = v;
+    document.querySelectorAll("button[data-view]").forEach(b => b.classList.toggle("on", b.dataset.view === v));
+    if (v === "do") { work.scrollLeft = mh[col] ? mh[col].offsetLeft - 96 : 0; drawLinks() }
+    else hs.scrollLeft = hh[col] ? hh[col].offsetLeft - 132 : 0;
+  }
+  body.dataset.view = "see";
 
   /* ---------- телефон: шаг за шагом сверху вниз ---------- */
   document.getElementById("mstack").innerHTML = COLS.map((col, c) => {
@@ -470,6 +487,7 @@ ${cur}
     const nt = t.closest("[data-snnote]"); if (nt) return openNote(+nt.dataset.snnote);
     if (t.closest("[data-snback]")) return openScreen(snCur);
     if (t.closest("#burger")) return menu(!body.classList.contains("mopen"));
+    const vw = t.closest("button[data-view]"); if (vw) return setView(vw.dataset.view);
     if (t.closest('[data-menu="close"]') || t.closest(".mscrim")) return menu(false);
     if (t.closest("[data-tf-clear]")) return teamFilter("");
     if (t.closest("#menu [data-guide]") || t.closest("#menu .play")) menu(false);
@@ -504,5 +522,5 @@ ${cur}
     if (e.key === "Enter" && e.target.matches && e.target.matches("[data-snnote]")) openNote(+e.target.dataset.snnote);
     if ((e.key === "Enter" || e.key === " ") && e.target.matches && e.target.matches("[data-seen]")) { e.preventDefault(); openSeen(e.target.dataset.seen) }
   });
-  window.BPMAP = { aiPrompt, dslPrompt, openProc, openTask, openSeen, openScreen, openNote, zoom, dslTab, dslCheck };
+  window.BPMAP = { setView, aiPrompt, dslPrompt, openProc, openTask, openSeen, openScreen, openNote, zoom, dslTab, dslCheck };
 })();

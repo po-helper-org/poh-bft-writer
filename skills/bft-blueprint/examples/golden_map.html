@@ -13,6 +13,10 @@ button{font:inherit;color:inherit}
 /* меню вместо шапки: кнопка поверх карты, остальное — в выезжающей панели */
 .ptitle{display:none}
 .fab{position:fixed;top:12px;left:16px;z-index:7;display:flex;align-items:center;gap:8px}
+/* два слоя на десктопе: один экран, без прокрутки страницы */
+.views{display:flex;background:#fff;border:1px solid var(--line);border-radius:12px;padding:3px;box-shadow:0 2px 10px rgba(0,0,0,.08)}
+.views button{border:0;background:none;border-radius:9px;padding:7px 14px;font-size:13.5px;font-weight:600;color:#6b6b6b;cursor:pointer}.views button.on{background:var(--ink);color:#fff}
+@media(min-width:701px){html,body{height:100%;overflow:hidden}body[data-view="do"] .hero,body:not([data-view="do"]) .wrap{display:none}}
 .burger{position:relative;width:40px;height:40px;border-radius:12px;border:1px solid var(--line);background:#fff;box-shadow:0 2px 10px rgba(0,0,0,.08);display:flex;align-items:center;justify-content:center;cursor:pointer}
 .burger:hover{box-shadow:0 4px 14px rgba(0,0,0,.12)}.burger svg{width:18px;height:18px;stroke:var(--ink);stroke-width:1.8;stroke-linecap:round;fill:none}
 .bdot:empty{display:none}.bdot{position:absolute;top:-6px;right:-6px;min-width:18px;height:18px;border-radius:9px;background:var(--red);color:#fff;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;padding:0 5px;border:2px solid #fff}
@@ -42,7 +46,7 @@ body.mopen .menu{transform:none}body.mopen .mscrim{opacity:1;pointer-events:auto
 /* первый экран: что видят — на всю высоту, путь уходит вправо */
 .hero{--lw:132px;position:relative;height:100vh;min-height:560px;background:var(--soft);border-bottom:1px solid var(--line)}
 .hscroll{height:100%;overflow-x:auto;overflow-y:hidden;scroll-behavior:smooth;scroll-snap-type:x proximity;scroll-padding-left:var(--lw);overscroll-behavior-x:contain}
-.hgrid{display:grid;grid-template-rows:auto repeat(var(--p),auto);align-content:center;min-height:100%;padding:8px 0 52px;width:max-content}
+.hgrid{display:grid;grid-template-rows:auto repeat(var(--p),auto);align-content:center;min-height:100%;padding:64px 0 28px;width:max-content}
 .hc0,.hl{position:sticky;left:0;z-index:3;background:linear-gradient(90deg,var(--soft) 82%,rgba(247,245,241,0))}
 .hh{padding:22px 14px 12px;scroll-snap-align:start;border-left:1px solid var(--line)}
 .hhs{position:sticky;left:calc(var(--lw) + 14px);display:inline-flex;align-items:baseline;flex-wrap:wrap;gap:2px 8px;max-width:360px}
@@ -70,13 +74,11 @@ body.mopen .menu{transform:none}body.mopen .mscrim{opacity:1;pointer-events:auto
 .fr.fin .big{font-size:44px;font-weight:800;color:var(--story);line-height:1}
 .hnav{position:absolute;top:50%;z-index:4;width:44px;height:44px;border-radius:50%;border:1px solid var(--line);background:#fff;box-shadow:0 4px 14px rgba(0,0,0,.12);font-size:26px;line-height:1;color:var(--ink);cursor:pointer}
 .hnav.prev{left:calc(var(--lw) + 8px)}.hnav.next{right:16px}.hnav[hidden]{display:none}
-.hdown{position:absolute;left:50%;bottom:10px;transform:translateX(-50%);font-size:13px;font-weight:600;color:#55524c;text-decoration:none;background:#fff;border:1px solid var(--line);border-radius:999px;padding:6px 14px}
-.hdown:hover{color:var(--ink);box-shadow:0 4px 14px rgba(0,0,0,.08)}
 /* карта */
-.wrap{height:100vh;overflow:auto;background:var(--soft);overscroll-behavior:contain}
+.wrap{height:100vh;overflow:auto;background:var(--soft)}
 .map{position:relative;display:grid;background:var(--soft)}
 .map>div{padding:10px 8px}
-.mh{position:sticky;top:0;z-index:4;background:var(--soft);display:flex;align-items:baseline;gap:8px;padding:16px 10px 10px!important}
+.mh{position:sticky;top:0;z-index:4;background:var(--soft);display:flex;align-items:baseline;gap:8px;padding:64px 10px 10px!important}
 .mh .n{flex:none;font-size:12px;font-weight:700;color:#9a958c;font-variant-numeric:tabular-nums;min-width:12px}
 .mh .hx{display:flex;flex-direction:column}.mh b{font-size:14px;font-weight:700;line-height:1.25}.mh small{font-size:12px;color:var(--muted);margin-top:1px}
 .mh.corner,.ml{position:sticky;left:0;background:var(--soft)}.mh.corner{z-index:6}
@@ -104,7 +106,7 @@ body.mopen .menu{transform:none}body.mopen .mscrim{opacity:1;pointer-events:auto
 .dim{opacity:.15}
 /* как это работает */
 .hsec{grid-column:1/-1;padding:22px 24px 8px!important;border-top:1px solid var(--line);background:#fff}
-.hsec span{font-size:13px;font-weight:800;letter-spacing:.8px;text-transform:uppercase}
+.hsec span{font-size:13px;font-weight:800;letter-spacing:.8px;text-transform:uppercase;position:sticky;left:24px;display:inline-block}
 .ml.hrow{text-transform:none;letter-spacing:0;font-size:13px;color:var(--ink);background:#fff}.ml.hrow small{display:block;font-size:11px;font-weight:400;color:var(--muted);margin-top:1px}
 .mc.how{background:#fff;padding:14px 8px!important;justify-content:center}
 .l-front{border-top:1.5px solid #cfcac0}.l-back{border-top:1.5px dashed #9a958c}.l-sup{border-top:1.5px dotted #9a958c}
@@ -187,7 +189,7 @@ body.showing .show{display:flex}body.showing{overflow:hidden}
 /* телефон */
 .mstack{display:none}
 @media(max-width:700px){.tool{padding:7px 12px;font-size:13.5px}
- .wrap,.hero{display:none}.mstack{display:block;padding:52px 16px 40px;background:var(--soft)}
+ .wrap,.hero,.views{display:none}.mstack{display:block;padding:52px 16px 40px;background:var(--soft)}
  .ms{padding:18px 0 20px;border-bottom:1px solid var(--line)}.mh2{display:flex;gap:10px;align-items:center;margin-bottom:12px}
  .mh2 .n{width:28px;height:28px;border-radius:50%;background:var(--story);color:#fff;font-weight:800;display:flex;align-items:center;justify-content:center}.mh2 b{display:block;font-size:18px}.mh2 small{color:var(--muted)}
  .ms .wl{display:flex;flex-direction:column;gap:8px;margin-bottom:12px}.ms .lb{margin:10px 0 6px;display:block}
@@ -245,7 +247,7 @@ body.showing .show{display:flex}body.showing{overflow:hidden}
 </style></head>
 <body>
 <h1 class="ptitle">Перезапуск акции Bartello — «билет Ticketland = скидка 10%»</h1>
-<div class="fab"><button class="burger" id="burger" aria-label="Меню карты" aria-expanded="false" aria-controls="menu"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 4h11M2.5 8h11M2.5 12h11"/></svg><span class="bdot" id="bdot"></span></button><span id="fchip"></span></div>
+<div class="fab"><button class="burger" id="burger" aria-label="Меню карты" aria-expanded="false" aria-controls="menu"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 4h11M2.5 8h11M2.5 12h11"/></svg><span class="bdot" id="bdot"></span></button><nav class="views" aria-label="Слой карты"><button data-view="see" class="on">Что видят</button><button data-view="do">Что делаем</button></nav><span id="fchip"></span></div>
 <div class="mscrim"></div>
 <nav class="menu" id="menu" aria-label="Меню карты"><div class="mtop"><div><span class="draft">Черновик</span><h1>Перезапуск акции Bartello — «билет Ticketland = скидка 10%»</h1></div><button class="x" data-menu="close" aria-label="Закрыть">×</button></div>
 <button class="play" id="play">▶ Рассказать историю</button>
@@ -870,12 +872,14 @@ A1 Название функции        — декомпозиция: от ${M
         else x += `<div class="hcell">${s.steps.map(st => frame(s, st)).join("")}</div>`;
       });
     });
-    hero.innerHTML = `<div class="hscroll" id="hscroll">${x}</div></div><button class="hnav prev" aria-label="Назад по пути">‹</button><button class="hnav next" aria-label="Дальше по пути">›</button><a class="hdown" href="#work">Что делают команды и как это работает <span aria-hidden="true">↓</span></a>`;
+    hero.innerHTML = `<div class="hscroll" id="hscroll">${x}</div></div><button class="hnav prev" aria-label="Назад по пути">‹</button><button class="hnav next" aria-label="Дальше по пути">›</button>`;
     const sc = document.getElementById("hscroll"), prev = hero.querySelector(".prev"), next = hero.querySelector(".next");
     const sync = () => { prev.hidden = sc.scrollLeft < 8; next.hidden = sc.scrollLeft + sc.clientWidth > sc.scrollWidth - 8 };
     sc.addEventListener("scroll", sync, { passive: true }); window.addEventListener("resize", sync); sync();
     prev.addEventListener("click", () => sc.scrollBy({ left: -sc.clientWidth * .8, behavior: "smooth" }));
     next.addEventListener("click", () => sc.scrollBy({ left: sc.clientWidth * .8, behavior: "smooth" }));
+    /* вертикального содержимого у раскадровки нет: колесо мыши листает путь вправо-влево */
+    sc.addEventListener("wheel", e => { if (Math.abs(e.deltaY) > Math.abs(e.deltaX) && !e.ctrlKey) { e.preventDefault(); sc.scrollBy({ left: e.deltaY, behavior: "instant" }) } }, { passive: false });
 
     /* кадры внутри шага: сами листаются каждые 3 с, пока кадр на экране и под ним нет курсора */
     const multi = [...hero.querySelectorAll('.pic:not([data-n="0"]):not([data-n="1"])')].filter(el => el.dataset.n);
@@ -890,6 +894,21 @@ A1 Название функции        — декомпозиция: от ${M
     pic.dataset.i = i; pic.querySelector(".track").style.transform = `translateX(${-i * 100}%)`;
     pic.closest(".fr").querySelectorAll(".dots i").forEach((x, k) => x.classList.toggle("on", k === i));
   }
+
+  /* ---------- два слоя: «Что видят» и «Что делаем» — переключатель, а не прокрутка страницы ----------
+     При переключении открывается тот же этап, что был слева на экране. */
+  const work = document.getElementById("work");
+  function setView(v) {
+    if (body.dataset.view === v) return;
+    const hs = document.getElementById("hscroll"), hh = [...hero.querySelectorAll(".hh")], mh = [...grid.querySelectorAll(".mh:not(.corner)")];
+    const firstVisible = (els, box, pad) => Math.max(0, els.findIndex(el => el.getBoundingClientRect().right > box.getBoundingClientRect().left + pad + 24));
+    const col = v === "do" ? firstVisible(hh, hs, 132) : firstVisible(mh, work, 96);
+    body.dataset.view = v;
+    document.querySelectorAll("button[data-view]").forEach(b => b.classList.toggle("on", b.dataset.view === v));
+    if (v === "do") { work.scrollLeft = mh[col] ? mh[col].offsetLeft - 96 : 0; drawLinks() }
+    else hs.scrollLeft = hh[col] ? hh[col].offsetLeft - 132 : 0;
+  }
+  body.dataset.view = "see";
 
   /* ---------- телефон: шаг за шагом сверху вниз ---------- */
   document.getElementById("mstack").innerHTML = COLS.map((col, c) => {
@@ -1150,6 +1169,7 @@ ${cur}
     const nt = t.closest("[data-snnote]"); if (nt) return openNote(+nt.dataset.snnote);
     if (t.closest("[data-snback]")) return openScreen(snCur);
     if (t.closest("#burger")) return menu(!body.classList.contains("mopen"));
+    const vw = t.closest("button[data-view]"); if (vw) return setView(vw.dataset.view);
     if (t.closest('[data-menu="close"]') || t.closest(".mscrim")) return menu(false);
     if (t.closest("[data-tf-clear]")) return teamFilter("");
     if (t.closest("#menu [data-guide]") || t.closest("#menu .play")) menu(false);
@@ -1184,7 +1204,7 @@ ${cur}
     if (e.key === "Enter" && e.target.matches && e.target.matches("[data-snnote]")) openNote(+e.target.dataset.snnote);
     if ((e.key === "Enter" || e.key === " ") && e.target.matches && e.target.matches("[data-seen]")) { e.preventDefault(); openSeen(e.target.dataset.seen) }
   });
-  window.BPMAP = { aiPrompt, dslPrompt, openProc, openTask, openSeen, openScreen, openNote, zoom, dslTab, dslCheck };
+  window.BPMAP = { setView, aiPrompt, dslPrompt, openProc, openTask, openSeen, openScreen, openNote, zoom, dslTab, dslCheck };
 })();
 </script>
 </body></html>
