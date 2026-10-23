@@ -1,0 +1,15 @@
+{
+  "schema_version": "1.0.0",
+  "initiatives": [
+    {
+      "initiative_id": "ini-0001",
+      "goal": "Выгрузка заказов в CSV для бухгалтерии",
+      "state": "working",
+      "latest_iteration_id": "it-0009",
+      "external_refs": {
+        "root_card": "t_demo01",
+        "room": "!demo:example.org"
+      }
+    }
+  ]
+}

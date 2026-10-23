@@ -1,0 +1,32 @@
+{
+  "schema_version": "1.0.0",
+  "initiative_id": "ini-0001",
+  "base_iteration": "it-0003",
+  "idempotency_key": "t_demo01:4",
+  "outcomes": [
+    {
+      "directive_id": "dir-005",
+      "result": "answer",
+      "by_role": "addressee",
+      "content": "Номер, дата, сумма, статус оплаты."
+    },
+    {
+      "directive_id": "dir-006",
+      "result": "declined",
+      "by_role": "addressee",
+      "content": "Не моя зона, спросите главного бухгалтера."
+    },
+    {
+      "directive_id": "dir-007",
+      "result": "unavailable",
+      "by_role": "executor",
+      "content": "В отпуске до 30.10."
+    },
+    {
+      "directive_id": "dir-008",
+      "result": "not_received",
+      "by_role": "executor"
+    }
+  ],
+  "inputs": "Бухгалтерия упомянула, что раньше просила то же для возвратов."
+}

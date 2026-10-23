@@ -1,0 +1,7 @@
+{
+  "schema_version": "1.0.0",
+  "error": {
+    "code": "idempotency_mismatch",
+    "message": "Ключ t_demo01:4 уже был с другим телом."
+  }
+}
