@@ -10,8 +10,9 @@ from temporalio.service import RPCError
 from . import config
 from .engine import ts
 from .protocol import SCHEMA_VERSION, BoxError, body_hash, check_version, validate
-from .quality import Policy
 from .render import render
+from .stage import stage_of, waiting_for
+from .quality import Policy
 from .workflow import InitiativeWorkflow
 
 
@@ -95,7 +96,8 @@ class Box:
         return self._own(owner, initiative_id)["status"]
 
     def list(self, owner: str) -> dict:
-        items = [{k: i[k] for k in ("initiative_id", "goal", "state", "latest_iteration_id", "external_refs") if i.get(k) or k != "external_refs"}
+        items = [{**{k: i[k] for k in ("initiative_id", "goal", "state", "latest_iteration_id", "external_refs") if i.get(k) or k != "external_refs"},
+                  "stage": stage_of(i["state"])}
                  for i in self.store.initiatives(None if owner in self.admins else owner)]
         return {"schema_version": SCHEMA_VERSION, "initiatives": items}
 
@@ -108,7 +110,9 @@ class Box:
     def _card(self, i: dict) -> dict:
         latest = self.store.iteration(i["latest_iteration_id"]) or {}
         checks = latest.get("checks") or []
-        return {"initiative_id": i["initiative_id"], "goal": i["goal"], "state": i["state"], "team": i.get("team"),
+        return {"initiative_id": i["initiative_id"], "goal": i["goal"], "state": i["state"],
+                "stage": stage_of(i["state"]), "waiting_for": waiting_for(latest),
+                "team": i.get("team"),
                 "external_refs": i.get("external_refs") or {}, "updated_at": i.get("updated_at"),
                 "package_version": i.get("package_version", 0), "iteration": latest.get("number"),
                 "iteration_status": latest.get("status"), "summary": latest.get("summary") or (latest.get("error") or {}).get("message"),
