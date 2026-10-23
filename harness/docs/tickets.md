@@ -16,7 +16,15 @@ components.md. Тикет-трассер: каждый — сквозной ре
 merge-коммит вендора.
 Blockers: —
 
-### Т2 · Контейнер харнесса + compose-каркас `[ ]`
+### Т2 · Контейнер харнесса + compose-каркас `[~] 2026-10-23`
+Авторинг готов: `harness/harness-web/Dockerfile` (3 стадии: плагин pnpm →
+профиль npm 6 плагинов пин 0.1.7-rc.2 → рантайм), `entrypoint.sh` (факт
+апстрима: `--host` отвергает wildcard — биндим IP контейнера + `--public-url`),
+`profile/package.json.in` + `cordis.patch.yml`, `docker-compose.yml`
+(5 сервисов default + debug/demo профили; 8700 наружу не публикуем).
+**Блокер верификации:** на машине нет Docker (нет sudo) — гейт требует
+Docker Desktop / OrbStack / CI / целевой сервер.
+**Готово:** `docker compose up -d` — healthchecks зелёные, панель монтируется.
 Dockerfile `harness-web` (мульти-стадия: сборка плагина → профиль 6 плагинов →
 dsh web), `docker-compose.yml`: harness-web, box-mcp, box-worker, temporal,
 postgres (лимиты памяти из ADR-0006, минимум 6 ГБ). DSH_HOME и workspace —
@@ -25,7 +33,14 @@ volumes. Порты: только 3080 наружу.
 зелёные, панель плагина монтируется в UI (маркер в бандле).
 Blockers: Т1
 
-### Т3 · start.sh + install.sh-режимы `[ ]`
+### Т3 · start.sh + install.sh-режимы `[~] 2026-10-23`
+Авторинг готов: start.sh (--demo/--debug/--no-open, генерация POSTGRES_PASSWORD/
+BOX_TOKENS, ожидание health, ссылка с токеном из логов → `.last-url`, open),
+install.sh — шаг «UI | CLI | оба» с подсказкой `cd harness && ./start.sh`,
+`.env.example`, `update.sh`.
+**Блокер:** тот же (Docker-рантайм) для живого прогона.
+**Готово:** на чистой машине `./harness/start.sh` без ручных правок `.env`
+печатает рабочую ссылку.
 start.sh: генерация POSTGRES_PASSWORD/BOX_TOKENS при первом запуске,
 `compose up`, ожидание health, извлечение `?token=` из логов, печать + запись
 `.last-url`, открытие браузера. install.sh: шаг «UI | CLI». `.env.example`.

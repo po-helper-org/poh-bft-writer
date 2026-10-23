@@ -1,0 +1,120 @@
+# Автономная система БФТ: docker compose up -d — и работает (ADR-0002).
+# Полоса А (Т2): 5 сервисов. Трекер добавит Т10, Matrix/Element — Т11.
+# Контексты сборки — корень репозитория: образам нужны plugin/, skills/, box/.
+name: poh-bft-system
+
+x-box: &box
+  build:
+    context: ../box
+  image: poh-bft-box:local
+  restart: unless-stopped
+  environment: &box-env
+    DATABASE_URL: postgresql://${POSTGRES_USER:-box}:${POSTGRES_PASSWORD:?задайте POSTGRES_PASSWORD в .env (генерирует start.sh)}@postgres:5432/box
+    TEMPORAL_ADDRESS: temporal:7233
+    LLM_BASE_URL: ${LLM_BASE_URL:-https://api.z.ai/api/paas/v4}
+    LLM_API_KEY: ${ZAI_API_KEY:-}
+    LLM_MODEL: ${LLM_MODEL:-glm-4.7}
+    BOX_TOKENS: ${BOX_TOKENS:?задайте BOX_TOKENS в .env (генерирует start.sh)}
+    BOX_ADMINS: ui
+    TEMPORAL_UI_URL: http://127.0.0.1:8233
+  depends_on:
+    temporal: {condition: service_healthy}
+    postgres: {condition: service_healthy}
+  mem_limit: 256m
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-box}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?задайте POSTGRES_PASSWORD в .env}
+      POSTGRES_DB: box
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-box} -d box"]
+      interval: 5s
+      retries: 20
+    mem_limit: 256m
+
+  temporal:
+    image: temporalio/auto-setup:1.27.2
+    restart: unless-stopped
+    depends_on:
+      postgres: {condition: service_healthy}
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-box}
+      POSTGRES_PWD: ${POSTGRES_PASSWORD}
+      POSTGRES_SEEDS: postgres
+    healthcheck:
+      test: ["CMD-SHELL", "tctl --address temporal:7233 cluster health | grep -q SERVING"]
+      interval: 10s
+      retries: 30
+      start_period: 30s
+    mem_limit: 640m
+
+  box-worker:
+    <<: *box
+    command: ["python", "-m", "bftbox.worker"]
+    mem_limit: 256m
+
+  box-mcp:
+    <<: *box
+    # Порт наружу НЕ публикуем: единственный вызыватель — плагин внутри сети
+    # (ADR-0001 rev 2). Healthcheck — тот же, что у коробки.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8700/health')"]
+      interval: 10s
+      retries: 10
+    mem_limit: 256m
+
+  harness-web:
+    build:
+      context: ..
+      dockerfile: harness/harness-web/Dockerfile
+    image: poh-harness-web:local
+    restart: unless-stopped
+    environment:
+      # Провайдер z.ai (GLM): ключ из .env — онбординг допишет (US-8).
+      ZAI_API_KEY: ${ZAI_API_KEY:-}
+      # Публичная форма ссылки с токеном: dsh печатает её в лог (Т3: start.sh
+      # достаёт и открывает).
+      PUBLIC_URL: ${PUBLIC_URL:-http://127.0.0.1:3080}
+      DSH_PORT: "3080"
+    ports:
+      - "${HARNESS_BIND:-127.0.0.1}:3080:3080"
+    volumes:
+      - dshdata:/data            # DSH_HOME: сессии, настройки, профиль
+      - workspace:/workspace     # артефакты БФТ (docsPath плагина)
+    depends_on:
+      box-mcp: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3080/').then(r=>process.exit(0)).catch(()=>process.exit(1))\""]
+      interval: 10s
+      retries: 30
+      start_period: 20s
+    mem_limit: 1536m
+
+  temporal-ui:
+    image: temporalio/ui:2.36.1
+    profiles: [debug]
+    restart: unless-stopped
+    depends_on: [temporal]
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+    ports: ["${BOX_BIND:-127.0.0.1}:8233:8080"]
+    mem_limit: 128m
+
+  llm-demo:
+    <<: *box
+    profiles: [demo]
+    command: ["python", "-m", "bftbox.demo_llm"]
+    depends_on: {}
+    mem_limit: 64m
+
+volumes:
+  pgdata:
+  dshdata:
+  workspace:
