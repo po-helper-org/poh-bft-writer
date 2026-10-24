@@ -111,7 +111,7 @@ services:
       PUBLIC_URL: ${PUBLIC_URL:-http://127.0.0.1:3080}
       DSH_PORT: "3080"
     ports:
-      - "${HARNESS_BIND:-127.0.0.1}:3080:3080"
+      - "${HARNESS_BIND:-127.0.0.1}:3081:3080"   # PO-харнесс на 3081 (ADR-0007): 3080 — портал заказчика
     volumes:
       - dshdata:/data            # DSH_HOME: сессии, настройки, профиль
       - workspace:/workspace     # артефакты БФТ (docsPath плагина)
@@ -133,6 +133,34 @@ services:
       TEMPORAL_ADDRESS: temporal:7233
     ports: ["${BOX_BIND:-127.0.0.1}:8233:8080"]
     mem_limit: 128m
+
+  portal:   # Т16/ADR-0007: портал заказчика — «Введите свои мысли» на :3080
+    build:
+      context: ../portal
+    image: poh-bft-portal:local
+    restart: unless-stopped
+    environment:
+      TRACKER_URL: http://tracker:3456/api/v1
+      TRACKER_PUBLIC_URL: ${TRACKER_PUBLIC_URL:-http://127.0.0.1:3456}
+      TRACKER_USER: ${TRACKER_USER:-${TRACKER_ADMIN_USER:-bft-admin}}
+      TRACKER_PASSWORD: ${TRACKER_ADMIN_PASSWORD:-}
+      ZAI_API_KEY: ${ZAI_API_KEY:-}
+      PORTAL_MODEL: ${PORTAL_MODEL:-glm-5-turbo}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-bft-portal@localhost}
+    ports:
+      - "${PORTAL_BIND:-127.0.0.1}:3080:8080"
+    volumes:
+      - portaldata:/data/requests
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://127.0.0.1:8080/api/health')\""]
+      interval: 10s
+      retries: 15
+      start_period: 5s
+    mem_limit: 256m
 
   tracker-init:   # правим владельца тома файлов под uid 1000 (vikunja в образе без каталога)
     image: alpine:3.20
@@ -231,3 +259,4 @@ volumes:
   workspace:
   trackerfiles:
   matrixdata:
+  portaldata:

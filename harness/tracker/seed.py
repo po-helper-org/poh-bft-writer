@@ -22,7 +22,8 @@ HOOK_TOKEN = os.environ["TRACKER_HOOK_TOKEN"]
 BOX_HOOK = os.environ.get("TRACKER_HOOK_TARGET", "http://box-mcp:8700/api/hooks/tracker")
 QUARTER = os.environ.get("TRACKER_PROJECT", "БФТ 2026-Q4")
 LABELS = [("сборочная", "0e7490"), ("верификационная", "047857"),
-          ("коммуникационная", "b45309"), ("сессионная", "7c3aed")]
+          ("коммуникационная", "b45309"), ("сессионная", "7c3aed"),
+          ("запрос", "69758a")]   # метка заявок портала заказчика (ADR-0007)
 
 
 def call(method, path, token=None, body=None, retries=1):

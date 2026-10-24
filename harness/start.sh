@@ -71,7 +71,7 @@ echo "▸ Жду здоровья сервисов…"
 for i in $(seq 1 90); do
   ST="$(docker compose ${PROFILE_ARGS[@]+"${PROFILE_ARGS[@]}"} ps --format '{{.Name}} {{.Health}}' 2>/dev/null)"
   UNHEALTHY="$(echo "$ST" | grep -cv '(healthy)$' || true)"
-  URL="$(docker compose logs harness-web 2>/dev/null | grep -oE 'https?://[^ "?]+\?token=[A-Za-z0-9._%-]+' | tail -1 | sed -E 's|https?://[^/]+|http://127.0.0.1:3080|' || true)"
+  URL="$(docker compose logs harness-web 2>/dev/null | grep -oE 'https?://[^ "?]+\?token=[A-Za-z0-9._%-]+' | tail -1 | sed -E 's|https?://[^/]+|http://127.0.0.1:3081|' || true)"
   [ -n "$URL" ] && [ "$UNHEALTHY" = "0" ] && break
   sleep 2
 done

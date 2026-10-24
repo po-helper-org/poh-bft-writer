@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Запрос инициативы · БФТ</title>
+<style>
+  :root{--ink:#16202e;--muted:#69758a;--line:#e3e8ef;--accent:#2f6fed;--accent-soft:#eef4ff;
+        --ok:#0c7a43;--ok-soft:#e9f6ef;--mono:ui-monospace,SFMono-Regular,Menlo,monospace}
+  *{box-sizing:border-box}
+  body{margin:0;font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+       color:var(--ink);background:#f7f9fc}
+  .wrap{max-width:760px;margin:0 auto;padding:40px 20px 100px}
+  h1{font-size:27px;letter-spacing:-.02em;margin:0 0 6px}
+  .sub{color:var(--muted);margin:0 0 26px;font-size:15px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:22px 24px;margin:14px 0}
+  label{display:block;font-size:13px;font-weight:700;margin:14px 0 6px}
+  input,textarea{width:100%;border:1px solid #cfd7e3;border-radius:10px;padding:11px 13px;
+    font:inherit;color:inherit;background:#fff}
+  textarea{min-height:130px;resize:vertical}
+  input:focus,textarea:focus{outline:2px solid var(--accent-soft);border-color:var(--accent)}
+  .row{display:flex;gap:10px}
+  .row>*{flex:1}
+  .btn{border:none;border-radius:10px;padding:12px 20px;font:inherit;font-weight:700;cursor:pointer;
+       background:var(--accent);color:#fff}
+  .btn:disabled{opacity:.45;cursor:default}
+  .btn.ghost{background:#fff;color:var(--ink);border:1px solid #cfd7e3;font-weight:600}
+  .chip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:9px;
+        padding:6px 10px;margin:4px 6px 0 0;font-size:13px;background:#fff}
+  .mic{width:46px;height:46px;border-radius:12px;border:1px solid #cfd7e3;background:#fff;
+       font-size:20px;cursor:pointer;flex:0 0 46px}
+  .mic.on{background:#fde8e8;border-color:#e39a9a;animation:pulse 1.2s infinite}
+  @keyframes pulse{50%{box-shadow:0 0 0 8px rgba(220,80,80,.08)}}
+  .hint{font-size:12.5px;color:var(--muted);margin-top:8px}
+  .tasklink{display:inline-block;margin-top:10px;background:var(--ok-soft);color:var(--ok);
+            border-radius:9px;padding:10px 14px;font-weight:700;text-decoration:none}
+  /* чат */
+  #chat{display:none}
+  .msg{margin:12px 0;padding:12px 15px;border-radius:13px;max-width:88%;font-size:14.5px;white-space:pre-wrap}
+  .msg.user{background:var(--accent);color:#fff;margin-left:auto}
+  .msg.bot{background:#fff;border:1px solid var(--line)}
+  .widget{background:#fff;border:1px solid var(--line);border-radius:13px;padding:14px 16px;margin:10px 0}
+  .widget h4{margin:0 0 10px;font-size:13px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+  .srow{display:flex;align-items:center;gap:9px;font-size:14px;margin:6px 0}
+  .srow .dot{width:16px;height:16px;border-radius:50%;flex:0 0 16px;
+    background:#e6ebf2;position:relative}
+  .srow.ok .dot{background:var(--ok)}
+  .srow.ok .dot::after{content:'✓';color:#fff;font-size:10px;position:absolute;inset:0;
+    display:flex;align-items:center;justify-content:center}
+  .qbtn{display:block;width:100%;text-align:left;border:1px solid #cfd7e3;background:#fff;border-radius:10px;
+        padding:10px 13px;font:inherit;cursor:pointer;margin:6px 0}
+  .qbtn:hover{border-color:var(--accent)}
+  .thinking{display:inline-flex;gap:4px;margin:10px 0}
+  .thinking i{width:7px;height:7px;border-radius:50%;background:#a9b6c9;animation:blink 1s infinite}
+  .thinking i:nth-child(2){animation-delay:.2s}.thinking i:nth-child(3){animation-delay:.4s}
+  @keyframes blink{50%{opacity:.2}}
+  .sync{display:none;text-align:center;padding:26px;color:var(--muted)}
+  .sync .ring{width:44px;height:44px;border:4px solid var(--accent-soft);border-top-color:var(--accent);
+    border-radius:50%;margin:0 auto 12px;animation:spin 1s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .final{display:none}
+  .final .big{font-size:17px;font-weight:800;margin:0 0 4px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Введите свои мысли</h1>
+  <p class="sub">Опишите инициативу как удобно: текстом, голосом, файлами. Ассистент
+  задаст пару уточняющих вопросов — и постановка уйдёт в работу без встреч.</p>
+
+  <div class="card" id="form">
+    <label>Как вас зовут и куда писать</label>
+    <div class="row">
+      <input id="name" placeholder="ФИО">
+      <input id="email" type="email" placeholder="email">
+    </div>
+    <label>Ваша инициатива</label>
+    <textarea id="text" placeholder="Что нужно, зачем и когда хотите результат…"></textarea>
+    <div class="row" style="margin-top:10px;align-items:center">
+      <button class="mic" id="mic" title="Диктовка">🎤</button>
+      <button class="btn ghost" id="attach" style="flex:0 0 auto">📎 Приложить</button>
+      <input type="file" id="file" multiple hidden>
+      <span style="flex:1"></span>
+    </div>
+    <div id="chips"></div>
+    <label style="font-weight:600;color:var(--muted)">Ссылки (JIRA, Confluence, внешние) — просто вставьте в текст, соберём сами</label>
+    <div style="margin-top:16px">
+      <button class="btn" id="send" style="width:100%">Отправить запрос →</button>
+    </div>
+    <div class="hint" id="status"></div>
+    <a id="tasklink" class="tasklink" target="_blank" style="display:none"></a>
+  </div>
+
+  <div id="chat">
+    <div class="card">
+      <div id="messages"></div>
+      <div class="thinking" id="think" style="display:none"><i></i><i></i><i></i></div>
+      <div class="widget" id="widget"></div>
+      <div class="row" style="margin-top:12px">
+        <input id="ans" placeholder="Ответьте текстом или нажмите вопрос выше…"
+               onkeydown="if(event.key==='Enter')sendChat()">
+        <button class="btn" onclick="sendChat()">→</button>
+      </div>
+      <div style="margin-top:14px;display:flex;gap:10px">
+        <button class="btn ghost" id="finish" onclick="finalize()">Завершить сбор →</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="sync" id="sync"><div class="ring"></div>Синхронизируем данные…</div>
+
+  <div class="card final" id="final">
+    <p class="big">✅ Постановка собрана</p>
+    <p id="finalLinks" style="margin:6px 0"></p>
+    <p class="hint">На почту отправили ссылку для отслеживания. Дальше — за PO и командой:
+    статус смотрите на доске.</p>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+let files = [], links = new Set(), taskId = null;
+
+// ссылки из текста — чипами
+$('text').addEventListener('input', () => {
+  const found = $('text').value.match(/https?:\/\/[^\s]+/g) || [];
+  links = new Set(found.map(u => u.replace(/[.,;)]+$/, '')));
+  renderChips();
+});
+function renderChips(){
+  $('chips').innerHTML =
+    [...links].map(l => `<span class="chip">🔗 ${l.length>42?l.slice(0,42)+'…':l}</span>`).join('') +
+    files.map(f => `<span class="chip">📎 ${f.name}</span>`);
+}
+$('attach').onclick = () => $('file').click();
+$('file').onchange = async e => {
+  for (const f of e.target.files){
+    $('status').textContent = `⏳ грузим ${f.name}…`;
+    const fd = new FormData(); fd.append('file', f);
+    const r = await fetch('/api/upload', {method:'POST', body: fd}).then(r=>r.json());
+    files.push({name: r.name, ref: r.ref});
+  }
+  $('status').textContent = ''; renderChips(); e.target.value='';
+};
+
+// диктовка
+$('mic').onclick = () => {
+  const Ctor = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!Ctor){ $('status').textContent = 'Браузер не поддерживает диктовку — напишите текстом или приложите запись'; return; }
+  if ($('mic').classList.contains('on')) return;
+  const rec = new Ctor(); rec.lang='ru-RU'; rec.interimResults=false; rec.continuous=true;
+  rec.onresult = e => { let s=''; for (let i=e.resultIndex;i<e.results.length;i++) s+=e.results[i][0].transcript;
+    $('text').value += ($('text').value?' ':'') + s.trim(); };
+  rec.onend = () => $('mic').classList.remove('on');
+  rec.onerror = () => $('mic').classList.remove('on');
+  rec.start(); $('mic').classList.add('on');
+};
+
+// отправка → задача <1с
+$('send').onclick = async () => {
+  const text = $('text').value.trim();
+  if (!text && !files.length){ $('status').textContent = 'Напишите хотя бы пару слов 🙏'; return; }
+  $('send').disabled = true; $('status').textContent = '⏳ Создаём задачу…';
+  const t0 = performance.now();
+  try{
+    const r = await fetch('/api/submit', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({name:$('name').value.trim(), email:$('email').value.trim(),
+                            text, links:[...links], files:files.map(f=>f.ref)})}).then(r=>r.json());
+    taskId = r.task_id;
+    $('tasklink').style.display='inline-block';
+    $('tasklink').href = r.url; $('tasklink').textContent = '✓ Запрос создан — открыть задачу';
+    $('status').textContent = performance.now()-t0 < 1000 ? '' : '(заняло чуть больше секунды — но задача на месте)';
+    setTimeout(() => { $('form').style.display='none'; $('chat').style.display='block'; openDialog(); }, 700);
+  }catch(e){ $('status').textContent = 'Не ушло: ' + e; $('send').disabled=false; }
+};
+
+// микродиалог
+async function openDialog(){
+  $('think').style.display='inline-flex';
+  await turn('Здравствуйте! Я быстро разберу ваш контекст, чтобы PO не приходил с вопросами. '
+             + 'Начал изучать то, что вы прислали…', []);
+}
+async function sendChat(){
+  const v = $('ans').value.trim(); if(!v) return;
+  $('ans').value='';
+  addMsg('user', v);
+  await turn(v, null);
+}
+async function turn(text, presetQuestions){
+  $('think').style.display='inline-flex'; $('widget').style.display='none';
+  try{
+    const r = await fetch('/api/chat', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({task_id:taskId, message:text})}).then(r=>r.json());
+    addMsg('bot', r.reply);
+    renderWidget(r);
+  }catch(e){ addMsg('bot','Связь споткнулась — повторите сообщение'); }
+  $('think').style.display='none';
+}
+function addMsg(who, text){
+  const d=document.createElement('div'); d.className='msg '+who; d.textContent=text;
+  $('messages').appendChild(d); d.scrollIntoView({behavior:'smooth'});
+}
+function renderWidget(r){
+  const sc = r.scorecard, qs = r.questions||[];
+  if (!sc && !qs.length) return;
+  $('widget').style.display='block';
+  let h = '<h4>Постановка · собрано '+(sc? sc.done+'/'+sc.total : '—')+'</h4>';
+  for (const row of (sc?sc.rows:[])) h += `<div class="srow ${row.filled?'ok':''}"><span class="dot"></span>${row.title}</div>`;
+  if ((r.glossary||[]).length) h += '<div class="hint">Глоссарий: '+r.glossary.map(g=>g.term+' — '+g.expansion).join('; ')+'</div>';
+  $('widget').innerHTML = h;
+  for (const q of qs){
+    const b=document.createElement('button'); b.className='qbtn'; b.textContent='❓ '+q;
+    b.onclick=()=>{ $('ans').value=q; $('ans').focus(); };
+    $('widget').appendChild(b);
+  }
+}
+async function finalize(){
+  $('chat').style.display='none'; $('sync').style.display='block';
+  const r = await fetch('/api/finalize/'+taskId, {method:'POST'}).then(r=>r.json());
+  setTimeout(()=>{
+    $('sync').style.display='none'; $('final').style.display='block';
+    $('finalLinks').innerHTML = `Отслеживание: <a href="${r.url}" target="_blank">задача #${taskId}</a> · `+
+      `<a href="${r.board}" target="_blank">доска запросов</a>`;
+  }, 1200);
+}
+</script>
+</body>
+</html>
