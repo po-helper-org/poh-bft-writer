@@ -74,6 +74,18 @@ type BoardState =
   | { phase: 'ready'; groups: BftGroup[] }
   | { phase: 'error'; message: string }
 
+/** Карточка инициативы конвейера: поля борда Коробки (Т9/Т12/Т13). */
+interface ConveyorCard {
+  initiative: string
+  goal: string
+  stage: string
+  waiting: string[]
+  state: string
+  checks?: { green: number; yellow: number; red: number }
+  temporalUrl?: string
+  slug?: string
+}
+
 const CONVEYOR_COLUMNS = ['request', 'drafting', 'verifying', 'validated'] as const
 const CONVEYOR_TITLES: Record<(typeof CONVEYOR_COLUMNS)[number], string> = {
   request: 'Запрос', drafting: 'Сбор', verifying: 'Верификация', validated: 'Validated',
@@ -96,10 +108,12 @@ export function Board({
   // Требование и вид перехода для окна TransitionDialog; null — окна нет. Два состояния,
   // а не одно с видом окна: у окон разные пропсы, и общий union читался бы хуже.
   const [transitionTarget, setTransitionTarget] = useState<{ id: string; kind: BoardTransition } | null>(null)
+  // Конвейер-режим (Т13/Т14): карточки из борда Коробки + выбранная инициатива.
+  const [conveyorCards, setConveyorCards] = useState<ConveyorCard[]>([])
+  const [selected, setSelected] = useState<ConveyorCard | null>(null)
   // Конвейер-режим (Т13): 4 колонки из борда Коробки (ADR-0005); «стадии» —
   // прежние 9 колонок по артефактам. Режим — локальный выбор пользователя.
   const [mode, setMode] = useState<'stages' | 'conveyor'>('stages')
-  const [conveyorCards, setConveyorCards] = useState<{ initiative: string; goal: string; stage: string; waiting: string[]; state: string }[]>([])
 
   // silent — тот же приём, что в Panel.tsx: не сбрасывает экран в 'loading', ошибка фонового
   // обновления не перекрывает уже показанный кэш, только логируется.
@@ -165,6 +179,9 @@ export function Board({
                     setConveyorCards(inis.map((i) => ({
                       initiative: i.initiative_id, goal: i.goal ?? '', stage: i.stage ?? '',
                       waiting: i.waiting_for ?? [], state: i.state ?? '',
+                      checks: (i as { checks?: { green: number; yellow: number; red: number } }).checks,
+                      temporalUrl: (i as { temporal_url?: string }).temporal_url,
+                      slug: ((i as { external_refs?: Record<string, string> }).external_refs ?? {}).slug,
                     })))
                   }
                 }) }}>Конвейер</button>
@@ -204,9 +221,15 @@ export function Board({
                 <div key={col} style={{ borderLeft: '3px solid var(--dsh-accent, #0f62fe)', paddingLeft: 8 }}>
                   <h3 style={{ fontSize: 12, margin: '0 0 8px' }}>{CONVEYOR_TITLES[col]}</h3>
                   {conveyorCards.filter((c) => c.stage === col).map((c) => (
-                    <div key={c.initiative} style={{
-                      fontSize: 11.5, padding: '6px 8px', marginBottom: 6, borderRadius: 8,
-                      border: '1px solid var(--dsh-border, #cbd5e1)', background: 'var(--dsh-bg, #fff)',
+                    <div key={c.initiative} role="button" tabIndex={0}
+                         onClick={() => { setSelected(c) }}
+                         onKeyDown={(e) => { if (e.key === 'Enter') setSelected(c) }}
+                         style={{
+                      fontSize: 11.5, padding: '6px 8px', marginBottom: 6, borderRadius: 8, cursor: 'pointer',
+                      border: selected?.initiative === c.initiative
+                        ? '2px solid var(--dsh-accent, #0f62fe)'
+                        : '1px solid var(--dsh-border, #cbd5e1)',
+                      background: 'var(--dsh-bg, #fff)',
                     }}>
                       <div style={{ fontWeight: 600 }}>{c.goal.slice(0, 40) || c.initiative}</div>
                       <div style={{ opacity: 0.7 }}>{c.initiative.slice(0, 14)}</div>
@@ -229,6 +252,35 @@ export function Board({
               t={t}
             />
           ))}
+
+        {mode === 'conveyor' && selected && (
+          <div style={{ margin: '0 14px 12px', padding: '12px 14px', borderRadius: 10,
+                        border: '1px solid var(--dsh-border, #cbd5e1)', background: 'var(--dsh-bg-elevated, #fff)' }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+              <h3 style={{ margin: 0, fontSize: 14 }}>{selected.goal.slice(0, 60) || selected.initiative}</h3>
+              <span style={{ fontSize: 11, opacity: 0.7 }}>{selected.initiative}</span>
+              <span style={{ flex: 1 }} />
+              <button type="button" className={css.iconButton} aria-label="Закрыть" onClick={() => { setSelected(null) }}>×</button>
+            </div>
+            <p style={{ fontSize: 12, margin: '8px 0 4px' }}>
+              Конвейер: <b>{selected.stage}</b>
+              {' — '}состояние: {selected.state}
+              {selected.waiting.length > 0 && <>; ждём: {selected.waiting.join(', ')}</>}
+            </p>
+            {selected.checks && (
+              <p style={{ fontSize: 12, margin: '4px 0' }}>
+                Светофор: <span style={{ color: '#047857' }}>зелёных {selected.checks.green}</span>
+                {' · '}<span style={{ color: '#b45309' }}>жёлтых {selected.checks.yellow}</span>
+                {' · '}<span style={{ color: '#b91c1c' }}>красных {selected.checks.red}</span>
+              </p>
+            )}
+            <p style={{ fontSize: 12, margin: '4px 0', display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+              {selected.temporalUrl && <a href={selected.temporalUrl} target="_blank" rel="noreferrer">Temporal-процесс ↗</a>}
+              <a href={`http://127.0.0.1:8090/#/room/%23bft-${encodeURIComponent(selected.slug ?? selected.initiative)}:bft.local`} target="_blank" rel="noreferrer">Комната заказчика ↗</a>
+              <a href="http://127.0.0.1:3456/" target="_blank" rel="noreferrer">Задачи в Трекере ↗</a>
+            </p>
+          </div>
+        )}
         </div>
       )}
 
