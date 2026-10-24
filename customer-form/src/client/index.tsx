@@ -13,7 +13,9 @@ import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import { useEffect, useRef, useState } from 'react'
 
-export const inject = ['@deepseek-ai/dsh-client-ui-renderer', '@deepseek-ai/dsh-client-ui-primitives']
+// Имена СЛУЖБ cordis (как у эталонного плагина), не пакетов: полные имена
+// пакетов загрузчик ждёт как несуществующие службы — вечное pending.
+export const inject = ['slots', 'connection']
 
 /** Стиль канона dsh: переменные темы харнесса, скругления как у композера. */
 const s = {

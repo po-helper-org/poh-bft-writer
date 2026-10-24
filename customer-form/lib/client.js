@@ -8,7 +8,7 @@ window.__ModuleLoader__.load({
 		let react = require("react");
 		let react_jsx_runtime = require("react/jsx-runtime");
 		// src/client/index.tsx
-		const inject = ["@deepseek-ai/dsh-client-ui-renderer", "@deepseek-ai/dsh-client-ui-primitives"];
+		const inject = ["slots", "connection"];
 		/** Стиль канона dsh: переменные темы харнесса, скругления как у композера. */
 		const s = {
 			screen: {
