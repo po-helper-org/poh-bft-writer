@@ -49,7 +49,7 @@ const GENERATED_REMOTE = /^@deepseek-ai\/dsh-[a-z0-9]+(?:-[a-z0-9]+)*\/remote$/
 
 export default defineConfig({
   name: 'customer-form/client',
-  entry: { client: 'src/client/index.tsx' },
+  entry: { client: 'src/client/index.ts' },
   // Один каталог артефактов с серверной половиной от tsc; entryFileNames
   // закрепляет бандл ровно на lib/client.js — туда смотрит exports пакета.
   outDir: 'lib',

@@ -1,3 +1,9 @@
-# Профиль заказчика (ADR-0007): патчей профиля нет — стандартный web-app
-# и бандл customer-form из его собственного cordis.patch.yml.
-[]
+# Профиль заказчика (ADR-0007 rev4): zai-провайдер из окружения, остальное —
+# стандартный web-app. Секретов здесь нет: ключ живёт в ZAI_API_KEY контейнера.
+- insert:
+    - id: llm-pi-ai
+      name: '@deepseek-ai/dsh-llm-pi-ai'
+      config:
+        providers:
+          zai:
+            apiKeyEnv: ZAI_API_KEY

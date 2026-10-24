@@ -50,7 +50,26 @@ if [ -f "${DSH_HOME}/zai.key" ]; then
   echo "[entrypoint] ZAI_API_KEY подмешан из ${DSH_HOME}/zai.key" >&2
 fi
 
-# Публикация наружу: до старта dsh, чтобы healthcheck compose не ловил отказ.
+if [ "${PROFILE}" = "customer" ]; then
+  # Заказчик входит БЕЗ КОДА (rev4): dsh в фоне, парсим launch-токен из его
+  # stdout, затем прокси на :3080 подставляет токен в «/» молча (proxy-auth.js).
+  rm -f /tmp/dsh.log
+  "${PROFILE_DST}/node_modules/.bin/dsh" web \
+    --no-open --host 127.0.0.1 --port "${DSH_LOOP_PORT}" \
+    --trusted-host "127.0.0.1:${DSH_PORT}" --trusted-host "localhost:${DSH_PORT}" \
+    > /tmp/dsh.log 2>&1 &
+  TOKEN=""
+  for i in $(seq 1 60); do
+    TOKEN="$(grep -oE 'token=[A-Za-z0-9._%-]+' /tmp/dsh.log 2>/dev/null | tail -1 | cut -d= -f2 || true)"
+    [ -n "$TOKEN" ] && break
+    sleep 1
+  done
+  [ -n "$TOKEN" ] || { echo "[entrypoint] токен dsh не появился" >&2; exit 1; }
+  echo "[entrypoint] вход без кода: прокси подставит токен" >&2
+  DSH_TOKEN="$TOKEN" exec node /proxy-auth.js
+fi
+
+# PO-инстанс: прежний socat-конверт безопасности.
 socat TCP-LISTEN:"${DSH_PORT}",fork,reuseaddr,bind=0.0.0.0 TCP:127.0.0.1:"${DSH_LOOP_PORT}" &
 
 exec "${PROFILE_DST}/node_modules/.bin/dsh" web \

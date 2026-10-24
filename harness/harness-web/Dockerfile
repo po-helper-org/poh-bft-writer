@@ -55,6 +55,7 @@ COPY --from=profile /seed/customer.json ./customer-profile.json
 COPY harness/profile/cordis.patch.yml ./cordis.patch.yml
 COPY harness/profile/customer.patch.yml ./customer.patch.yml
 COPY harness/harness-web/entrypoint.sh /entrypoint.sh
+COPY harness/harness-web/proxy-auth.js /proxy-auth.js
 # Маркер сида: меняется на каждой сборке — entrypoint перезасеивает профиль
 # в /data, иначе том со старым node_modules переживал бы обновления образа.
 RUN echo "seed-$(date +%s)-$RANDOM" > /app/seed-marker
