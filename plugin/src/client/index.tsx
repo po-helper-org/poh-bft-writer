@@ -539,6 +539,7 @@ export function apply(ctx: ClientContext): void {
         openSession,
         getSettings,
         subscribeSettings,
+        call: (endpoint: string, payload?: unknown) => connection.rpc.call('/bft', endpoint, payload ?? {}),
       }),
     },
     RequirementsPanel,

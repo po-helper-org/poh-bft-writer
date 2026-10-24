@@ -10,11 +10,13 @@
 import z from '@deepseek-ai/schemastery'
 import { existsSync as fsExistsSync, readFileSync } from 'node:fs'
 import * as fs from 'node:fs/promises'
+import { dirname, join } from 'node:path'
 import { BftReader } from './bft-reader.js'
 import { CATALOG_GUARD_ORDER, CATALOG_GUARD_SECTION, catalogGuardText, isStale } from './catalog-guard.js'
 import { BFT_CHANNEL, BFT_ENDPOINTS, dispatch, type RpcResult } from './channel.js'
 import { bftFetchRoute, type BftFetchRoute } from './api-route.js'
 import { OnboardingService } from './onboarding-host.js'
+import { MAX_UPLOAD_BYTES, sanitizeFilename, uploadDir } from './intake.js'
 import { toBftConfig, type PluginConfig } from './plugin-config.js'
 import { BFT_SETTINGS_NS, DEFAULT_SYNC_PROMPT, type BftSettings } from './settings.js'
 
@@ -155,6 +157,34 @@ export function apply(ctx: HarnessContext, config: PluginConfig): void {
       for (const endpoint of BFT_ENDPOINTS) {
         scoped.effect(() => register(bftFetchRoute(endpoint, handler)), `poh-bft-plugin: /api/bft.${endpoint}`)
       }
+      // Интейк, выгрузка вложений (Т7): бинарное тело, не JSON-конверт — файл
+      // с встречи в base64 раздувался бы в полтора раза. Заголовки несут имя и
+      // слаг; кладём в workspace/bft/uploads/<ts>-<slug>/ (контракт скилла: путь).
+      scoped.effect(() => register({
+        path: '/api/bft.intakeUpload',
+        methods: ['POST'],
+        requestBody: 'buffered',
+        fetch: async (request: Request) => {
+          const cfg = toBftConfig(config, process.env)
+          const dir = uploadDir(request.headers.get('x-bft-slug') ?? 'intake')
+          // Имя приходит percent-encoded (HTTP-заголовки ASCII): браузерный клиент
+          // кодирует; decodeURIComponent с защитой от чужого мусора.
+          const rawName = request.headers.get('x-bft-filename') ?? ''
+          let decodedName = rawName
+          try { decodedName = decodeURIComponent(rawName) } catch { /* оставляем как есть */ }
+          const filename = sanitizeFilename(decodedName)
+          if (!filename) return Response.json({ error: 'Пустое имя файла' }, { status: 400 })
+          const body = Buffer.from(await request.arrayBuffer())
+          if (body.byteLength === 0) return Response.json({ error: 'Пустой файл' }, { status: 400 })
+          if (body.byteLength > MAX_UPLOAD_BYTES) {
+            return Response.json({ error: `Файл больше ${Math.round(MAX_UPLOAD_BYTES / 1024 / 1024)} МБ` }, { status: 413 })
+          }
+          const target = join(cfg.workspaceRoot ?? process.cwd(), dir, filename)
+          await fs.mkdir(dirname(target), { recursive: true })
+          await fs.writeFile(target, body)
+          return Response.json({ path: dir + '/' + filename, bytes: body.byteLength })
+        },
+      }), 'poh-bft-plugin: /api/bft.intakeUpload')
       return
     }
     // Ядро 0.1.2: собственный канал /bft.
