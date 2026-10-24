@@ -10,16 +10,28 @@
 import { useEffect, useRef, useState } from 'react'
 
 import type { RpcResult } from '../channel.js'
-import { dictationFilename, parseLinks, validateIntake } from '../intake.js'
+import { parseContacts, ROLE_TITLES, type ContactRole } from '../contacts.js'
+import { buildFastCommand } from '../intake-fast.js'
+import { dictationFilename, parseLinks, sanitizeSlug, validateIntake } from '../intake.js'
 import { panelClassNames as css } from './Panel.styles.js'
 
 export type IntakeCall = (endpoint: string, payload?: unknown) => Promise<RpcResult<unknown>>
 
 interface Upload { name: string; path?: string; error?: string; uploading: boolean }
 
+export type FastStatus = 'starting' | 'running' | 'idle'
+
 export interface IntakeProps {
   call: IntakeCall
+  runFast(command: string, onStatus: (phase: FastStatus, message?: string) => void): Promise<void>
   onBack: () => void
+}
+
+interface FastResult {
+  slug: string
+  contacts: { role: ContactRole; label: string; email?: string }[]
+  questions: string[]
+  text: string
 }
 
 async function uploadFile(call: IntakeCall, slug: string, file: File): Promise<Upload> {
@@ -46,13 +58,18 @@ function slugOf(text: string): string {
   return words || 'intake'
 }
 
-export function Intake({ call, onBack }: IntakeProps) {
+export function Intake({ call, runFast, onBack }: IntakeProps) {
   const [text, setText] = useState('')
   const [files, setFiles] = useState<Upload[]>([])
   const [dictation, setDictation] = useState<'browser' | 'local'>('browser')
   const [listening, setListening] = useState(false)
   const [recording, setRecording] = useState(false)
   const [submitted, setSubmitted] = useState<string | null>(null)
+  const [fastPhase, setFastPhase] = useState<'idle' | FastStatus | 'reading' | 'result' | 'started' | 'error'>('idle')
+  const [fastStatus, setFastStatus] = useState('')
+  const [fastError, setFastError] = useState('')
+  const [result, setResult] = useState<FastResult | null>(null)
+  const [initiative, setInitiative] = useState('')
   const recorder = useRef<MediaRecorder | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
 
@@ -127,13 +144,56 @@ export function Intake({ call, onBack }: IntakeProps) {
     }
   }
 
-  const submit = () => {
+  const slug = sanitizeSlug(slugOf(text) === 'intake' ? `intake-${Date.now()}` : slugOf(text))
+
+  const submit = async () => {
     if (!verdict.ok) return
-    const ready = files.filter((f) => f.path)
-    setSubmitted(
-      `Готово к запуску: ${ready.length} файл(ов) в воркспейсе, ссылок: ${links.length}. ` +
-      'Fast-прогон подключается следующим шагом (Т8).',
-    )
+    setFastError(''); setResult(null); setInitiative('')
+    const paths = files.filter((f) => f.path).map((f) => f.path!)
+    const cmd = buildFastCommand({ text, paths, slug })
+    if (!cmd.ok) { setFastError(cmd.reason); setFastPhase('error'); return }
+    setFastPhase('starting')
+    try {
+      await runFast(cmd.command, (phase, message) => { setFastPhase(phase); if (message) setFastStatus(message) })
+      setFastPhase('reading'); setFastStatus('Читаю fast-документ…')
+      const res = await call('intakeDoc', { slug })
+      if (!res.ok) {
+        setFastError(res.error.code === 'doc-not-found'
+          ? 'Агент не собрал fast-документ за ход: смотрите чат сессии, повторите отправку.'
+          : res.error.message)
+        setFastPhase('error')
+        return
+      }
+      const text = (res.value as { text: string }).text
+      const v = parseContacts(text)
+      setResult({
+        slug,
+        contacts: v.contacts.map((c) => ({ role: c.role, label: ROLE_TITLES[c.role], email: c.email })),
+        questions: v.questions,
+        text,
+      })
+      setFastPhase('result')
+    } catch (e) {
+      setFastError(String(e)); setFastPhase('error')
+    }
+  }
+
+  const startInitiative = async () => {
+    if (!result) return
+    setFastPhase('starting'); setFastStatus('Запускаю проработку в Коробке…')
+    const res = await call('intakeStart', {
+      goal: text.trim(),
+      brief: result.text.slice(0, 4000),
+      files: files.filter((f) => f.path).map((f) => ({ name: f.name, media_type: 'application/octet-stream' })),
+      externalRefs: { slug: result.slug },
+      idempotencyKey: `${result.slug}-${Math.floor(Date.now() / 1000)}`,
+    })
+    if (res.ok) {
+      setInitiative((res.value as { initiativeId: string }).initiativeId)
+      setFastPhase('started')
+    } else {
+      setFastError(res.error.message); setFastPhase('error')
+    }
   }
 
   return (
@@ -158,7 +218,7 @@ export function Intake({ call, onBack }: IntakeProps) {
             ? <button type="button" className={css.iconButton} title="Диктовка (браузерное распознавание)" onClick={toggleListening}>{listening ? '⏹' : '🎤'}</button>
             : <button type="button" className={css.iconButton} title="Запись локально (файлом)" onClick={() => void toggleRecording()}>{recording ? '⏹' : '🎙'}</button>}
           <span style={{ flex: 1 }} />
-          <button type="button" className={css.iconButton} style={{ fontWeight: 700 }} disabled={!verdict.ok} title={verdict.reason ?? ''} onClick={submit}>Отправить →</button>
+          <button type="button" className={css.iconButton} style={{ fontWeight: 700 }} disabled={!verdict.ok || fastPhase === 'starting' || fastPhase === 'running' || fastPhase === 'reading'} title={verdict.reason ?? ''} onClick={() => void submit()}>Отправить →</button>
         </div>
 
         {files.length > 0 && (
@@ -182,6 +242,28 @@ export function Intake({ call, onBack }: IntakeProps) {
           <p style={{ fontSize: '12.5px', color: '#b45309', margin: '6px 0' }}>{verdict.reason}</p>
         )}
         {submitted && <p style={{ fontSize: '13px', fontWeight: 600, margin: '10px 0' }}>{submitted}</p>}
+
+        {(fastPhase === 'starting' || fastPhase === 'running' || fastPhase === 'reading') && (
+          <p style={{ fontSize: '13px', fontWeight: 600, margin: '10px 0' }}>⏳ {fastStatus}</p>
+        )}
+        {fastPhase === 'error' && fastError && (
+          <p style={{ fontSize: '13px', color: '#b91c1c', margin: '10px 0', fontWeight: 600 }}>✗ {fastError}</p>
+        )}
+        {result && (fastPhase === 'result' || fastPhase === 'started') && (
+          <div style={{ border: '1px solid var(--dsh-border, #cbd5e1)', borderRadius: '10px', padding: '12px 14px', margin: '10px 0' }}>
+            <p style={{ margin: '0 0 6px', fontWeight: 700, fontSize: '13.5px' }}>Fast-скоринг готов · {result.slug}</p>
+            <p style={{ margin: '0 0 6px', fontSize: '12.5px' }}>Контакты: {result.contacts.length === 0 ? 'не распознаны — смотрите вопросы' : result.contacts.map((c) => `${c.label}: ${c.email ?? 'без email'}`).join(' · ')}</p>
+            {result.questions.length > 0 && (
+              <p style={{ margin: '0 0 6px', fontSize: '12.5px', color: '#b45309' }}>Открытые вопросы: {result.questions.join('; ')}</p>
+            )}
+            {fastPhase === 'result' && (
+              <button type="button" className={css.iconButton} style={{ fontWeight: 700 }} onClick={() => void startInitiative()}>Запустить проработку →</button>
+            )}
+            {fastPhase === 'started' && (
+              <p style={{ margin: 0, fontSize: '12.5px', color: '#047857', fontWeight: 700 }}>✓ Инициатива запущена: {initiative} — смотрите доску</p>
+            )}
+          </div>
+        )}
 
         <p style={{ fontSize: '11.5px', opacity: 0.65, marginTop: '12px' }}>
           Голос: {dictation === 'browser' ? 'браузерное распознавание' : 'локальная запись файлом'}. Файлы остаются в вашей системе.

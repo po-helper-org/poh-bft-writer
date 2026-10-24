@@ -84,6 +84,10 @@ services:
     environment:
       # Провайдер z.ai (GLM): ключ из .env — онбординг допишет (US-8).
       ZAI_API_KEY: ${ZAI_API_KEY:-}
+      # Коробка (Т8): адрес внутри compose-сети + ui-токен из BOX_TOKENS —
+      # их дописывает start.sh (парсинг ui:…).
+      BFT_BOX_URL: ${BFT_BOX_URL:-http://box-mcp:8700}
+      BFT_BOX_UI_TOKEN: ${BFT_BOX_UI_TOKEN:-}
       # Публичная форма ссылки с токеном: dsh печатает её в лог (Т3: start.sh
       # достаёт и открывает).
       PUBLIC_URL: ${PUBLIC_URL:-http://127.0.0.1:3080}

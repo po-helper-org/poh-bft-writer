@@ -17,6 +17,9 @@ import { BFT_CHANNEL, BFT_ENDPOINTS, dispatch, type RpcResult } from './channel.
 import { bftFetchRoute, type BftFetchRoute } from './api-route.js'
 import { OnboardingService } from './onboarding-host.js'
 import { MAX_UPLOAD_BYTES, sanitizeFilename, uploadDir } from './intake.js'
+import { BoxClient } from './box-client.js'
+import { fastDocPath } from './intake-fast.js'
+import type { IntakeService } from './channel.js'
 import { toBftConfig, type PluginConfig } from './plugin-config.js'
 import { BFT_SETTINGS_NS, DEFAULT_SYNC_PROMPT, type BftSettings } from './settings.js'
 
@@ -135,6 +138,25 @@ export const Config: z<PluginConfig & BftSettings> = z.object({
  */
 export function apply(ctx: HarnessContext, config: PluginConfig): void {
   const reader = new BftReader(toBftConfig(config, process.env))
+  // Интейк → Коробка (Т8): адрес и ui-токен из окружения; в compose их задаёт
+  // start.sh (BFT_BOX_URL внутри сети, BFT_BOX_UI_TOKEN из BOX_TOKENS).
+  const boxClient = new BoxClient({
+    baseUrl: process.env.BFT_BOX_URL ?? '',
+    token: process.env.BFT_BOX_UI_TOKEN ?? '',
+    fetch: (url, init) => fetch(url, init),
+  })
+  const intake: IntakeService = {
+    doc: async (slug) => {
+      try {
+        // readDocument ждёт путь от корня воркспейса (проверка «внутри docsRoot»),
+        // а fastDocPath — от docsPath: приставляем каталог документов.
+        return await reader.readDocument(`${config.docsPath}/${fastDocPath(slug)}`)
+      } catch {
+        return null
+      }
+    },
+    start: (input) => boxClient.start(input),
+  }
   // Онбординг: DSH_HOME из окружения харнесса (в контейнере — /data), порты —
   // те же инъекции fs, что у читателя; fetch — глобальный (node 18+).
   const onboarding = new OnboardingService({
@@ -153,7 +175,7 @@ export function apply(ctx: HarnessContext, config: PluginConfig): void {
     // Ядро 0.1.7+: маршрут на каждую подкоманду, см. src/api-route.ts.
     const register = connection.fetch?.register
     if (typeof register === 'function') {
-      const handler = (endpoint: string, payload: unknown) => dispatch(reader, endpoint, payload, onboarding)
+      const handler = (endpoint: string, payload: unknown) => dispatch(reader, endpoint, payload, onboarding, intake)
       for (const endpoint of BFT_ENDPOINTS) {
         scoped.effect(() => register(bftFetchRoute(endpoint, handler)), `poh-bft-plugin: /api/bft.${endpoint}`)
       }
@@ -191,7 +213,7 @@ export function apply(ctx: HarnessContext, config: PluginConfig): void {
     scoped.effect(
       () => connection.rpc.handle(
         BFT_CHANNEL,
-        (endpoint, payload) => dispatch(reader, endpoint, payload, onboarding),
+        (endpoint, payload) => dispatch(reader, endpoint, payload, onboarding, intake),
         { authority: 'loopback' },
       ),
       'poh-bft-plugin: канал /bft',

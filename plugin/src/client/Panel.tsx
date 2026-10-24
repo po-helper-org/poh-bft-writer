@@ -120,6 +120,8 @@ export interface RequirementsPanelInjected {
   subscribeSettings(listener: () => void): () => void
   /** RPC-обёртка для самодостаточных вьюх (интейк): подкоманды того же канала. */
   call(endpoint: string, payload?: unknown): Promise<RpcResult<unknown>>
+  /** Прогон fast-команды в расходной сессии харнесса (Т8). */
+  runFast(command: string, onStatus: (phase: 'starting' | 'running' | 'idle', message?: string) => void): Promise<void>
 }
 
 export type RequirementsPanelProps =
@@ -207,6 +209,7 @@ export function RequirementsPanel({
   getSettings,
   subscribeSettings,
   call,
+  runFast,
   t,
 }: RequirementsPanelProps) {
   const isOpen = useStore(state => state.open)
@@ -333,7 +336,7 @@ export function RequirementsPanel({
   // ничего из списка ему не нужно.
   if (route.view === 'intake') {
     return (
-      <Intake call={call} onBack={() => setRoute({ view: 'list' })} />
+      <Intake call={call} runFast={runFast} onBack={() => setRoute({ view: 'list' })} />
     )
   }
 

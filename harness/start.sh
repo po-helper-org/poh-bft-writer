@@ -37,6 +37,9 @@ if ! grep -q '^BOX_TOKENS=..' .env; then
   set_kv BOX_TOKENS "ui:$(gen),agent:$(gen)"
   echo "✓ BOX_TOKENS сгенерированы (ui — плагину, agent — запас агентам, ADR-0001)"
 fi
+# ui-токен — харнесс-контейнеру (BFT_BOX_UI_TOKEN): плагин зовёт /api/start.
+UI_TOKEN_VALUE="$(grep -oE '^BOX_TOKENS=ui:[^,]+' .env | cut -d: -f2)"
+if [ -n "$UI_TOKEN_VALUE" ]; then set_kv BFT_BOX_UI_TOKEN "$UI_TOKEN_VALUE"; fi
 # Демо-профиль: коробка идёт в LLM-двойника, ключ не нужен.
 # ${ARR[@]+...} — гарда пустого массива: bash 3.2 (macOS) под set -u падает на "${ARR[@]}".
 if printf '%s\n' ${PROFILE_ARGS[@]+"${PROFILE_ARGS[@]}"} 2>/dev/null | grep -q demo; then
