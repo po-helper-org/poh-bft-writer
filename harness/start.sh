@@ -38,20 +38,21 @@ if ! grep -q '^BOX_TOKENS=..' .env; then
   echo "✓ BOX_TOKENS сгенерированы (ui — плагину, agent — запас агентам, ADR-0001)"
 fi
 # Демо-профиль: коробка идёт в LLM-двойника, ключ не нужен.
-if printf '%s\n' "${PROFILE_ARGS[@]}" 2>/dev/null | grep -q demo || [ "${1:-}" = "--demo" ]; then
+# ${ARR[@]+...} — гарда пустого массива: bash 3.2 (macOS) под set -u падает на "${ARR[@]}".
+if printf '%s\n' ${PROFILE_ARGS[@]+"${PROFILE_ARGS[@]}"} 2>/dev/null | grep -q demo; then
   set_kv LLM_BASE_URL "http://llm-demo:8710/v1"
 fi
 
 # ── 2. Подъём ──────────────────────────────────────────────────────────────────
 echo "▸ Поднимаю систему…"
-docker compose "${PROFILE_ARGS[@]}" up -d --build
+docker compose ${PROFILE_ARGS[@]+"${PROFILE_ARGS[@]}"} up -d --build
 
 # ── 3. Ждём health и достаём ссылку с токеном ─────────────────────────────────
 echo "▸ Жду здоровья сервисов…"
 for i in $(seq 1 90); do
-  ST="$(docker compose "${PROFILE_ARGS[@]}" ps --format '{{.Name}} {{.Health}}' 2>/dev/null)"
+  ST="$(docker compose ${PROFILE_ARGS[@]+"${PROFILE_ARGS[@]}"} ps --format '{{.Name}} {{.Health}}' 2>/dev/null)"
   UNHEALTHY="$(echo "$ST" | grep -cv '(healthy)$' || true)"
-  URL="$(docker compose logs harness-web 2>/dev/null | grep -oE 'https?://127\.0\.0\.1:3080/\?token=[A-Za-z0-9._%-]+' | tail -1 || true)"
+  URL="$(docker compose logs harness-web 2>/dev/null | grep -oE 'https?://[^ "?]+\?token=[A-Za-z0-9._%-]+' | tail -1 | sed -E 's|https?://[^/]+|http://127.0.0.1:3080|' || true)"
   [ -n "$URL" ] && [ "$UNHEALTHY" = "0" ] && break
   sleep 2
 done
@@ -63,6 +64,6 @@ if [ -z "$URL" ]; then
 fi
 echo "$URL" > .last-url
 echo "✓ Система поднята:"
-echo "    $URL" | tee .last-url.txt
+echo "    $URL"
 grep -q '^ZAI_API_KEY=..' .env || echo "⚠  Ключа Z.AI нет: fast-прогон не заработает, пока не пройдёте онбординг (US-5–8)."
 if [ "$NO_OPEN" = "0" ] && command -v open >/dev/null; then open "$URL"; fi

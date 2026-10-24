@@ -18,15 +18,25 @@ ARG DSH_VERSION=0.1.7-rc.2
 WORKDIR /seed
 COPY harness/profile/package.json.in ./package.json.in
 COPY --from=plugin /src/plugin ./plugin
+# npm для file:-зависимостей ставит СИМЛИНК (node_modules/poh-bft-plugin -> ../plugin).
+# Заменяем его на реальную копию и удаляем источник: бандл живёт в node_modules
+# самодостаточно (files-пакета хватает: lib + cordis.patch.yml).
 RUN sed "s/__DSH_VERSION__/${DSH_VERSION}/g" package.json.in > package.json \
  && npm install --omit=dev --no-audit --no-fund \
- && rm -rf plugin node_modules/poh-bft-plugin \
+ && rm -rf node_modules/poh-bft-plugin \
  && cp -R plugin node_modules/poh-bft-plugin \
- && rm -rf node_modules/poh-bft-plugin/src node_modules/poh-bft-plugin/node_modules \
+ && rm -rf plugin node_modules/poh-bft-plugin/node_modules \
+ && node -e "const p=require('./node_modules/poh-bft-plugin/package.json'); if(!p.exports || !p.exports['./client']) process.exit(1)" \
  && npm cache clean --force
 
 FROM node:22-bookworm-slim AS runtime
 ENV NODE_ENV=production DSH_HOME=/data
+# socat: dsh сознательно отказывается биндить 0.0.0.0 (RCE-безопасность CLI),
+# поэтому он слушает loopback-КОНТЕЙНЕРА, а наружу (внутрь compose-сети)
+# публикует socat. Публикация наружу хоста — по-прежнему HARNESS_BIND
+# (127.0.0.1 по умолчанию): конверт безопасности тот же, что у нативного dsh.
+RUN apt-get update && apt-get install -y --no-install-recommends socat \
+ && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 # dsh-CLI из профиля: один пин на весь набор @deepseek-ai/dsh-* (ADR-0002).
 COPY --from=profile /seed/node_modules ./node_modules

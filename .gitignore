@@ -6,3 +6,5 @@
 .mcp.json
 node_modules/
 dist/
+harness/.env
+harness/.last-url

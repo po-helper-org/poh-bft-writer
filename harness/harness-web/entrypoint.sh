@@ -1,21 +1,19 @@
 #!/bin/sh
 # Точка входа харнесс-контейнера.
 #
-# Два факта dsh web, из которых вырос этот скрипт (docs/cli-help.md апстрима):
-#  1) --host отвергает wildcard-адреса — биндим конкретный IP контейнера,
-#     иначе порт-маппинг compose наружу не работает;
-#  2) --public-url не меняет слушающий адрес, а только то, что dsh печатает и
-#     чем доверяет /api-забор (--trusted-host). Даём хостовую форму ссылки.
+# Факты dsh web 0.1.7-rc.2 (схема webserver — истина, доки мастера новее релиза):
+#  1) $.host допускает только 127.0.0.1 | 0.0.0.0 — в контейнере биндим 0.0.0.0
+#     (порт-маппинг compose наружу работает);
+#  2) --public-url в этой версии нет: dsh печатает ссылку с 0.0.0.0 — start.sh
+#     переписывает её в хостовую форму; хостовую форму допускает --trusted-host.
 #
 # Профиль сеется в DSH_HOME при первом старте: том /data живёт между
 # рестартами (сессии, настройки), образ обновляет только пакеты профиля.
 set -eu
 
 DSH_PORT="${DSH_PORT:-3080}"
-PUBLIC_URL="${PUBLIC_URL:-http://127.0.0.1:${DSH_PORT}}"
-
-IP="$(hostname -i | awk '{print $1}')"
-echo "[entrypoint] bind ${IP}:${DSH_PORT}, public ${PUBLIC_URL}" >&2
+DSH_LOOP_PORT=13080   # loopback-порт dsh; наружу (0.0.0.0:${DSH_PORT}) — socat
+echo "[entrypoint] dsh 127.0.0.1:${DSH_LOOP_PORT} -> 0.0.0.0:${DSH_PORT} (socat)" >&2
 
 PROFILE_SRC="/app"
 PROFILE_DST="${DSH_HOME}/profiles/web"
@@ -29,10 +27,12 @@ fi
 
 mkdir -p /workspace
 
+# Публикация наружу: до старта dsh, чтобы healthcheck compose не ловил отказ.
+socat TCP-LISTEN:"${DSH_PORT}",fork,reuseaddr,bind=0.0.0.0 TCP:127.0.0.1:"${DSH_LOOP_PORT}" &
+
 exec "${PROFILE_DST}/node_modules/.bin/dsh" web \
   --no-open \
-  --host "${IP}" \
-  --port "${DSH_PORT}" \
-  --public-url "${PUBLIC_URL}" \
+  --host 127.0.0.1 \
+  --port "${DSH_LOOP_PORT}" \
   --trusted-host "127.0.0.1:${DSH_PORT}" \
   --trusted-host "localhost:${DSH_PORT}"

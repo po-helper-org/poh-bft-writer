@@ -2,6 +2,7 @@
   "name": "dsh-profile-web",
   "private": true,
   "dependencies": {
+    "@deepseek-ai/dsh": "__DSH_VERSION__",
     "@deepseek-ai/dsh-base": "__DSH_VERSION__",
     "@deepseek-ai/dsh-web-app": "__DSH_VERSION__",
     "@deepseek-ai/dsh-llm-pi-ai": "__DSH_VERSION__",
@@ -12,10 +13,8 @@
   "dsh": {
     "profile": {
       "bundles": [
+        "@deepseek-ai/dsh-base",
         "@deepseek-ai/dsh-web-app",
-        "@deepseek-ai/dsh-llm-pi-ai",
-        "@deepseek-ai/dsh-skill-filesystem",
-        "@deepseek-ai/dsh-tool-skill",
         "poh-bft-plugin"
       ],
       "patchReload": "live"

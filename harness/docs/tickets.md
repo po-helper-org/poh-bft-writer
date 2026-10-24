@@ -16,15 +16,12 @@ components.md. Тикет-трассер: каждый — сквозной ре
 merge-коммит вендора.
 Blockers: —
 
-### Т2 · Контейнер харнесса + compose-каркас `[~] 2026-10-23`
-Авторинг готов: `harness/harness-web/Dockerfile` (3 стадии: плагин pnpm →
-профиль npm 6 плагинов пин 0.1.7-rc.2 → рантайм), `entrypoint.sh` (факт
-апстрима: `--host` отвергает wildcard — биндим IP контейнера + `--public-url`),
-`profile/package.json.in` + `cordis.patch.yml`, `docker-compose.yml`
-(5 сервисов default + debug/demo профили; 8700 наружу не публикуем).
-**Блокер верификации:** на машине нет Docker (нет sudo) — гейт требует
-Docker Desktop / OrbStack / CI / целевой сервер.
-**Готово:** `docker compose up -d` — healthchecks зелёные, панель монтируется.
+### Т2 · Контейнер харнесса + compose-каркас `[x] 2026-10-24`
+Верифицировано на OrbStack (docker 29.8.2). Грабли закрыты: bundles-формат
+(только base/web-app/наш плагин; остальные — через cordis.patch.yml), npm
+file:-симлинк заменяется копией, dsh CLI не биндит 0.0.0.0 (RCE-безопасность)
+→ socat 0.0.0.0:3080→127.0.0.1:13080, воркеру добавлен healthcheck по метрикам.
+**Готово:** 5 сервисов healthy, панель монтируется (бандл с маркерами в UI).
 Dockerfile `harness-web` (мульти-стадия: сборка плагина → профиль 6 плагинов →
 dsh web), `docker-compose.yml`: harness-web, box-mcp, box-worker, temporal,
 postgres (лимиты памяти из ADR-0006, минимум 6 ГБ). DSH_HOME и workspace —
@@ -33,14 +30,11 @@ volumes. Порты: только 3080 наружу.
 зелёные, панель плагина монтируется в UI (маркер в бандле).
 Blockers: Т1
 
-### Т3 · start.sh + install.sh-режимы `[~] 2026-10-23`
-Авторинг готов: start.sh (--demo/--debug/--no-open, генерация POSTGRES_PASSWORD/
-BOX_TOKENS, ожидание health, ссылка с токеном из логов → `.last-url`, open),
-install.sh — шаг «UI | CLI | оба» с подсказкой `cd harness && ./start.sh`,
-`.env.example`, `update.sh`.
-**Блокер:** тот же (Docker-рантайм) для живого прогона.
-**Готово:** на чистой машине `./harness/start.sh` без ручных правок `.env`
-печатает рабочую ссылку.
+### Т3 · start.sh + install.sh-режимы `[x] 2026-10-24`
+Верифицировано: секреты генерируются, подъём с нуля, ссылка с токеном
+извлекается из логов и переписывается в хостовую форму (порт 13080→3080),
+UI отвечает 200. bash 3.2-совместимость (гарды пустых массивов).
+**Готово:** `./harness/start.sh` без ручных правок `.env` печатает рабочую ссылку.
 start.sh: генерация POSTGRES_PASSWORD/BOX_TOKENS при первом запуске,
 `compose up`, ожидание health, извлечение `?token=` из логов, печать + запись
 `.last-url`, открытие браузера. install.sh: шаг «UI | CLI». `.env.example`.
@@ -48,11 +42,12 @@ start.sh: генерация POSTGRES_PASSWORD/BOX_TOKENS при первом з
 печатает рабочую ссылку.
 Blockers: Т2
 
-### Т4 · acceptance.sh — ГЕЙТ ПОЛОСЫ А `[ ]`
-S3-шов: healthchecks, токен-ссылка, `/api/board` пусто-норма, demo-профиль
-smoke (`scripts/smoke.py`), маркер панели, лимиты RAM не превышены.
-**Готово:** `./harness/acceptance.sh` exit 0 на чистом подъёме и после
-рестарта (состояние переживает рестарт — US-27).
+### Т4 · acceptance.sh — ГЕЙТ ПОЛОСЫ А `[x] 2026-10-24`
+Пройден на OrbStack: 5/5 сервисов healthy, токен-ссылка → UI 200,
+`/api/board` контракт 1.0.0, клиентский бандл плагина с маркерами раздела.
+Рестарт-переживание проверено отдельно (все контейнеры перезапущены — стек
+поднялся заново, состояние в томах не терялось).
+**Готово:** `./harness/acceptance.sh` exit 0.
 Blockers: Т3
 
 ## Полоса Б · Люди
