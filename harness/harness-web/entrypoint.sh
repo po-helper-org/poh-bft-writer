@@ -17,15 +17,31 @@ echo "[entrypoint] dsh 127.0.0.1:${DSH_LOOP_PORT} -> 0.0.0.0:${DSH_PORT} (socat)
 
 PROFILE_SRC="/app"
 PROFILE_DST="${DSH_HOME}/profiles/web"
-if [ ! -x "${PROFILE_DST}/node_modules/.bin/dsh" ]; then
+SEED_MARKER="${PROFILE_DST}/.seed-marker"
+need_seed() {
+  [ ! -x "${PROFILE_DST}/node_modules/.bin/dsh" ] && return 0
+  [ "$(cat /app/seed-marker 2>/dev/null)" != "$(cat "${SEED_MARKER}" 2>/dev/null)" ] && return 0
+  return 1
+}
+if need_seed; then
   echo "[entrypoint] сею профиль web в ${PROFILE_DST}" >&2
   mkdir -p "${PROFILE_DST}"
+  rm -rf "${PROFILE_DST}/node_modules"
   cp -a "${PROFILE_SRC}/node_modules" "${PROFILE_DST}/"
   cp "${PROFILE_SRC}/profile.json" "${PROFILE_DST}/package.json"
   cp "${PROFILE_SRC}/cordis.patch.yml" "${PROFILE_DST}/cordis.patch.yml"
+  cp /app/seed-marker "${SEED_MARKER}"
 fi
 
 mkdir -p /workspace
+
+# Ключ из онбординга (US-8): пишется в /data/zai.key, включается здесь —
+# после docker compose restart harness-web (подсказка онбординга).
+if [ -f "${DSH_HOME}/zai.key" ]; then
+  ZAI_API_KEY="$(tr -d '[:space:]' < "${DSH_HOME}/zai.key")"
+  export ZAI_API_KEY
+  echo "[entrypoint] ZAI_API_KEY подмешан из ${DSH_HOME}/zai.key" >&2
+fi
 
 # Публикация наружу: до старта dsh, чтобы healthcheck compose не ловил отказ.
 socat TCP-LISTEN:"${DSH_PORT}",fork,reuseaddr,bind=0.0.0.0 TCP:127.0.0.1:"${DSH_LOOP_PORT}" &

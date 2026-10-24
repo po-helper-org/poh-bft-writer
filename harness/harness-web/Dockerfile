@@ -43,6 +43,9 @@ COPY --from=profile /seed/node_modules ./node_modules
 COPY --from=profile /seed/package.json ./profile.json
 COPY harness/profile/cordis.patch.yml ./cordis.patch.yml
 COPY harness/harness-web/entrypoint.sh /entrypoint.sh
+# Маркер сида: меняется на каждой сборке — entrypoint перезасеивает профиль
+# в /data, иначе том со старым node_modules переживал бы обновления образа.
+RUN echo "seed-$(date +%s)-$RANDOM" > /app/seed-marker
 # Скиллы и команды — в образ (обновление = пересборка, как и профиль).
 COPY skills /opt/bft-skills
 RUN chmod +x /entrypoint.sh && useradd -m -u 10001 dsh \

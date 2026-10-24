@@ -55,6 +55,7 @@ import type { DetailChatChannel } from './DetailPage.js'
 import { createHarnessChat, type HarnessSessionsLike } from './harness-chat.js'
 import { ru, type BftLocaleKey } from './locales.js'
 import { RequirementsPanel, type RequirementsPanelInjected } from './Panel.js'
+import { Onboarding, type OnboardingCall } from './Onboarding.js'
 import { panelClassNames as css, panelStyleText } from './Panel.styles.js'
 import { SettingsCard, SettingsPage } from './SettingsCard.js'
 import type { LiveSession } from './session-view.js'
@@ -501,6 +502,20 @@ export function apply(ctx: ClientContext): void {
   ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register(
     { name: 'sidebar.footer.action', id: 'bft-requirements', locale: NS, store: panelStore },
     RequirementsButton,
+  ))
+
+  ctx.slots.inject('shell.overlay', () => ctx.slots.register(
+    {
+      name: 'shell.overlay',
+      id: 'bft-onboarding',
+      locale: NS,
+      // Онбординг не привязан к панели: собственный вход в слой оверлеев,
+      // решает сам по RPC-стейту (done → не рендерит ничего).
+      inject: (): { call: OnboardingCall } => ({
+        call: (endpoint, payload) => connection.rpc.call('/bft', endpoint, payload ?? {}),
+      }),
+    },
+    Onboarding,
   ))
 
   ctx.slots.inject('shell.overlay', () => ctx.slots.register(

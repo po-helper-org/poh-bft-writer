@@ -8,10 +8,13 @@
  * коду харнесса, а не додумана.
  */
 import z from '@deepseek-ai/schemastery'
+import { existsSync as fsExistsSync, readFileSync } from 'node:fs'
+import * as fs from 'node:fs/promises'
 import { BftReader } from './bft-reader.js'
 import { CATALOG_GUARD_ORDER, CATALOG_GUARD_SECTION, catalogGuardText, isStale } from './catalog-guard.js'
 import { BFT_CHANNEL, BFT_ENDPOINTS, dispatch, type RpcResult } from './channel.js'
 import { bftFetchRoute, type BftFetchRoute } from './api-route.js'
+import { OnboardingService } from './onboarding-host.js'
 import { toBftConfig, type PluginConfig } from './plugin-config.js'
 import { BFT_SETTINGS_NS, DEFAULT_SYNC_PROMPT, type BftSettings } from './settings.js'
 
@@ -130,6 +133,14 @@ export const Config: z<PluginConfig & BftSettings> = z.object({
  */
 export function apply(ctx: HarnessContext, config: PluginConfig): void {
   const reader = new BftReader(toBftConfig(config, process.env))
+  // Онбординг: DSH_HOME из окружения харнесса (в контейнере — /data), порты —
+  // те же инъекции fs, что у читателя; fetch — глобальный (node 18+).
+  const onboarding = new OnboardingService({
+    home: process.env.DSH_HOME ?? '',
+    fs: { readTextFile: (p) => fs.readFile(p, 'utf8'), writeTextFile: (p, t) => fs.writeFile(p, t, 'utf8') },
+    env: process.env,
+    fetch: (url, init) => fetch(url, init),
+  })
   // Выгрузка раздела или остановка харнесса гасит живые ходы Claude Code: дочерний
   // `claude -p` иначе переживёт узел и продолжит править документы, а раздел после
   // перезапуска будет считать сессию прерванной и разрешит второй ход по тому же файлу.
@@ -140,7 +151,7 @@ export function apply(ctx: HarnessContext, config: PluginConfig): void {
     // Ядро 0.1.7+: маршрут на каждую подкоманду, см. src/api-route.ts.
     const register = connection.fetch?.register
     if (typeof register === 'function') {
-      const handler = (endpoint: string, payload: unknown) => dispatch(reader, endpoint, payload)
+      const handler = (endpoint: string, payload: unknown) => dispatch(reader, endpoint, payload, onboarding)
       for (const endpoint of BFT_ENDPOINTS) {
         scoped.effect(() => register(bftFetchRoute(endpoint, handler)), `poh-bft-plugin: /api/bft.${endpoint}`)
       }
@@ -150,7 +161,7 @@ export function apply(ctx: HarnessContext, config: PluginConfig): void {
     scoped.effect(
       () => connection.rpc.handle(
         BFT_CHANNEL,
-        (endpoint, payload) => dispatch(reader, endpoint, payload),
+        (endpoint, payload) => dispatch(reader, endpoint, payload, onboarding),
         { authority: 'loopback' },
       ),
       'poh-bft-plugin: канал /bft',
