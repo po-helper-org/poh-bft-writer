@@ -17,6 +17,11 @@ x-box: &box
     BOX_TOKENS: ${BOX_TOKENS:?задайте BOX_TOKENS в .env (генерирует start.sh)}
     BOX_ADMINS: ui
     TRACKER_HOOK_TOKEN: ${TRACKER_HOOK_TOKEN:-}   # приём вебхуков Трекера (Т10)
+    # Шлюз Matrix (Т11, ADR-0006): коробка пишет и слушает комнаты инициатив.
+    MATRIX_URL: ${MATRIX_URL:-http://matrix:8008}
+    MATRIX_SERVER_NAME: ${MATRIX_SERVER_NAME:-bft.local}
+    MATRIX_AGENT_USER: ${MATRIX_AGENT_USER:-bft-box}
+    MATRIX_AGENT_TOKEN: ${MATRIX_AGENT_TOKEN:-}
     TEMPORAL_UI_URL: http://127.0.0.1:8233
   depends_on:
     temporal: {condition: service_healthy}
@@ -158,6 +163,52 @@ services:
       start_period: 15s
     mem_limit: 384m
 
+  matrix-init:   # Т11: генерация homeserver.yaml на чистом томе + закрытие федерации
+    image: matrixdotorg/synapse:latest
+    restart: "no"
+    entrypoint: [""]
+    environment:
+      SYNAPSE_SERVER_NAME: ${MATRIX_SERVER_NAME:-bft.local}
+      SYNAPSE_REPORT_STATS: "no"
+    command:
+      - sh
+      - -c
+      - |
+        if [ ! -f /data/homeserver.yaml ]; then
+          python /start.py generate
+          # Секрет регистрации synapse генерирует сам (start.sh извлекает его
+          # из конфига для сида). Сюда дописываем только закрытие контура.
+          printf '\n# БФТ: закрытый контур (ADR-0006)\nfederation_domain_whitelist: []\nenable_registration: false\n' >> /data/homeserver.yaml
+          echo "конфиг сгенерирован, федерация закрыта"
+        else
+          echo "конфиг уже есть"
+        fi
+    volumes: [matrixdata:/data]
+
+  matrix:   # homeserver Synapse: комнаты #bft-<slug>, клиентский API :8008 в LAN
+    image: matrixdotorg/synapse:latest
+    restart: unless-stopped
+    depends_on:
+      matrix-init: {condition: service_completed_successfully}
+    volumes: [matrixdata:/data]
+    ports:
+      - "${MATRIX_BIND:-0.0.0.0}:8008:8008"   # заказчикам в LAN (ADR-0006); федерация :8448 не публикуем
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:8008/health || wget -q -O /dev/null http://127.0.0.1:8008/health"]
+      interval: 10s
+      retries: 30
+      start_period: 20s
+    mem_limit: 512m
+
+  element:   # веб-клиент заказчика из коробки; свой клиент совместим (US-36/37)
+    image: vectorim/element-web:v1.12.32
+    restart: unless-stopped
+    volumes:
+      - ./matrix/element-config.json:/app/config.json:ro
+    ports:
+      - "${ELEMENT_BIND:-0.0.0.0}:8090:80"
+    mem_limit: 64m
+
   llm-demo:
     <<: *box
     profiles: [demo]
@@ -170,3 +221,4 @@ volumes:
   dshdata:
   workspace:
   trackerfiles:
+  matrixdata:

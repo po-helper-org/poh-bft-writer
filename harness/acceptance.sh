@@ -61,7 +61,7 @@ else
 fi
 
 # 5. Трекер (Т10): здоров, сид на месте (проект/вебхук), приёмник коробки живой
-if docker compose ps --status running 2>/dev/null | grep -q tracker; then
+if docker compose ps --status running 2>/dev/null | grep tracker >/dev/null; then
   say "Трекер (Vikunja)"
   set -a; . ./.env; set +a
   TRACKER_CODE="$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3456/api/v1/info || true)"
@@ -87,7 +87,24 @@ sys.stdout.write(str(urllib.request.urlopen(req).status))" 2>/dev/null || echo 4
   [ "$HOOK_CODE" = "401" ] && ok "приёмник коробки закрыт секретом" || bad "приёмник отвечает $HOOK_CODE"
 fi
 
-# 6. Опционально: демо-профиль + smoke жизненного цикла коробки
+# 6. Шлюз Matrix (Т11): homeserver жив, Element раздаётся, агент работает,
+#    smoke-комната на месте; федерация не публикуется (8448 закрыт).
+if docker compose ps --status running 2>/dev/null | grep matrix-1 >/dev/null; then
+  say "Шлюз (Matrix)"
+  MH="$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8008/health || true)"
+  [ "$MH" = "200" ] && ok "Synapse /health" || bad "Synapse ответил $MH"
+  EH="$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8090/ || true)"
+  [ "$EH" = "200" ] && ok "Element Web :8090" || bad "Element ответил $EH"
+  set -a; . ./.env; set +a
+  WHOAMI="$(curl -s -H "Authorization: Bearer $MATRIX_AGENT_TOKEN" http://127.0.0.1:8008/_matrix/client/v3/account/whoami 2>/dev/null \
+    | python3 -c 'import json,sys; print(json.load(sys.stdin).get("user_id",""))' 2>/dev/null || true)"
+  [ -n "$WHOAMI" ] && ok "агент $WHOAMI" || bad "токен агента не работает (прогоните matrix/seed.py)"
+  ROOM="$(curl -s -H "Authorization: Bearer $MATRIX_AGENT_TOKEN" 'http://127.0.0.1:8008/_matrix/client/v3/directory/room/%23bft-demo:bft.local' 2>/dev/null \
+    | python3 -c 'import json,sys; print("room_id" in json.load(sys.stdin))' 2>/dev/null || true)"
+  [ "$ROOM" = "True" ] && ok "smoke-комната #bft-demo:bft.local" || bad "smoke-комната не найдена"
+fi
+
+# 7. Опционально: демо-профиль + smoke жизненного цикла коробки
 if [ "${1:-}" = "--demo" ]; then
   say "Демо-профиль (LLM-двойник)"
   set_kv() { grep -q "^${1}=" .env && sed -i.bak "s|^${1}=.*|${1}=${2}|" .env && rm -f .env.bak || printf '%s=%s\n' "$1" "$2" >> .env; }

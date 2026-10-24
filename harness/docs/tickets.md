@@ -138,7 +138,22 @@ Vikunja в compose (общий postgres, LAN-порт 3456), сид кварта
 **Готово:** US-19–20, 41; закрытие задачи человеком продолжает воркфлоу.
 Blockers: Т9
 
-### Т11 · Шлюз Matrix `[ ]`
+### Т11 · Шлюз Matrix `[x] 2026-10-24`
+Synapse (matrixdotorg/synapse:latest, федерация закрыта whitelist=[],
+8448 не публикуем) + Element Web v1.12.32 (:8090, конфиг на наш homeserver)
+в compose; matrix-init генерит homeserver.yaml на чистом томе. Сид
+`matrix/seed.py`: регистрация агента bft-box и демо-заказчика через
+shared-secret admin API (HMAC-SHA1; секрет генерит Synapse — start.sh
+извлекает из homeserver.yaml, tr -d от docker-exec \r), smoke-комната
+#bft-demo с первым вопросом; MATRIX_AGENT_TOKEN → .env → воркер.
+`box/bftbox/matrix_client.py`: адаптер CS-API v3 на httpx (без matrix-nio):
+комната #bft-<slug>, приглашение, сообщение, sync; чистые — тексты
+(вопрос/напоминание/эскалация) и разбор ответа заказчика.
+Грабли: docker exec тянет \r в секрет (HMAC не сходится); grep -q +
+pipefail + compose ps = SIGPIPE (условие всегда false); /health отвечает
+не-JSON (зонд без разбора).
+**Готово:** 63 теста; живой прогон: агент whoami, комната, сообщение 200;
+acceptance-блок Шлюза зелёный. Слушатель ответов → submit — Т12.
 Synapse (федерация выкл.) + Element Web в compose (:8008/:8090), секреты в
 start.sh, matrix-nio в box-worker: комната `#bft-<slug>`, аккаунт заказчика,
 приглашение, слушатель ответов → `submit`.

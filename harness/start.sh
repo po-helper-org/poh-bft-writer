@@ -53,6 +53,8 @@ if ! grep -q '^TRACKER_HOOK_TOKEN=..' .env; then
   set_kv TRACKER_HOOK_TOKEN "$(gen)"
   echo "✓ TRACKER_HOOK_TOKEN сгенерирован (вебхук Трекер → Коробка)"
 fi
+# Шлюз Matrix (Т11): секрет регистрации Synapse генерирует сам при первом
+# старте — извлекаем из homeserver.yaml (том матрикса) после подъёма ниже.
 # Демо-профиль: коробка идёт в LLM-двойника, ключ не нужен.
 # ${ARR[@]+...} — гарда пустого массива: bash 3.2 (macOS) под set -u падает на "${ARR[@]}".
 if printf '%s\n' ${PROFILE_ARGS[@]+"${PROFILE_ARGS[@]}"} 2>/dev/null | grep -q demo; then
@@ -90,6 +92,25 @@ if command -v python3 >/dev/null; then
   TRACKER_SEED_URL="http://127.0.0.1:3456/api/v1" python3 tracker/seed.py \
     && echo "    Трекер: http://127.0.0.1:3456 (админ: ${TRACKER_ADMIN_USER:-bft-admin})" \
     || echo "⚠ Сид Трекера не прошёл: повторите ./start.sh или tracker/seed.py вручную"
+
+  # Шлюз (Т11): ждём health Synapse (миграции с чистого тома идут минуты),
+  # извлекаем сгенерированный секрет регистрации, затем сид агента/заказчика.
+  for i in $(seq 1 60); do
+    MH="$(docker compose ps matrix --format '{{.Health}}' 2>/dev/null)"
+    [ "$MH" = "healthy" ] && break
+    sleep 3
+  done
+  # tr -d '[:space:]' обязателен: docker exec тянет \r, и HMAC с ним не сходится.
+  REG_SECRET_VALUE="$(docker compose exec -T matrix sh -c "grep -m1 '^registration_shared_secret:' /data/homeserver.yaml" 2>/dev/null | sed 's/^[^:]*: *//' | tr -d '\"[:space:]')"
+  if [ -n "$REG_SECRET_VALUE" ]; then set_kv MATRIX_REG_SECRET "$REG_SECRET_VALUE"; fi
+  # Шлюз (Т11): агент + демо-заказчик + smoke-комната; после записи токена —
+  # пересоздаём воркер/приёмник, чтобы env MATRIX_AGENT_TOKEN доехал (Т12).
+  if [ -n "$REG_SECRET_VALUE" ] && MATRIX_SEED_URL="http://127.0.0.1:8008" python3 matrix/seed.py; then
+    echo "    Шлюз: Element http://127.0.0.1:8090, заказчик: customer-demo"
+    grep -q '^MATRIX_AGENT_TOKEN=..' .env && docker compose up -d box-worker box-mcp > /dev/null 2>&1 || true
+  else
+    echo "⚠ Сид Шлюза не прошёл: повторите ./start.sh или matrix/seed.py вручную"
+  fi
 fi
 grep -q '^ZAI_API_KEY=..' .env || echo "⚠  Ключа Z.AI нет: fast-прогон не заработает, пока не пройдёте онбординг (US-5–8)."
 if [ "$NO_OPEN" = "0" ] && command -v open >/dev/null; then open "$URL"; fi
