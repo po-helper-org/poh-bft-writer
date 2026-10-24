@@ -38,7 +38,25 @@ async def main():
             await asyncio.sleep(2)
     start_http_server(int(config.env("METRICS_PORT", "9101")), addr=config.env("METRICS_HOST", "0.0.0.0"), registry=WORKER_REGISTRY)   # время и исходы вызовов модели
     client = await Client.connect(config.TEMPORAL_ADDRESS, namespace=config.TEMPORAL_NAMESPACE)
-    await build_worker(client, timed(OpenAIProducer()), store).run()
+
+    # Мосты Т12: диспетчер указаний (Трекер/Matrix) и слушатель ответов —
+    # фоновым циклом рядом с воркером; выключены, если не настроен трекер.
+    async def box_factory():
+        from .service import Box
+        from .quality import Policy
+        return Box(client, store, Policy.load(), config.admins())
+
+    if config.TRACKER_PASSWORD or config.MATRIX_AGENT_TOKEN:
+        from .bridge_runtime import BridgeRuntime
+        bridges_task = asyncio.create_task(BridgeRuntime(box_factory).run_forever())
+    else:
+        bridges_task = None
+
+    worker_task = asyncio.create_task(build_worker(client, timed(OpenAIProducer()), store).run())
+    done, _ = await asyncio.wait({worker_task} | ({bridges_task} if bridges_task else set()),
+                                 return_when=asyncio.FIRST_COMPLETED)
+    for t in done:
+        t.result()
 
 
 if __name__ == "__main__":

@@ -75,19 +75,21 @@ class MatrixClient:
 
     async def whoami(self) -> dict:
         res = await self.http.get(f"{self.url}/_matrix/client/v3/account/whoami", headers=self._headers())
-        return {"status": res.status_code, "user": (await res.json()).get("user_id")}
+        return {"status": res.status_code, "user": (res.json()).get("user_id")}
 
-    async def create_room(self, slug: str, name: str, invite: "list[str]") -> dict:
+    async def create_room(self, slug: str, name: str, invite: "list[str]", topic: str = "") -> dict:
         body = {
             "room_alias_name": room_alias_local(slug),
             "name": name or f"БФТ: {slug}",
-            "topic": "Верификация требований инициативы",
+            # Тема — носитель маркера bft:<инициатива>#<указание>: по нему
+            # слушатель после рестарта узнаёт комнату (мосты не хранят состояние).
+            "topic": topic or "Верификация требований инициативы",
             "preset": "private_chat",
             "invite": invite,
         }
         res = await self.http.post(f"{self.url}/_matrix/client/v3/createRoom",
                                    headers=self._headers(), json=body)
-        data = await res.json()
+        data = res.json()
         return {"status": res.status_code, "room_id": data.get("room_id"), "alias": data.get("room_alias")}
 
     async def invite(self, room_id: str, user_id: str) -> int:
@@ -99,7 +101,7 @@ class MatrixClient:
         res = await self.http.post(
             f"{self.url}/_matrix/client/v3/rooms/{room_id}/send/m.room.message",
             headers=self._headers(), json={"msgtype": "m.text", "body": text})
-        data = await res.json()
+        data = res.json()
         return {"status": res.status_code, "event_id": data.get("event_id")}
 
     async def sync(self, since: str = "", timeout_ms: int = 0) -> dict:
@@ -108,4 +110,4 @@ class MatrixClient:
             params["since"] = since
         res = await self.http.get(f"{self.url}/_matrix/client/v3/sync",
                                   headers=self._headers(), params=params)
-        return await res.json()
+        return res.json()

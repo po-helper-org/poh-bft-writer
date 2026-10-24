@@ -59,6 +59,7 @@ fi
 # ${ARR[@]+...} — гарда пустого массива: bash 3.2 (macOS) под set -u падает на "${ARR[@]}".
 if printf '%s\n' ${PROFILE_ARGS[@]+"${PROFILE_ARGS[@]}"} 2>/dev/null | grep -q demo; then
   set_kv LLM_BASE_URL "http://llm-demo:8710/v1"
+  set_kv LLM_API_KEY "demo"   # двойник ключа не проверяет, продюсер — требует
 fi
 
 # ── 2. Подъём ──────────────────────────────────────────────────────────────────

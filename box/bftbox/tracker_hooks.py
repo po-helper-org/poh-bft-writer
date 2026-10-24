@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import logging
 from typing import Optional
 
@@ -45,14 +46,22 @@ def parse_event(body: dict) -> Optional[dict]:
     name = body.get("event_name")
     if name not in TRACKED_EVENTS:
         return None
-    task = body.get("task")
-    if not isinstance(task, dict) or not isinstance(task.get("id"), int):
+    # Vikunja оборачивает нагрузку в data (живой факт 2.7.1): {event_name,
+    # time, data: {task, project, doer}}; task.updated едет без тела задачи —
+    # только id; description мост добирает GET /tasks/{id}.
+    data = body.get("data") if isinstance(body.get("data"), dict) else body
+    task = data.get("task") if isinstance(data.get("task"), dict) else {}
+    task_id = task.get("id", data.get("task_id"))
+    if not isinstance(task_id, int):
         return None
     return {
         "name": name,
-        "task_id": task["id"],
-        "title": task.get("title", ""),
-        "done": task.get("done") is True,
+        "task_id": task_id,
+        "title": task.get("title", body.get("task_title", "")),
+        "done": task.get("done", body.get("task_done")) is True,
+        # Маркер bft:<инициатива>#<указание> живёт в описании — он и ведёт
+        # вебхук к исходу указания (bridges.outcome_from_tracker).
+        "description": task.get("description", ""),
     }
 
 
@@ -66,6 +75,9 @@ def receive(body: dict, headers: dict, expected: str, raw_body: bytes = b"") -> 
     event = parse_event(body)
     if event is None:
         # 200: Трекер не должен ретраить то, что мы сознательно игнорируем.
+        log.info("tracker hook: игнор: event=%s", body.get("event_name"))
         return 200, {"received": False}
+    # Диагностика мостов: какие поля задачи реально приезжают (Т12).
+    log.info("tracker hook: task fields: %s", sorted((body.get("task") or {}).keys()))
     log.info("tracker: %s task=%s done=%s «%s»", event["name"], event["task_id"], event["done"], event["title"][:80])
     return 200, {"received": True, **event}

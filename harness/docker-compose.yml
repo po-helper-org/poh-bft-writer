@@ -12,7 +12,7 @@ x-box: &box
     DATABASE_URL: postgresql://${POSTGRES_USER:-box}:${POSTGRES_PASSWORD:?задайте POSTGRES_PASSWORD в .env (генерирует start.sh)}@postgres:5432/box
     TEMPORAL_ADDRESS: temporal:7233
     LLM_BASE_URL: ${LLM_BASE_URL:-https://api.z.ai/api/paas/v4}
-    LLM_API_KEY: ${ZAI_API_KEY:-}
+    LLM_API_KEY: ${LLM_API_KEY:-${ZAI_API_KEY:-}}   # demo-профиль: start.sh ставит demo
     LLM_MODEL: ${LLM_MODEL:-glm-4.7}
     BOX_TOKENS: ${BOX_TOKENS:?задайте BOX_TOKENS в .env (генерирует start.sh)}
     BOX_ADMINS: ui
@@ -22,6 +22,11 @@ x-box: &box
     MATRIX_SERVER_NAME: ${MATRIX_SERVER_NAME:-bft.local}
     MATRIX_AGENT_USER: ${MATRIX_AGENT_USER:-bft-box}
     MATRIX_AGENT_TOKEN: ${MATRIX_AGENT_TOKEN:-}
+    # Мосты Т12: Трекер (задачи указаний) и демо-заказчик Matrix.
+    TRACKER_URL: ${TRACKER_URL:-http://tracker:3456/api/v1}
+    TRACKER_USER: ${TRACKER_USER:-${TRACKER_ADMIN_USER:-bft-admin}}
+    TRACKER_PASSWORD: ${TRACKER_ADMIN_PASSWORD:-}
+    MATRIX_DEMO_CUSTOMER: ${MATRIX_DEMO_CUSTOMER:-customer-demo}
     TEMPORAL_UI_URL: http://127.0.0.1:8233
   depends_on:
     temporal: {condition: service_healthy}

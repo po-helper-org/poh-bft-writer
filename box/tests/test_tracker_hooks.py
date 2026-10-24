@@ -8,7 +8,8 @@ from bftbox.tracker_hooks import authorize, parse_event, receive, TRACKED_EVENTS
 
 BODY = {
     "event_name": "task.updated",
-    "task": {"id": 42, "title": "Подтвердить границы с заказчиком", "done": True},
+    "task": {"id": 42, "title": "Подтвердить границы с заказчиком", "done": True,
+             "description": "bft:ini-1#d2 …"},
     "project": {"id": 7},
 }
 
@@ -22,7 +23,8 @@ def test_секрет_проверяется_в_обоих_заголовках(
 
 def test_разбор_валидного_события():
     e = parse_event(BODY)
-    assert e == {"name": "task.updated", "task_id": 42, "title": "Подтвердить границы с заказчиком", "done": True}
+    assert e == {"name": "task.updated", "task_id": 42, "title": "Подтвердить границы с заказчиком",
+                 "done": True, "description": "bft:ini-1#d2 …"}
 
 
 @pytest.mark.parametrize("body", [
@@ -37,6 +39,7 @@ def test_приём_полный_цикл():
     assert receive(BODY, {"x-secret": "s"}, "s") == (200, {
         "received": True, "name": "task.updated", "task_id": 42,
         "title": "Подтвердить границы с заказчиком", "done": True,
+        "description": "bft:ini-1#d2 …",
     })
     # 401 без секрета, 200-молчание на мусор (без ретраев Трекера), 200-молчание на чужое событие
     assert receive(BODY, {"x-secret": "wrong"}, "s")[0] == 401
@@ -60,3 +63,13 @@ def test_подпись_vikunja_hmac_проверяется_по_сырому_т
     assert receive(BODY, {"x-vikunja-signature": "0" * 64}, "s", raw)[0] == 401
     # тело изменилось после подписи (json-переупаковка) — подпись не сойдётся:
     # поэтому роут передаёт raw, а не пере-сериализует
+
+
+def test_task_updated_без_тела_задачи_id_в_корне():
+    """Живые факты Vikunja 2.7.1: обёртка data + task.updated без тела задачи."""
+    e = parse_event({"event_name": "task.updated", "data": {"task_id": 33}})
+    assert e == {"name": "task.updated", "task_id": 33, "title": "",
+                 "done": False, "description": ""}
+    # без обёртки — старая форма тоже валидна
+    assert parse_event({"event_name": "task.updated", "task_id": 7})["task_id"] == 7
+    assert parse_event({"event_name": "task.updated", "data": {}}) is None

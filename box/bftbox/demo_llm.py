@@ -34,13 +34,19 @@ def produce(ctx: dict) -> dict:
                 "checks": [{"id": c, "status": "red", "evidence": ""} for c in CHECKS],
                 "directives": [{"kind": "ask", "to": po, "text": "Кто принимает результат и по какому критерию?", "closes": ["G04", "G07"], "expected": "fact"}]}
     if not plan_ok:
-        return {"summary": "[демо-модель] План: спрашивать только PO. Утвердите план.", "next_state": "plan_approval", "plan": {"addressees": ["PO"]},
+        return {"summary": "[демо-модель] План: спрашивать только PO. Утвердите план.", "next_state": "plan_approval", "plan": {"addressees": ["PO", "Заказчик демо"]},
                 "documents": docs(False), "checks": [{"id": c, "status": "yellow" if c == "G01" else "red", "evidence": f"«{quote}»" if c == "G01" else ""} for c in CHECKS],
                 "directives": [{"kind": "approve_plan", "to": po, "text": "Утвердить план: вопросы только к PO, документы — БФТ, матрица, BluePrint, эпик.", "closes": ["G04"], "expected": "decision"}]}
+    extra = [
+        {"kind": "collect", "to": {"role": "executor", "po_can_answer": False},
+         "text": "Собрать воронку заказов за квартал из BI", "closes": ["G06"], "expected": "fact"},
+        {"kind": "ask", "to": {"role": "addressee", "person": "Заказчик демо", "po_can_answer": False},
+         "text": "Подтвердите границы выгрузки: какие статусы заказов входят", "closes": ["G02"], "expected": "fact"},
+    ] if ctx["state"] in ("plan_approval", "working") else []
     if ctx["number"] <= 3 or not any("НФТ" in (o.get("content") or "") or o["kind"] == "decide" for o in answered):
         return {"summary": "[демо-модель] Пакет собран. Остался вопрос по НФТ.", "next_state": "working", "documents": docs(True),
                 "checks": [{"id": c, "status": "red" if c == "G05" else "green", "evidence": "" if c == "G05" else f"«{quote}»"} for c in CHECKS],
-                "directives": [{"kind": "decide", "to": po, "text": "Какие нефункциональные требования важны (сроки, объёмы)?", "closes": ["G05"], "expected": "decision"}]}
+                "directives": [{"kind": "decide", "to": po, "text": "Какие нефункциональные требования важны (сроки, объёмы)?", "closes": ["G05"], "expected": "decision"}] + extra}
     return {"summary": "[демо-модель] Все проверки зелёные, пакет готов к приёмке.", "next_state": "acceptance", "documents": docs(True),
             "checks": [{"id": c, "status": "green", "evidence": f"«{quote}»"} for c in CHECKS], "directives": []}
 

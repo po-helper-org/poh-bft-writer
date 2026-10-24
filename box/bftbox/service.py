@@ -31,6 +31,17 @@ class Box:
             raise BoxError("forbidden", "чужая инициатива.")
         return ini
 
+    def _writable(self, owner: str, initiative_id: str) -> dict:
+        """Как _own, но плюс служебные исполнители (BOX_SERVICE_OWNERS): мосты —
+        руки Коробки (ADR-0003), сабмитят исходы от имени процесса коробки, а не
+        владельца инициативы. Читать чужое им не разрешает — только admins."""
+        ini = self.store.initiative(initiative_id)
+        if not ini:
+            raise BoxError("unknown_initiative", f"инициативы {initiative_id} нет.")
+        if ini["owner"] != owner and owner not in self.admins and owner not in config.service_owners():
+            raise BoxError("forbidden", "чужая инициатива.")
+        return ini
+
     def _handle(self, initiative_id: str):
         return self.client.get_workflow_handle_for(InitiativeWorkflow.run, initiative_id)
 
@@ -64,7 +75,7 @@ class Box:
     async def submit(self, owner: str, req: dict) -> dict:
         check_version(req.get("schema_version"))
         validate("SubmitRequest", req)
-        self._own(owner, req["initiative_id"])
+        self._writable(owner, req["initiative_id"])
         return await self._update(InitiativeWorkflow.submit, req)
 
     async def control(self, owner: str, req: dict) -> dict:
@@ -117,6 +128,12 @@ class Box:
                 "package_version": i.get("package_version", 0), "iteration": latest.get("number"),
                 "iteration_status": latest.get("status"), "summary": latest.get("summary") or (latest.get("error") or {}).get("message"),
                 "checks": {s: sum(1 for c in checks if c["status"] == s) for s in ("green", "yellow", "red")},
+                # Открытые указания (Т12): мосты диспетчеризируют по борду, не
+                # таская каждую инициативу отдельным вызовом card().
+                "latest_iteration_id": i.get("latest_iteration_id"),
+                "open_directives": [{"id": d["id"], "kind": d["kind"], "to": d["to"],
+                                     "text": d.get("text", ""), "due": d.get("due"), "state": d["state"]}
+                                    for d in (latest.get("directives") or []) if d.get("state") in ("open", "overdue")],
                 "next_deadline": (i.get("status") or {}).get("next_deadline"),
                 "temporal_url": f"{config.TEMPORAL_UI_URL}/namespaces/{config.TEMPORAL_NAMESPACE}/workflows/{i['initiative_id']}"}
 

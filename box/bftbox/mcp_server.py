@@ -143,6 +143,14 @@ def build_app() -> FastMCP:
             body = None
         headers = {k.lower(): v for k, v in request.headers.items()}
         status, payload = tracker_hooks.receive(body, headers, config.TRACKER_HOOK_TOKEN, raw)
+        if status == 200 and payload.get("received"):
+            # Замкнуть цикл: закрытая задача → исход указания → submit (Т12).
+            try:
+                from .bridge_runtime import BridgeRuntime
+                runtime = BridgeRuntime(lambda: box())
+                await runtime.on_tracker_event(payload)
+            except Exception:  # noqa: BLE001 — вебхук не должен ретраить из-за нас
+                log.exception("мосты: событие трекера не доехало до submit")
         return JSONResponse(payload, status_code=status)
 
     @mcp.custom_route("/metrics", methods=["GET"])
