@@ -1,0 +1,16 @@
+{
+  "name": "dsh-profile-customer",
+  "private": true,
+  "dependencies": {
+    "@deepseek-ai/dsh": "__DSH_VERSION__",
+    "@deepseek-ai/dsh-base": "__DSH_VERSION__",
+    "@deepseek-ai/dsh-web-app": "__DSH_VERSION__",
+    "customer-form": "file:customer-form"
+  },
+  "dsh": {
+    "profile": {
+      "bundles": ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app", "customer-form"],
+      "patchReload": "live"
+    }
+  }
+}

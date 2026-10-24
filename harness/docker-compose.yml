@@ -134,33 +134,28 @@ services:
     ports: ["${BOX_BIND:-127.0.0.1}:8233:8080"]
     mem_limit: 128m
 
-  portal:   # Т16/ADR-0007: портал заказчика — «Введите свои мысли» на :3080
-    build:
-      context: ../portal
-    image: poh-bft-portal:local
+  customer-web:   # ADR-0007: портал заказчика — dsh-экземпляр только с customer-form
+    image: poh-harness-web:local
     restart: unless-stopped
     environment:
+      DSH_PROFILE: customer
+      DSH_PORT: "3080"
       TRACKER_URL: http://tracker:3456/api/v1
       TRACKER_PUBLIC_URL: ${TRACKER_PUBLIC_URL:-http://127.0.0.1:3456}
       TRACKER_USER: ${TRACKER_USER:-${TRACKER_ADMIN_USER:-bft-admin}}
       TRACKER_PASSWORD: ${TRACKER_ADMIN_PASSWORD:-}
       ZAI_API_KEY: ${ZAI_API_KEY:-}
       PORTAL_MODEL: ${PORTAL_MODEL:-glm-5-turbo}
-      SMTP_HOST: ${SMTP_HOST:-}
-      SMTP_PORT: ${SMTP_PORT:-587}
-      SMTP_USER: ${SMTP_USER:-}
-      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
-      SMTP_FROM: ${SMTP_FROM:-bft-portal@localhost}
     ports:
-      - "${PORTAL_BIND:-127.0.0.1}:3080:8080"
+      - "${PORTAL_BIND:-127.0.0.1}:3080:3080"
     volumes:
-      - portaldata:/data/requests
+      - customerdata:/data
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://127.0.0.1:8080/api/health')\""]
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3080/').then(r=>process.exit(0)).catch(()=>process.exit(1))\""]
       interval: 10s
-      retries: 15
-      start_period: 5s
-    mem_limit: 256m
+      retries: 30
+      start_period: 15s
+    mem_limit: 1g
 
   tracker-init:   # правим владельца тома файлов под uid 1000 (vikunja в образе без каталога)
     image: alpine:3.20
@@ -259,4 +254,4 @@ volumes:
   workspace:
   trackerfiles:
   matrixdata:
-  portaldata:
+  customerdata:

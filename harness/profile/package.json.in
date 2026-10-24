@@ -8,7 +8,8 @@
     "@deepseek-ai/dsh-llm-pi-ai": "__DSH_VERSION__",
     "@deepseek-ai/dsh-skill-filesystem": "__DSH_VERSION__",
     "@deepseek-ai/dsh-tool-skill": "__DSH_VERSION__",
-    "poh-bft-plugin": "file:plugin"
+    "poh-bft-plugin": "file:plugin",
+    "customer-form": "file:customer-form"
   },
   "dsh": {
     "profile": {

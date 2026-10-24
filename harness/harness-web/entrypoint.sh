@@ -16,6 +16,9 @@ DSH_LOOP_PORT=13080   # loopback-порт dsh; наружу (0.0.0.0:${DSH_PORT}
 echo "[entrypoint] dsh 127.0.0.1:${DSH_LOOP_PORT} -> 0.0.0.0:${DSH_PORT} (socat)" >&2
 
 PROFILE_SRC="/app"
+PROFILE="${DSH_PROFILE:-web}"
+# dsh web жёстко стартует профиль "web" (docs: dsh --profile web web): папка
+# всегда profiles/web, а вот КОНТЕНТ сида берём по DSH_PROFILE (ADR-0007).
 PROFILE_DST="${DSH_HOME}/profiles/web"
 SEED_MARKER="${PROFILE_DST}/.seed-marker"
 need_seed() {
@@ -28,8 +31,12 @@ if need_seed; then
   mkdir -p "${PROFILE_DST}"
   rm -rf "${PROFILE_DST}/node_modules"
   cp -a "${PROFILE_SRC}/node_modules" "${PROFILE_DST}/"
-  cp "${PROFILE_SRC}/profile.json" "${PROFILE_DST}/package.json"
-  cp "${PROFILE_SRC}/cordis.patch.yml" "${PROFILE_DST}/cordis.patch.yml"
+  cp "${PROFILE_SRC}/$([ "${PROFILE}" = "customer" ] && echo customer-profile.json || echo profile.json)" "${PROFILE_DST}/package.json"
+  if [ "${PROFILE}" = "customer" ]; then
+    cp "${PROFILE_SRC}/customer.patch.yml" "${PROFILE_DST}/cordis.patch.yml"
+  else
+    cp "${PROFILE_SRC}/cordis.patch.yml" "${PROFILE_DST}/cordis.patch.yml"
+  fi
   cp /app/seed-marker "${SEED_MARKER}"
 fi
 

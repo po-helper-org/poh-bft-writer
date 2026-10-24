@@ -5,28 +5,38 @@
 #   docker build -f harness/harness-web/Dockerfile -t poh-harness-web:local .
 #
 # Три стадии: сборка плагина (pnpm) → профиль (npm, пин версии dsh) → рантайм.
-FROM node:22-bookworm-slim AS plugin
+FROM node:22-bookworm-slim AS plugins
 WORKDIR /src
 RUN corepack enable && corepack prepare pnpm@11.7.0 --activate
 COPY plugin/package.json plugin/pnpm-lock.yaml plugin/tsconfig*.json plugin/tsdown.config.ts ./plugin/
 COPY plugin/src ./plugin/src
 COPY plugin/cordis.patch.yml ./plugin/
 RUN cd plugin && pnpm install --frozen-lockfile && pnpm build
+# customer-form (ADR-0007): npm — lock-файла нет
+COPY customer-form/package.json customer-form/tsconfig*.json customer-form/tsdown.config.ts ./customer-form/
+COPY customer-form/src ./customer-form/src
+COPY customer-form/cordis.patch.yml ./customer-form/
+RUN cd customer-form && npm install --no-audit --no-fund && npm run build
 
 FROM node:22-bookworm-slim AS profile
 ARG DSH_VERSION=0.1.7-rc.2
 WORKDIR /seed
 COPY harness/profile/package.json.in ./package.json.in
-COPY --from=plugin /src/plugin ./plugin
+COPY --from=plugins /src/plugin ./plugin
+COPY --from=plugins /src/customer-form ./customer-form
 # npm для file:-зависимостей ставит СИМЛИНК (node_modules/poh-bft-plugin -> ../plugin).
 # Заменяем его на реальную копию и удаляем источник: бандл живёт в node_modules
 # самодостаточно (files-пакета хватает: lib + cordis.patch.yml).
+COPY harness/profile/customer.json.in ./customer.json.in
 RUN sed "s/__DSH_VERSION__/${DSH_VERSION}/g" package.json.in > package.json \
+ && sed "s/__DSH_VERSION__/${DSH_VERSION}/g" customer.json.in > customer.json \
  && npm install --omit=dev --no-audit --no-fund \
- && rm -rf node_modules/poh-bft-plugin \
+ && rm -rf node_modules/poh-bft-plugin node_modules/customer-form \
  && cp -R plugin node_modules/poh-bft-plugin \
- && rm -rf plugin node_modules/poh-bft-plugin/node_modules \
+ && cp -R customer-form node_modules/customer-form \
  && node -e "const p=require('./node_modules/poh-bft-plugin/package.json'); if(!p.exports || !p.exports['./client']) process.exit(1)" \
+ && node -e "const c=require('./node_modules/customer-form/package.json'); if(!c.exports || !c.exports['./client']) process.exit(1)" \
+ && rm -rf plugin customer-form node_modules/poh-bft-plugin/node_modules node_modules/customer-form/node_modules \
  && npm cache clean --force
 
 FROM node:22-bookworm-slim AS runtime
@@ -41,7 +51,9 @@ WORKDIR /app
 # dsh-CLI из профиля: один пин на весь набор @deepseek-ai/dsh-* (ADR-0002).
 COPY --from=profile /seed/node_modules ./node_modules
 COPY --from=profile /seed/package.json ./profile.json
+COPY --from=profile /seed/customer.json ./customer-profile.json
 COPY harness/profile/cordis.patch.yml ./cordis.patch.yml
+COPY harness/profile/customer.patch.yml ./customer.patch.yml
 COPY harness/harness-web/entrypoint.sh /entrypoint.sh
 # Маркер сида: меняется на каждой сборке — entrypoint перезасеивает профиль
 # в /data, иначе том со старым node_modules переживал бы обновления образа.
