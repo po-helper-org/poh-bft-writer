@@ -9,8 +9,12 @@
  * рестарте — и «перезапустить веб-сервис» из подсказки делает ключ активным.
  */
 
-/** Форма ключа Z.AI: `id.secret` из hex-частей (документация Z.AI, API-ключи). */
-const ZAI_KEY = /^[0-9a-f]{16,}\.[0-9a-f]{16,}$/
+/**
+ * Форма ключа Z.AI: `id.secret` из двух частей букв-цифр смешанного регистра
+ * (живой ключ из консоли Z.AI не сводится к hex — проверено на ключе
+ * формата …EGaG); событие валидации — форма, истина — сетевая проверка.
+ */
+const ZAI_KEY = /^[0-9A-Za-z_-]{16,}\.[0-9A-Za-z_-]{16,}$/
 
 export const ZAI_KEY_FILE = 'zai.key'
 
@@ -55,7 +59,7 @@ export type DictationMode = 'browser' | 'local'
 export function validateZaiKey(raw: string): { ok: boolean; reason?: string } {
   const key = raw.trim()
   if (!key) return { ok: false, reason: 'Пусто: вставьте ключ из консоли Z.AI' }
-  if (!ZAI_KEY.test(key)) return { ok: false, reason: 'Не похож на ключ Z.AI: ожидается форма id.secret (две hex-части через точку)' }
+  if (!ZAI_KEY.test(key)) return { ok: false, reason: 'Не похож на ключ Z.AI: ожидается форма id.secret (две части через точку)' }
   return { ok: true }
 }
 

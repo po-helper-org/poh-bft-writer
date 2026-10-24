@@ -24,8 +24,9 @@ fi
 KEY="$(printf '%s' "$KEY" | tr -d '[:space:]')"
 
 # ── 1. Форма ключа: id.secret, две hex-части (та же валидация, что в UI) ───────
-if ! printf '%s' "$KEY" | grep -qE '^[0-9a-f]{16,}\.[0-9a-f]{16,}$'; then
-  echo "✗ Ключ не похож на ключ Z.AI: ожидается форма id.secret (две hex-части через точку)."
+# Реальные ключи Z.AI: id.secret из букв-цифр СМЕШАННОГО регистра (не только hex).
+if ! printf '%s' "$KEY" | grep -qE '^[0-9A-Za-z_-]{16,}\.[0-9A-Za-z_-]{16,}$'; then
+  echo "✗ Ключ не похож на ключ Z.AI: ожидается форма id.secret (две части через точку)."
   echo "  Возьмите ключ в консоли Z.AI: https://z.ai/manage-apikey/apikey-list"
   exit 1
 fi
