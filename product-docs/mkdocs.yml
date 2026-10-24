@@ -1,0 +1,39 @@
+site_name: Система БФТ
+site_description: Продуктовая документация автономной системы БФТ-требований (poh-bft-writer)
+site_url: ""
+repo_url: https://github.com/po-helper-org/poh-bft-writer
+repo_name: poh-bft-writer
+
+# Zensical — отдельный генератор (CLI `zensical build/serve`), тема встроена.
+site_dir: site
+site_lang: ru
+zensical:
+  features:
+    - navigation.path # хлебные крошки
+    - navigation.footer # вперёд/назад снизу
+    - content.code.copy # копирование кода
+    - navigation.top # якорь «наверх»
+
+copyright: Система БФТ · poh-bft-writer · документация собирается командой
+
+nav:
+  - Обзор: index.md
+  - Для заказчиков:
+      - О разделе: customers/index.md
+      - Как добавить инициативу на доску?: customers/add-initiative.md
+  - Для PO:
+      - О разделе: po/index.md
+  - Для сотрудников:
+      - О разделе: employees/index.md
+  - Администрирование:
+      - О разделе: admin/index.md
+
+markdown_extensions:
+  - admonition # !!! note / tip / warning
+  - pymdownx.details # сворачиваемые блоки
+  - pymdownx.superfences # вложенность в callout
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: "¶" # якоря у заголовков — как у po-helper
