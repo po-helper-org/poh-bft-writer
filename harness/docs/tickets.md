@@ -122,7 +122,17 @@ Blockers: Т5, Т7
 доменные стадии.
 Blockers: Т1
 
-### Т10 · Трекер `[ ]`
+### Т10 · Трекер `[x] 2026-10-24`
+Vikunja 2.7.1 в compose (общий postgres + база через initdb-скрипт на чистом
+томе, файлы — том с tracker-init chown, LAN-порт 3456). Сид `tracker/seed.py`:
+админ (пароль генерит start.sh), квартальный проект «БФТ 2026-Q4», лейблы
+4 типов, вебхук проекта в Коробку. Приёмник `bftbox/tracker_hooks.py`:
+подпись X-Vikunja-Signature (HMAC-SHA256 от сырого тела) или прямой секрет;
+события task.updated/comment.created/created (task.done событием НЕ является
+— закрытие приходит task.updated с done=true; SSRF-защита требует
+VIKUNJA_WEBHOOKS_ALLOWNONROUTABLEIPS для приватной compose-сети).
+**Готово:** 58 тестов; живой прогон: задача done в Vikunja → доставка в
+Коробку (200, событие разобрано); acceptance проверяет трекер.
 Vikunja в compose (общий postgres, LAN-порт 3456), сид квартальных проектов,
 лейблы `bft:<slug>`, типы задач, вебхук → Коробка, аккаунты сотрудников.
 **Готово:** US-19–20, 41; закрытие задачи человеком продолжает воркфлоу.

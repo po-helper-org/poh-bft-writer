@@ -40,6 +40,19 @@ fi
 # ui-токен — харнесс-контейнеру (BFT_BOX_UI_TOKEN): плагин зовёт /api/start.
 UI_TOKEN_VALUE="$(grep -oE '^BOX_TOKENS=ui:[^,]+' .env | cut -d: -f2)"
 if [ -n "$UI_TOKEN_VALUE" ]; then set_kv BFT_BOX_UI_TOKEN "$UI_TOKEN_VALUE"; fi
+# Трекер (Т10): пароль админа, JWT-секрет, секрет вебхука в Коробку.
+if ! grep -q '^TRACKER_ADMIN_PASSWORD=..' .env; then
+  set_kv TRACKER_ADMIN_PASSWORD "$(gen)"
+  echo "✓ TRACKER_ADMIN_PASSWORD сгенерирован"
+fi
+if ! grep -q '^TRACKER_JWT_SECRET=..' .env; then
+  set_kv TRACKER_JWT_SECRET "$(gen)"
+  echo "✓ TRACKER_JWT_SECRET сгенерирован"
+fi
+if ! grep -q '^TRACKER_HOOK_TOKEN=..' .env; then
+  set_kv TRACKER_HOOK_TOKEN "$(gen)"
+  echo "✓ TRACKER_HOOK_TOKEN сгенерирован (вебхук Трекер → Коробка)"
+fi
 # Демо-профиль: коробка идёт в LLM-двойника, ключ не нужен.
 # ${ARR[@]+...} — гарда пустого массива: bash 3.2 (macOS) под set -u падает на "${ARR[@]}".
 if printf '%s\n' ${PROFILE_ARGS[@]+"${PROFILE_ARGS[@]}"} 2>/dev/null | grep -q demo; then
@@ -65,8 +78,18 @@ if [ -z "$URL" ]; then
   echo "    docker compose logs harness-web" >&2
   exit 1
 fi
+
 echo "$URL" > .last-url
 echo "✓ Система поднята:"
 echo "    $URL"
+
+# Сид Трекера (Т10): админ/проект/лейблы/вебхук; ошибки — предупреждением,
+# не гробят подъём (трекер оживёт на повторном start.sh).
+if command -v python3 >/dev/null; then
+  set -a; . ./.env; set +a
+  TRACKER_SEED_URL="http://127.0.0.1:3456/api/v1" python3 tracker/seed.py \
+    && echo "    Трекер: http://127.0.0.1:3456 (админ: ${TRACKER_ADMIN_USER:-bft-admin})" \
+    || echo "⚠ Сид Трекера не прошёл: повторите ./start.sh или tracker/seed.py вручную"
+fi
 grep -q '^ZAI_API_KEY=..' .env || echo "⚠  Ключа Z.AI нет: fast-прогон не заработает, пока не пройдёте онбординг (US-5–8)."
 if [ "$NO_OPEN" = "0" ] && command -v open >/dev/null; then open "$URL"; fi

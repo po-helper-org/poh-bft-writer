@@ -19,6 +19,7 @@ LLM_JSON_MODE = env("LLM_JSON_MODE", "1") != "0"   # 0 — не слать respo
 LLM_MODEL = env("LLM_MODEL", "gpt-4o")
 LLM_TIMEOUT = int(env("LLM_TIMEOUT", "300"))
 TEMPORAL_UI_URL = env("TEMPORAL_UI_URL", "http://127.0.0.1:8233").rstrip("/")
+TRACKER_HOOK_TOKEN = env("TRACKER_HOOK_TOKEN")   # секрет вебхуков Трекера (ADR-0004); пусто — приёмник выключен
 
 
 def tokens() -> dict:

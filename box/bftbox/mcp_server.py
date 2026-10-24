@@ -5,6 +5,8 @@ Bearer-токену из BOX_TOKENS: пишет только тот, кто на
 инструмента (контракт 1.0.0), а не исключение."""
 from __future__ import annotations
 
+import json
+
 import logging
 
 from fastmcp import FastMCP
@@ -128,6 +130,20 @@ def build_app() -> FastMCP:
     async def api_control(request: Request):
         body = await request.json()
         return await api(request, lambda o, b: b.control(o, body))
+
+    @mcp.custom_route("/api/hooks/tracker", methods=["POST"])
+    async def hook_tracker(request: Request):
+        # Не протокольный вызов: без Bearer-исполнителя, секрет вебхука в своём
+        # заголовке (TRACKER_HOOK_TOKEN). Приёмник — tracker_hooks.receive.
+        from . import tracker_hooks
+        raw = await request.body()
+        try:
+            body = json.loads(raw) if raw else None
+        except Exception:  # noqa: BLE001
+            body = None
+        headers = {k.lower(): v for k, v in request.headers.items()}
+        status, payload = tracker_hooks.receive(body, headers, config.TRACKER_HOOK_TOKEN, raw)
+        return JSONResponse(payload, status_code=status)
 
     @mcp.custom_route("/metrics", methods=["GET"])
     async def metrics(request: Request):

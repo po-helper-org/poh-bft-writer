@@ -60,7 +60,34 @@ else
   bad "клиентский бандл плагина не найден в манифесте"
 fi
 
-# 5. Опционально: демо-профиль + smoke жизненного цикла коробки
+# 5. Трекер (Т10): здоров, сид на месте (проект/вебхук), приёмник коробки живой
+if docker compose ps --status running 2>/dev/null | grep -q tracker; then
+  say "Трекер (Vikunja)"
+  set -a; . ./.env; set +a
+  TRACKER_CODE="$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3456/api/v1/info || true)"
+  [ "$TRACKER_CODE" = "200" ] && ok "API отвечает" || bad "API ответил $TRACKER_CODE"
+  TR_TOKEN="$(curl -s -X POST http://127.0.0.1:3456/api/v1/login -H 'content-type: application/json' \
+    -d "{\"username\":\"${TRACKER_ADMIN_USER:-bft-admin}\",\"password\":\"${TRACKER_ADMIN_PASSWORD}\"}" \
+    | python3 -c 'import json,sys; print(json.load(sys.stdin).get("token",""))' 2>/dev/null || true)"
+  if [ -n "$TR_TOKEN" ]; then
+    PROJ="$(curl -s http://127.0.0.1:3456/api/v1/projects -H "Authorization: Bearer $TR_TOKEN" \
+      | python3 -c 'import json,sys; ps=json.load(sys.stdin); print(any(p["title"].startswith("БФТ ") for p in ps))' 2>/dev/null || true)"
+    [ "$PROJ" = "True" ] && ok "квартальный проект на месте" || bad "сид не прошёл: запустите tracker/seed.py"
+    HOOK="$(curl -s "http://127.0.0.1:3456/api/v1/projects/2/webhooks" -H "Authorization: Bearer $TR_TOKEN" \
+      | python3 -c 'import json,sys; ws=json.load(sys.stdin); print(any(w["target_url"].endswith("/api/hooks/tracker") for w in ws))' 2>/dev/null || true)"
+    [ "$HOOK" = "True" ] && ok "вебхук в Коробку стоит" || bad "вебхук не зарегистрирован"
+  else
+    bad "вход админа трекера не удался"
+  fi
+  HOOK_CODE="$(docker compose exec -T box-mcp python -c \
+    "import urllib.request, urllib.error;
+req = urllib.request.Request('http://127.0.0.1:8700/api/hooks/tracker', data=b'{}', headers={'Content-Type':'application/json'});
+import sys;
+sys.stdout.write(str(urllib.request.urlopen(req).status))" 2>/dev/null || echo 401)"
+  [ "$HOOK_CODE" = "401" ] && ok "приёмник коробки закрыт секретом" || bad "приёмник отвечает $HOOK_CODE"
+fi
+
+# 6. Опционально: демо-профиль + smoke жизненного цикла коробки
 if [ "${1:-}" = "--demo" ]; then
   say "Демо-профиль (LLM-двойник)"
   set_kv() { grep -q "^${1}=" .env && sed -i.bak "s|^${1}=.*|${1}=${2}|" .env && rm -f .env.bak || printf '%s=%s\n' "$1" "$2" >> .env; }

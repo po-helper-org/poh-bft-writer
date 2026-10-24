@@ -16,6 +16,7 @@ x-box: &box
     LLM_MODEL: ${LLM_MODEL:-glm-4.7}
     BOX_TOKENS: ${BOX_TOKENS:?задайте BOX_TOKENS в .env (генерирует start.sh)}
     BOX_ADMINS: ui
+    TRACKER_HOOK_TOKEN: ${TRACKER_HOOK_TOKEN:-}   # приём вебхуков Трекера (Т10)
     TEMPORAL_UI_URL: http://127.0.0.1:8233
   depends_on:
     temporal: {condition: service_healthy}
@@ -30,7 +31,10 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-box}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?задайте POSTGRES_PASSWORD в .env}
       POSTGRES_DB: box
-    volumes: [pgdata:/var/lib/postgresql/data]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # База Трекера создаётся при инициализации тома (Т10, ADR-0004).
+      - ./tracker/initdb/01-vikunja.sql:/docker-entrypoint-initdb.d/01-vikunja.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-box} -d box"]
       interval: 5s
@@ -116,6 +120,44 @@ services:
     ports: ["${BOX_BIND:-127.0.0.1}:8233:8080"]
     mem_limit: 128m
 
+  tracker-init:   # правим владельца тома файлов под uid 1000 (vikunja в образе без каталога)
+    image: alpine:3.20
+    restart: "no"
+    command: ["sh", "-c", "chown -R 1000:0 /data && echo ok"]
+    volumes: [trackerfiles:/data]
+
+  tracker:   # Т10, ADR-0004: Vikunja — задачи 4 типов, сотрудники, вебхук в Коробку
+    image: vikunja/vikunja:2.7.1
+    restart: unless-stopped
+    environment:
+      VIKUNJA_SERVICE_PUBLICURL: ${TRACKER_PUBLICURL:-http://127.0.0.1:3456}
+      VIKUNJA_SERVICE_SECRET: ${TRACKER_JWT_SECRET:?задайте TRACKER_JWT_SECRET в .env (генерирует start.sh)}
+      VIKUNJA_SERVICE_ENABLEREGISTRATION: "true"
+      # Вебхук идёт в Коробку по приватной compose-сети: SSRF-защита Vikunja
+      # по умолчанию запрещает nonroutable-адреса — разрешаем сознательно
+      # (контур замкнут внутри стека, наружу вебхуки не уходят).
+      VIKUNJA_WEBHOOKS_ENABLED: "true"
+      VIKUNJA_WEBHOOKS_ALLOWNONROUTABLEIPS: "true"
+      VIKUNJA_SERVICE_TIMEZONE: Europe/Moscow
+      VIKUNJA_DATABASE_TYPE: postgres
+      VIKUNJA_DATABASE_HOST: postgres:5432
+      VIKUNJA_DATABASE_DATABASE: vikunja
+      VIKUNJA_DATABASE_USER: ${POSTGRES_USER:-box}
+      VIKUNJA_DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - trackerfiles:/app/vikunja/files   # uid 1000 не может mkdir в слое образа
+    ports:
+      - "${TRACKER_BIND:-0.0.0.0}:3456:3456"   # сотрудникам в LAN (ADR-0004); dsh остаётся 127.0.0.1
+    depends_on:
+      postgres: {condition: service_healthy}
+      tracker-init: {condition: service_completed_successfully}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3456/api/v1/info || exit 1"]
+      interval: 10s
+      retries: 30
+      start_period: 15s
+    mem_limit: 384m
+
   llm-demo:
     <<: *box
     profiles: [demo]
@@ -127,3 +169,4 @@ volumes:
   pgdata:
   dshdata:
   workspace:
+  trackerfiles:
