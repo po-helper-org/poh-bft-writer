@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Установка ключа Z.AI (GLM) в автономную систему БФТ — без онбординга в UI.
 #
-#   ./set-key.sh <ключ>            # ключ формата id.secret
-#   ./set-key.sh                   # спросит ключ с вводом (не печатается)
-#   ./set-key.sh --check-only <ключ>   # только проверить, ничего не менять
+#   ./set-key.sh <ключ>                # ключ формата id.secret
+#   ./set-key.sh                       # спросит ключ с вводом (не печатается)
+#   ./set-key.sh --from-pi             # взять ключ из ~/.pi/agent/auth.json
+#   ./set-key.sh --check-only <ключ|--from-pi>   # только проверить, не менять
 #
 # Что делает: проверяет форму → живой запрос к Z.AI (каталог моделей, без
 # траты токенов) → пишет ZAI_API_KEY в .env → снимает demo-переопределения
@@ -12,10 +13,32 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-KEY="${2:-${1:-}}"
+KEY=""
 CHECK_ONLY=0
-[ "${1:-}" = "--check-only" ] && CHECK_ONLY=1
-if [ -z "$KEY" ] && [ "$CHECK_ONLY" = "1" ]; then echo "ключ не передан" >&2; exit 2; fi
+for arg in "$@"; do
+  case "$arg" in
+    --from-pi) ;;   # обрабатывается ниже (после разбора всех флагов)
+    --check-only) CHECK_ONLY=1 ;;
+    -*) echo "неизвестный флаг: $arg" >&2; exit 2 ;;
+    *) KEY="$arg" ;;
+  esac
+done
+# --from-pi: ключ того же pi-агента (auth.json, провайдер zai) — без
+# вложенных кавычек в командной строке, копипаст не ломается.
+for arg in "$@"; do
+  if [ "$arg" = "--from-pi" ] && [ -z "$KEY" ]; then
+    PI_AUTH="$HOME/.pi/agent/auth.json"
+    [ -f "$PI_AUTH" ] || { echo "✗ нет $PI_AUTH"; exit 2; }
+    KEY="$(sed -n 's/.*"key"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$PI_AUTH" | head -1)"
+    [ -n "$KEY" ] || { echo "✗ в $PI_AUTH не найден zai-ключ"; exit 2; }
+    echo "✓ ключ взят из pi (~/.pi/agent/auth.json)"
+  fi
+done
+if [ -z "$KEY" ]; then
+  printf 'Вставьте ключ Z.AI (ввод не печатается): '
+  read -rs KEY </dev/tty 2>/dev/null || read -r KEY
+  echo
+fi
 if [ -z "$KEY" ]; then
   printf 'Вставьте ключ Z.AI (ввод не печатается): '
   read -rs KEY </dev/tty 2>/dev/null || read -r KEY
