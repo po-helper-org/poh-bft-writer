@@ -79,7 +79,7 @@ export function classifyStartResponse(body: unknown): StartAck {
   return { ok: false, code: 'bad_response', message: 'В ответе нет initiative_id' }
 }
 
-export type BoxFetch = (url: string, init: { method: string; headers: Record<string, string>; body: string }) => Promise<{ status: number; json(): Promise<unknown> }>
+export type BoxFetch = (url: string, init: { method: string; headers: Record<string, string>; body?: string }) => Promise<{ status: number; json(): Promise<unknown> }>
 
 export class BoxClient {
   constructor(
@@ -102,6 +102,49 @@ export class BoxClient {
           authorization: `Bearer ${this.deps.token}`,
         },
         body: JSON.stringify(payload.value),
+      })
+      return classifyStartResponse(await res.json())
+    } catch (e) {
+      return { ok: false, code: 'network', message: `Коробка недоступна: ${String(e)}` }
+    }
+  }
+
+  /** Доска инициатив: карточки с конвейер-проекцией (Т9) и открытыми указаниями (Т12). */
+  async board(): Promise<{ ok: true; initiatives: object[] } | { ok: false; code: string; message: string }> {
+    if (!this.available()) return { ok: false, code: 'box-unavailable', message: 'Коробка не настроена: адрес и ui-токен обязательны' }
+    try {
+      const res = await this.deps.fetch!(`${this.deps.baseUrl}/api/board`, {
+        method: 'GET',
+        headers: { authorization: `Bearer ${this.deps.token}` },
+      })
+      const data = (await res.json()) as { initiatives?: object[] }
+      return { ok: true, initiatives: data.initiatives ?? [] }
+    } catch (e) {
+      return { ok: false, code: 'network', message: `Коробка недоступна: ${String(e)}` }
+    }
+  }
+
+  /** Ответ человека на указание (US-25): исход + идемпотентный ключ. */
+  async submitOutcome(input: {
+    initiativeId: string
+    baseIteration: string
+    directiveId: string
+    content: string
+    idempotencyKey: string
+  }): Promise<StartAck> {
+    if (!this.available()) return { ok: false, code: 'box-unavailable', message: 'Коробка не настроена' }
+    const payload = {
+      schema_version: '1.0.0',
+      initiative_id: input.initiativeId,
+      base_iteration: input.baseIteration,
+      outcomes: [{ directive_id: input.directiveId, result: 'answer', by_role: 'po', content: input.content }],
+      idempotency_key: input.idempotencyKey,
+    }
+    try {
+      const res = await this.deps.fetch!(`${this.deps.baseUrl}/api/submit`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${this.deps.token}` },
+        body: JSON.stringify(payload),
       })
       return classifyStartResponse(await res.json())
     } catch (e) {

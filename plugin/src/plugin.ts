@@ -143,7 +143,7 @@ export function apply(ctx: HarnessContext, config: PluginConfig): void {
   const boxClient = new BoxClient({
     baseUrl: process.env.BFT_BOX_URL ?? '',
     token: process.env.BFT_BOX_UI_TOKEN ?? '',
-    fetch: (url, init) => fetch(url, init),
+    fetch: (url, init) => fetch(url, init as RequestInit),
   })
   const intake: IntakeService = {
     doc: async (slug) => {
@@ -156,6 +156,8 @@ export function apply(ctx: HarnessContext, config: PluginConfig): void {
       }
     },
     start: (input) => boxClient.start(input),
+    board: () => boxClient.board(),
+    submitOutcome: (input) => boxClient.submitOutcome(input),
   }
   // Онбординг: DSH_HOME из окружения харнесса (в контейнере — /data), порты —
   // те же инъекции fs, что у читателя; fetch — глобальный (node 18+).
@@ -163,7 +165,7 @@ export function apply(ctx: HarnessContext, config: PluginConfig): void {
     home: process.env.DSH_HOME ?? '',
     fs: { readTextFile: (p) => fs.readFile(p, 'utf8'), writeTextFile: (p, t) => fs.writeFile(p, t, 'utf8') },
     env: process.env,
-    fetch: (url, init) => fetch(url, init),
+    fetch: (url, init) => fetch(url, init as RequestInit),
   })
   // Выгрузка раздела или остановка харнесса гасит живые ходы Claude Code: дочерний
   // `claude -p` иначе переживёт узел и продолжит править документы, а раздел после

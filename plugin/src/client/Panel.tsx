@@ -40,6 +40,7 @@ import type { BftStage } from '../model.js'
 import type { TransitionRequest } from '../board-transition.js'
 import type { OkrHandoff } from '../okr-handoff.js'
 import { Intake } from './Intake.js'
+import { DirectivesSection } from './DirectivesSection.js'
 import { queueGroups, searchTasks, type BftGroup } from '../queue.js'
 // Type-only: PanelStoreHandle описывает форму стора, реальный хэндл создаётся в apply()
 // (src/client/index.tsx) и сюда не импортируется — только тип, значение не пересекает границу.
@@ -399,6 +400,7 @@ export function RequirementsPanel({
   if (route.view === 'board') {
     return (
       <Board
+        call={call}
         t={t}
         listRequirements={listRequirements}
         getTask={getTask}
@@ -529,7 +531,8 @@ export function RequirementsPanel({
             onSelect={(id) => { setRoute({ view: 'preview', id }) }}
             sessionInfo={sessionInfo}
             t={t}
-          />
+          
+          call={call}/>
         )}
       </div>
       {/* Кнопка «Статус проработки» (Task 4) — футер панели, вне скроллящегося .body, всегда
@@ -649,17 +652,20 @@ function SearchField({ value, onChange, placeholder, clearLabel }: {
   )
 }
 
-function GroupList({ groups, collapsed, onToggle, onSelect, sessionInfo, t }: {
+function GroupList({ groups, collapsed, onToggle, onSelect, call, sessionInfo, t }: {
   groups: BftGroup[]
   collapsed: ReadonlySet<BftStage>
   onToggle: (stage: BftStage) => void
   /** Клик по строке требования — переключает панель в режим превью (Task 2, см. Preview.tsx). */
   onSelect: (id: string) => void
+  /** RPC-обёртка для секции указаний (Т13). */
+  call: (endpoint: string, payload?: unknown) => Promise<RpcResult<unknown>>
   sessionInfo: (sessionId: string) => LiveSession | null | undefined
   t: (key: BftLocaleKey) => string
 }) {
   return (
     <>
+      <DirectivesSection call={call} />
       {groups.map((group) => {
         const isCollapsed = collapsed.has(group.stage)
         const tone = { '--tone': STAGE_TONE[group.stage] } as CSSProperties

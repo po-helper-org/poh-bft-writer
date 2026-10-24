@@ -20,7 +20,7 @@ import { parseOkrHandoff } from './okr-handoff.js'
 export const BFT_CHANNEL = '/bft'
 
 /** Все подкоманды канала — по ним ядро 0.1.7+ получает маршруты `/api/bft.<подкоманда>`. */
-export const BFT_ENDPOINTS: readonly string[] = ['list', 'task', 'document', 'findDocument', 'handoff', 'worklog', 'attachSession', 'sessionWorkspace', 'finishWork', 'chatStart', 'chatPoll', 'chatStop', 'chatStatus', 'addToOkr', 'transition', 'catalog', 'onboardingState', 'onboardingCheckKey', 'onboardingComplete', 'onboardingSkip', 'onboardingDictation', 'intakeStart', 'intakeDoc']
+export const BFT_ENDPOINTS: readonly string[] = ['list', 'task', 'document', 'findDocument', 'handoff', 'worklog', 'attachSession', 'sessionWorkspace', 'finishWork', 'chatStart', 'chatPoll', 'chatStop', 'chatStatus', 'addToOkr', 'transition', 'catalog', 'onboardingState', 'onboardingCheckKey', 'onboardingComplete', 'onboardingSkip', 'onboardingDictation', 'intakeStart', 'intakeDoc', 'boxBoard', 'boxSubmit']
 
 export type RpcResult<T> =
   | { ok: true; value: T }
@@ -76,10 +76,12 @@ function numberField(payload: unknown, field: string): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
 }
 
-/** Сервис интейка для узла: документ по слагу + старт инициативы в Коробке. */
+/** Сервис интейка для узла: документ по слагу + старт + чтение доски + ответ на указание. */
 export interface IntakeService {
   doc(slug: string): Promise<string | null>
   start(input: StartPayloadInput): Promise<StartAck>
+  board(): Promise<{ ok: true; initiatives: object[] } | { ok: false; code: string; message: string }>
+  submitOutcome(input: { initiativeId: string; baseIteration: string; directiveId: string; content: string; idempotencyKey: string }): Promise<StartAck>
 }
 
 export async function dispatch(
@@ -129,6 +131,26 @@ export async function dispatch(
         const text = await intake.doc(slug)
         if (text === null) return fail('doc-not-found', `fast-документ слага «${slug}» ещё не собран`)
         return ok({ slug, text })
+      }
+      case 'boxBoard': {
+        if (!intake) return fail('intake-unavailable', 'интейк не настроен на этом хосте')
+        return ok(await intake.board())
+      }
+      case 'boxSubmit': {
+        if (!intake) return fail('intake-unavailable', 'интейк не настроен на этом хосте')
+        const input = payload as Record<string, unknown> | null
+        const initiativeId = typeof input?.initiativeId === 'string' ? input.initiativeId : ''
+        const directiveId = typeof input?.directiveId === 'string' ? input.directiveId : ''
+        const content = typeof input?.content === 'string' ? input.content.trim() : ''
+        if (!initiativeId || !directiveId || !content) return fail('bad-request', 'нужны initiativeId, directiveId, content')
+        const ack = await intake.submitOutcome({
+          initiativeId,
+          baseIteration: typeof input?.baseIteration === 'string' ? input.baseIteration : '',
+          directiveId,
+          content,
+          idempotencyKey: typeof input?.idempotencyKey === 'string' ? input.idempotencyKey : `ui-${Date.now()}`,
+        })
+        return ack.ok ? ok(ack) : fail(`box-${ack.code}`, ack.message)
       }
       case 'intakeStart': {
         if (!intake) return fail('intake-unavailable', 'интейк не настроен на этом хосте')

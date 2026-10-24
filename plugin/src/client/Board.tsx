@@ -43,6 +43,8 @@ import { readTaskCache, toTaskSummaries, writeTaskCache } from './task-cache.js'
 import { TransitionDialog } from './TransitionDialog.js'
 
 export interface BoardProps {
+  /** RPC-обёртка: конвейер-режим читает борд Коробки (Т13, ADR-0005). */
+  call: (endpoint: string, payload?: unknown) => Promise<RpcResult<unknown>>
   t: (key: BftLocaleKey) => string
   /** Канал `/bft`, подкоманда `list` — тот же вызов, что грузит список панели (см. index.tsx). */
   listRequirements(signal: AbortSignal): Promise<RpcResult<unknown>>
@@ -72,8 +74,13 @@ type BoardState =
   | { phase: 'ready'; groups: BftGroup[] }
   | { phase: 'error'; message: string }
 
+const CONVEYOR_COLUMNS = ['request', 'drafting', 'verifying', 'validated'] as const
+const CONVEYOR_TITLES: Record<(typeof CONVEYOR_COLUMNS)[number], string> = {
+  request: 'Запрос', drafting: 'Сбор', verifying: 'Верификация', validated: 'Validated',
+}
+
 export function Board({
-  t, listRequirements, getTask, addToOkr, transition, sessionInfo, onOpenDetail, onBack, canAdd, onAdd,
+  t, listRequirements, getTask, addToOkr, transition, sessionInfo, onOpenDetail, onBack, canAdd, onAdd, call,
 }: BoardProps) {
   // Тот же кэш localStorage, что Panel.tsx (task-cache.ts) — общий плоский список, доска
   // строит из него boardColumns() вместо queueGroups(). Доска — отдельная ветка рендера
@@ -89,6 +96,10 @@ export function Board({
   // Требование и вид перехода для окна TransitionDialog; null — окна нет. Два состояния,
   // а не одно с видом окна: у окон разные пропсы, и общий union читался бы хуже.
   const [transitionTarget, setTransitionTarget] = useState<{ id: string; kind: BoardTransition } | null>(null)
+  // Конвейер-режим (Т13): 4 колонки из борда Коробки (ADR-0005); «стадии» —
+  // прежние 9 колонок по артефактам. Режим — локальный выбор пользователя.
+  const [mode, setMode] = useState<'stages' | 'conveyor'>('stages')
+  const [conveyorCards, setConveyorCards] = useState<{ initiative: string; goal: string; stage: string; waiting: string[]; state: string }[]>([])
 
   // silent — тот же приём, что в Panel.tsx: не сбрасывает экран в 'loading', ошибка фонового
   // обновления не перекрывает уже показанный кэш, только логируется.
@@ -138,6 +149,25 @@ export function Board({
           <IconChevronLeftOutline14 size={14} />
         </button>
         <h2>{t('boardHeaderTitle')}</h2>
+        {/* Конвейер-режим (Т13): переключение осей — стадии документа (9) или
+            конвейер инициатив (4, ADR-0005). */}
+        <button type="button" className={css.iconButton}
+                style={{ fontWeight: mode === 'stages' ? 700 : 400 }}
+                title="Девять стадий документа по артефактам"
+                onClick={() => setMode('stages')}>Стадии</button>
+        <button type="button" className={css.iconButton}
+                style={{ fontWeight: mode === 'conveyor' ? 700 : 400 }}
+                title="Конвейер: запрос → сбор → верификация → validated"
+                onClick={() => { setMode('conveyor'); void call('boxBoard').then((r) => {
+                  if (r.ok) {
+                    const inis = ((r.value as { initiatives?: object[] }).initiatives ?? []) as {
+                      initiative_id: string; goal?: string; stage?: string; waiting_for?: string[]; state?: string }[]
+                    setConveyorCards(inis.map((i) => ({
+                      initiative: i.initiative_id, goal: i.goal ?? '', stage: i.stage ?? '',
+                      waiting: i.waiting_for ?? [], state: i.state ?? '',
+                    })))
+                  }
+                }) }}>Конвейер</button>
         <Button
           variant="outline"
           disabled={!canAdd}
@@ -168,7 +198,27 @@ export function Board({
 
       {state.phase === 'ready' && (
         <div className={css.boardRow}>
-          {state.groups.map(group => (
+          {mode === 'conveyor' ? (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, padding: '0 14px' }}>
+              {CONVEYOR_COLUMNS.map((col) => (
+                <div key={col} style={{ borderLeft: '3px solid var(--dsh-accent, #0f62fe)', paddingLeft: 8 }}>
+                  <h3 style={{ fontSize: 12, margin: '0 0 8px' }}>{CONVEYOR_TITLES[col]}</h3>
+                  {conveyorCards.filter((c) => c.stage === col).map((c) => (
+                    <div key={c.initiative} style={{
+                      fontSize: 11.5, padding: '6px 8px', marginBottom: 6, borderRadius: 8,
+                      border: '1px solid var(--dsh-border, #cbd5e1)', background: 'var(--dsh-bg, #fff)',
+                    }}>
+                      <div style={{ fontWeight: 600 }}>{c.goal.slice(0, 40) || c.initiative}</div>
+                      <div style={{ opacity: 0.7 }}>{c.initiative.slice(0, 14)}</div>
+                      {c.waiting.length > 0 && (
+                        <div style={{ opacity: 0.75 }}>ждём: {c.waiting.join(', ')}</div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          ) : state.groups.map(group => (
             <BoardColumn
               key={group.stage}
               group={group}
@@ -280,6 +330,7 @@ function BoardColumn({ group, onSelect, onAddToOkr, onTransition, sessionInfo, t
                     {t('boardAddToOkr')}
                   </Button>
                 )}
+
                 {transitions.map(kind => (
                   <Button key={kind} variant="outline" size="sm" onClick={() => { onTransition(task.id, kind) }}>
                     {t(TRANSITION_LABEL[kind])}
