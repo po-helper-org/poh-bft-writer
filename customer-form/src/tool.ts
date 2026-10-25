@@ -7,7 +7,7 @@
  * строкой пресета (customer.patch.yml), а Backlog берёт общий с узлом
  * customer-form (заявку тот создал по первому сообщению).
  */
-import { demoSteps, repairDemo, sharedDemos, storyboardMarkdown, type AcceptanceDemo } from './demo.js'
+import { demoSteps, doneList, repairDemo, sharedDemos, storyboardMarkdown, type AcceptanceDemo } from './demo.js'
 import { sharedBacklog, type Backlog, type Intake, type Ticket } from './host.js'
 import { materialsPack, pendingNote, sharedMaterials, type Materials } from './materials.js'
 
@@ -116,7 +116,8 @@ function confirmDemoTool(ctx: ToolContext, backlog: Backlog) {
           },
         },
       },
-      done: text('Критерий одной фразой: работа принята, если …'),
+      done: strings('Чек-лист приёмки строго от лица заказчика: 3–6 коротких пунктов, каждый проверяется однозначно «да/нет» '
+        + 'и начинается с того, что он видит или может сделать: «Вижу в корзине опцию „Застраховать билеты“ с ценой», «Получаю полис на почту после оплаты». Без технических деталей'),
       asis: optional('ASIS по материалам: как сейчас, со ссылками на источники [S1 00:12]'),
       gap: optional('GAP по материалам: что не устраивает, со ссылками на источники'),
       tobe: optional('TOBE по материалам: как должно стать, со ссылками на источники'),
@@ -169,9 +170,10 @@ function confirmDemoTool(ctx: ToolContext, backlog: Backlog) {
       const steps = demoSteps(args)
       demos.set(agent.session.id, { ...record, approvedAt: new Date().toISOString() })
       const ticket = await backlog.find(agent.session.id)
-      if (ticket) await backlog.approveDemo(agent.session.id, ticket, steps, args.done, storyboard)
+      const checklist = doneList(args)
+      if (ticket) await backlog.approveDemo(agent.session.id, ticket, steps, checklist.join('; '), storyboard)
       return ['Заказчик согласовал сценарий приёмки кнопкой «Согласую». В howToDemo заявки перенеси эти шаги без изменений:',
-        ...steps.map((s, i) => `${i + 1}. ${s}`), `Работа принята, если: ${args.done}`].join('\n')
+        ...steps.map((s, i) => `${i + 1}. ${s}`), 'Работа принята, если (чек-лист заказчика):', ...checklist.map((c) => `- ${c}`)].join('\n')
     },
   }
 }

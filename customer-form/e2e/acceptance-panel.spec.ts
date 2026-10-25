@@ -36,7 +36,17 @@ test('сценарий справа: UserFlow, свёрнутая раскадр
   await expect(panel.locator('details.story')).not.toHaveAttribute('open', /.*/)
   await panel.locator('details.story > summary').click()
   await expect(panel.locator('.step').first().locator('svg text', { hasText: 'Отчёт продаж' }), 'макет экрана из mock').toBeVisible()
+  // «Работа принята, если» — чек-лист от лица заказчика.
+  await expect(panel.locator('ul.checklist input[type=checkbox]')).toHaveCount(3)
+  await expect(panel.locator('ul.checklist')).toContainText('Получаю письмо с report.csv')
   await page.screenshot({ path: 'test-results/acceptance-panel.png' })
+
+  // Замечание к шагу схемы — кликом по узлу UserFlow.
+  await panel.locator('#flow .node', { hasText: 'Отчёт в BI' }).click()
+  await expect(panel.locator('#popQuote')).toContainText('Шаг 3 · Отчёт в BI')
+  await panel.locator('#popText').fill('Сверять не с BI, а с 1С')
+  await panel.getByRole('button', { name: 'Добавить замечание' }).click()
+  await expect(panel.locator('#count')).toHaveText('1')
 
   // Замечание: выделить текст → правая кнопка → текст → «Добавить замечание».
   const h1 = panel.locator('h1')
@@ -44,13 +54,21 @@ test('сценарий справа: UserFlow, свёрнутая раскадр
   await h1.click({ button: 'right' })
   await panel.locator('#popText').fill('Не CSV, а Excel-файл')
   await panel.getByRole('button', { name: 'Добавить замечание' }).click()
-  await expect(panel.locator('#count')).toHaveText('1')
+  await expect(panel.locator('#count')).toHaveText('2')
   await expect(panel.locator('#toast')).toContainText('в строке ввода')
 
   // Карточку — в «Нужны правки»: строка ввода показывается с замечанием.
   await page.getByRole('button', { name: 'Нужны правки' }).click()
   await expect(composer).toContainText('Поправь сценарий приёмки', { timeout: 10_000 })
   await expect(composer).toContainText('Не CSV, а Excel-файл')
+  await expect(composer).toContainText('[Шаг 3 · Отчёт в BI] Сверять не с BI, а с 1С')
+
+  // Меню «+» — только «Файл»: команд у заказчика нет.
+  await page.getByRole('button', { name: 'Прикрепить файлы' }).click()
+  await expect(page.getByRole('option', { name: /^Файл/ })).toBeVisible()
+  await expect(page.getByText('Permission')).toHaveCount(0)
+  await expect(page.getByRole('option', { name: /request/ })).toHaveCount(0)
+  await page.keyboard.press('Escape')
 
   // Information: ссылка на заявку и сценарий.
   await page.getByRole('tab', { name: 'Information' }).click()

@@ -24,7 +24,8 @@ export interface AcceptanceDemo {
   title: string
   where: string
   steps: DemoStep[]
-  done: string
+  /** Чек-лист приёмки от лица заказчика (rev11); строкой — из старых версий. */
+  done: string[] | string
   /** Черновик по материалам заказчика (rev8): что ИИ понял до вопросов. */
   asis?: string
   gap?: string
@@ -90,9 +91,15 @@ export function storyboardMarkdown(demo: AcceptanceDemo): string {
     ...demo.steps.flatMap((step, i) => [screenBox(step, i), '']),
     '## Работа принята, если',
     '',
-    demo.done,
+    ...doneList(demo).map((item) => `- [ ] ${item}`),
     ...(unclear.length ? ['', '## Не нашёл в материалах или есть противоречие', '', ...unclear.map((u) => `- ${u}`)] : []),
   ].join('\n')
+}
+
+/** Чек-лист приёмки: пункты от лица заказчика (старый формат — одна фраза). */
+export function doneList(demo: AcceptanceDemo): string[] {
+  const raw = Array.isArray(demo.done) ? demo.done : String(demo.done ?? '').split(/\n|;\s*/)
+  return raw.map((item) => String(item).replace(/^[-•*\d.)\s]+/, '').trim()).filter(Boolean)
 }
 
 /** Шаги одной строкой каждый — в поле howToDemo постановки. */

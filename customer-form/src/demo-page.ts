@@ -11,7 +11,7 @@
  *    и копится в корзине страницы; если строка ввода недоступна, промт из
  *    корзины копируется кнопкой (как в bft-html-export poh-bft-writer).
  */
-import type { AcceptanceDemo } from './demo.js'
+import { doneList, type AcceptanceDemo } from './demo.js'
 import { defaultMock, deviceOf, mockSVG, parseMock } from './mock.js'
 
 const MERMAID_CDN = 'https://cdn.jsdelivr.net/npm/mermaid@11.12.0/dist/mermaid.min.js'
@@ -31,24 +31,22 @@ function label(text: string, width = 28): string {
     line = line ? `${line} ${word}` : word
   }
   if (line) lines.push(line)
-  return lines.slice(0, 4).join('<br/>')
+  return lines.slice(0, 2).join('<br/>')
 }
 
-/** UserFlow приёмки: старт → (экран + действие → проверка) × N → приёмка. */
+/**
+ * UserFlow приёмки — коротко: заказчик → экраны по порядку → «Принято».
+ * В узле только номер и экран: что делаю и что вижу — в раскадровке, критерии —
+ * в чек-листе; схема остаётся обзорной и читается в узкой панели.
+ */
 export function userFlowMermaid(demo: AcceptanceDemo): string {
-  const lines = ['flowchart TD', `  start(["🧑 Заказчик<br/>${label(demo.where)}"])`]
-  demo.steps.forEach((step, i) => {
-    lines.push(`  s${i}["<b>${i + 1} · ${label(step.screen, 24)}</b><br/>▶ ${label(step.action)}"]`)
-    lines.push(`  c${i}{{"✓ ${label(step.expect)}"}}`)
-  })
-  lines.push(`  done(["✔ Работа принята<br/>${label(demo.done)}"])`)
-  const chain = ['start', ...demo.steps.flatMap((_, i) => [`s${i}`, `c${i}`]), 'done']
-  lines.push(`  ${chain.join(' --> ')}`)
+  const lines = ['flowchart TD', '  start(["🧑 Заказчик"])']
+  demo.steps.forEach((step, i) => lines.push(`  s${i}["${i + 1} · ${label(step.screen, 22)}"]`))
+  lines.push('  done(["✔ Принято"])')
+  lines.push(`  ${['start', ...demo.steps.map((_, i) => `s${i}`), 'done'].join(' --> ')}`)
   lines.push('  classDef act fill:#ffffff,stroke:#2b2b2b,color:#1f1f1f')
-  lines.push('  classDef chk fill:#eef7ee,stroke:#2f6b2a,color:#1f3d1c')
-  lines.push('  classDef term fill:#f2f0ec,stroke:#9a958c,color:#1f1f1f')
+  lines.push('  classDef term fill:#eef7ee,stroke:#2f6b2a,color:#1f3d1c')
   lines.push(`  class ${demo.steps.map((_, i) => `s${i}`).join(',')} act`)
-  lines.push(`  class ${demo.steps.map((_, i) => `c${i}`).join(',')} chk`)
   lines.push('  class start,done term')
   return lines.join('\n')
 }
@@ -85,7 +83,13 @@ export function demoPageHtml(demo: AcceptanceDemo, options: DemoPageOptions): st
   </div>
 </li>`
   }).join('\n')
-  const data = { key: `cf-remarks:${options.sessionId}:${options.rev}`, title: demo.title }
+  const checklist = doneList(demo).map((item, i) =>
+    `<li><label><input type="checkbox" data-check="${i}"> <span>${esc(item)}</span></label></li>`).join('\n      ')
+  const data = {
+    key: `cf-remarks:${options.sessionId}:${options.rev}`,
+    title: demo.title,
+    steps: demo.steps.map((step, i) => `Шаг ${i + 1} · ${step.screen}`),
+  }
   return `<!doctype html>
 <html lang="ru">
 <head>
@@ -106,6 +110,7 @@ export function demoPageHtml(demo: AcceptanceDemo, options: DemoPageOptions): st
   <section data-section="Путь приёмки (UserFlow)">
     <h2>Путь приёмки</h2>
     <div class="mm" id="flow"><pre class="mermaid">${esc(flow)}</pre></div>
+    <p class="note">Нажмите на шаг схемы — оставите замечание к нему.</p>
   </section>
 ${understood.length ? `
   <section data-section="Как я понял задачу">
@@ -122,7 +127,9 @@ ${steps}
 
   <section data-section="Работа принята, если">
     <h2>Работа принята, если</h2>
-    <p>${esc(demo.done)}</p>
+    <ul class="checklist">
+      ${checklist}
+    </ul>
   </section>
 ${unclear.length ? `
   <section class="unclear" data-section="Не нашёл в материалах">
@@ -170,7 +177,13 @@ h2 { font-size:16px; margin:22px 0 10px; }
 h3 { font-size:15px; margin:0 0 6px; }
 .where { margin:0; color:var(--muted); }
 .tip { margin:10px 0 0; font-size:12.5px; color:var(--muted); border-left:3px solid var(--line); padding-left:8px; }
-.mm { background:#fff; border:1px solid var(--line); border-radius:12px; padding:12px; overflow-x:auto; }
+.mm { background:#fff; border:1px solid var(--line); border-radius:12px; padding:10px; overflow-x:auto; max-width:360px; margin:0 auto; }
+.mm .node { cursor:pointer; }
+.mm .node:hover rect, .mm .node:hover path { stroke-width:2.5px; }
+.note { color:var(--muted); font-size:12px; text-align:center; margin:6px 0 0; }
+ul.checklist { list-style:none; padding:0; margin:0; display:grid; gap:6px; }
+ul.checklist label { display:flex; gap:8px; align-items:flex-start; cursor:pointer; }
+ul.checklist input { margin-top:3px; accent-color:var(--accent); }
 .mm pre.mermaid { margin:0; white-space:pre-wrap; color:#1f1f1f; font-size:12px; }
 .mm.raw::before { content:"Схема — текстом: mermaid не загрузился (нет сети?)"; display:block; color:#b7791f; font-size:12px; margin-bottom:6px; }
 details.story { border:1px solid var(--line); border-radius:12px; padding:2px 14px 6px; margin-top:22px; background:var(--card); }
@@ -218,8 +231,8 @@ const SCRIPT = `
     try {
       mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme: "neutral",
         fontFamily: "Inter,-apple-system,Segoe UI,Roboto,Arial,sans-serif", themeVariables: { fontSize: "13px" },
-        flowchart: { useMaxWidth: true, htmlLabels: true, padding: 8, nodeSpacing: 26, rankSpacing: 30, wrappingWidth: 220 } });
-      mermaid.run({ querySelector: ".mermaid" }).catch(function () { document.getElementById("flow").classList.add("raw"); });
+        flowchart: { useMaxWidth: true, htmlLabels: true, padding: 6, nodeSpacing: 18, rankSpacing: 20, wrappingWidth: 200 } });
+      mermaid.run({ querySelector: ".mermaid" }).then(bindFlow, function () { document.getElementById("flow").classList.add("raw"); });
     } catch (e) { document.getElementById("flow").classList.add("raw"); }
   } else document.getElementById("flow").classList.add("raw");
 
@@ -340,6 +353,33 @@ const SCRIPT = `
     if (!items.length) return;
     toComposer(prompt(), function (ok) { toast(ok ? "Все замечания — в строке ввода" : "Строка ввода недоступна — скопируйте промт"); });
   };
+  /* Схема: клик по шагу (и правая кнопка без выделения) — замечание к шагу. */
+  function bindFlow() {
+    document.querySelectorAll("#flow .node").forEach(function (node) {
+      var m = /^\\s*(\\d+)\\s*·/.exec(node.textContent || ""); // узел шага: «N · экран»
+      var section = m && CFG.steps[Number(m[1]) - 1] ? CFG.steps[Number(m[1]) - 1] : "Путь приёмки (UserFlow)";
+      var open = function (e) { e.preventDefault(); openPop(e.clientX, e.clientY, "", section); };
+      node.addEventListener("click", open);
+      node.addEventListener("contextmenu", open);
+    });
+  }
+  document.getElementById("flow").addEventListener("contextmenu", function (e) {
+    if (e.defaultPrevented || selectionQuote()) return;
+    e.preventDefault();
+    openPop(e.clientX, e.clientY, "", "Путь приёмки (UserFlow)");
+  });
+
+  /* Чек-лист: отметки заказчика запоминаются в этом браузере. */
+  var checks = {};
+  try { checks = JSON.parse(localStorage.getItem(CFG.key + ":checks") || "{}"); } catch (e) { checks = {}; }
+  document.querySelectorAll("[data-check]").forEach(function (box) {
+    box.checked = !!checks[box.getAttribute("data-check")];
+    box.addEventListener("change", function () {
+      checks[box.getAttribute("data-check")] = box.checked;
+      try { localStorage.setItem(CFG.key + ":checks", JSON.stringify(checks)); } catch (e) {}
+    });
+  });
+
   render();
 })();
 `

@@ -7,7 +7,7 @@ context-ingest: материал заказчика → Markdown, который
   → {"text": "...", "audioSeconds": 4.2, "inferenceSeconds": 0.3}
   POST /chunks?name=&max=240      тело — аудиофайл
   → {"durationSec": 899, "chunks": [{"start": 0.0, "mp3": "<base64>"}, …]}
-    куски до max секунд, разрезанные по паузам (Silero VAD), mp3 32 кбит/с:
+    куски до max секунд, разрезанные по паузам (громкость), mp3 32 кбит/с:
     для облачного распознавания, если GigaAM не справился (ключей здесь нет —
     в облако их отправляет customer-form).
   GET  /health
@@ -185,33 +185,45 @@ def ocr_pdf(data: bytes) -> dict:
     return {"kind": "document", "ocr": True, "pages": total, "markdown": "\n\n".join(parts) or "(текст в скане не найден)"}
 
 
+def pause_points(samples: np.ndarray) -> np.ndarray:
+    """Середины пауз ≥0,3 с (тихие кадры по 30 мс) — места для разреза, в отсчётах.
+    Громкость numpy-ом, без Silero: 15 минут — миллисекунды вместо секунд."""
+    frame = int(SR * 0.03)
+    n = len(samples) // frame
+    if n == 0:
+        return np.array([], dtype=np.int64)
+    rms = np.sqrt(np.mean(samples[:n * frame].reshape(n, frame) ** 2, axis=1) + 1e-12)
+    quiet = rms < max(np.percentile(rms, 20) * 1.8, 10 ** (-45 / 20))
+    edges = np.flatnonzero(np.diff(np.concatenate(([0], quiet.astype(np.int8), [0]))))
+    starts, ends = edges[::2], edges[1::2]
+    long = (ends - starts) >= 10  # 10 кадров = 0,3 с
+    return ((starts[long] + ends[long]) // 2 * frame).astype(np.int64)
+
+
 def audio_chunks(data: bytes, ext: str, max_sec: float) -> dict:
-    """Запись → куски до max_sec, границы — начала фраз (паузы), mp3 для облака."""
+    """Запись → куски до max_sec, разрез — в паузах, mp3 32 кбит/с для облака."""
     import base64
     samples = decode_audio(data, ext)
     total = len(samples)
     limit = int(max_sec * SR)
+    pauses = pause_points(samples)
     cuts = [0]
-    prev = 0  # начало последней фразы, ещё помещающейся в текущий кусок
-    for start, _ in speech_segments(samples):
-        at = int(start * SR)
-        while at - cuts[-1] > limit:
-            # Фраза не помещается: режем по началу предыдущей (пауза перед ней),
-            # а если такой нет — жёстко по пределу куска.
-            cuts.append(prev if prev > cuts[-1] else cuts[-1] + limit)
-        prev = at
     while total - cuts[-1] > limit:
-        cuts.append(prev if prev > cuts[-1] else cuts[-1] + limit)
+        window = pauses[(pauses > cuts[-1] + limit // 3) & (pauses <= cuts[-1] + limit)]
+        cuts.append(int(window[-1]) if len(window) else cuts[-1] + limit)  # нет паузы — жёстко
     cuts.append(total)
-    chunks = []
-    for a, b in zip(cuts, cuts[1:]):
-        if b - a < SR // 2:
-            continue
+    spans = [(a, b) for a, b in zip(cuts, cuts[1:]) if b - a >= SR // 2]
+
+    def encode(span):
+        a, b = span
         pcm = (samples[a:b] * 32767).astype(np.int16).tobytes()
         mp3 = subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "s16le", "-ar", str(SR), "-ac", "1",
                               "-i", "pipe:0", "-c:a", "libmp3lame", "-b:a", "32k", "-f", "mp3", "pipe:1"],
                              input=pcm, capture_output=True, check=True, timeout=300).stdout
-        chunks.append({"start": round(a / SR, 2), "mp3": base64.b64encode(mp3).decode()})
+        return {"start": round(a / SR, 2), "mp3": base64.b64encode(mp3).decode()}
+
+    with ThreadPoolExecutor(OCR_WORKERS) as pool:
+        chunks = list(pool.map(encode, spans))
     return {"durationSec": round(total / SR, 1), "chunks": chunks}
 
 

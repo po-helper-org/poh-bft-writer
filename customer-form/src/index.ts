@@ -8,8 +8,8 @@
  *
  * Первое сообщение сессии сразу фиксируется заявкой в беклоге (HowToDemo п.6,
  * <1с): ссылка приходит в ленту инъекцией агенту — dsh рисует её без модели,
- * так что ссылка есть даже при недоступной LLM. /request — та же ссылка по
- * запросу (строку команды из узла dsh в ленте не рисует, только из клиента).
+ * так что ссылка есть даже при недоступной LLM; потом она — во вкладке
+ * Information (команд у заказчика нет, rev11).
  * Вложения любого сообщения уходят файлами в задачу; итог диалога модель
  * сдаёт инструментом submit_customer_request (плагин customer-form/tool внутри
  * пресета агента «customer», HowToDemo п.9–10).
@@ -46,17 +46,6 @@ interface AttachmentsLike {
   fileHostPath(ref: unknown): string | undefined
   imageHostPath(ref: unknown): string | undefined
 }
-
-interface CommandsLike {
-  register(definition: {
-    name: string
-    description: string
-    recordInput?: boolean
-    handler(invocation: { agent: AgentLike }): Promise<{ kind: 'success'; text: string } | { kind: 'error'; text: string }>
-  }): () => void
-}
-
-const REQUEST_COMMAND = 'request'
 
 function ticketText(ticket: Ticket): string {
   return `Заявка #${ticket.taskId} зарегистрирована в беклоге: ${ticket.url}`
@@ -151,25 +140,17 @@ export function apply(ctx: HarnessContext): void {
     scoped.effect(() => () => { materials.web = undefined }, 'customer-form: ctx.web для ссылок')
   })
 
-  ctx.inject(['commands', 'attachments'], (scoped: HarnessContext) => {
-    const commands = scoped.get('commands') as CommandsLike
+  // Меню «+» заказчика — только «Файл» (rev11): каталог команд пуст и вызвать
+  // их нельзя. Плагин ui-commands не выключаем — он же строит пункт «Файл».
+  ctx.inject(['commands'], (scoped: HarnessContext) => {
+    const commands = scoped.get('commands') as { list(agent: unknown): readonly unknown[]; find(agent: unknown, name: string): unknown }
+    const { list, find } = commands
+    commands.list = () => Object.freeze([])
+    commands.find = () => undefined
+    scoped.effect(() => () => { commands.list = list; commands.find = find }, 'customer-form: без команд у заказчика')
+  })
 
-    // /request: номер и ссылка заявки этой сессии (идемпотентно). Ввод не пишем
-    // в лог — заявку создаёт первое сообщение, а не текст команды.
-    scoped.effect(() => commands.register({
-      name: REQUEST_COMMAND,
-      description: 'Заявка в беклоге: номер и ссылка на отслеживание',
-      recordInput: false,
-      handler: async ({ agent }) => {
-        try {
-          const ticket = await backlog.find(agent.session.id) ?? await backlog.ensure(agent.session.id, '')
-          return { kind: 'success', text: ticketText(ticket) }
-        } catch (e) {
-          return { kind: 'error', text: `Заявка не зарегистрирована: ${(e as Error).message}. Обращение сохранено в чате — PO его увидит.` }
-        }
-      },
-    }), 'customer-form: /request')
-
+  ctx.inject(['attachments'], (scoped: HarnessContext) => {
     // Первое сообщение заказчика → заявка → ссылка в ленте (и в контексте модели);
     // вложения любого сообщения → файлы задачи.
     const attachments = scoped.get('attachments') as AttachmentsLike
@@ -197,7 +178,7 @@ export function apply(ctx: HarnessContext): void {
           await attachFiles(backlog, attachments, ticket, message)
           await attachTranscripts(backlog, ticket, found)
         } catch (e) {
-          // Диалог не прерываем: обращение остаётся в чате, /request повторит попытку.
+          // Диалог не прерываем: обращение остаётся в чате, следующее сообщение повторит попытку.
           console.error('[customer-form] заявка не создана:', e)
         }
       })()

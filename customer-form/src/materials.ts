@@ -47,12 +47,15 @@ interface IngestReply { kind: 'audio' | 'document'; markdown: string; durationSe
 
 const AUDIO = /\.(m4a|mp3|wav|ogg|oga|opus|aac|flac|webm|mp4|mov|amr|caf|3gp|wma)$/i
 /**
- * Аудиофайлы: auto — GigaAM в context-ingest, при сбое или пустом тексте —
- * облако (Requesty, gpt-4o-mini-transcribe кусками до 4 минут); cloud — сначала
- * облако (точнее в именах и названиях); local — только GigaAM.
+ * Аудиофайлы: cloud (по умолчанию) — сразу облако (Requesty,
+ * gpt-4o-mini-transcribe): запись режется по паузам на короткие куски,
+ * они распознаются параллельно — быстрее и точнее в именах; при сбое —
+ * GigaAM. auto — сначала GigaAM, облако при сбое; local — только GigaAM.
  */
-const AUDIO_MODE = (process.env.MATERIALS_AUDIO ?? 'auto') as 'auto' | 'cloud' | 'local'
-const CLOUD_CHUNK_SEC = 240
+const AUDIO_MODE = (process.env.MATERIALS_AUDIO ?? 'cloud') as 'auto' | 'cloud' | 'local'
+const envNumber = (name: string, fallback: number) => Number(process.env[name]) > 0 ? Number(process.env[name]) : fallback
+const CLOUD_CHUNK_SEC = envNumber('MATERIALS_CLOUD_CHUNK_SEC', 120)
+const CLOUD_PARALLEL = envNumber('MATERIALS_CLOUD_PARALLEL', 8)
 const SPEECH_RU = 'speech-ru'
 
 interface SpeechRuModule {
@@ -158,9 +161,9 @@ export class Materials {
   }
 
   /**
-   * Облачная расшифровка: context-ingest режет запись по паузам на куски до
-   * 4 минут (ответ модели ограничен ~2000 токенами — целиком 15 минут
-   * обрезаются), куски распознаются параллельно и склеиваются по времени.
+   * Облачная расшифровка: context-ingest режет запись по паузам на куски
+   * (ответ модели ограничен ~2000 токенами — целиком 15 минут обрезаются),
+   * куски распознаются параллельно и склеиваются по времени.
    */
   private async cloudTranscript(name: string, bytes: Uint8Array): Promise<Ingested> {
     const started = Date.now()
@@ -188,7 +191,7 @@ export class Materials {
         }
       }
     }
-    await Promise.all(Array.from({ length: Math.min(4, cut.chunks.length) }, worker))
+    await Promise.all(Array.from({ length: Math.min(CLOUD_PARALLEL, cut.chunks.length) }, worker))
     if (failed === cut.chunks.length) throw new Error(`облако не распознало ни одного куска: ${texts[0]}`)
     const markdown = cut.chunks.map((c, i) => `[${stamp(c.start)}] ${texts[i]}`).filter((l) => !/\]\s*$/.test(l)).join('\n\n')
     console.log(`[customer-form] облачная расшифровка ${name}: ${cut.durationSec} с, ${cut.chunks.length} кусков → ${markdown.length} симв. за ${Date.now() - started} мс`)
