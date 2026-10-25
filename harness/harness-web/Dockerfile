@@ -50,12 +50,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends socat \
 WORKDIR /app
 # dsh-CLI из профиля: один пин на весь набор @deepseek-ai/dsh-* (ADR-0002).
 COPY --from=profile /seed/node_modules ./node_modules
+# Открытый доступ (без кода/токена, rev5): isAuthenticated всегда true.
+# Контур безопасности — публикация портов только на 127.0.0.1/LAN хоста.
+RUN grep -q 'isAuthenticated(request) {' /app/node_modules/@deepseek-ai/dsh-client-connection/lib/index.js \
+ && sed -i 's|isAuthenticated(request) {|isAuthenticated(request) { return true;|' /app/node_modules/@deepseek-ai/dsh-client-connection/lib/index.js \
+ && echo "no-auth: patched"
 COPY --from=profile /seed/package.json ./profile.json
 COPY --from=profile /seed/customer.json ./customer-profile.json
 COPY harness/profile/cordis.patch.yml ./cordis.patch.yml
 COPY harness/profile/customer.patch.yml ./customer.patch.yml
 COPY harness/harness-web/entrypoint.sh /entrypoint.sh
-COPY harness/harness-web/proxy-auth.js /proxy-auth.js
 # Маркер сида: меняется на каждой сборке — entrypoint перезасеивает профиль
 # в /data, иначе том со старым node_modules переживал бы обновления образа.
 RUN echo "seed-$(date +%s)-$RANDOM" > /app/seed-marker

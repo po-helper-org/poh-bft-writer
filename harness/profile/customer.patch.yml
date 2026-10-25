@@ -7,3 +7,17 @@
         providers:
           zai:
             apiKeyEnv: ZAI_API_KEY
+
+# Дефолтная модель портала — zai (rev5). Без этого каталог берёт
+# deepseek-official/deepseek-flash без ключа → «Send» задизейблен.
+- id: agent-default-model
+  config:
+    provider: zai
+    model: glm-5-turbo
+
+# Заказчику не показываем «Internal Testing Notice» dsh: версия уведомления
+# считается подтверждённой (так её записывает сам dsh по кнопке Continue).
+- id: ui-settings-general
+  name: '@deepseek-ai/dsh-client-ui-settings-general'
+  config:
+    welcomeNoticeVersion: 2026-08-13.1

@@ -145,7 +145,6 @@ services:
       TRACKER_USER: ${TRACKER_USER:-${TRACKER_ADMIN_USER:-bft-admin}}
       TRACKER_PASSWORD: ${TRACKER_ADMIN_PASSWORD:-}
       ZAI_API_KEY: ${ZAI_API_KEY:-}
-      PORTAL_MODEL: ${PORTAL_MODEL:-glm-5-turbo}
     ports:
       - "${PORTAL_BIND:-127.0.0.1}:3080:3080"
     volumes:
@@ -189,7 +188,8 @@ services:
       postgres: {condition: service_healthy}
       tracker-init: {condition: service_completed_successfully}
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3456/api/v1/info || exit 1"]
+      # В образе vikunja нет ни wget, ни curl: встроенная проверка API.
+      test: ["CMD", "/app/vikunja/vikunja", "healthcheck"]
       interval: 10s
       retries: 30
       start_period: 15s

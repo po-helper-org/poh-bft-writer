@@ -1,7 +1,7 @@
 import { defineConfig } from '@playwright/test'
 
-// E2E портала заказчика (HowToDemo шаг 1): живой стек, URL с токеном
-// прилетает переменной CUSTOMER_URL (см. harness/e2e-customer.sh).
+// E2E портала заказчика (HowToDemo шаг 1): живой стек, вход без кода;
+// адрес можно переопределить CUSTOMER_URL (см. harness/e2e-customer.sh).
 export default defineConfig({
   testDir: './e2e',
   timeout: 60_000,

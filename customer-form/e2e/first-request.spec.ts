@@ -1,66 +1,66 @@
 /**
- * E2E · HowToDemo шаг 1 (rev4) — вход без кода → ввод обращения в композер dsh.
+ * E2E · HowToDemo шаг 1 (rev5) — открыл портал → ввёл обращение → ссылка на заявку.
  *
- * Новый UX (ADR-0007 rev4): портал заказчика = главная страница dsh без
- * сайдбара; никаких своих форм. Проверяем: открыл → композер на месте →
- * напечатал обращение → Enter → начался чат (фаза ушла с hero).
+ * Портал заказчика = главная страница dsh без сайдбара (ADR-0007 rev4/5).
+ * Проверяем путь заказчика целиком: вход без кода и без «Internal Testing
+ * Notice», композер в workspace «Customer-requests» с моделью zai по умолчанию,
+ * отправка → ссылка на задачу в ленте < 1 с → задача есть в Vikunja.
+ * Ответ модели не проверяем: он зависит от квоты ключа, а заявка — нет.
  * Селекторы — классы харнесса 0.1.7-rc.2 (как в poh-mobile-skin).
  */
 import { expect, test } from '@playwright/test'
+
+const CUSTOMER_URL = process.env.CUSTOMER_URL ?? 'http://127.0.0.1:3080'
+const TRACKER_API = process.env.TRACKER_API ?? 'http://127.0.0.1:3456/api/v1'
+const UNIQUE = Date.now().toString(36)
 
 test.beforeEach(async ({ page }) => {
   page.on('console', (m) => { if (m.type() === 'error') console.log('[console]', m.text().slice(0, 160)) })
 })
 
-const UNIQUE = Date.now().toString(36)
-
-test('вход без кода → обращение в композере → чат начался', async ({ page }) => {
-  // Шаг 1: открыл 127.0.0.1:3080 — БЕЗ токена/кода (прокси подставил сам).
-  const url = process.env.CUSTOMER_URL ?? 'http://127.0.0.1:3080'
-  const res = await page.goto(url)
+test('открыл портал → обращение → ссылка на заявку < 1 с', async ({ page, request }) => {
+  // Шаг 1: открыл ссылку — без кода, токена и модалок.
+  const res = await page.goto(CUSTOMER_URL)
   expect(res?.status(), 'вход без кода отдал приложение').toBe(200)
 
-  // Первый запуск dsh показывает notice «Internal Testing» — закрываем.
-  const notice = page.getByRole('button', { name: 'Continue' })
-  await notice.waitFor({ state: 'visible', timeout: 10_000 }).catch(() => undefined)
-  if (await notice.isVisible()) await notice.click()
-
-  // Шаг 2: главная dsh — композер присутствует, сайдбар скрыт нашим CSS.
+  // Шаг 2: стартовый экран dsh — композер на всю колонку, сайдбара нет.
   const composer = page.locator("[data-composer-input][contenteditable='true']").first()
-  await expect(composer, 'композер dsh (workspace подключён плагином)').toBeVisible({ timeout: 30_000 })
-  const sidebarHidden = await page.evaluate(() => {
-    const col = document.querySelector('.pI_x6G_sidebarCol')
-    return col ? getComputedStyle(col).display === 'none' : true
-  })
-  expect(sidebarHidden, 'сайдбар скрыт (customer-form CSS)').toBeTruthy()
+  await expect(composer, 'композер dsh').toBeVisible({ timeout: 30_000 })
+  await expect(page.getByRole('button', { name: 'Continue' }), 'нет Internal Testing Notice').toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Choose workspace' }), 'workspace заказчика')
+    .toContainText('Customer-requests', { timeout: 15_000 })
+  await expect(page.getByRole('button', { name: /Select model, current GLM/ }), 'модель zai по умолчанию').toBeVisible()
+  const width = (await composer.boundingBox())?.width ?? 0
+  expect(width, 'композер не схлопнут скрытым сайдбаром').toBeGreaterThan(300)
 
-  // Дефолт каталога — DeepSeek без ключа (Send задизейблен): выбираем GLM
-  // один раз — dsh персистит выбор в settings (volume), дальше дефолт навсегда.
-  const modelBtn = page.locator('button', { hasText: /DeepSeek|GLM|Select model/ }).first()
-  if (await modelBtn.isVisible().catch(() => false)) {
-    const sendBefore = page.getByRole('button', { name: 'Send message' })
-    if (await sendBefore.isDisabled().catch(() => true)) {
-      await modelBtn.click()
-      const glm = page.locator('[role=menuitem], [role=option], button', { hasText: /GLM/i }).first()
-      await glm.waitFor({ state: 'visible', timeout: 5000 })
-      await glm.click()
-      await expect(sendBefore).toBeEnabled({ timeout: 10_000 })
-    }
-  }
-
-  // Шаг 3: печатаю обращение и отправляю (Enter в композере dsh).
+  // Шаг 3: обращение текстом и отправка (Enter в композере dsh).
+  const text = `E2E-инициатива ${UNIQUE}: нужна выгрузка отчётов в CSV, сейчас руками и долго. ` +
+    'Заказчик — E2E Тестов, e2e@test.local'
   await composer.click()
-  await page.keyboard.type(
-    `E2E-инициатива ${UNIQUE}: нужна выгрузка отчётов в CSV, сейчас руками и долго. ` +
-    'Хочу к утру автоматически. Заказчик — E2E Тестов, e2e@test.local')
+  await page.keyboard.type(text)
+  await expect(page.getByRole('button', { name: 'Send message' })).toBeEnabled()
+  const sentAt = Date.now()
   await page.keyboard.press('Enter')
 
-  // Шаг 4: начался чат — фаза контента ушла со стартового hero.
-  const body = page.locator('.wSkVaW_body').first()
-  await expect
-    .poll(async () => body.getAttribute('data-content-phase'), { timeout: 20_000 })
-    .not.toBe('hero')
+  // Шаг 4: ссылка на заявку в ленте — критерий HowToDemo п.6: < 1 с.
+  const link = page.getByText(/Заявка #\d+ зарегистрирована в беклоге: http\S+\/tasks\/\d+/).first()
+  await expect(link).toBeVisible({ timeout: 5_000 })
+  const elapsed = Date.now() - sentAt
+  console.log(`▸ ссылка на заявку через ${elapsed} мс`)
+  expect(elapsed, 'ссылка < 1 с').toBeLessThan(1_000)
+  await expect(page.getByText(text, { exact: true }), 'обращение в ленте').toBeVisible()
 
-  // Отправленный текст виден в ленте (пользовательская реплика).
-  await expect(page.getByText(`E2E-инициатива ${UNIQUE}`)).toBeVisible({ timeout: 10_000 })
+  // Шаг 5: задача в беклоге Vikunja — заголовок из обращения, лейбл «запрос».
+  const taskId = Number(/\/tasks\/(\d+)/.exec((await link.textContent()) ?? '')?.[1])
+  const login = await request.post(`${TRACKER_API}/login`, {
+    data: { username: process.env.TRACKER_USER ?? 'bft-admin', password: process.env.TRACKER_PASSWORD ?? '' },
+  })
+  test.skip(!login.ok(), 'нет TRACKER_PASSWORD — проверку задачи в Vikunja пропускаем')
+  const { token } = (await login.json()) as { token: string }
+  const task = await request.get(`${TRACKER_API}/tasks/${taskId}`, { headers: { authorization: `Bearer ${token}` } })
+  expect(task.ok(), `задача #${taskId} в трекере`).toBeTruthy()
+  const body = (await task.json()) as { title: string; description: string; labels: { title: string }[] | null }
+  expect(body.title).toContain(`E2E-инициатива ${UNIQUE}`)
+  expect(body.description).toContain('e2e@test.local')
+  expect((body.labels ?? []).map((l) => l.title)).toContain('запрос')
 })
