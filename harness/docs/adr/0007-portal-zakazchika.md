@@ -211,6 +211,9 @@ cordis.patch.yml профиля и бандла обязаны быть top-leve
 
 ## Rev 9 — микрофон композера по-русски
 
+> Заменено ADR-0008: провайдер вынесен в отдельный бандл `speech-ru`
+> (Requesty gpt-4o-mini-transcribe, резерв GigaAM, проверка тишины).
+
 Голосовой ввод dsh (`dsh-experimental-voice-input-bundle`) подключён в профиль
 заказчика (`customer.json.in`), но его распознаватель SenseVoice русского не
 знает — он выключен (`speech-to-text-sensevoice: disabled`). Вместо него узел

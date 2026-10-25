@@ -17,6 +17,11 @@ COPY customer-form/package.json customer-form/tsconfig*.json customer-form/tsdow
 COPY customer-form/src ./customer-form/src
 COPY customer-form/cordis.patch.yml ./customer-form/
 RUN cd customer-form && npm install --no-audit --no-fund && npm run build
+# speech-ru (ADR-0008): распознавание русской речи для голосового ввода
+COPY speech-ru/package.json speech-ru/tsconfig.json speech-ru/cordis.patch.yml ./speech-ru/
+COPY speech-ru/src ./speech-ru/src
+COPY speech-ru/test ./speech-ru/test
+RUN cd speech-ru && npm install --no-audit --no-fund && npm test
 
 FROM node:22-bookworm-slim AS profile
 ARG DSH_VERSION=0.1.7-rc.2
@@ -24,6 +29,7 @@ WORKDIR /seed
 COPY harness/profile/package.json.in ./package.json.in
 COPY --from=plugins /src/plugin ./plugin
 COPY --from=plugins /src/customer-form ./customer-form
+COPY --from=plugins /src/speech-ru ./speech-ru
 # npm для file:-зависимостей ставит СИМЛИНК (node_modules/poh-bft-plugin -> ../plugin).
 # Заменяем его на реальную копию и удаляем источник: бандл живёт в node_modules
 # самодостаточно (files-пакета хватает: lib + cordis.patch.yml).
@@ -31,12 +37,13 @@ COPY harness/profile/customer.json.in ./customer.json.in
 RUN sed "s/__DSH_VERSION__/${DSH_VERSION}/g" package.json.in > package.json \
  && sed "s/__DSH_VERSION__/${DSH_VERSION}/g" customer.json.in > customer.json \
  && npm install --omit=dev --no-audit --no-fund \
- && rm -rf node_modules/poh-bft-plugin node_modules/customer-form \
+ && rm -rf node_modules/poh-bft-plugin node_modules/customer-form node_modules/speech-ru \
  && cp -R plugin node_modules/poh-bft-plugin \
  && cp -R customer-form node_modules/customer-form \
+ && cp -R speech-ru node_modules/speech-ru \
  && node -e "const p=require('./node_modules/poh-bft-plugin/package.json'); if(!p.exports || !p.exports['./client']) process.exit(1)" \
  && node -e "const c=require('./node_modules/customer-form/package.json'); if(!c.exports || !c.exports['./client']) process.exit(1)" \
- && rm -rf plugin customer-form node_modules/poh-bft-plugin/node_modules node_modules/customer-form/node_modules \
+ && rm -rf plugin customer-form speech-ru node_modules/poh-bft-plugin/node_modules node_modules/customer-form/node_modules node_modules/speech-ru/node_modules \
  && npm cache clean --force
 
 FROM node:22-bookworm-slim AS runtime

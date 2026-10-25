@@ -7,11 +7,12 @@
     "@deepseek-ai/dsh-web-app": "__DSH_VERSION__",
     "@deepseek-ai/dsh-llm-pi-ai": "__DSH_VERSION__",
     "customer-form": "file:customer-form",
+    "speech-ru": "file:speech-ru",
     "@deepseek-ai/dsh-experimental-voice-input-bundle": "__DSH_VERSION__"
   },
   "dsh": {
     "profile": {
-      "bundles": ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-llm-pi-ai", "@deepseek-ai/dsh-web-app", "@deepseek-ai/dsh-experimental-voice-input-bundle", "customer-form"],
+      "bundles": ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-llm-pi-ai", "@deepseek-ai/dsh-web-app", "@deepseek-ai/dsh-experimental-voice-input-bundle", "speech-ru", "customer-form"],
       "patchReload": "live"
     }
   }

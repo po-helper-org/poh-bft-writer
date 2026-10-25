@@ -104,7 +104,7 @@ const RU_CHAT: Record<string, string> = {
   'row.failed': 'Ошибка',
 }
 
-/** Микрофон композера (голосовой ввод dsh, провайдер gigaam-local — rev9). */
+/** Микрофон композера (голосовой ввод dsh, провайдер ru-speech плагина speech-ru). */
 const RU_SPEECH: Record<string, string> = {
   dictate: 'Надиктовать',
   start: 'Начать запись',
@@ -124,6 +124,8 @@ const RU_SPEECH: Record<string, string> = {
   language: 'Язык',
   ru: 'Русский',
   local: 'Речь распознаётся на сервере портала, запись никуда не отправляется.',
+  cloud: 'Речь распознаёт облачный сервис (Requesty, gpt-4o-mini-transcribe); если он недоступен — сервер портала.',
+  cloudReady: 'Распознавание речи готово.',
   'preparation.ready': 'Распознавание речи готово.',
   empty: 'Речь не распознана',
   cancelled: 'Голосовой ввод отменён.',

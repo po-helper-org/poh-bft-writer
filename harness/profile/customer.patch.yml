@@ -143,17 +143,3 @@
   disabled: true
 - id: ui-workflow-run
   disabled: true
-
-# Микрофон композера по-русски (ADR-0007 rev9): голосовой ввод dsh подключён
-# бандлом (customer.json.in), но его SenseVoice русского не знает — вместо
-# него провайдер gigaam-local (customer-form/speech) поверх context-ingest.
-# Запись микрофона остаётся внутри compose-сети.
-- insert:
-    - id: speech-gigaam
-      name: 'customer-form/speech'
-- id: speech-to-text
-  config:
-    defaultProvider: gigaam-local
-    language: ru
-- id: speech-to-text-sensevoice
-  disabled: true
