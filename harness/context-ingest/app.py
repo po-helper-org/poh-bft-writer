@@ -11,10 +11,13 @@ context-ingest: материал заказчика → Markdown, который
 Silero VAD режет речь на фразы → GigaAM v3 CTC (русский, с пунктуацией) →
 строки «[мм:сс] текст»: метки времени дают модели и PO ссылаться на место.
 Документы: Microsoft MarkItDown — заголовки, списки и таблицы как Markdown.
+Сканы и фото (ADR-0008): картинки и PDF без текстового слоя — Tesseract
+rus+eng, страницы PDF растрирует pdftoppm и распознаются параллельно.
 Сеть наружу сервису не нужна; ключей и трекера здесь нет.
 """
 import glob
 import io
+from concurrent.futures import ThreadPoolExecutor
 import json
 import os
 import subprocess
@@ -33,6 +36,14 @@ MAX_BYTES = int(os.environ.get("INGEST_MAX_BYTES", 200 * 1024 * 1024))
 THREADS = int(os.environ.get("INGEST_ASR_THREADS", max(1, min(4, os.cpu_count() or 1))))
 AUDIO = {".m4a", ".mp3", ".wav", ".ogg", ".oga", ".opus", ".aac", ".flac", ".webm",
          ".mp4", ".mov", ".amr", ".caf", ".3gp", ".wma"}
+
+IMAGES = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp", ".gif", ".heic", ".heif"}
+OCR_LANGS = os.environ.get("INGEST_OCR_LANGS", "rus+eng")
+OCR_DPI = int(os.environ.get("INGEST_OCR_DPI", 300))
+OCR_MAX_PAGES = int(os.environ.get("INGEST_OCR_MAX_PAGES", 30))
+OCR_WORKERS = int(os.environ.get("INGEST_OCR_WORKERS", max(1, min(4, os.cpu_count() or 1))))
+# Текстовый слой короче этого на страницу — скан: распознаём картинку.
+SCAN_CHARS_PER_PAGE = 80
 
 _asr_lock = threading.Lock()
 _recognizer = None
@@ -113,10 +124,68 @@ def transcribe(data: bytes, ext: str) -> dict:
     return {"kind": "audio", "markdown": "\n".join(lines) or "(речь не распознана)", "durationSec": round(len(samples) / SR, 1)}
 
 
+def ocr_png(path: str) -> str:
+    # OMP_THREAD_LIMIT=1: параллелим страницы, а не потоки внутри одной.
+    out = subprocess.run(["tesseract", path, "-", "-l", OCR_LANGS, "--psm", "3"],
+                         capture_output=True, check=True, timeout=180, env={**os.environ, "OMP_THREAD_LIMIT": "1"})
+    return out.stdout.decode(errors="replace").strip()
+
+
+def ocr_image(data: bytes) -> dict:
+    """Фото документа или скриншот (в т.ч. HEIC с iPhone) → текст."""
+    from PIL import Image, ImageOps
+    import pillow_heif
+    pillow_heif.register_heif_opener()
+    image = ImageOps.exif_transpose(Image.open(io.BytesIO(data))).convert("L")
+    if image.width < 1600:  # мелкий текст Tesseract читает хуже: увеличиваем
+        scale = 1600 / image.width
+        image = image.resize((1600, int(image.height * scale)), Image.LANCZOS)
+    with tempfile.NamedTemporaryFile(suffix=".png") as png:
+        image.save(png.name)
+        text = ocr_png(png.name)
+    return {"kind": "document", "ocr": True, "markdown": text or "(текст на изображении не найден)"}
+
+
+def pdf_pages(path: str) -> int:
+    info = subprocess.run(["pdfinfo", path], capture_output=True, timeout=30).stdout.decode(errors="replace")
+    for line in info.splitlines():
+        if line.startswith("Pages:"):
+            return int(line.split()[1])
+    return 1
+
+
+def ocr_pdf(data: bytes) -> dict:
+    """PDF-скан: страницы → PNG (pdftoppm) → Tesseract параллельно."""
+    with tempfile.TemporaryDirectory() as tmp:
+        src = os.path.join(tmp, "in.pdf")
+        with open(src, "wb") as f:
+            f.write(data)
+        total = pdf_pages(src)
+        pages = min(total, OCR_MAX_PAGES)
+        subprocess.run(["pdftoppm", "-r", str(OCR_DPI), "-gray", "-png", "-l", str(pages), src, os.path.join(tmp, "p")],
+                       capture_output=True, check=True, timeout=600)
+        images = sorted(glob.glob(os.path.join(tmp, "p-*.png")))
+        with ThreadPoolExecutor(OCR_WORKERS) as pool:
+            texts = list(pool.map(ocr_png, images))
+    parts = [f"## Страница {i}\n\n{t}" for i, t in enumerate(texts, 1) if t]
+    if total > pages:
+        parts.append(f"[… распознаны первые {pages} из {total} страниц …]")
+    return {"kind": "document", "ocr": True, "pages": total, "markdown": "\n\n".join(parts) or "(текст в скане не найден)"}
+
+
 def convert_document(data: bytes, ext: str) -> dict:
+    if ext in IMAGES:
+        return ocr_image(data)
     result = _markitdown.convert_stream(io.BytesIO(data), file_extension=ext)
-    text = getattr(result, "markdown", None) or getattr(result, "text_content", "") or ""
-    return {"kind": "document", "markdown": text.strip() or "(текст не извлечён)"}
+    text = (getattr(result, "markdown", None) or getattr(result, "text_content", "") or "").strip()
+    if ext == ".pdf":
+        with tempfile.NamedTemporaryFile(suffix=".pdf") as src:
+            src.write(data)
+            src.flush()
+            pages = pdf_pages(src.name)
+        if len(text) < SCAN_CHARS_PER_PAGE * pages:
+            return ocr_pdf(data)
+    return {"kind": "document", "markdown": text or "(текст не извлечён)"}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -154,7 +223,8 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:  # формат, который MarkItDown не знает, битый файл
             return self.reply(422, {"error": f"{type(e).__name__}: {str(e)[:200]}"})
         out["elapsedMs"] = int((time.monotonic() - started) * 1000)
-        print(f"[ingest] {name}: {out['kind']} {len(out['markdown'])} симв. за {out['elapsedMs']} мс", flush=True)
+        kind = "OCR" if out.get("ocr") else out["kind"]
+        print(f"[ingest] {name}: {kind} {len(out['markdown'])} симв. за {out['elapsedMs']} мс", flush=True)
         self.reply(200, out)
 
     def dictation(self, data: bytes, started: float) -> None:

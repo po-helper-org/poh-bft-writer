@@ -87,6 +87,8 @@ function nextTurn(messages) {
   if (/подтвержда/i.test(said.at(-1) ?? '')) {
     return { tool: { name: 'submit_customer_request', args: INTAKE } }
   }
+  // Сценарий микрофона (voice-terms.spec): поле ввода должно остаться свободным.
+  if (said.some((t) => t.includes('#без-вопросов'))) return { content: 'Принято, записала.' }
   if (!messages.some((m) => m.role === 'assistant') && said.some((t) => t.includes('[File'))) {
     return { content: '', tool: { name: 'read_customer_materials', args: {} } }
   }

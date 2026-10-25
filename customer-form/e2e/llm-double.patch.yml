@@ -13,6 +13,7 @@
           - id: double
             name: E2E Double
             contextWindow: 128000
+            input: [text, image]   # как у боевой Haiku: фото документов можно отправить
 - id: agent-default-model
   config:
     provider: e2e

@@ -144,6 +144,26 @@ const RU_COMMON: Record<string, string> = {
   submitting: 'Отправляем…',
 }
 
+/**
+ * Ключ записи микрофона — тот же расчёт, что audioKey в speech-ru (длина +
+ * FNV-1a 32 по байтам): узел по нему находит диалог записи. Без crypto.subtle —
+ * портал открывают и по HTTP в локальной сети, где его нет.
+ */
+function audioKeyOfBase64(base64: string): string {
+  const bytes = atob(base64)
+  let h = 0x811c9dc5
+  for (let i = 0; i < bytes.length; i++) h = Math.imul(h ^ bytes.charCodeAt(i), 0x01000193)
+  return `${bytes.length}:${(h >>> 0).toString(16)}`
+}
+
+interface SpeechRemoteLike {
+  transcribe(request: { audioBase64: string }, signal?: AbortSignal): Promise<unknown>
+}
+
+interface HostRpcLike {
+  rpc: { call: (channel: string, endpoint: string, payload?: unknown) => Promise<{ ok: boolean; value?: { path?: string } }> }
+}
+
 interface LocaleLike {
   addLanguage(language: { id: string; label: string; fallback: string }): () => void
   register(namespace: string, locale: string, dictionary: Record<string, string>): () => void
@@ -164,7 +184,39 @@ export function apply(ctx: ClientContext): void {
     ctx.effect(() => locale.register(namespace, 'ru', dictionary), `customer-form: словарь ru/${namespace}`)
   }
 
-  // 3) Чаты заказчика — в workspace «Customer-requests»: создаём по имени
+  // 3) Подсказка терминов микрофону (speech-ru, ADR-0008): штатный голосовой
+  //    ввод шлёт на узел только запись, поэтому перед распознаванием говорим
+  //    узлу, из какого диалога она, — распознаватель возьмёт его термины.
+  const host = ctx.get('connection') as unknown as HostRpcLike
+  let activeSessionId: string | undefined
+  //    Метод namespace-службы remote.speech — геттер (шлюз dsh отдаёт функцию,
+  //    привязанную к контексту вызывающего плагина), поэтому переопределяем
+  //    геттер и зовём исходный с тем же this.
+  ctx.inject(['remote.speech'], (scoped) => {
+    const speech = scoped.get('remote.speech') as SpeechRemoteLike | undefined
+    const original = speech && Object.getOwnPropertyDescriptor(speech, 'transcribe')
+    if (!speech || !original?.get) {
+      console.warn('[customer-form] remote.speech.transcribe не найден — микрофон без терминов диалога')
+      return
+    }
+    const originalGet = original.get
+    Object.defineProperty(speech, 'transcribe', {
+      ...original,
+      get(this: SpeechRemoteLike) {
+        const call = originalGet.call(this) as SpeechRemoteLike['transcribe']
+        return async (request: { audioBase64: string }, signal?: AbortSignal) => {
+          if (activeSessionId) {
+            await host.rpc.call('/api', 'customer-form.voiceContext', { audioKey: audioKeyOfBase64(request.audioBase64), sessionId: activeSessionId })
+              .catch(() => undefined) // без подсказки распознавание всё равно идёт
+          }
+          return call(request, signal)
+        }
+      },
+    })
+    scoped.effect(() => () => { Object.defineProperty(speech, 'transcribe', original) }, 'customer-form: термины диалога для микрофона')
+  })
+
+  // 4) Чаты заказчика — в workspace «Customer-requests»: создаём по имени
   //    (идемпотентно, как workspaces.create({path}) у poh-bft-plugin) и
   //    открываем в нём новый чат.
   void (async () => {
@@ -175,9 +227,6 @@ export function apply(ctx: ClientContext): void {
       if (!workspaces || !uiWorkspace || !sessions) return
       // create({path}) идемпотентен по пути (поведение из poh-bft-plugin).
       // Абсолютный путь знает только узел (DSH_HOME) — спрашиваем эндпоинтом.
-      const host = ctx.get('connection') as unknown as {
-        rpc: { call: (channel: string, endpoint: string, payload?: unknown) => Promise<{ ok: boolean; value?: { path?: string } }> }
-      }
       const res = await host.rpc.call('/api', 'customer-form.workspacePath', {})
       const path = res.ok ? res.value?.path : undefined
       if (!path) throw new Error('узел не отдал путь workspace')
@@ -188,7 +237,8 @@ export function apply(ctx: ClientContext): void {
       // На чистом томе список workspace догоняет create не сразу — ждём.
       for (let attempt = 0; ; attempt++) {
         try {
-          uiWorkspace.openSession(await sessions.create({ workspaceId: workspace.workspaceId }))
+          activeSessionId = await sessions.create({ workspaceId: workspace.workspaceId })
+          uiWorkspace.openSession(activeSessionId)
           break
         } catch (e) {
           if (attempt >= 20) throw e

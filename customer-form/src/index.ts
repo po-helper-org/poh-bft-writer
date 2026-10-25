@@ -19,6 +19,7 @@ import { randomUUID } from 'node:crypto'
 import { mkdir, readFile } from 'node:fs/promises'
 import { Backlog, sharedBacklog, type Ticket } from './host.js'
 import { sharedMaterials, type Material, type Materials, type WebLike } from './materials.js'
+import { VoiceContext } from './voice.js'
 import type { AgentLike, BlockLike } from './tool.js'
 
 export const name = 'customer-form'
@@ -72,8 +73,9 @@ const URL_RE = /https?:\/\/[^\s<>"'«»)\]]+/g
 function collectMaterials(materials: Materials, attachments: AttachmentsLike, sessionId: string, message: UserMessageLike): Material[] {
   const found: Material[] = []
   for (const block of message.content) {
-    if (block.type !== 'file' || !block.attachment) continue
-    const path = attachments.fileHostPath(block.attachment)
+    // Фото документа и скриншоты — тоже материал: context-ingest читает их OCR.
+    if ((block.type !== 'file' && block.type !== 'image') || !block.attachment) continue
+    const path = block.type === 'image' ? attachments.imageHostPath(block.attachment) : attachments.fileHostPath(block.attachment)
     if (path) found.push(materials.addFile(sessionId, block.attachment.name ?? path.split('/').pop() ?? 'file', path))
   }
   const own = (process.env.TRACKER_PUBLIC_URL ?? 'http://127.0.0.1:3456').replace(/\/$/, '')
@@ -84,7 +86,7 @@ function collectMaterials(materials: Materials, attachments: AttachmentsLike, se
 }
 
 function materialsLine(found: Material[]): string {
-  return found.length ? `\n📎 Изучаю материалы: ${found.map((m) => m.name).join(', ')}. Голос расшифровываю, документы и ссылки читаю — это быстрее, чем пересказывать.` : ''
+  return found.length ? `\n📎 Изучаю материалы: ${found.map((m) => m.name).join(', ')}. Голос расшифровываю, документы, сканы и ссылки читаю — это быстрее, чем пересказывать.` : ''
 }
 
 export const CUSTOMER_PROMPT = `Ты — ассистент приёма инициатив «Система БФТ». С тобой говорит ЗАКАЗЧИК.
@@ -130,6 +132,14 @@ export function apply(ctx: HarnessContext): void {
 
   const backlog = sharedBacklog()
   const materials = sharedMaterials()
+  const voice = new VoiceContext(materials)
+
+  // Подсказка терминов микрофону (speech-ru, ADR-0008): тексты диалога записи.
+  ctx.inject(['speechHints'], (scoped: HarnessContext) => {
+    const hints = scoped.get('speechHints') as { register(source: (request: { audioKey: string }) => string[] | undefined): () => void }
+    console.log('[customer-form] термины диалога → распознавание речи (speech-ru) подключены')
+    scoped.effect(() => hints.register(({ audioKey }) => voice.texts(audioKey)), 'customer-form: термины диалога для распознавания речи')
+  })
 
   // Ссылки — штатным ctx.web dsh (только публичные адреса).
   ctx.inject(['web'], (scoped: HarnessContext) => {
@@ -163,6 +173,7 @@ export function apply(ctx: HarnessContext): void {
     scoped.effect(() => scoped.on('agent/inbox/claimed', (({ agent, message }: { agent: AgentLike; message: UserMessageLike }) => {
       if (message.source.kind !== 'user') return
       const sessionId = agent.session.id
+      voice.remember(agent)
       const found = collectMaterials(materials, attachments, sessionId, message)
       void (async () => {
         try {
@@ -208,6 +219,22 @@ export function apply(ctx: HarnessContext): void {
         return Response.json({ type: 'server-response', rpcId, result: { ok: true, value: { path: workspacePath } } })
       },
     }), 'customer-form: /api/customer-form.workspacePath')
+    // Клиент перед распознаванием: «запись с ключом K — из сессии S».
+    scoped.effect(() => register({
+      path: '/api/customer-form.voiceContext',
+      methods: ['POST'],
+      requestBody: 'buffered',
+      fetch: async (request: Request) => {
+        let rpcId = 'r'
+        try {
+          const body = (await request.json()) as { rpcId?: string; payload?: { audioKey?: unknown; sessionId?: unknown } }
+          rpcId = body.rpcId ?? rpcId
+          const { audioKey, sessionId } = body.payload ?? {}
+          if (typeof audioKey === 'string' && typeof sessionId === 'string' && audioKey.length < 64 && sessionId.length < 128) voice.announce(audioKey, sessionId)
+        } catch { /* битое тело: подсказки просто не будет */ }
+        return Response.json({ type: 'server-response', rpcId, result: { ok: true, value: {} } })
+      },
+    }), 'customer-form: /api/customer-form.voiceContext')
   })
 }
 

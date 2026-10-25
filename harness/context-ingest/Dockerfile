@@ -3,18 +3,21 @@
 #
 # Документы — Microsoft MarkItDown (PDF, DOCX, PPTX, XLSX, HTML, CSV, JSON…),
 # аудио (диктофон iPhone m4a и др.) — ffmpeg → Silero VAD → GigaAM v3 CTC
-# с пунктуацией (sherpa-onnx, CPU). Отдельный контейнер без ключей и без
+# с пунктуацией (sherpa-onnx, CPU), сканы и фото — Tesseract rus+eng
+# (ADR-0008). Отдельный контейнер без ключей и без
 # доступа к трекеру: недоверенные файлы разбираются здесь, а не в портале.
 FROM python:3.12-slim-bookworm
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ffmpeg curl bzip2 ca-certificates \
+      tesseract-ocr tesseract-ocr-rus tesseract-ocr-eng poppler-utils \
  && rm -rf /var/lib/apt/lists/*
 
 RUN pip install --no-cache-dir \
       "markitdown[pdf,docx,pptx,xlsx,xls]==0.1.8" \
       "sherpa-onnx==1.13.8" \
-      "numpy==2.5.3"
+      "numpy==2.5.3" \
+      "pillow-heif==1.8.1"
 
 ARG ASR_MODEL=sherpa-onnx-nemo-ctc-punct-giga-am-v3-russian-2025-12-16
 ARG ASR_RELEASE=https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models

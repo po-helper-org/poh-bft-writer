@@ -39,8 +39,12 @@ wait_portal
 # Пароль трекера — для проверки задачи в Vikunja (в вывод не попадает).
 TRACKER_PASSWORD="$(grep -E '^TRACKER_ADMIN_PASSWORD=' .env | cut -d= -f2- || true)"
 PW_VERSION="$(sed -n 's/.*"version": "\(.*\)".*/\1/p' ../customer-form/node_modules/@playwright/test/package.json)"
+status=0
 docker run --rm --network host --ipc host \
   -e TRACKER_PASSWORD="$TRACKER_PASSWORD" -e LLM_DOUBLE=1 -e CI=1 \
   -v "$PWD/../customer-form:/work" -w /work \
   "mcr.microsoft.com/playwright:v${PW_VERSION}-noble" \
-  npx playwright test "$@"
+  npx playwright test "$@" || status=$?
+# voice-terms.spec: что термины диалога дошли до распознавателя, видно только в логе узла.
+docker compose logs customer-web --since 10m 2>/dev/null | grep -o '\[speech-ru\] термины диалога: .*' | tail -1 | sed 's/^/▸ /' || true
+exit "$status"

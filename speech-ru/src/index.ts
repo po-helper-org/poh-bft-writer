@@ -11,11 +11,18 @@
  *  3. резерв — локальный GigaAM v3 (context-ingest POST /transcribe), если
  *     облако не ответило вовремя, вернуло ошибку или нет ключа.
  *
+ * К базовой подсказке добавляются термины диалога, из которого пришла запись:
+ * плагин даёт службу ctx.speechHints, через неё тот, кто ведёт диалоги
+ * (customer-form), по ключу записи отдаёт тексты диалога (hints.ts).
+ *
  * Резерв — внутри одного провайдера: реестр dsh сам ничего не переключает
  * («no fallback sends audio elsewhere»), а выбор маршрута — решение этого
  * плагина и его конфигурации (mode: local-only — запись не покидает контур).
  */
+import { audioKey, composePrompt, glossary, type HintSource, type SpeechHints } from './hints.js'
 import { level, SILENCE_PEAK } from './wave.js'
+
+export { audioKey, composePrompt, glossary, type HintSource, type SpeechHints } from './hints.js'
 
 export const name = 'speech-ru'
 export const inject = ['speechToText']
@@ -46,6 +53,7 @@ interface SpeechContext {
     }): () => Promise<void>
   }
   effect(fn: () => (() => unknown) | void, label?: string): void
+  provide(name: string, value: unknown): () => void
 }
 
 const DEFAULTS = {
@@ -67,13 +75,13 @@ export function resolveConfig(config: Config = {}): Resolved {
 }
 
 /** Requesty → gpt-4o-mini-transcribe, язык зафиксирован: ru. */
-export async function transcribeCloud(config: Resolved, apiKey: string, audio: Uint8Array, signal: AbortSignal): Promise<string> {
+export async function transcribeCloud(config: Resolved, apiKey: string, audio: Uint8Array, signal: AbortSignal, prompt = config.prompt): Promise<string> {
   const form = new FormData()
   form.set('file', new Blob([new Uint8Array(audio)], { type: 'audio/wav' }), 'speech.wav')
   form.set('model', config.model)
   form.set('language', 'ru')
   form.set('response_format', 'json')
-  if (config.prompt) form.set('prompt', config.prompt)
+  if (prompt) form.set('prompt', prompt)
   const res = await fetch(`${config.baseURL}/audio/transcriptions`, {
     method: 'POST', headers: { authorization: `Bearer ${apiKey}` }, body: form,
     signal: AbortSignal.any([signal, AbortSignal.timeout(config.cloudTimeoutMs)]),
@@ -93,8 +101,21 @@ export async function transcribeLocal(config: Resolved, audio: Uint8Array, signa
   return (reply.text ?? '').trim()
 }
 
-/** Вся цепочка: уровень → облако → резерв. Экспортирована для тестов. */
-export async function recognize(config: Resolved, audio: Uint8Array, signal: AbortSignal, log = (_: string) => {}): Promise<Transcript> {
+const HINT_WAIT_MS = 500
+
+/** Термины диалога этой записи: источники опрашиваются параллельно, не дольше полсекунды. */
+export async function dialogTerms(sources: Iterable<HintSource>, audio: Uint8Array): Promise<string[]> {
+  const key = audioKey(audio)
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const late = new Promise<undefined>((resolve) => { timer = setTimeout(() => resolve(undefined), HINT_WAIT_MS) })
+  const answers = await Promise.all([...sources].map((source) =>
+    Promise.race([Promise.resolve().then(() => source({ audioKey: key })).catch(() => undefined), late])))
+  clearTimeout(timer)
+  return glossary(answers.flatMap((texts) => texts ?? []))
+}
+
+/** Вся цепочка: уровень → термины → облако → резерв. Экспортирована для тестов. */
+export async function recognize(config: Resolved, audio: Uint8Array, signal: AbortSignal, log = (_: string) => {}, sources: Iterable<HintSource> = []): Promise<Transcript> {
   const started = performance.now()
   const sound = level(audio)
   const done = (text: string, route: string): Transcript => {
@@ -110,8 +131,10 @@ export async function recognize(config: Resolved, audio: Uint8Array, signal: Abo
   const apiKey = process.env[config.apiKeyEnv]
   let cloudError: Error | undefined
   if (config.mode === 'cloud-first' && apiKey) {
+    const terms = await dialogTerms(sources, audio)
+    if (terms.length) log(`термины диалога: ${terms.slice(0, 12).join(', ')}${terms.length > 12 ? '…' : ''}`)
     try {
-      const text = await transcribeCloud(config, apiKey, audio, signal)
+      const text = await transcribeCloud(config, apiKey, audio, signal, composePrompt(config.prompt, terms))
       if (text) return done(text, 'облако')
       cloudError = new Error('облако вернуло пустой текст')
     } catch (e) {
@@ -127,6 +150,14 @@ export async function recognize(config: Resolved, audio: Uint8Array, signal: Abo
 export function apply(ctx: SpeechContext, raw: Config = {}): void {
   const config = resolveConfig(raw)
   const cloud = config.mode === 'cloud-first' && !!process.env[config.apiKeyEnv]
+  const sources = new Set<HintSource>()
+  const hints: SpeechHints = {
+    register(source) {
+      sources.add(source)
+      return () => { sources.delete(source) }
+    },
+  }
+  ctx.effect(() => ctx.provide('speechHints', hints), 'speech-ru: ctx.speechHints')
   ctx.effect(() => ctx.speechToText.register({
     info: {
       id: config.providerId,
@@ -134,6 +165,6 @@ export function apply(ctx: SpeechContext, raw: Config = {}): void {
       location: cloud ? 'cloud' : 'host-local',
       languages: ['ru'],
     },
-    transcribe: (input, signal) => recognize(config, input.audio, signal, (line) => console.log(`[speech-ru] ${line}`)),
+    transcribe: (input, signal) => recognize(config, input.audio, signal, (line) => console.log(`[speech-ru] ${line}`), sources),
   }), 'speech-ru: распознавание русской речи')
 }

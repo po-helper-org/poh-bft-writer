@@ -3,7 +3,8 @@
  *
  * Разбор стартует в момент, когда портал принял сообщение, — параллельно с
  * первым ходом модели; инструмент read_customer_materials только дожидается
- * готового. Файлы разбирает сервис context-ingest (MarkItDown, GigaAM),
+ * готового. Файлы разбирает сервис context-ingest (MarkItDown, GigaAM,
+ * Tesseract для сканов и фото),
  * ссылки загружает штатный ctx.web.fetch dsh (только публичные адреса —
  * трекер и прочие внутренние сервисы ссылкой не достать) и тоже отдаёт в
  * context-ingest как HTML.
@@ -28,6 +29,8 @@ export interface Material {
   id: string
   name: string
   result: Promise<Ingested>
+  /** Готовый результат, когда разбор закончился (для подсказки терминов). */
+  settled?: Ingested
 }
 
 export interface WebLike {
@@ -36,7 +39,7 @@ export interface WebLike {
   }>
 }
 
-interface IngestReply { kind: 'audio' | 'document'; markdown: string; durationSec?: number; elapsedMs?: number; error?: string }
+interface IngestReply { kind: 'audio' | 'document'; markdown: string; durationSec?: number; elapsedMs?: number; error?: string; ocr?: boolean; pages?: number }
 
 const PER_SOURCE = 20_000
 const TOTAL = 60_000
@@ -69,7 +72,8 @@ export class Materials {
 
   private add(sessionId: string, name: string, job: () => Promise<Ingested>): Material {
     const bucket = this.bucket(sessionId)
-    const material = { id: `S${bucket.items.length + 1}`, name, result: job().catch((e: Error) => ({ ok: false, label: 'не разобран', markdown: '', error: e.message })) }
+    const material: Material = { id: `S${bucket.items.length + 1}`, name, result: job().catch((e: Error) => ({ ok: false, label: 'не разобран', markdown: '', error: e.message })) }
+    void material.result.then((r) => { material.settled = r })
     bucket.items.push(material)
     return material
   }
@@ -89,7 +93,9 @@ export class Materials {
       const reply = await this.ingest(name, await readFile(path))
       const label = reply.kind === 'audio'
         ? `голосовая запись ${clock(reply.durationSec ?? 0)} — расшифровка, метки [мм:сс]`
-        : 'документ'
+        : reply.ocr
+          ? `скан — текст распознан OCR${reply.pages ? `, ${reply.pages} стр.` : ''}; возможны ошибки в цифрах и именах`
+          : 'документ'
       return { ok: true, label, markdown: reply.markdown, elapsedMs: reply.elapsedMs }
     })
   }
@@ -105,6 +111,11 @@ export class Materials {
       const markdown = page.body.kind === 'html' ? (await this.ingest('page.html', page.body.content)).markdown : page.body.content
       return { ok: true, label: `страница${page.truncated ? ' (обрезана)' : ''}`, markdown }
     })
+  }
+
+  /** Тексты уже разобранных материалов сессии (без ожидания). */
+  texts(sessionId: string): string[] {
+    return (this.sessions.get(sessionId)?.items ?? []).flatMap((m) => m.settled?.ok ? [m.settled.markdown] : [])
   }
 
   has(sessionId: string): boolean {
