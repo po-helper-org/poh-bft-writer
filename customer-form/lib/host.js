@@ -16,6 +16,32 @@ export function cfgFromEnv(env) {
         ticketsFile: join(env.DSH_HOME ?? '/data', 'customer-form', 'tickets.json'),
     };
 }
+/** Текст в HTML описания/комментария Vikunja (редактор tiptap хранит HTML). */
+function esc(text) {
+    return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+function paragraphs(text) {
+    return text.split(/\n+/).filter(Boolean).map((line) => `<p>${esc(line)}</p>`).join('');
+}
+function items(tag, values, empty) {
+    return values.length ? `<${tag}>${values.map((v) => `<li>${v}</li>`).join('')}</${tag}>` : `<p>${empty}</p>`;
+}
+/** Описание задачи в согласованном формате первичной постановки БФТ. */
+export function intakeHtml(intake, taskId) {
+    return [
+        `<h1>Запрос инициативы #${taskId}</h1>`,
+        `<p><strong>Заказчик:</strong> ${esc(intake.customerName)} &lt;${esc(intake.customerEmail)}&gt;</p>`,
+        '<h2>Суть</h2>', paragraphs(intake.summary),
+        '<h2>ASIS — как работает сейчас</h2>', paragraphs(intake.asis),
+        '<h2>GAP — почему не устраивает</h2>', paragraphs(intake.gap),
+        '<h2>TOBE — как должно работать</h2>', paragraphs(intake.tobe),
+        '<h2>HowToDemo — сценарий приёмки</h2>', items('ol', intake.howToDemo.map(esc), '— уточнит PO —'),
+        '<h2>Глоссарий</h2>',
+        items('ul', intake.glossary.map((g) => `<strong>${esc(g.term)}</strong> — ${esc(g.expansion)}`), '— сокращений нет —'),
+        '<h2>Ссылки</h2>', items('ul', intake.links.map((l) => `<a href="${esc(l)}">${esc(l)}</a>`), '— нет —'),
+        '<h2>Открытые вопросы</h2>', items('ul', intake.openQuestions.map(esc), '— нет —'),
+    ].join('');
+}
 const EMAIL = /[\w.+-]+@[\w-]+(\.[\w-]+)+/;
 export class Backlog {
     cfg;
@@ -55,6 +81,49 @@ export class Backlog {
         job.catch(() => undefined).finally(() => this.pending.delete(sessionId));
         return job;
     }
+    /** Вложение заказчика → файл задачи (грабля Vikunja: multipart PUT, поле files). */
+    async attach(ticket, name, bytes) {
+        const headers = await this.vkHeaders();
+        const form = new FormData();
+        form.append('files', new Blob([new Uint8Array(bytes)]), name);
+        const res = await this.fetchImpl(`${this.cfg.trackerUrl}/tasks/${ticket.taskId}/attachments`, {
+            method: 'PUT', headers: { authorization: headers.authorization }, body: form,
+        });
+        if (!res.ok)
+            throw new Error(`трекер: вложение ${name} ${res.status}`);
+    }
+    /**
+     * Итог микродиалога: описание задачи — постановка в формате БФТ, комментарий —
+     * краткая сводка, вложение — файл полного контекста (HowToDemo п.10).
+     */
+    async finalize(ticket, intake, transcript) {
+        const headers = await this.vkHeaders();
+        const task = `${this.cfg.trackerUrl}/tasks/${ticket.taskId}`;
+        // POST в Vikunja перезаписывает задачу целиком: меняем два поля у текущей.
+        const current = (await (await this.fetchImpl(task, { headers })).json());
+        const res = await this.fetchImpl(task, {
+            method: 'POST', headers,
+            body: JSON.stringify({
+                ...current,
+                title: intake.summary.split('\n')[0].slice(0, 120),
+                description: intakeHtml(intake, ticket.taskId),
+            }),
+        });
+        if (!res.ok)
+            throw new Error(`трекер: обновление задачи ${res.status}`);
+        const summary = [
+            '<p><strong>Сводка ассистента портала</strong></p>',
+            items('ul', [
+                `Заказчик: ${esc(intake.customerName)} &lt;${esc(intake.customerEmail)}&gt;`,
+                `Суть: ${esc(intake.summary)}`,
+                `HowToDemo: шагов — ${intake.howToDemo.length}; глоссарий — ${intake.glossary.length}`,
+                `Открытых вопросов: ${intake.openQuestions.length}`,
+            ], ''),
+            '<p>Полный контекст диалога — во вложении.</p>',
+        ].join('');
+        await this.fetchImpl(`${task}/comments`, { method: 'PUT', headers, body: JSON.stringify({ comment: summary }) });
+        await this.attach(ticket, `context-${ticket.taskId}.md`, new TextEncoder().encode(transcript));
+    }
     async vkHeaders() {
         if (!this.vkToken) {
             const res = await this.fetchImpl(`${this.cfg.trackerUrl}/login`, {
@@ -83,10 +152,10 @@ export class Backlog {
         const body = text.trim();
         const email = EMAIL.exec(body)?.[0];
         const description = [
-            '# Запрос инициативы (портал заказчика)', '',
-            email ? `**Заказчик:** <${email}>` : '**Заказчик:** уточняется в диалоге', '',
-            body || '(текст будет добавлен в диалоге)',
-        ].join('\n');
+            '<h1>Запрос инициативы (портал заказчика)</h1>',
+            `<p><strong>Заказчик:</strong> ${email ? `&lt;${esc(email)}&gt;` : 'уточняется в диалоге'}</p>`,
+            body ? paragraphs(body) : '<p>(текст будет добавлен в диалоге)</p>',
+        ].join('');
         const pid = await this.projectId();
         const res = await this.fetchImpl(`${this.cfg.trackerUrl}/projects/${pid}/tasks`, {
             method: 'PUT',
@@ -109,4 +178,13 @@ export class Backlog {
         catch { /* лейбл — косметика */ }
         return { taskId, url: `${this.cfg.trackerPublicUrl}/tasks/${taskId}` };
     }
+}
+let shared;
+/**
+ * Один Backlog на процесс: им пользуются и узел customer-form (заявка по первому
+ * сообщению), и инструмент сдачи внутри пресета агента (customer-form/tool).
+ */
+export function sharedBacklog() {
+    shared ??= new Backlog(cfgFromEnv(process.env));
+    return shared;
 }

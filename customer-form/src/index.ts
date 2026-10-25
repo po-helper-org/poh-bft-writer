@@ -10,11 +10,15 @@
  * <1с): ссылка приходит в ленту инъекцией агенту — dsh рисует её без модели,
  * так что ссылка есть даже при недоступной LLM. /request — та же ссылка по
  * запросу (строку команды из узла dsh в ленте не рисует, только из клиента).
+ * Вложения любого сообщения уходят файлами в задачу; итог диалога модель
+ * сдаёт инструментом submit_customer_request (плагин customer-form/tool внутри
+ * пресета агента «customer», HowToDemo п.9–10).
  */
 
 import { randomUUID } from 'node:crypto'
-import { mkdir } from 'node:fs/promises'
-import { Backlog, cfgFromEnv, type Ticket } from './host.js'
+import { mkdir, readFile } from 'node:fs/promises'
+import { Backlog, sharedBacklog, type Ticket } from './host.js'
+import type { AgentLike, BlockLike } from './tool.js'
 
 export const name = 'customer-form'
 
@@ -30,13 +34,13 @@ interface HarnessContext {
 }
 
 interface UserMessageLike {
-  content: readonly { type: string; text?: string }[]
+  content: readonly BlockLike[]
   source: { kind: string }
 }
 
-interface AgentLike {
-  session: { id: string }
-  inject(message: UserMessageLike & { id: string; role: 'user' }): void
+interface AttachmentsLike {
+  fileHostPath(ref: unknown): string | undefined
+  imageHostPath(ref: unknown): string | undefined
 }
 
 interface CommandsLike {
@@ -73,7 +77,10 @@ export const CUSTOMER_PROMPT = `Ты — ассистент приёма ини�
 - Пиши коротко и по-человечески, без канцелярита. Один ответ — 1–3 предложения плюс максимум 2–3 вопроса.
 - Спрашивай только о пробелах: не переспрашивай сказанное, а фиксируй («Записала: …»).
 - Сокращение без расшифровки — уточни расшифровку.
+- Уточняющие вопросы задавай инструментом ask_user_question: 2–4 вопроса за раз, с вариантами ответа, где они уместны; расшифровку каждого непонятного сокращения — отдельным вопросом. Заказчик может ответить в форме или просто текстом — принимай оба.
+- Вложения заказчика портал сам сохраняет в задачу; содержимое файлов ты не читаешь — если файл важен, спроси, что в нём главное.
 - Когда всё собрано — одной репликой собери ИТОГ: пронумерованный список по семи пунктам и спроси подтверждение.
+- После подтверждения вызови submit_customer_request со всеми полями, затем одной фразой поблагодари и дай ссылку на отслеживание из результата инструмента.
 - Сообщение «📌 Заявка #N …» добавляет портал, а не заказчик: на него не отвечай, номер заявки упомяни в итоговой сводке.
 - Не обещай сроков и бюджета — это решает PO. Не уходи в технические детали реализации.`
 
@@ -90,9 +97,9 @@ export function apply(ctx: HarnessContext): void {
   // workspaces.create требует существующий каталог (realpath): создаём заранее.
   mkdir(workspacePath, { recursive: true }).catch(() => undefined)
 
-  const backlog = new Backlog(cfgFromEnv(process.env))
+  const backlog = sharedBacklog()
 
-  ctx.inject(['commands'], (scoped: HarnessContext) => {
+  ctx.inject(['commands', 'attachments'], (scoped: HarnessContext) => {
     const commands = scoped.get('commands') as CommandsLike
 
     // /request: номер и ссылка заявки этой сессии (идемпотентно). Ввод не пишем
@@ -111,29 +118,35 @@ export function apply(ctx: HarnessContext): void {
       },
     }), 'customer-form: /request')
 
-    // Первое сообщение заказчика → заявка → ссылка в ленте (и в контексте модели).
-    const started = new Set<string>()
+    // Первое сообщение заказчика → заявка → ссылка в ленте (и в контексте модели);
+    // вложения любого сообщения → файлы задачи.
+    const attachments = scoped.get('attachments') as AttachmentsLike
+    const linked = new Set<string>()
     scoped.effect(() => scoped.on('agent/inbox/claimed', (({ agent, message }: { agent: AgentLike; message: UserMessageLike }) => {
-      if (message.source.kind !== 'user' || started.has(agent.session.id)) return
-      started.add(agent.session.id)
+      if (message.source.kind !== 'user') return
+      const sessionId = agent.session.id
       void (async () => {
-        if (await backlog.find(agent.session.id)) return
         try {
-          const ticket = await backlog.ensure(agent.session.id, textOf(message))
-          // Пузырь инъекции dsh рисует сразу (даже пока модель недоступна) —
-          // это и есть ссылка заказчику; модель видит его как контекст.
-          agent.inject({
-            id: randomUUID(),
-            role: 'user',
-            source: { kind: 'user' },
-            content: [{ type: 'text', text: `📌 ${ticketText(ticket)}. Статус — по ссылке.` }],
-          })
+          const known = await backlog.find(sessionId)
+          const ticket = await backlog.ensure(sessionId, textOf(message))
+          if (!known && !linked.has(sessionId)) {
+            linked.add(sessionId)
+            // Пузырь инъекции dsh рисует сразу (даже пока модель недоступна) —
+            // это и есть ссылка заказчику; модель видит его как контекст.
+            agent.inject({
+              id: randomUUID(),
+              role: 'user',
+              source: { kind: 'user' },
+              content: [{ type: 'text', text: `📌 ${ticketText(ticket)}. Статус — по ссылке.` }],
+            })
+          }
+          await attachFiles(backlog, attachments, ticket, message)
         } catch (e) {
           // Диалог не прерываем: обращение остаётся в чате, /request повторит попытку.
           console.error('[customer-form] заявка не создана:', e)
         }
       })()
-    }) as (payload: never) => void), 'customer-form: заявка по первому сообщению')
+    }) as (payload: never) => void), 'customer-form: заявка и вложения')
   })
 
   ctx.inject(['systemPrompt'], (scoped: HarnessContext) => {
@@ -156,4 +169,18 @@ export function apply(ctx: HarnessContext): void {
       },
     }), 'customer-form: /api/customer-form.workspacePath')
   })
+}
+
+async function attachFiles(backlog: Backlog, attachments: AttachmentsLike, ticket: Ticket, message: UserMessageLike): Promise<void> {
+  for (const block of message.content) {
+    if (!block.attachment || (block.type !== 'file' && block.type !== 'image')) continue
+    const path = block.type === 'file' ? attachments.fileHostPath(block.attachment) : attachments.imageHostPath(block.attachment)
+    if (!path) continue
+    const name = block.attachment.name ?? path.split('/').pop() ?? 'file'
+    try {
+      await backlog.attach(ticket, name, await readFile(path))
+    } catch (e) {
+      console.error(`[customer-form] вложение ${name} не ушло в задачу:`, e)
+    }
+  }
 }

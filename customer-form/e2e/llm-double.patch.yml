@@ -1,0 +1,19 @@
+# Оверлей E2E: модель-двойник (llm-double.mjs) вместо zai. Кладёт и убирает harness/e2e-customer.sh.
+- id: llm-pi-ai
+  config:
+    providers:
+      zai:
+        apiKeyEnv: ZAI_API_KEY
+      e2e:
+        displayName: E2E Double
+        api: openai-completions
+        baseURL: http://host.docker.internal:8799/v1
+        apiKeyEnv: ZAI_API_KEY   # двойнику ключ не нужен, но маршрут требует непустой
+        models:
+          - id: double
+            name: E2E Double
+            contextWindow: 128000
+- id: agent-default-model
+  config:
+    provider: e2e
+    model: double

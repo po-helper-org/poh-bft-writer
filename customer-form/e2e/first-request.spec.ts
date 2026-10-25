@@ -3,7 +3,8 @@
  *
  * Портал заказчика = главная страница dsh без сайдбара (ADR-0007 rev4/5).
  * Проверяем путь заказчика целиком: вход без кода и без «Internal Testing
- * Notice», композер в workspace «Customer-requests» с моделью zai по умолчанию,
+ * Notice», русская инструкция «Введите свои мысли», композер в workspace
+ * «Customer-requests» с рабочей моделью по умолчанию,
  * отправка → ссылка на задачу в ленте < 1 с → задача есть в Vikunja.
  * Ответ модели не проверяем: он зависит от квоты ключа, а заявка — нет.
  * Селекторы — классы харнесса 0.1.7-rc.2 (как в poh-mobile-skin).
@@ -27,9 +28,11 @@ test('открыл портал → обращение → ссылка на з�
   const composer = page.locator("[data-composer-input][contenteditable='true']").first()
   await expect(composer, 'композер dsh').toBeVisible({ timeout: 30_000 })
   await expect(page.getByRole('button', { name: 'Continue' }), 'нет Internal Testing Notice').toHaveCount(0)
-  await expect(page.getByRole('button', { name: 'Choose workspace' }), 'workspace заказчика')
+  await expect(page.getByText('Введите свои мысли'), 'инструкция по-русски').toBeVisible()
+  await expect(page.getByRole('button', { name: 'Раздел заявок' }), 'workspace заказчика')
     .toContainText('Customer-requests', { timeout: 15_000 })
-  await expect(page.getByRole('button', { name: /Select model, current GLM/ }), 'модель zai по умолчанию').toBeVisible()
+  // Интерфейса кодера нет: выбор модели, пресета и режима доступа выключены.
+  await expect(page.getByRole('button', { name: /Select model/ })).toHaveCount(0)
   const width = (await composer.boundingBox())?.width ?? 0
   expect(width, 'композер не схлопнут скрытым сайдбаром').toBeGreaterThan(300)
 
@@ -38,7 +41,8 @@ test('открыл портал → обращение → ссылка на з�
     'Заказчик — E2E Тестов, e2e@test.local'
   await composer.click()
   await page.keyboard.type(text)
-  await expect(page.getByRole('button', { name: 'Send message' })).toBeEnabled()
+  // «Отправить» активна — у модели по умолчанию есть ключ (с DeepSeek без ключа была бы выключена).
+  await expect(page.getByRole('button', { name: 'Отправить' })).toBeEnabled()
   const sentAt = Date.now()
   await page.keyboard.press('Enter')
 

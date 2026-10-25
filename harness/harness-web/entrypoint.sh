@@ -54,7 +54,16 @@ fi
 # и PO, и заказчик открывают ссылку без токена. Наружу — socat-конверт.
 socat TCP-LISTEN:"${DSH_PORT}",fork,reuseaddr,bind=0.0.0.0 TCP:127.0.0.1:"${DSH_LOOP_PORT}" &
 
-exec "${PROFILE_DST}/node_modules/.bin/dsh" web \
+# Оверлей оператора: ${DSH_HOME}/override.patch.yml (смена провайдера/модели
+# без пересборки; E2E подкладывает сюда модель-двойника).
+# `dsh web` = `dsh --profile web`; оверлей принимает только вторая форма.
+set -- web
+if [ -f "${DSH_HOME}/override.patch.yml" ]; then
+  echo "[entrypoint] оверлей ${DSH_HOME}/override.patch.yml" >&2
+  set -- --profile web --patch "${DSH_HOME}/override.patch.yml"
+fi
+
+exec "${PROFILE_DST}/node_modules/.bin/dsh" "$@" \
   --no-open \
   --host 127.0.0.1 \
   --port "${DSH_LOOP_PORT}" \
