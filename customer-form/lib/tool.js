@@ -35,6 +35,7 @@ function submitTool(backlog) {
         name: 'submit_customer_request',
         description: 'Сдать подтверждённую заказчиком постановку в заявку беклога: описание, сводку и полный контекст. Вызывай один раз, после подтверждения ИТОГА.',
         parameters: {
+            title: text('Короткое название заявки для доски, до 8 слов'),
             customerName: text('ФИО заказчика'),
             customerEmail: text('Email заказчика'),
             summary: text('Суть инициативы, 1–2 предложения'),
@@ -46,7 +47,7 @@ function submitTool(backlog) {
                 type: 'array', required: true, description: 'Расшифровки сокращений',
                 items: { type: 'object', additionalProperties: false, properties: { term: text('Сокращение'), expansion: text('Расшифровка') } },
             },
-            links: strings('Ссылки на материалы (JIRA, Confluence, внешние)'),
+            links: strings('Ссылки на материалы, которые дал заказчик (JIRA, Confluence, внешние); ссылку на саму заявку не добавляй'),
             openQuestions: strings('Что осталось невыясненным — для PO'),
         },
         output: {

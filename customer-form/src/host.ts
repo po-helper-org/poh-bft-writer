@@ -33,6 +33,7 @@ export interface Ticket {
 
 /** Постановка, собранная микродиалогом (задание владельца: 7 пунктов). */
 export interface Intake {
+  title: string
   customerName: string
   customerEmail: string
   summary: string
@@ -139,7 +140,7 @@ export class Backlog {
       method: 'POST', headers,
       body: JSON.stringify({
         ...current,
-        title: intake.summary.split('\n')[0].slice(0, 120),
+        title: (intake.title || intake.summary).split('\n')[0].slice(0, 120),
         description: intakeHtml(intake, ticket.taskId),
       }),
     })

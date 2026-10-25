@@ -12,6 +12,7 @@ export interface Ticket {
 }
 /** Постановка, собранная микродиалогом (задание владельца: 7 пунктов). */
 export interface Intake {
+    title: string;
     customerName: string;
     customerEmail: string;
     summary: string;

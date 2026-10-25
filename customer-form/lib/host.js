@@ -105,7 +105,7 @@ export class Backlog {
             method: 'POST', headers,
             body: JSON.stringify({
                 ...current,
-                title: intake.summary.split('\n')[0].slice(0, 120),
+                title: (intake.title || intake.summary).split('\n')[0].slice(0, 120),
                 description: intakeHtml(intake, ticket.taskId),
             }),
         });

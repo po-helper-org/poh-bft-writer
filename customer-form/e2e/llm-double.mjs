@@ -23,6 +23,7 @@ const QUESTIONS = {
 }
 
 const INTAKE = {
+  title: 'Утренняя выгрузка отчётов в CSV',
   customerName: 'E2E Тестов', customerEmail: 'e2e@test.local',
   summary: 'Автоматическая утренняя выгрузка отчётов продаж в CSV',
   asis: 'Сотрудник вручную собирает отчёт в Excel около двух часов',
