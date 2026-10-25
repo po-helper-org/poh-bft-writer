@@ -16,6 +16,10 @@ export function cfgFromEnv(env) {
         ticketsFile: join(env.DSH_HOME ?? '/data', 'customer-form', 'tickets.json'),
     };
 }
+/** Дата для людей: заказчик и PO — в Москве. */
+function when(iso) {
+    return new Date(iso).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow', dateStyle: 'short', timeStyle: 'short' });
+}
 /** Текст в HTML описания/комментария Vikunja (редактор tiptap хранит HTML). */
 function esc(text) {
     return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -27,7 +31,7 @@ function items(tag, values, empty) {
     return values.length ? `<${tag}>${values.map((v) => `<li>${v}</li>`).join('')}</${tag}>` : `<p>${empty}</p>`;
 }
 /** Описание задачи в согласованном формате первичной постановки БФТ. */
-export function intakeHtml(intake, taskId) {
+export function intakeHtml(intake, taskId, demoApprovedAt) {
     return [
         `<h1>Запрос инициативы #${taskId}</h1>`,
         `<p><strong>Заказчик:</strong> ${esc(intake.customerName)} &lt;${esc(intake.customerEmail)}&gt;</p>`,
@@ -35,7 +39,7 @@ export function intakeHtml(intake, taskId) {
         '<h2>ASIS — как работает сейчас</h2>', paragraphs(intake.asis),
         '<h2>GAP — почему не устраивает</h2>', paragraphs(intake.gap),
         '<h2>TOBE — как должно работать</h2>', paragraphs(intake.tobe),
-        '<h2>HowToDemo — сценарий приёмки</h2>', items('ol', intake.howToDemo.map(esc), '— уточнит PO —'),
+        `<h2>HowToDemo — сценарий приёмки${demoApprovedAt ? ` (согласован заказчиком ${when(demoApprovedAt)})` : ''}</h2>`, items('ol', intake.howToDemo.map(esc), '— уточнит PO —'),
         '<h2>Глоссарий</h2>',
         items('ul', intake.glossary.map((g) => `<strong>${esc(g.term)}</strong> — ${esc(g.expansion)}`), '— сокращений нет —'),
         '<h2>Ссылки</h2>', items('ul', intake.links.map((l) => `<a href="${esc(l)}">${esc(l)}</a>`), '— нет —'),
@@ -71,15 +75,39 @@ export class Backlog {
             if (known)
                 return known;
             const ticket = await this.submit(text);
-            const all = await this.tickets;
-            all[sessionId] = ticket;
-            await mkdir(dirname(this.cfg.ticketsFile), { recursive: true });
-            await writeFile(this.cfg.ticketsFile, JSON.stringify(all, undefined, 1), 'utf8');
+            await this.save(sessionId, ticket);
             return ticket;
         })();
         this.pending.set(sessionId, job);
         job.catch(() => undefined).finally(() => this.pending.delete(sessionId));
         return job;
+    }
+    async save(sessionId, ticket) {
+        const all = await this.tickets;
+        all[sessionId] = ticket;
+        await mkdir(dirname(this.cfg.ticketsFile), { recursive: true });
+        await writeFile(this.cfg.ticketsFile, JSON.stringify(all, undefined, 1), 'utf8');
+    }
+    /**
+     * Заказчик сам согласовал сценарий приёмки: отметка в заявке (переживает
+     * рестарт), комментарий с шагами и раскадровка файлом — PO видит, на что
+     * именно заказчик сказал «да».
+     */
+    async approveDemo(sessionId, ticket, steps, done, storyboard) {
+        const approved = { ...ticket, demoApprovedAt: new Date().toISOString() };
+        await this.save(sessionId, approved);
+        const comment = [
+            `<p><strong>✅ Заказчик согласовал сценарий приёмки</strong> — ${esc(when(approved.demoApprovedAt))}</p>`,
+            items('ol', steps.map(esc), ''),
+            `<p><strong>Работа принята, если:</strong> ${esc(done)}</p>`,
+            '<p>Раскадровка по экранам — во вложении.</p>',
+        ].join('');
+        const headers = await this.vkHeaders();
+        await this.fetchImpl(`${this.cfg.trackerUrl}/tasks/${ticket.taskId}/comments`, {
+            method: 'PUT', headers, body: JSON.stringify({ comment }),
+        });
+        await this.attach(ticket, `howtodemo-${ticket.taskId}.md`, new TextEncoder().encode(storyboard));
+        return approved;
     }
     /** Вложение заказчика → файл задачи (грабля Vikunja: multipart PUT, поле files). */
     async attach(ticket, name, bytes) {
@@ -106,7 +134,7 @@ export class Backlog {
             body: JSON.stringify({
                 ...current,
                 title: (intake.title || intake.summary).split('\n')[0].slice(0, 120),
-                description: intakeHtml(intake, ticket.taskId),
+                description: intakeHtml(intake, ticket.taskId, ticket.demoApprovedAt),
             }),
         });
         if (!res.ok)
@@ -116,7 +144,7 @@ export class Backlog {
             items('ul', [
                 `Заказчик: ${esc(intake.customerName)} &lt;${esc(intake.customerEmail)}&gt;`,
                 `Суть: ${esc(intake.summary)}`,
-                `HowToDemo: шагов — ${intake.howToDemo.length}; глоссарий — ${intake.glossary.length}`,
+                `HowToDemo: шагов — ${intake.howToDemo.length}${ticket.demoApprovedAt ? ', согласован заказчиком' : ', НЕ согласован'}; глоссарий — ${intake.glossary.length}`,
                 `Открытых вопросов: ${intake.openQuestions.length}`,
             ], ''),
             '<p>Полный контекст диалога — во вложении.</p>',

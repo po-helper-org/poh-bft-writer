@@ -1,6 +1,7 @@
 /**
  * E2E · HowToDemo заказчика п.3–10 — обращение с вложением → вопросы формой →
- * ИТОГ → подтверждение → постановка, сводка и контекст в задаче Vikunja.
+ * раскадровка сценария приёмки → «Согласую» → ИТОГ → подтверждение →
+ * постановка, сводка, согласование и контекст в задаче Vikunja.
  *
  * Модель — двойник (e2e/llm-double.mjs, его подключает harness/e2e-customer.sh):
  * сценарий детерминирован и не зависит от квоты ключа. Проверяется всё, что
@@ -12,7 +13,7 @@ const CUSTOMER_URL = process.env.CUSTOMER_URL ?? 'http://127.0.0.1:3080'
 const TRACKER_API = process.env.TRACKER_API ?? 'http://127.0.0.1:3456/api/v1'
 const UNIQUE = Date.now().toString(36)
 
-test('микродиалог: вложение → вопросы → подтверждение → постановка в задаче', async ({ page, request }) => {
+test('микродиалог: вложение → вопросы → согласование приёмки → постановка в задаче', async ({ page, request }) => {
   test.skip(process.env.LLM_DOUBLE !== '1', 'нужна модель-двойник: запускайте через harness/e2e-customer.sh')
   test.setTimeout(120_000)
 
@@ -40,6 +41,13 @@ test('микродиалог: вложение → вопросы → подтв
   await page.getByRole('radio', { name: 'В почте утром' }).click()
   await page.getByRole('button', { name: 'Отправить' }).last().click()
 
+  // HowToDemo: «как я буду принимать работу» — карточка согласования dsh
+  // (intent plan-review) и раскадровка по экранам в правой панели.
+  await expect(page.getByText('Как я буду принимать работу'), 'карточка согласования').toBeVisible({ timeout: 30_000 })
+  await expect(page.getByText(/ЭКРАН 1 · Почта Outlook/).first(), 'раскадровка в панели').toBeVisible({ timeout: 10_000 })
+  await page.screenshot({ path: 'test-results/acceptance-demo.png' })
+  await page.getByRole('button', { name: 'Согласую' }).click()
+
   // ИТОГ → подтверждение текстом → сдача заявки → финальная ссылка (п.9–10).
   await expect(page.getByText(/ИТОГ по заявке/)).toBeVisible({ timeout: 30_000 })
   await composer.click()
@@ -56,12 +64,15 @@ test('микродиалог: вложение → вопросы → подтв
   const task = (await (await request.get(`${TRACKER_API}/tasks/${taskId}`, { headers: auth })).json()) as {
     description: string; attachments: { file: { name: string } }[] | null
   }
-  for (const section of ['ASIS', 'GAP', 'TOBE', 'HowToDemo', 'Глоссарий', 'e2e@test.local']) {
+  for (const section of ['ASIS', 'GAP', 'TOBE', 'HowToDemo', 'согласован заказчиком', 'Глоссарий', 'e2e@test.local']) {
     expect(task.description, `раздел «${section}» в постановке`).toContain(section)
   }
   const files = (task.attachments ?? []).map((a) => a.file.name)
   expect(files, 'вложение заказчика в задаче').toContain(`interview-${UNIQUE}.txt`)
   expect(files, 'файл полного контекста').toContain(`context-${taskId}.md`)
+  expect(files, 'раскадровка сценария приёмки').toContain(`howtodemo-${taskId}.md`)
   const comments = (await (await request.get(`${TRACKER_API}/tasks/${taskId}/comments`, { headers: auth })).json()) as { comment: string }[]
-  expect(comments.map((c) => c.comment).join(' '), 'сводка в комментарии').toContain('Сводка ассистента портала')
+  const thread = comments.map((c) => c.comment).join(' ')
+  expect(thread, 'сводка в комментарии').toContain('Сводка ассистента портала')
+  expect(thread, 'согласование заказчика в комментарии').toContain('Заказчик согласовал сценарий приёмки')
 })

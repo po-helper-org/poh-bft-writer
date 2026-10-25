@@ -9,6 +9,8 @@ export declare function cfgFromEnv(env: NodeJS.ProcessEnv): Cfg;
 export interface Ticket {
     taskId: number;
     url: string;
+    /** Когда заказчик нажал «Согласую» на сценарии приёмки (ISO). */
+    demoApprovedAt?: string;
 }
 /** Постановка, собранная микродиалогом (задание владельца: 7 пунктов). */
 export interface Intake {
@@ -28,7 +30,7 @@ export interface Intake {
     openQuestions: string[];
 }
 /** Описание задачи в согласованном формате первичной постановки БФТ. */
-export declare function intakeHtml(intake: Intake, taskId: number): string;
+export declare function intakeHtml(intake: Intake, taskId: number, demoApprovedAt?: string): string;
 type FetchLike = (url: string, init: RequestInit) => Promise<Response>;
 export declare class Backlog {
     private readonly cfg;
@@ -42,6 +44,13 @@ export declare class Backlog {
     find(sessionId: string): Promise<Ticket | undefined>;
     /** Заявка сессии: существующая или новая из текста первого обращения. */
     ensure(sessionId: string, text: string): Promise<Ticket>;
+    private save;
+    /**
+     * Заказчик сам согласовал сценарий приёмки: отметка в заявке (переживает
+     * рестарт), комментарий с шагами и раскадровка файлом — PO видит, на что
+     * именно заказчик сказал «да».
+     */
+    approveDemo(sessionId: string, ticket: Ticket, steps: string[], done: string, storyboard: string): Promise<Ticket>;
     /** Вложение заказчика → файл задачи (грабля Vikunja: multipart PUT, поле files). */
     attach(ticket: Ticket, name: string, bytes: Uint8Array): Promise<void>;
     /**

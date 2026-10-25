@@ -62,7 +62,27 @@ window.__ModuleLoader__.load({
 			"option.recommended": "Рекомендуем",
 			"custom.placeholder": "Свой ответ",
 			"action.skip": "Пропустить",
-			"action.next": "Дальше"
+			"action.next": "Дальше",
+			"plan.header": "Как я буду принимать работу",
+			"plan.approve": "Согласую",
+			"plan.discuss": "Нужны правки",
+			"plan.decline": "Отклонить"
+		};
+		/** Раскадровка сценария приёмки в правой панели (ui-plan открывает её сам). */
+		const RU_PLAN = {
+			"preview.title": "Сценарий приёмки",
+			"preview.document": "Сценарий приёмки · раскадровка",
+			"preview.action": "Открыть",
+			"preview.open": "Открыть сценарий в панели",
+			"preview.full": "Раскадровка",
+			"preview.openNamed": "Открыть: {title}",
+			"preview.loading": "Загружаем сценарий…",
+			"preview.failed": "Не удалось открыть сценарий",
+			"preview.invalidAddress": "Неверный адрес сценария",
+			"preview.historyUnavailable": "История диалога недоступна",
+			"preview.notFound": "Сценарий не найден",
+			"preview.unavailable": "Раскадровка недоступна",
+			"preview.expired": "Раскадровка устарела. Откройте её снова из карточки согласования."
 		};
 		/** Статусы хода в ленте, которые видит заказчик. */
 		const RU_CHAT = {
@@ -94,6 +114,7 @@ window.__ModuleLoader__.load({
 			const dictionaries = {
 				conversation: RU_CONVERSATION,
 				question: RU_QUESTION,
+				plan: RU_PLAN,
 				chat: RU_CHAT,
 				common: RU_COMMON
 			};

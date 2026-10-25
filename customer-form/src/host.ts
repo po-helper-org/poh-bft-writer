@@ -29,6 +29,13 @@ export function cfgFromEnv(env: NodeJS.ProcessEnv): Cfg {
 export interface Ticket {
   taskId: number
   url: string
+  /** Когда заказчик нажал «Согласую» на сценарии приёмки (ISO). */
+  demoApprovedAt?: string
+}
+
+/** Дата для людей: заказчик и PO — в Москве. */
+function when(iso: string): string {
+  return new Date(iso).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow', dateStyle: 'short', timeStyle: 'short' })
 }
 
 /** Постановка, собранная микродиалогом (задание владельца: 7 пунктов). */
@@ -60,7 +67,7 @@ function items(tag: 'ul' | 'ol', values: string[], empty: string): string {
 }
 
 /** Описание задачи в согласованном формате первичной постановки БФТ. */
-export function intakeHtml(intake: Intake, taskId: number): string {
+export function intakeHtml(intake: Intake, taskId: number, demoApprovedAt?: string): string {
   return [
     `<h1>Запрос инициативы #${taskId}</h1>`,
     `<p><strong>Заказчик:</strong> ${esc(intake.customerName)} &lt;${esc(intake.customerEmail)}&gt;</p>`,
@@ -68,7 +75,7 @@ export function intakeHtml(intake: Intake, taskId: number): string {
     '<h2>ASIS — как работает сейчас</h2>', paragraphs(intake.asis),
     '<h2>GAP — почему не устраивает</h2>', paragraphs(intake.gap),
     '<h2>TOBE — как должно работать</h2>', paragraphs(intake.tobe),
-    '<h2>HowToDemo — сценарий приёмки</h2>', items('ol', intake.howToDemo.map(esc), '— уточнит PO —'),
+    `<h2>HowToDemo — сценарий приёмки${demoApprovedAt ? ` (согласован заказчиком ${when(demoApprovedAt)})` : ''}</h2>`, items('ol', intake.howToDemo.map(esc), '— уточнит PO —'),
     '<h2>Глоссарий</h2>',
     items('ul', intake.glossary.map((g) => `<strong>${esc(g.term)}</strong> — ${esc(g.expansion)}`), '— сокращений нет —'),
     '<h2>Ссылки</h2>', items('ul', intake.links.map((l) => `<a href="${esc(l)}">${esc(l)}</a>`), '— нет —'),
@@ -105,15 +112,41 @@ export class Backlog {
       const known = await this.find(sessionId)
       if (known) return known
       const ticket = await this.submit(text)
-      const all = await this.tickets
-      all[sessionId] = ticket
-      await mkdir(dirname(this.cfg.ticketsFile), { recursive: true })
-      await writeFile(this.cfg.ticketsFile, JSON.stringify(all, undefined, 1), 'utf8')
+      await this.save(sessionId, ticket)
       return ticket
     })()
     this.pending.set(sessionId, job)
     job.catch(() => undefined).finally(() => this.pending.delete(sessionId))
     return job
+  }
+
+  private async save(sessionId: string, ticket: Ticket): Promise<void> {
+    const all = await this.tickets
+    all[sessionId] = ticket
+    await mkdir(dirname(this.cfg.ticketsFile), { recursive: true })
+    await writeFile(this.cfg.ticketsFile, JSON.stringify(all, undefined, 1), 'utf8')
+  }
+
+  /**
+   * Заказчик сам согласовал сценарий приёмки: отметка в заявке (переживает
+   * рестарт), комментарий с шагами и раскадровка файлом — PO видит, на что
+   * именно заказчик сказал «да».
+   */
+  async approveDemo(sessionId: string, ticket: Ticket, steps: string[], done: string, storyboard: string): Promise<Ticket> {
+    const approved = { ...ticket, demoApprovedAt: new Date().toISOString() }
+    await this.save(sessionId, approved)
+    const comment = [
+      `<p><strong>✅ Заказчик согласовал сценарий приёмки</strong> — ${esc(when(approved.demoApprovedAt))}</p>`,
+      items('ol', steps.map(esc), ''),
+      `<p><strong>Работа принята, если:</strong> ${esc(done)}</p>`,
+      '<p>Раскадровка по экранам — во вложении.</p>',
+    ].join('')
+    const headers = await this.vkHeaders()
+    await this.fetchImpl(`${this.cfg.trackerUrl}/tasks/${ticket.taskId}/comments`, {
+      method: 'PUT', headers, body: JSON.stringify({ comment }),
+    })
+    await this.attach(ticket, `howtodemo-${ticket.taskId}.md`, new TextEncoder().encode(storyboard))
+    return approved
   }
 
   /** Вложение заказчика → файл задачи (грабля Vikunja: multipart PUT, поле files). */
@@ -141,7 +174,7 @@ export class Backlog {
       body: JSON.stringify({
         ...current,
         title: (intake.title || intake.summary).split('\n')[0].slice(0, 120),
-        description: intakeHtml(intake, ticket.taskId),
+        description: intakeHtml(intake, ticket.taskId, ticket.demoApprovedAt),
       }),
     })
     if (!res.ok) throw new Error(`трекер: обновление задачи ${res.status}`)
@@ -150,7 +183,7 @@ export class Backlog {
       items('ul', [
         `Заказчик: ${esc(intake.customerName)} &lt;${esc(intake.customerEmail)}&gt;`,
         `Суть: ${esc(intake.summary)}`,
-        `HowToDemo: шагов — ${intake.howToDemo.length}; глоссарий — ${intake.glossary.length}`,
+        `HowToDemo: шагов — ${intake.howToDemo.length}${ticket.demoApprovedAt ? ', согласован заказчиком' : ', НЕ согласован'}; глоссарий — ${intake.glossary.length}`,
         `Открытых вопросов: ${intake.openQuestions.length}`,
       ], ''),
       '<p>Полный контекст диалога — во вложении.</p>',

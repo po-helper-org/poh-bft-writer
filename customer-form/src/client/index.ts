@@ -67,6 +67,28 @@ const RU_QUESTION: Record<string, string> = {
   'custom.placeholder': 'Свой ответ',
   'action.skip': 'Пропустить',
   'action.next': 'Дальше',
+  // Карточка согласования сценария приёмки (confirm_acceptance_demo, intent plan-review).
+  'plan.header': 'Как я буду принимать работу',
+  'plan.approve': 'Согласую',
+  'plan.discuss': 'Нужны правки',
+  'plan.decline': 'Отклонить',
+}
+
+/** Раскадровка сценария приёмки в правой панели (ui-plan открывает её сам). */
+const RU_PLAN: Record<string, string> = {
+  'preview.title': 'Сценарий приёмки',
+  'preview.document': 'Сценарий приёмки · раскадровка',
+  'preview.action': 'Открыть',
+  'preview.open': 'Открыть сценарий в панели',
+  'preview.full': 'Раскадровка',
+  'preview.openNamed': 'Открыть: {title}',
+  'preview.loading': 'Загружаем сценарий…',
+  'preview.failed': 'Не удалось открыть сценарий',
+  'preview.invalidAddress': 'Неверный адрес сценария',
+  'preview.historyUnavailable': 'История диалога недоступна',
+  'preview.notFound': 'Сценарий не найден',
+  'preview.unavailable': 'Раскадровка недоступна',
+  'preview.expired': 'Раскадровка устарела. Откройте её снова из карточки согласования.',
 }
 
 /** Статусы хода в ленте, которые видит заказчик. */
@@ -102,7 +124,7 @@ export function apply(ctx: ClientContext): void {
   // 2) Русский язык интерфейса (штатный языковой пакет dsh).
   const locale = ctx.get('locale') as LocaleLike
   ctx.effect(() => locale.addLanguage({ id: 'ru', label: 'Русский', fallback: 'en' }), 'customer-form: язык ru')
-  const dictionaries = { conversation: RU_CONVERSATION, question: RU_QUESTION, chat: RU_CHAT, common: RU_COMMON }
+  const dictionaries = { conversation: RU_CONVERSATION, question: RU_QUESTION, plan: RU_PLAN, chat: RU_CHAT, common: RU_COMMON }
   for (const [namespace, dictionary] of Object.entries(dictionaries)) {
     ctx.effect(() => locale.register(namespace, 'ru', dictionary), `customer-form: словарь ru/${namespace}`)
   }

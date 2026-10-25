@@ -127,8 +127,6 @@
   disabled: true
 - id: ui-goal
   disabled: true
-- id: ui-plan
-  disabled: true
 - id: ui-agent-preset
   disabled: true
 - id: ui-permission

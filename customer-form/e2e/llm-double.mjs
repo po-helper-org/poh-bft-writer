@@ -1,7 +1,8 @@
 /**
  * Модель-ДВОЙНИК для E2E микродиалога портала (не ИИ): OpenAI-совместимый
  * /v1/chat/completions со стримингом и tool-calls, проигрывающий сценарий
- * «вопросы формой → ИТОГ → подтверждение → submit_customer_request → ссылка».
+ * «вопросы формой → раскадровка на согласование → ИТОГ → подтверждение →
+ * submit_customer_request → ссылка».
  * Нужен, чтобы путь заказчика проверялся без внешнего ключа и квоты.
  *
  *   node e2e/llm-double.mjs            # порт LLM_DOUBLE_PORT (8799)
@@ -22,6 +23,17 @@ const QUESTIONS = {
   ],
 }
 
+const DEMO = {
+  title: 'утренний CSV с отчётом продаж',
+  where: 'почта и BI',
+  steps: [
+    { screen: 'Почта Outlook', action: 'В 9:00 открываю входящие', expect: 'Письмо «Отчёт продаж» с вложением report.csv' },
+    { screen: 'Файл report.csv', action: 'Открываю вложение в Excel', expect: 'Строки по всем регионам за вчера' },
+    { screen: 'Отчёт в BI', action: 'Сверяю итог продаж', expect: 'Сумма совпадает с BI до рубля' },
+  ],
+  done: 'письмо пришло к 9:00 три рабочих дня подряд и итоги совпали с BI',
+}
+
 const INTAKE = {
   title: 'Утренняя выгрузка отчётов в CSV',
   customerName: 'E2E Тестов', customerEmail: 'e2e@test.local',
@@ -29,7 +41,7 @@ const INTAKE = {
   asis: 'Сотрудник вручную собирает отчёт в Excel около двух часов',
   gap: 'Долго и с ошибками, отчёт опаздывает к планёрке',
   tobe: 'Система сама формирует CSV к 9:00 и присылает его',
-  howToDemo: ['Открыть почту в 9:00', 'Найти письмо с CSV', 'Сверить итоги с BI'],
+  howToDemo: DEMO.steps.map((s) => `${s.screen}: ${s.action} → ${s.expect}`),
   glossary: [{ term: 'BI', expansion: 'система бизнес-аналитики' }],
   links: [], openQuestions: ['Какие регионы входят в выгрузку'],
 }
@@ -43,8 +55,11 @@ function nextTurn(messages) {
       const url = /https?:\/\/\S+\/tasks\/\d+/.exec(text(last))?.[0] ?? ''
       return { content: `Спасибо! Заявка сдана, PO возьмёт её в работу. Отслеживание статуса: ${url}` }
     }
+    if (call?.function.name === 'ask_user_question') {
+      return { content: 'Собрала сценарий приёмки — посмотрите раскадровку:', tool: { name: 'confirm_acceptance_demo', args: DEMO } }
+    }
     return { content: 'ИТОГ по заявке:\n1. Заказчик: E2E Тестов, e2e@test.local\n2. Суть: утренняя выгрузка отчётов в CSV\n'
-      + '3. ASIS: вручную в Excel\n4. GAP: долго, опаздывает\n5. TOBE: CSV к 9:00 сам\n6. HowToDemo: письмо в 9:00, сверка с BI\n'
+      + '3. ASIS: вручную в Excel\n4. GAP: долго, опаздывает\n5. TOBE: CSV к 9:00 сам\n6. HowToDemo (согласован): письмо в 9:00, CSV, сверка с BI\n'
       + '7. Глоссарий: BI — система бизнес-аналитики\nВсё верно? Напишите «подтверждаю».' }
   }
   const said = messages.filter((m) => m.role === 'user').map(text)
