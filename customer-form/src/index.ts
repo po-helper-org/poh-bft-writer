@@ -18,6 +18,7 @@
 import { randomUUID } from 'node:crypto'
 import { mkdir, readFile } from 'node:fs/promises'
 import { Backlog, sharedBacklog, type Ticket } from './host.js'
+import { sharedMaterials, type Material, type Materials, type WebLike } from './materials.js'
 import type { AgentLike, BlockLike } from './tool.js'
 
 export const name = 'customer-form'
@@ -62,6 +63,30 @@ function textOf(message: UserMessageLike): string {
   return message.content.filter((b) => b.type === 'text').map((b) => b.text ?? '').join('\n')
 }
 
+const URL_RE = /https?:\/\/[^\s<>"'«»)\]]+/g
+
+/**
+ * Файлы и ссылки сообщения → материалы сессии. Синхронно: реестр заполнен
+ * раньше, чем модель успеет вызвать read_customer_materials.
+ */
+function collectMaterials(materials: Materials, attachments: AttachmentsLike, sessionId: string, message: UserMessageLike): Material[] {
+  const found: Material[] = []
+  for (const block of message.content) {
+    if (block.type !== 'file' || !block.attachment) continue
+    const path = attachments.fileHostPath(block.attachment)
+    if (path) found.push(materials.addFile(sessionId, block.attachment.name ?? path.split('/').pop() ?? 'file', path))
+  }
+  const own = (process.env.TRACKER_PUBLIC_URL ?? 'http://127.0.0.1:3456').replace(/\/$/, '')
+  for (const url of new Set(textOf(message).match(URL_RE) ?? [])) {
+    if (!url.startsWith(own)) found.push(materials.addLink(sessionId, url.replace(/[.,;:!?]+$/, '')))
+  }
+  return found
+}
+
+function materialsLine(found: Material[]): string {
+  return found.length ? `\n📎 Изучаю материалы: ${found.map((m) => m.name).join(', ')}. Голос расшифровываю, документы и ссылки читаю — это быстрее, чем пересказывать.` : ''
+}
+
 export const CUSTOMER_PROMPT = `Ты — ассистент приёма инициатив «Система БФТ». С тобой говорит ЗАКАЗЧИК.
 
 Твоя цель — за живой диалог собрать постановку, по которой PO и команда начнут работу без встреч:
@@ -78,8 +103,13 @@ export const CUSTOMER_PROMPT = `Ты — ассистент приёма ини�
 - Спрашивай только о пробелах: не переспрашивай сказанное, а фиксируй («Записала: …»).
 - Сокращение без расшифровки — уточни расшифровку.
 - Уточняющие вопросы задавай инструментом ask_user_question: 2–4 вопроса за раз, с вариантами ответа, где они уместны; расшифровку каждого непонятного сокращения — отдельным вопросом. Заказчик может ответить в форме или просто текстом — принимай оба.
-- Вложения заказчика портал сам сохраняет в задачу; содержимое файлов ты не читаешь — если файл важен, спроси, что в нём главное.
-- HowToDemo: спроси «Как вы будете проверять результат? Где зайдёте, что нажмёте, что должны увидеть» — можно в свободной форме. По ответу сам составь 2–7 шагов (по одному экрану на шаг, результат — проверяемый) и вызови confirm_acceptance_demo: заказчик увидит раскадровку по экранам и согласует её кнопкой. Если просит правки — исправь и покажи снова. Без его «Согласую» ИТОГ не собирай.
+- Вложения и ссылки — это уже ответы, а не повод для допроса. Если в сообщении есть файлы (строки «[File …]») или ссылки — сразу, без вступления, вызови read_customer_materials: портал расшифрует голос и прочитает документы и страницы. Файловых инструментов у тебя нет, пути из «[File …]» не открывай. Дальше работай как аналитик на сверке:
+  1) отметь для себя опорные факты с метками источников ([S1 02:15], [S2]) — в чат их не выписывай; не додумывай: чего нет, то неизвестно;
+  2) составь черновик: суть, ASIS, GAP, TOBE, шаги приёмки, глоссарий;
+  3) вопросы формой — только если без ответа нельзя составить шаги приёмки, не больше 3;
+  4) покажи черновик одной карточкой confirm_acceptance_demo: asis, gap, tobe со ссылками на источники, шаги, а в unclear — чего нет в материалах и где они противоречат.
+  Цель — первичный разбор за 1–2 минуты времени заказчика. Если источник не разобран (error), скажи об этом и спроси главное из него одним вопросом.
+- HowToDemo без материалов: спроси «Как вы будете проверять результат? Где зайдёте, что нажмёте, что должны увидеть» — можно в свободной форме. По ответу сам составь 2–7 шагов (по одному экрану на шаг, результат — проверяемый) и вызови confirm_acceptance_demo: заказчик увидит раскадровку по экранам и согласует её кнопкой. Если просит правки — исправь и покажи снова. Без его «Согласую» ИТОГ не собирай.
 - Когда всё собрано и сценарий согласован — одной репликой собери ИТОГ: пронумерованный список по семи пунктам (в HowToDemo — согласованные шаги) и спроси подтверждение.
 - После подтверждения вызови submit_customer_request со всеми полями, затем одной фразой поблагодари и дай ссылку на отслеживание из результата инструмента.
 - Сообщение «📌 Заявка #N …» добавляет портал, а не заказчик: на него не отвечай, номер заявки упомяни в итоговой сводке.
@@ -99,6 +129,13 @@ export function apply(ctx: HarnessContext): void {
   mkdir(workspacePath, { recursive: true }).catch(() => undefined)
 
   const backlog = sharedBacklog()
+  const materials = sharedMaterials()
+
+  // Ссылки — штатным ctx.web dsh (только публичные адреса).
+  ctx.inject(['web'], (scoped: HarnessContext) => {
+    materials.web = scoped.get('web') as WebLike
+    scoped.effect(() => () => { materials.web = undefined }, 'customer-form: ctx.web для ссылок')
+  })
 
   ctx.inject(['commands', 'attachments'], (scoped: HarnessContext) => {
     const commands = scoped.get('commands') as CommandsLike
@@ -126,6 +163,7 @@ export function apply(ctx: HarnessContext): void {
     scoped.effect(() => scoped.on('agent/inbox/claimed', (({ agent, message }: { agent: AgentLike; message: UserMessageLike }) => {
       if (message.source.kind !== 'user') return
       const sessionId = agent.session.id
+      const found = collectMaterials(materials, attachments, sessionId, message)
       void (async () => {
         try {
           const known = await backlog.find(sessionId)
@@ -138,10 +176,11 @@ export function apply(ctx: HarnessContext): void {
               id: randomUUID(),
               role: 'user',
               source: { kind: 'user' },
-              content: [{ type: 'text', text: `📌 ${ticketText(ticket)}. Статус — по ссылке.` }],
+              content: [{ type: 'text', text: `📌 ${ticketText(ticket)}. Статус — по ссылке.${materialsLine(found)}` }],
             })
           }
           await attachFiles(backlog, attachments, ticket, message)
+          await attachTranscripts(backlog, ticket, found)
         } catch (e) {
           // Диалог не прерываем: обращение остаётся в чате, /request повторит попытку.
           console.error('[customer-form] заявка не создана:', e)
@@ -170,6 +209,21 @@ export function apply(ctx: HarnessContext): void {
       },
     }), 'customer-form: /api/customer-form.workspacePath')
   })
+}
+
+/** Разобранный текст материала — файлом в задачу: PO читает то же, что модель. */
+async function attachTranscripts(backlog: Backlog, ticket: Ticket, found: Material[]): Promise<void> {
+  for (const material of found) {
+    const result = await material.result
+    if (!result.ok) continue
+    const base = material.name.replace(/^https?:\/\//, '').replace(/[^\p{L}\p{N}._-]+/gu, '_').slice(0, 80)
+    const text = `# ${material.id} · ${material.name}\n\n_${result.label}_\n\n${result.markdown}\n`
+    try {
+      await backlog.attach(ticket, `${material.id}-${base}.md`, new TextEncoder().encode(text))
+    } catch (e) {
+      console.error(`[customer-form] текст материала ${material.name} не ушёл в задачу:`, e)
+    }
+  }
 }
 
 async function attachFiles(backlog: Backlog, attachments: AttachmentsLike, ticket: Ticket, message: UserMessageLike): Promise<void> {

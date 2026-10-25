@@ -9,6 +9,7 @@
  */
 import { demoSteps, storyboardMarkdown, type AcceptanceDemo } from './demo.js'
 import { sharedBacklog, type Backlog, type Intake, type Ticket } from './host.js'
+import { materialsPack, sharedMaterials, type Materials } from './materials.js'
 
 // defineTool — значение из dsh-tools профиля (не из devDependencies плагина).
 const DSH_TOOLS = '@deepseek-ai/dsh-tools'
@@ -35,6 +36,7 @@ interface ToolContext {
 
 export function apply(ctx: ToolContext): void {
   const tools = ctx.get('tools') as { register(definition: unknown): () => void }
+  ctx.effect(() => tools.register(defineTool(materialsTool(sharedMaterials()))), 'customer-form: read_customer_materials')
   ctx.effect(() => tools.register(defineTool(confirmDemoTool(ctx, sharedBacklog()))), 'customer-form: confirm_acceptance_demo')
   ctx.effect(() => tools.register(defineTool(submitTool(sharedBacklog()))), 'customer-form: submit_customer_request')
 }
@@ -51,10 +53,34 @@ function transcriptOf(agent: AgentLike, ticket: Ticket, intake: Intake): string 
 }
 
 const text = (description: string) => ({ type: 'string', required: true, description })
+const optional = (description: string) => ({ type: 'string', description })
 const strings = (description: string) => ({ type: 'array', required: true, items: { type: 'string' }, description })
 
 interface UserQuestionsLike {
   ask(request: unknown): Promise<{ answers: { id: string; selected: string[]; custom?: string }[] }>
+}
+
+/**
+ * Материалы заказчика текстом: расшифровки голоса, документы, страницы ссылок.
+ * Разбор начат узлом при приёме сообщения — здесь только ожидание готового.
+ */
+function materialsTool(materials: Materials) {
+  return {
+    name: 'read_customer_materials',
+    description: 'Прочитать материалы, которые приложил заказчик: расшифровки голосовых записей (m4a и др.), тексты документов (PDF, Word, Excel, PowerPoint) и страниц по его ссылкам. '
+      + 'Вызывай первым делом, если в сообщении есть файлы или ссылки; повторно — когда заказчик приложил новые.',
+    parameters: {},
+    output: {
+      schema: { type: 'string' },
+      render: (_args: unknown, value: string) => [{ type: 'text', text: value }],
+    },
+    async execute(_args: unknown, exec: { agent?: AgentLike }) {
+      const agent = exec.agent
+      if (!agent) throw new Error('нет сессии заказчика')
+      const items = await materials.take(agent.session.id)
+      return items.length ? materialsPack(items) : 'Новых материалов нет.'
+    },
+  }
 }
 
 const DEMO_REVIEW = 'acceptance-demo'
@@ -86,6 +112,13 @@ function confirmDemoTool(ctx: ToolContext, backlog: Backlog) {
         },
       },
       done: text('Критерий одной фразой: работа принята, если …'),
+      asis: optional('ASIS по материалам: как сейчас, со ссылками на источники [S1 00:12]'),
+      gap: optional('GAP по материалам: что не устраивает, со ссылками на источники'),
+      tobe: optional('TOBE по материалам: как должно стать, со ссылками на источники'),
+      unclear: {
+        type: 'array', items: { type: 'string' },
+        description: 'Чего нет в материалах или где они противоречат друг другу — заказчик поправит в «Нужны правки»',
+      },
     },
     output: {
       schema: { type: 'string' },

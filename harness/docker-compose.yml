@@ -149,6 +149,10 @@ services:
       REQUESTY_API_KEY: ${REQUESTY_API_KEY:-}
       PORTAL_PROVIDER: ${PORTAL_PROVIDER:-}
       PORTAL_MODEL: ${PORTAL_MODEL:-}
+      # Разбор материалов заказчика: голос (m4a…) → текст, документы → Markdown.
+      INGEST_URL: http://context-ingest:8090
+    depends_on:
+      context-ingest: { condition: service_healthy }
     ports:
       - "${PORTAL_BIND:-127.0.0.1}:3080:3080"
     volumes:
@@ -159,6 +163,15 @@ services:
       retries: 30
       start_period: 15s
     mem_limit: 1g
+
+  context-ingest:   # ADR-0007 rev8: MarkItDown + GigaAM v3 (CPU), без ключей и без доступа к трекеру
+    build:
+      context: ./context-ingest
+    image: poh-context-ingest:local
+    restart: unless-stopped
+    environment:
+      INGEST_ASR_THREADS: ${INGEST_ASR_THREADS:-4}
+    mem_limit: 2g
 
   tracker-init:   # правим владельца тома файлов под uid 1000 (vikunja в образе без каталога)
     image: alpine:3.20

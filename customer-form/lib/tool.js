@@ -9,6 +9,7 @@
  */
 import { demoSteps, storyboardMarkdown } from './demo.js';
 import { sharedBacklog } from './host.js';
+import { materialsPack, sharedMaterials } from './materials.js';
 // defineTool — значение из dsh-tools профиля (не из devDependencies плагина).
 const DSH_TOOLS = '@deepseek-ai/dsh-tools';
 const { defineTool } = (await import(DSH_TOOLS));
@@ -16,6 +17,7 @@ export const name = 'customer-form-tool';
 export const inject = ['tools'];
 export function apply(ctx) {
     const tools = ctx.get('tools');
+    ctx.effect(() => tools.register(defineTool(materialsTool(sharedMaterials()))), 'customer-form: read_customer_materials');
     ctx.effect(() => tools.register(defineTool(confirmDemoTool(ctx, sharedBacklog()))), 'customer-form: confirm_acceptance_demo');
     ctx.effect(() => tools.register(defineTool(submitTool(sharedBacklog()))), 'customer-form: submit_customer_request');
 }
@@ -32,7 +34,31 @@ function transcriptOf(agent, ticket, intake) {
     return lines.join('\n');
 }
 const text = (description) => ({ type: 'string', required: true, description });
+const optional = (description) => ({ type: 'string', description });
 const strings = (description) => ({ type: 'array', required: true, items: { type: 'string' }, description });
+/**
+ * Материалы заказчика текстом: расшифровки голоса, документы, страницы ссылок.
+ * Разбор начат узлом при приёме сообщения — здесь только ожидание готового.
+ */
+function materialsTool(materials) {
+    return {
+        name: 'read_customer_materials',
+        description: 'Прочитать материалы, которые приложил заказчик: расшифровки голосовых записей (m4a и др.), тексты документов (PDF, Word, Excel, PowerPoint) и страниц по его ссылкам. '
+            + 'Вызывай первым делом, если в сообщении есть файлы или ссылки; повторно — когда заказчик приложил новые.',
+        parameters: {},
+        output: {
+            schema: { type: 'string' },
+            render: (_args, value) => [{ type: 'text', text: value }],
+        },
+        async execute(_args, exec) {
+            const agent = exec.agent;
+            if (!agent)
+                throw new Error('нет сессии заказчика');
+            const items = await materials.take(agent.session.id);
+            return items.length ? materialsPack(items) : 'Новых материалов нет.';
+        },
+    };
+}
 const DEMO_REVIEW = 'acceptance-demo';
 const APPROVE = 'Согласую';
 /**
@@ -61,6 +87,13 @@ function confirmDemoTool(ctx, backlog) {
                 },
             },
             done: text('Критерий одной фразой: работа принята, если …'),
+            asis: optional('ASIS по материалам: как сейчас, со ссылками на источники [S1 00:12]'),
+            gap: optional('GAP по материалам: что не устраивает, со ссылками на источники'),
+            tobe: optional('TOBE по материалам: как должно стать, со ссылками на источники'),
+            unclear: {
+                type: 'array', items: { type: 'string' },
+                description: 'Чего нет в материалах или где они противоречат друг другу — заказчик поправит в «Нужны правки»',
+            },
         },
         output: {
             schema: { type: 'string' },

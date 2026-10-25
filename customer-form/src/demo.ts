@@ -21,6 +21,12 @@ export interface AcceptanceDemo {
   where: string
   steps: DemoStep[]
   done: string
+  /** Черновик по материалам заказчика (rev8): что ИИ понял до вопросов. */
+  asis?: string
+  gap?: string
+  tobe?: string
+  /** Чего нет в материалах или где они противоречат. */
+  unclear?: string[]
 }
 
 const WIDTH = 46
@@ -66,17 +72,22 @@ function stepsWord(n: number): string {
  */
 export function storyboardMarkdown(demo: AcceptanceDemo): string {
   const path = demo.steps.map((s) => s.screen).join(' → ')
+  const understood = [['ASIS — как сейчас', demo.asis], ['GAP — что не устраивает', demo.gap], ['TOBE — как должно стать', demo.tobe]]
+    .filter(([, value]) => value?.trim())
+  const unclear = (demo.unclear ?? []).filter((u) => u.trim())
   return [
-    `# Как я буду принимать: ${demo.title}`,
+    understood.length ? `# Как я понял задачу и как вы её примете: ${demo.title}` : `# Как я буду принимать: ${demo.title}`,
     '',
     `${stepsWord(demo.steps.length)}: ${path}. Проверяю: ${demo.where}.`,
     '',
+    ...(understood.length ? ['## Как я понял задачу', '', ...understood.flatMap(([head, value]) => [`**${head}.** ${value}`, '']), ''] : []),
     '## Раскадровка по экранам',
     '',
     ...demo.steps.flatMap((step, i) => [screenBox(step, i), '']),
     '## Работа принята, если',
     '',
     demo.done,
+    ...(unclear.length ? ['', '## Не нашёл в материалах или есть противоречие', '', ...unclear.map((u) => `- ${u}`)] : []),
   ].join('\n')
 }
 

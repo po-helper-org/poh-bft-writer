@@ -34,6 +34,22 @@ const DEMO = {
   done: 'письмо пришло к 9:00 три рабочих дня подряд и итоги совпали с BI',
 }
 
+/** Черновик по материалам (rev8): что «понял» ассистент из m4a и docx. */
+const DEMO_MATERIALS = {
+  title: 'заявки на отпуск в портале',
+  where: 'портал, график отпусков HR',
+  steps: [
+    { screen: 'Портал — сотрудник', action: 'Подаю заявку на неделю', expect: 'Статус «На согласовании»' },
+    { screen: 'Портал — руководитель', action: 'Согласую заявку', expect: 'Статус «Согласовано»' },
+    { screen: 'График отпусков HR', action: 'Открываю график', expect: 'Неделя сотрудника в графике' },
+  ],
+  done: 'неделя появилась в графике без ручного ввода',
+  asis: 'Заявки идут письмами, половина теряется; график сводят вручную в Excel — 2 дня в месяц [S1 00:00][S2]',
+  gap: 'Потери заявок и ручной труд HR [S1 00:00]',
+  tobe: 'Заявка и согласование в портале, график обновляется сам [S1 00:20]',
+  unclear: ['Нужна ли интеграция с 1С:ЗУП уже в первой версии [S2]'],
+}
+
 const INTAKE = {
   title: 'Утренняя выгрузка отчётов в CSV',
   customerName: 'E2E Тестов', customerEmail: 'e2e@test.local',
@@ -55,6 +71,11 @@ function nextTurn(messages) {
       const url = /https?:\/\/\S+\/tasks\/\d+/.exec(text(last))?.[0] ?? ''
       return { content: `Спасибо! Заявка сдана, PO возьмёт её в работу. Отслеживание статуса: ${url}` }
     }
+    if (call?.function.name === 'read_customer_materials') {
+      // Нет голосовой заметки (только текстовый файл) — уточняем формой, как без материалов.
+      if (!/отдел\S* кадров/i.test(text(last))) return { content: 'Записала суть. Уточню пару моментов:', tool: { name: 'ask_user_question', args: QUESTIONS } }
+      return { content: 'Изучила материалы, вот как я поняла задачу:', tool: { name: 'confirm_acceptance_demo', args: DEMO_MATERIALS } }
+    }
     if (call?.function.name === 'ask_user_question') {
       return { content: 'Собрала сценарий приёмки — посмотрите раскадровку:', tool: { name: 'confirm_acceptance_demo', args: DEMO } }
     }
@@ -65,6 +86,9 @@ function nextTurn(messages) {
   const said = messages.filter((m) => m.role === 'user').map(text)
   if (/подтвержда/i.test(said.at(-1) ?? '')) {
     return { tool: { name: 'submit_customer_request', args: INTAKE } }
+  }
+  if (!messages.some((m) => m.role === 'assistant') && said.some((t) => t.includes('[File'))) {
+    return { content: '', tool: { name: 'read_customer_materials', args: {} } }
   }
   if (!messages.some((m) => m.role === 'assistant')) {
     return { content: 'Записала суть. Уточню пару моментов:', tool: { name: 'ask_user_question', args: QUESTIONS } }

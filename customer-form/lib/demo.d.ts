@@ -19,6 +19,12 @@ export interface AcceptanceDemo {
     where: string;
     steps: DemoStep[];
     done: string;
+    /** Черновик по материалам заказчика (rev8): что ИИ понял до вопросов. */
+    asis?: string;
+    gap?: string;
+    tobe?: string;
+    /** Чего нет в материалах или где они противоречат. */
+    unclear?: string[];
 }
 /**
  * Документ на согласование. Первая строка — заголовок карточки, первый абзац —
