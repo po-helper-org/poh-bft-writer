@@ -75,9 +75,9 @@ export function resolveConfig(config: Config = {}): Resolved {
 }
 
 /** Requesty → gpt-4o-mini-transcribe, язык зафиксирован: ru. */
-export async function transcribeCloud(config: Resolved, apiKey: string, audio: Uint8Array, signal: AbortSignal, prompt = config.prompt): Promise<string> {
+export async function transcribeCloud(config: Resolved, apiKey: string, audio: Uint8Array, signal: AbortSignal, prompt = config.prompt, file = { name: 'speech.wav', type: 'audio/wav' }): Promise<string> {
   const form = new FormData()
-  form.set('file', new Blob([new Uint8Array(audio)], { type: 'audio/wav' }), 'speech.wav')
+  form.set('file', new Blob([new Uint8Array(audio)], { type: file.type }), file.name)
   form.set('model', config.model)
   form.set('language', 'ru')
   form.set('response_format', 'json')

@@ -14,6 +14,10 @@ export interface DemoStep {
   action: string
   /** Что должен увидеть — проверяемый результат. */
   expect: string
+  /** Устройство экрана: браузер, письмо, уведомление, приложение (rev10). */
+  device?: string
+  /** Состав экрана для картинки раскадровки: «заголовок: …; оффер: …; кнопка: …» (mock.ts). */
+  mock?: string
 }
 
 export interface AcceptanceDemo {
@@ -94,4 +98,48 @@ export function storyboardMarkdown(demo: AcceptanceDemo): string {
 /** Шаги одной строкой каждый — в поле howToDemo постановки. */
 export function demoSteps(demo: AcceptanceDemo): string[] {
   return demo.steps.map((s) => `${s.screen}: ${s.action} → ${s.expect}`)
+}
+
+/** Последний сценарий сессии: его показывает страница в правой панели (demo-page.ts). */
+export interface DemoRecord {
+  demo: AcceptanceDemo
+  rev: number
+  approvedAt?: string
+}
+
+let demos: Map<string, DemoRecord> | undefined
+
+/** Один реестр на процесс: пишет инструмент confirm_acceptance_demo, читает узел. */
+export function sharedDemos(): Map<string, DemoRecord> {
+  demos ??= new Map()
+  return demos
+}
+
+const GLUED = /<\/[\w-]+>\s*<parameter name="([\w-]+)">/
+
+/**
+ * Ремонт склеенных аргументов: Haiku через OpenAI-совместимый маршрут иногда
+ * пишет следующие параметры внутрь строки предыдущего —
+ * «… [S1 03:02].</gap> <parameter name="tobe">…</tobe> <parameter name="unclear">[…]».
+ * Разбиваем обратно по полям, ничего не теряя.
+ */
+export function repairDemo(demo: AcceptanceDemo): AcceptanceDemo {
+  const fixed: AcceptanceDemo = { ...demo }
+  const record = fixed as unknown as Record<string, unknown>
+  for (const key of ['title', 'where', 'done', 'asis', 'gap', 'tobe'] as const) {
+    const value = fixed[key]
+    if (typeof value !== 'string' || !GLUED.test(value)) continue
+    const parts = value.split(GLUED)
+    record[key] = parts[0].replace(/<\/[\w-]+>\s*$/, '').trim()
+    for (let i = 1; i < parts.length; i += 2) {
+      const name = parts[i]
+      const text = (parts[i + 1] ?? '').replace(/<\/[\w-]+>\s*$/, '').trim()
+      if (name === 'unclear') {
+        let list: unknown
+        try { list = JSON.parse(text) } catch { list = text.split('\n').map((l) => l.replace(/^[-•]\s*/, '').trim()).filter(Boolean) }
+        if (Array.isArray(list)) fixed.unclear = [...(fixed.unclear ?? []), ...list.map(String)]
+      } else if (!record[name]) record[name] = text
+    }
+  }
+  return fixed
 }

@@ -23,13 +23,22 @@ const QUESTIONS = {
   ],
 }
 
+/** Форма, пока длинная запись ещё разбирается (rev10): только то, чего в материалах не будет. */
+const TITLE_QUESTIONS = {
+  questions: [
+    { id: 'title', header: 'Название', question: 'Краткое название инициативы',
+      options: [{ label: 'Отпуска в портале', description: 'Заявки на отпуск — в портал вместо почты' }] },
+  ],
+}
+
 const DEMO = {
   title: 'утренний CSV с отчётом продаж',
   where: 'почта и BI',
   steps: [
-    { screen: 'Почта Outlook', action: 'В 9:00 открываю входящие', expect: 'Письмо «Отчёт продаж» с вложением report.csv' },
-    { screen: 'Файл report.csv', action: 'Открываю вложение в Excel', expect: 'Строки по всем регионам за вчера' },
-    { screen: 'Отчёт в BI', action: 'Сверяю итог продаж', expect: 'Сумма совпадает с BI до рубля' },
+    { screen: 'Почта Outlook', action: 'В 9:00 открываю входящие', expect: 'Письмо «Отчёт продаж» с вложением report.csv',
+      device: 'письмо', mock: 'отправитель: robot@bi; заголовок: Отчёт продаж; текст: Во вложении отчёт за вчера; кнопка-контур: report.csv' },
+    { screen: 'Файл report.csv', action: 'Открываю вложение в Excel', expect: 'Строки по всем регионам за вчера', mock: 'заголовок: report.csv; список: 3; поле: Регионов = 12' },
+    { screen: 'Отчёт в BI', action: 'Сверяю итог продаж', expect: 'Сумма совпадает с BI до рубля', mock: 'заголовок: Продажи за вчера; поле: Итого = 1 250 000 ₽; отметка: Совпадает с BI' },
   ],
   done: 'письмо пришло к 9:00 три рабочих дня подряд и итоги совпали с BI',
 }
@@ -39,9 +48,9 @@ const DEMO_MATERIALS = {
   title: 'заявки на отпуск в портале',
   where: 'портал, график отпусков HR',
   steps: [
-    { screen: 'Портал — сотрудник', action: 'Подаю заявку на неделю', expect: 'Статус «На согласовании»' },
-    { screen: 'Портал — руководитель', action: 'Согласую заявку', expect: 'Статус «Согласовано»' },
-    { screen: 'График отпусков HR', action: 'Открываю график', expect: 'Неделя сотрудника в графике' },
+    { screen: 'Портал — сотрудник', action: 'Подаю заявку на неделю', expect: 'Статус «На согласовании»', mock: 'заголовок: Мои отпуска; поле: Даты = 3–9 марта; кнопка: Подать заявку' },
+    { screen: 'Портал — руководитель', action: 'Согласую заявку', expect: 'Статус «Согласовано»', mock: 'заголовок: Заявки команды; список: 2; кнопка: Согласовать' },
+    { screen: 'График отпусков HR', action: 'Открываю график', expect: 'Неделя сотрудника в графике', mock: 'заголовок: График отпусков; плитки; отметка: Неделя в графике' },
   ],
   done: 'неделя появилась в графике без ручного ввода',
   asis: 'Заявки идут письмами, половина теряется; график сводят вручную в Excel — 2 дня в месяц [S1 00:00][S2]',
@@ -71,10 +80,18 @@ function nextTurn(messages) {
       const url = /https?:\/\/\S+\/tasks\/\d+/.exec(text(last))?.[0] ?? ''
       return { content: `Спасибо! Заявка сдана, PO возьмёт её в работу. Отслеживание статуса: ${url}` }
     }
+    if (call?.function.name === 'read_customer_materials' && text(last).includes('Ещё разбираются')) {
+      return { content: 'Запись длинная — пока она расшифровывается, один вопрос:', tool: { name: 'ask_user_question', args: TITLE_QUESTIONS } }
+    }
     if (call?.function.name === 'read_customer_materials') {
       // Нет голосовой заметки (только текстовый файл) — уточняем формой, как без материалов.
       if (!/отдел\S* кадров/i.test(text(last))) return { content: 'Записала суть. Уточню пару моментов:', tool: { name: 'ask_user_question', args: QUESTIONS } }
       return { content: 'Изучила материалы, вот как я поняла задачу:', tool: { name: 'confirm_acceptance_demo', args: DEMO_MATERIALS } }
+    }
+    // После формы: если прошлое чтение материалов сказало «Ещё разбираются» — читаем снова.
+    const reads = messages.filter((m) => m.role === 'tool' && messages.flatMap((x) => x.tool_calls ?? []).some((c) => c.id === m.tool_call_id && c.function.name === 'read_customer_materials'))
+    if (call?.function.name === 'ask_user_question' && reads.length && text(reads.at(-1)).includes('Ещё разбираются')) {
+      return { content: '', tool: { name: 'read_customer_materials', args: {} } }
     }
     if (call?.function.name === 'ask_user_question') {
       return { content: 'Собрала сценарий приёмки — посмотрите раскадровку:', tool: { name: 'confirm_acceptance_demo', args: DEMO } }

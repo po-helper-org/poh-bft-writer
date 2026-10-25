@@ -44,7 +44,9 @@ test('микродиалог: вложение → вопросы → согла
   // HowToDemo: «как я буду принимать работу» — карточка согласования dsh
   // (intent plan-review) и раскадровка по экранам в правой панели.
   await expect(page.getByText('Как я буду принимать работу'), 'карточка согласования').toBeVisible({ timeout: 30_000 })
-  await expect(page.getByText(/ЭКРАН 1 · Почта Outlook/).first(), 'раскадровка в панели').toBeVisible({ timeout: 10_000 })
+  const panel = page.frameLocator('iframe[data-customer-acceptance]')
+  await expect(panel.getByRole('heading', { name: 'Путь приёмки' }), 'сценарий в панели').toBeVisible({ timeout: 15_000 })
+  await expect(panel.locator('.step h3', { hasText: 'Почта Outlook' }).first(), 'шаг раскадровки').toBeAttached()
   await page.screenshot({ path: 'test-results/acceptance-demo.png' })
   await page.getByRole('button', { name: 'Согласую' }).click()
 

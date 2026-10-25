@@ -48,8 +48,10 @@ test('сканы: PDF без текста + фото → OCR → чернови�
   const sentAt = Date.now()
   await expect(page.getByText('Как я буду принимать работу'), 'карточка согласования').toBeVisible({ timeout: 60_000 })
   console.log(`▸ черновик по сканам через ${Date.now() - sentAt} мс`)
-  await expect(page.getByText('Как я понял задачу').first(), 'раздел черновика в панели').toBeVisible({ timeout: 10_000 })
-  await expect(page.getByText('Не нашёл в материалах или есть противоречие').first()).toBeVisible()
+  // Черновик — страницей в правой панели (UserFlow + раскадровка, ADR-0007 rev10).
+  const panel = page.frameLocator('iframe[data-customer-acceptance]')
+  await expect(panel.getByRole('heading', { name: 'Как я понял задачу' }), 'раздел черновика в панели').toBeVisible({ timeout: 15_000 })
+  await expect(panel.getByRole('heading', { name: 'Не нашёл в материалах или есть противоречие' })).toBeVisible()
   await page.screenshot({ path: 'test-results/ocr-draft.png' })
   await page.getByRole('button', { name: 'Согласую' }).click()
 

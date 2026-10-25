@@ -11,6 +11,11 @@ import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { IWorkspaces, WorkspaceId } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
+import type { ComponentType } from 'react'
+import {
+  ACCEPTANCE_PREFIX, ACCEPTANCE_TAB, AcceptanceTab, AcceptanceTitle, bridges, InfoView, InputBridge, lastSessionId, sessionOfAddress,
+  type SessionInfo,
+} from './panels.js'
 
 // Имена СЛУЖБ cordis, не пакетов (грабля «pending» — см. ADR-0007 rev3).
 export const inject = ['slots', 'connection', 'uiWorkspace', 'workspaces', 'sessions', 'locale']
@@ -164,6 +169,15 @@ interface HostRpcLike {
   rpc: { call: (channel: string, endpoint: string, payload?: unknown) => Promise<{ ok: boolean; value?: { path?: string } }> }
 }
 
+interface SlotsLike {
+  inject(name: string, register: () => () => void): void
+  register(options: Record<string, unknown>, component: ComponentType<never>): () => void
+}
+
+interface SidebarRightTabsLike {
+  register(definition: { id: string; kind: string; patterns: string[]; priority: string; canOpen?: (address: string) => boolean; title: () => string }): () => void
+}
+
 interface LocaleLike {
   addLanguage(language: { id: string; label: string; fallback: string }): () => void
   register(namespace: string, locale: string, dictionary: Record<string, string>): () => void
@@ -216,7 +230,56 @@ export function apply(ctx: ClientContext): void {
     scoped.effect(() => () => { Object.defineProperty(speech, 'transcribe', original) }, 'customer-form: термины диалога для микрофона')
   })
 
-  // 4) Чаты заказчика — в workspace «Customer-requests»: создаём по имени
+  // 4) Сценарий приёмки страницей в правой панели, замечания → строка ввода,
+  //    вкладка Information (ADR-0007 rev10).
+  const slots = ctx.get('slots') as SlotsLike
+  ctx.inject(['sidebarRightTabs'], (scoped) => {
+    const tabs = scoped.get('sidebarRightTabs') as SidebarRightTabsLike
+    scoped.effect(() => tabs.register({
+      id: ACCEPTANCE_TAB,
+      kind: 'customer-acceptance',
+      patterns: ['dsh-resource://plan-review/**', `${ACCEPTANCE_PREFIX}**`],
+      priority: 'extension', // выше builtin ui-plan: карточка согласования открывает нашу страницу
+      canOpen: (address) => sessionOfAddress(address) !== undefined,
+      title: () => 'Сценарий приёмки',
+    }), 'customer-form: вкладка сценария приёмки')
+  })
+  slots.inject('sidebar.right.pane.tab', () => slots.register({ name: 'sidebar.right.pane.tab', key: ACCEPTANCE_TAB }, AcceptanceTab as ComponentType<never>))
+  slots.inject('sidebar.right.pane.tab.title', () => slots.register({ name: 'sidebar.right.pane.tab.title', key: ACCEPTANCE_TAB }, AcceptanceTitle as ComponentType<never>))
+  // conversation.input.activity — одиночный слот (его держит голосовой ввод), поэтому мост — в списочном input.right.
+  slots.inject('conversation.input.right', () => slots.register({ name: 'conversation.input.right', id: 'customer-form-bridge' }, InputBridge as ComponentType<never>))
+
+  const loadInfo = async (sessionId: string): Promise<SessionInfo | undefined> => {
+    const res = await host.rpc.call('/api', 'customer-form.sessionInfo', { sessionId })
+    return res.ok ? (res.value as unknown as SessionInfo) : undefined
+  }
+  const openAcceptance = (sessionId: string) => {
+    const right = ctx.get('sidebarRight') as { openResource(address: string): void } | undefined
+    right?.openResource(`${ACCEPTANCE_PREFIX}${encodeURIComponent(sessionId)}/${Date.now()}`)
+  }
+  slots.inject('conversation.view', () => slots.register({
+    name: 'conversation.view',
+    id: 'information',
+    order: 20,
+    label: () => 'Information',
+    inject: (sessionId: string) => ({ sessionId, loadInfo, openAcceptance }),
+  }, InfoView as ComponentType<never>))
+
+  // Замечание со страницы сценария (iframe того же origin) → строка ввода.
+  const onRemark = (event: MessageEvent) => {
+    const data = event.data as { type?: string; id?: string; text?: string } | undefined
+    if (event.origin !== location.origin || data?.type !== 'customer-form/remark' || typeof data.text !== 'string') return
+    const frame = Array.from(document.querySelectorAll<HTMLIFrameElement>("iframe[data-customer-acceptance]")).find((f) => f.contentWindow === event.source)
+    const sessionId = frame?.dataset.customerAcceptance ?? lastSessionId
+    const actions = (sessionId && bridges.get(sessionId)) || (lastSessionId ? bridges.get(lastSessionId) : undefined)
+    let ok = false
+    try { ok = !!actions && actions.insertText(data.text, actions.captureInsertion()) } catch { ok = false }
+    ;(event.source as Window | null)?.postMessage({ type: 'customer-form/remark-ack', id: data.id, ok }, location.origin)
+  }
+  window.addEventListener('message', onRemark)
+  ctx.effect(() => () => window.removeEventListener('message', onRemark), 'customer-form: замечания со страницы сценария')
+
+  // 5) Чаты заказчика — в workspace «Customer-requests»: создаём по имени
   //    (идемпотентно, как workspaces.create({path}) у poh-bft-plugin) и
   //    открываем в нём новый чат.
   void (async () => {

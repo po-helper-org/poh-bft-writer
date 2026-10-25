@@ -7,9 +7,9 @@
  * строкой пресета (customer.patch.yml), а Backlog берёт общий с узлом
  * customer-form (заявку тот создал по первому сообщению).
  */
-import { demoSteps, storyboardMarkdown, type AcceptanceDemo } from './demo.js'
+import { demoSteps, repairDemo, sharedDemos, storyboardMarkdown, type AcceptanceDemo } from './demo.js'
 import { sharedBacklog, type Backlog, type Intake, type Ticket } from './host.js'
-import { materialsPack, sharedMaterials, type Materials } from './materials.js'
+import { materialsPack, pendingNote, sharedMaterials, type Materials } from './materials.js'
 
 // defineTool — значение из dsh-tools профиля (не из devDependencies плагина).
 const DSH_TOOLS = '@deepseek-ai/dsh-tools'
@@ -62,13 +62,14 @@ interface UserQuestionsLike {
 
 /**
  * Материалы заказчика текстом: расшифровки голоса, документы, страницы ссылок.
- * Разбор начат узлом при приёме сообщения — здесь только ожидание готового.
+ * Разбор начат узлом при приёме сообщения; здесь — короткое ожидание готового
+ * и пометка того, что ещё разбирается (ход модели не стоит на длинной записи).
  */
 function materialsTool(materials: Materials) {
   return {
     name: 'read_customer_materials',
     description: 'Прочитать материалы, которые приложил заказчик: расшифровки голосовых записей (m4a и др.), тексты документов (PDF, Word, Excel, PowerPoint) и страниц по его ссылкам. '
-      + 'Вызывай первым делом, если в сообщении есть файлы или ссылки; повторно — когда заказчик приложил новые.',
+      + 'Вызывай первым делом, если в сообщении есть файлы или ссылки; повторно — когда заказчик приложил новые или когда прошлый вызов сказал «Ещё разбираются».',
     parameters: {},
     output: {
       schema: { type: 'string' },
@@ -77,8 +78,9 @@ function materialsTool(materials: Materials) {
     async execute(_args: unknown, exec: { agent?: AgentLike }) {
       const agent = exec.agent
       if (!agent) throw new Error('нет сессии заказчика')
-      const items = await materials.take(agent.session.id)
-      return items.length ? materialsPack(items) : 'Новых материалов нет.'
+      const { ready, pending } = await materials.take(agent.session.id)
+      if (!ready.length && !pending.length) return 'Новых материалов нет.'
+      return [ready.length ? materialsPack(ready) : '', pendingNote(pending)].filter(Boolean).join('\n\n')
     },
   }
 }
@@ -108,6 +110,9 @@ function confirmDemoTool(ctx: ToolContext, backlog: Backlog) {
             screen: text('Экран или место, коротко: «Почта Outlook», «Отчёт в BI»'),
             action: text('Что заказчик делает на этом экране'),
             expect: text('Что он должен увидеть — проверяемо: цифры, файл, статус'),
+            device: optional('Где этот экран: браузер, письмо, уведомление или приложение'),
+            mock: text('Что заказчик увидит на этом экране — для картинки раскадровки, сверху вниз через «;»: заголовок: …; текст: …; оффер: …; кнопка: …; список: 3; поле: Сумма = 1 500 ₽; '
+              + 'отметка: Оплачено (галочка в шапке); успех: …; отказ: …; уведомление: от / заголовок / текст. 3–6 частей, только то, что заказчик увидит'),
           },
         },
       },
@@ -124,13 +129,18 @@ function confirmDemoTool(ctx: ToolContext, backlog: Backlog) {
       schema: { type: 'string' },
       render: (_args: unknown, value: string) => [{ type: 'text', text: value }],
     },
-    async execute(args: AcceptanceDemo, exec: { agent?: AgentLike; signal?: AbortSignal }) {
+    async execute(raw: AcceptanceDemo, exec: { agent?: AgentLike; signal?: AbortSignal }) {
+      const args = repairDemo(raw)
       const agent = exec.agent
       if (!agent) throw new Error('нет сессии заказчика')
       if (!args.steps?.length) throw new Error('в сценарии нет шагов')
       const questions = ctx.get('userQuestions') as UserQuestionsLike | undefined
       if (!questions) throw new Error('карточка согласования недоступна — спроси подтверждение сценария текстом')
       const storyboard = storyboardMarkdown(args)
+      // Страница сценария в правой панели (UserFlow + раскадровка + замечания) читает отсюда.
+      const demos = sharedDemos()
+      const record = { demo: args, rev: (demos.get(agent.session.id)?.rev ?? 0) + 1 }
+      demos.set(agent.session.id, record)
       const answer = await questions.ask({
         questions: [{
           id: DEMO_REVIEW,
@@ -157,6 +167,7 @@ function confirmDemoTool(ctx: ToolContext, backlog: Backlog) {
         throw new Error(`Заказчик не согласовал сценарий${feedback ? `: ${feedback}` : ''}. Исправь шаги и снова вызови confirm_acceptance_demo.`)
       }
       const steps = demoSteps(args)
+      demos.set(agent.session.id, { ...record, approvedAt: new Date().toISOString() })
       const ticket = await backlog.find(agent.session.id)
       if (ticket) await backlog.approveDemo(agent.session.id, ticket, steps, args.done, storyboard)
       return ['Заказчик согласовал сценарий приёмки кнопкой «Согласую». В howToDemo заявки перенеси эти шаги без изменений:',

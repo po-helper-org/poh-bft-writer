@@ -5,6 +5,11 @@ context-ingest: материал заказчика → Markdown, который
   → {"kind": "audio"|"document", "markdown": "...", "durationSec": 35.2, "elapsedMs": 900}
   POST /transcribe                тело — запись микрофона композера (WAV)
   → {"text": "...", "audioSeconds": 4.2, "inferenceSeconds": 0.3}
+  POST /chunks?name=&max=240      тело — аудиофайл
+  → {"durationSec": 899, "chunks": [{"start": 0.0, "mp3": "<base64>"}, …]}
+    куски до max секунд, разрезанные по паузам (Silero VAD), mp3 32 кбит/с:
+    для облачного распознавания, если GigaAM не справился (ключей здесь нет —
+    в облако их отправляет customer-form).
   GET  /health
 
 Аудио: ffmpeg (любой контейнер, в т.ч. m4a диктофона iPhone) → 16 кГц моно →
@@ -33,6 +38,8 @@ from markitdown import MarkItDown
 
 SR = 16000
 MAX_BYTES = int(os.environ.get("INGEST_MAX_BYTES", 200 * 1024 * 1024))
+# По одной фразе быстрее всего: в пакете короткие фразы дополняются до длинной.
+ASR_BATCH = int(os.environ.get("INGEST_ASR_BATCH", 1))
 THREADS = int(os.environ.get("INGEST_ASR_THREADS", max(1, min(4, os.cpu_count() or 1))))
 AUDIO = {".m4a", ".mp3", ".wav", ".ogg", ".oga", ".opus", ".aac", ".flac", ".webm",
          ".mp4", ".mov", ".amr", ".caf", ".3gp", ".wma"}
@@ -105,17 +112,22 @@ def stamp(seconds: float) -> str:
 
 def recognize(samples: np.ndarray):
     """Фразы записи: [(начало в секундах, текст)]."""
+    out = []
     with _asr_lock:  # CPU: одна расшифровка за раз, потоки — внутри ONNX
         rec = recognizer()
         segments = speech_segments(samples)
-        streams = []
-        for _, chunk in segments:
-            stream = rec.create_stream()
-            stream.accept_waveform(SR, chunk)
-            streams.append(stream)
-        if streams:
+        # Пакетами: 180 фраз 15-минутной встречи одним decode_streams съедали
+        # 5,6 ГБ и роняли сервис по лимиту памяти.
+        for i in range(0, len(segments), ASR_BATCH):
+            batch = segments[i:i + ASR_BATCH]
+            streams = []
+            for _, chunk in batch:
+                stream = rec.create_stream()
+                stream.accept_waveform(SR, chunk)
+                streams.append(stream)
             rec.decode_streams(streams)
-    return [(start, s.result.text.strip()) for (start, _), s in zip(segments, streams) if s.result.text.strip()]
+            out += [(start, s.result.text.strip()) for (start, _), s in zip(batch, streams) if s.result.text.strip()]
+    return out
 
 
 def transcribe(data: bytes, ext: str) -> dict:
@@ -173,6 +185,36 @@ def ocr_pdf(data: bytes) -> dict:
     return {"kind": "document", "ocr": True, "pages": total, "markdown": "\n\n".join(parts) or "(текст в скане не найден)"}
 
 
+def audio_chunks(data: bytes, ext: str, max_sec: float) -> dict:
+    """Запись → куски до max_sec, границы — начала фраз (паузы), mp3 для облака."""
+    import base64
+    samples = decode_audio(data, ext)
+    total = len(samples)
+    limit = int(max_sec * SR)
+    cuts = [0]
+    prev = 0  # начало последней фразы, ещё помещающейся в текущий кусок
+    for start, _ in speech_segments(samples):
+        at = int(start * SR)
+        while at - cuts[-1] > limit:
+            # Фраза не помещается: режем по началу предыдущей (пауза перед ней),
+            # а если такой нет — жёстко по пределу куска.
+            cuts.append(prev if prev > cuts[-1] else cuts[-1] + limit)
+        prev = at
+    while total - cuts[-1] > limit:
+        cuts.append(prev if prev > cuts[-1] else cuts[-1] + limit)
+    cuts.append(total)
+    chunks = []
+    for a, b in zip(cuts, cuts[1:]):
+        if b - a < SR // 2:
+            continue
+        pcm = (samples[a:b] * 32767).astype(np.int16).tobytes()
+        mp3 = subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "s16le", "-ar", str(SR), "-ac", "1",
+                              "-i", "pipe:0", "-c:a", "libmp3lame", "-b:a", "32k", "-f", "mp3", "pipe:1"],
+                             input=pcm, capture_output=True, check=True, timeout=300).stdout
+        chunks.append({"start": round(a / SR, 2), "mp3": base64.b64encode(mp3).decode()})
+    return {"durationSec": round(total / SR, 1), "chunks": chunks}
+
+
 def convert_document(data: bytes, ext: str) -> dict:
     if ext in IMAGES:
         return ocr_image(data)
@@ -205,7 +247,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         url = urlparse(self.path)
-        if url.path not in ("/ingest", "/transcribe"):
+        if url.path not in ("/ingest", "/transcribe", "/chunks"):
             return self.reply(404, {"error": "not found"})
         length = int(self.headers.get("content-length") or 0)
         if length <= 0 or length > MAX_BYTES:
@@ -216,6 +258,14 @@ class Handler(BaseHTTPRequestHandler):
         started = time.monotonic()
         if url.path == "/transcribe":
             return self.dictation(data, started)
+        if url.path == "/chunks":
+            try:
+                max_sec = float((parse_qs(url.query).get("max") or ["240"])[0])
+                out = audio_chunks(data, ext, max(30.0, min(max_sec, 600.0)))
+            except subprocess.CalledProcessError as e:
+                return self.reply(422, {"error": f"аудио не декодируется: {e.stderr.decode(errors='replace')[:200]}"})
+            print(f"[chunks] {name}: {out['durationSec']} с → {len(out['chunks'])} кусков за {int((time.monotonic() - started) * 1000)} мс", flush=True)
+            return self.reply(200, out)
         try:
             out = transcribe(data, ext) if ext in AUDIO else convert_document(data, ext)
         except subprocess.CalledProcessError as e:
