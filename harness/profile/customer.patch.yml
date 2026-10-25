@@ -7,6 +7,17 @@
         providers:
           zai:
             apiKeyEnv: ZAI_API_KEY
+          # Requesty — OpenAI-совместимый роутер; быстрая модель микродиалога,
+          # пока квота z.ai исчерпана. Ключ — REQUESTY_API_KEY в harness/.env.
+          requesty:
+            displayName: Requesty
+            api: openai-completions
+            baseURL: https://router.requesty.ai/v1
+            apiKeyEnv: REQUESTY_API_KEY
+            models:
+              - id: anthropic/claude-haiku-5-5
+                name: Claude Haiku 5.5
+                contextWindow: 200000
     # Пресет агента заказчика: агент dsh видит только инструменты своего
     # пресета (изолированная группа), глобальные узлы ему не видны.
     - id: preset-customer
@@ -33,12 +44,14 @@
           - id: customer-form-tool
             name: 'customer-form/tool'
 
-# Дефолтная модель портала — zai (rev5). Без этого каталог берёт
-# deepseek-official/deepseek-flash без ключа → «Send» задизейблен.
+# Модель портала по умолчанию: Requesty/Claude Haiku 5.5, если задан
+# REQUESTY_API_KEY, иначе zai/glm-5-turbo; PORTAL_PROVIDER/PORTAL_MODEL — явный
+# выбор. Без этого узла каталог берёт deepseek-official без ключа → «Отправить»
+# выключена.
 - id: agent-default-model
   config:
-    provider: zai
-    model: glm-5-turbo
+    provider: !!js "process.env.PORTAL_PROVIDER || (process.env.REQUESTY_API_KEY ? 'requesty' : 'zai')"
+    model: !!js "process.env.PORTAL_MODEL || (process.env.REQUESTY_API_KEY ? 'anthropic/claude-haiku-5-5' : 'glm-5-turbo')"
 
 # Заказчику не показываем «Internal Testing Notice» dsh: версия уведомления
 # считается подтверждённой (так её записывает сам dsh по кнопке Continue).
