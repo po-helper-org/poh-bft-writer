@@ -15,6 +15,10 @@
       "types": "./lib/tool.d.ts",
       "default": "./lib/tool.js"
     },
+    "./speech": {
+      "types": "./lib/speech.d.ts",
+      "default": "./lib/speech.js"
+    },
     "./client": {
       "types": "./lib/client/index.d.ts",
       "default": "./lib/client.js"

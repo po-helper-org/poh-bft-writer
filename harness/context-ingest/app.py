@@ -3,6 +3,8 @@ context-ingest: материал заказчика → Markdown, который
 
   POST /ingest?name=<имя файла>   тело — байты файла
   → {"kind": "audio"|"document", "markdown": "...", "durationSec": 35.2, "elapsedMs": 900}
+  POST /transcribe                тело — запись микрофона композера (WAV)
+  → {"text": "...", "audioSeconds": 4.2, "inferenceSeconds": 0.3}
   GET  /health
 
 Аудио: ffmpeg (любой контейнер, в т.ч. m4a диктофона iPhone) → 16 кГц моно →
@@ -90,8 +92,8 @@ def stamp(seconds: float) -> str:
     return f"{m // 60}:{m % 60:02d}:{s:02d}" if m >= 60 else f"{m:02d}:{s:02d}"
 
 
-def transcribe(data: bytes, ext: str) -> dict:
-    samples = decode_audio(data, ext)
+def recognize(samples: np.ndarray):
+    """Фразы записи: [(начало в секундах, текст)]."""
     with _asr_lock:  # CPU: одна расшифровка за раз, потоки — внутри ONNX
         rec = recognizer()
         segments = speech_segments(samples)
@@ -102,7 +104,12 @@ def transcribe(data: bytes, ext: str) -> dict:
             streams.append(stream)
         if streams:
             rec.decode_streams(streams)
-    lines = [f"[{stamp(start)}] {s.result.text.strip()}" for (start, _), s in zip(segments, streams) if s.result.text.strip()]
+    return [(start, s.result.text.strip()) for (start, _), s in zip(segments, streams) if s.result.text.strip()]
+
+
+def transcribe(data: bytes, ext: str) -> dict:
+    samples = decode_audio(data, ext)
+    lines = [f"[{stamp(start)}] {text}" for start, text in recognize(samples)]
     return {"kind": "audio", "markdown": "\n".join(lines) or "(речь не распознана)", "durationSec": round(len(samples) / SR, 1)}
 
 
@@ -129,7 +136,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         url = urlparse(self.path)
-        if url.path != "/ingest":
+        if url.path not in ("/ingest", "/transcribe"):
             return self.reply(404, {"error": "not found"})
         length = int(self.headers.get("content-length") or 0)
         if length <= 0 or length > MAX_BYTES:
@@ -138,6 +145,8 @@ class Handler(BaseHTTPRequestHandler):
         ext = os.path.splitext(name)[1].lower()
         data = self.rfile.read(length)
         started = time.monotonic()
+        if url.path == "/transcribe":
+            return self.dictation(data, started)
         try:
             out = transcribe(data, ext) if ext in AUDIO else convert_document(data, ext)
         except subprocess.CalledProcessError as e:
@@ -147,6 +156,17 @@ class Handler(BaseHTTPRequestHandler):
         out["elapsedMs"] = int((time.monotonic() - started) * 1000)
         print(f"[ingest] {name}: {out['kind']} {len(out['markdown'])} симв. за {out['elapsedMs']} мс", flush=True)
         self.reply(200, out)
+
+    def dictation(self, data: bytes, started: float) -> None:
+        """Микрофон композера (провайдер ctx.speechToText): текст без меток времени."""
+        try:
+            samples = decode_audio(data, ".wav")
+            text = " ".join(t for _, t in recognize(samples))
+        except subprocess.CalledProcessError as e:
+            return self.reply(422, {"error": f"аудио не декодируется: {e.stderr.decode(errors='replace')[:200]}"})
+        elapsed = time.monotonic() - started
+        print(f"[transcribe] {len(samples) / SR:.1f} с речи → {len(text)} симв. за {int(elapsed * 1000)} мс", flush=True)
+        self.reply(200, {"text": text, "audioSeconds": round(len(samples) / SR, 2), "inferenceSeconds": round(elapsed, 3)})
 
     def log_message(self, *_):
         pass
