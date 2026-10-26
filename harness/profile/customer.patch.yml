@@ -147,3 +147,7 @@
   disabled: true
 - id: ui-workflow-run
   disabled: true
+# Потоковый микрофон customer-form (ADR-0008 rev4) вместо штатной кнопки
+# голосового ввода: та отправляет запись целиком после «Стоп».
+- id: ui-voice-input
+  disabled: true

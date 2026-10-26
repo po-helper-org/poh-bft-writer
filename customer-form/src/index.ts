@@ -127,12 +127,7 @@ export function apply(ctx: HarnessContext): void {
   const materials = sharedMaterials()
   const voice = new VoiceContext(materials)
 
-  // Подсказка терминов микрофону (speech-ru, ADR-0008): тексты диалога записи.
-  ctx.inject(['speechHints'], (scoped: HarnessContext) => {
-    const hints = scoped.get('speechHints') as { register(source: (request: { audioKey: string }) => string[] | undefined): () => void }
-    console.log('[customer-form] термины диалога → распознавание речи (speech-ru) подключены')
-    scoped.effect(() => hints.register(({ audioKey }) => voice.texts(audioKey)), 'customer-form: термины диалога для распознавания речи')
-  })
+
 
   // Ссылки — штатным ctx.web dsh (только публичные адреса).
   ctx.inject(['web'], (scoped: HarnessContext) => {
@@ -204,22 +199,24 @@ export function apply(ctx: HarnessContext): void {
         return Response.json({ type: 'server-response', rpcId, result: { ok: true, value: { path: workspacePath } } })
       },
     }), 'customer-form: /api/customer-form.workspacePath')
-    // Клиент перед распознаванием: «запись с ключом K — из сессии S».
+    // Потоковая диктовка: кусок речи (WAV 16 кГц) → текст, по мере записи.
     scoped.effect(() => register({
-      path: '/api/customer-form.voiceContext',
+      path: '/api/customer-form.dictate',
       methods: ['POST'],
       requestBody: 'buffered',
       fetch: async (request: Request) => {
-        let rpcId = 'r'
+        const url = new URL(request.url)
+        const sessionId = url.searchParams.get('session') ?? ''
+        const previous = (url.searchParams.get('prev') ?? '').slice(-300)
         try {
-          const body = (await request.json()) as { rpcId?: string; payload?: { audioKey?: unknown; sessionId?: unknown } }
-          rpcId = body.rpcId ?? rpcId
-          const { audioKey, sessionId } = body.payload ?? {}
-          if (typeof audioKey === 'string' && typeof sessionId === 'string' && audioKey.length < 64 && sessionId.length < 128) voice.announce(audioKey, sessionId)
-        } catch { /* битое тело: подсказки просто не будет */ }
-        return Response.json({ type: 'server-response', rpcId, result: { ok: true, value: {} } })
+          const wav = new Uint8Array(await request.arrayBuffer())
+          if (wav.byteLength < 44 || wav.byteLength > 4 * 1024 * 1024) return Response.json({ error: 'кусок записи пустой или слишком большой' }, { status: 413 })
+          return Response.json({ text: await voice.dictate(wav, sessionId, previous) })
+        } catch (e) {
+          return Response.json({ error: (e as Error).message }, { status: 502 })
+        }
       },
-    }), 'customer-form: /api/customer-form.voiceContext')
+    }), 'customer-form: /api/customer-form.dictate')
 
     // Страница сценария приёмки для правой панели (UserFlow + раскадровка + замечания).
     scoped.effect(() => register({

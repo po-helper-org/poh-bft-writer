@@ -12,6 +12,7 @@ import type { IWorkspaces, WorkspaceId } from '@deepseek-ai/dsh-api-workspace-co
 import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { ComponentType } from 'react'
+import { StreamingMic } from './mic.js'
 import {
   ACCEPTANCE_PREFIX, ACCEPTANCE_TAB, AcceptanceTab, AcceptanceTitle, bridges, InfoView, InputBridge, lastSessionId, sessionOfAddress,
   type SessionInfo,
@@ -109,60 +110,9 @@ const RU_CHAT: Record<string, string> = {
   'row.failed': 'Ошибка',
 }
 
-/** Микрофон композера (голосовой ввод dsh, провайдер ru-speech плагина speech-ru). */
-const RU_SPEECH: Record<string, string> = {
-  dictate: 'Надиктовать',
-  start: 'Начать запись',
-  stop: 'Остановить и распознать',
-  cancel: 'Отмена',
-  insert: 'Вставить текст',
-  discard: 'Убрать распознанный текст',
-  retryRecording: 'Записать снова',
-  loading: 'Подключаем распознавание…',
-  reconnecting: 'Подключаем распознавание речи…',
-  requesting: 'Разрешите доступ к микрофону…',
-  recording: 'Идёт запись…',
-  transcribingShort: 'Распознаю…',
-  wakingShort: 'Запускаю…',
-  interrupted: 'Запись прервалась. Попробуйте ещё раз.',
-  provider: 'Распознавание',
-  language: 'Язык',
-  ru: 'Русский',
-  local: 'Речь распознаётся на сервере портала, запись никуда не отправляется.',
-  cloud: 'Речь распознаёт облачный сервис (Requesty, gpt-4o-mini-transcribe); если он недоступен — сервер портала.',
-  cloudReady: 'Распознавание речи готово.',
-  'preparation.ready': 'Распознавание речи готово.',
-  empty: 'Речь не распознана',
-  cancelled: 'Голосовой ввод отменён.',
-  conflict: 'Черновик изменился. Распознанный текст сохранён — его можно вставить в позицию курсора.',
-  failed: 'Не удалось распознать речь: {message}',
-  unavailable: 'Этот браузер не умеет записывать звук. Откройте портал в браузере с микрофоном.',
-  permission: 'Доступ к микрофону выключен. Разрешите его в настройках браузера и системы.',
-  tooLarge: 'Запись слишком длинная. Запишите короче — до двух минут.',
-  'setupPrompt.unavailableTitle': 'Распознавание речи не готово',
-  'setupPrompt.unavailableBody': 'Распознавание речи сейчас недоступно. Напишите текстом или приложите запись файлом.',
-  'setupPrompt.later': 'Позже',
-}
-
 const RU_COMMON: Record<string, string> = {
   submit: 'Отправить',
   submitting: 'Отправляем…',
-}
-
-/**
- * Ключ записи микрофона — тот же расчёт, что audioKey в speech-ru (длина +
- * FNV-1a 32 по байтам): узел по нему находит диалог записи. Без crypto.subtle —
- * портал открывают и по HTTP в локальной сети, где его нет.
- */
-function audioKeyOfBase64(base64: string): string {
-  const bytes = atob(base64)
-  let h = 0x811c9dc5
-  for (let i = 0; i < bytes.length; i++) h = Math.imul(h ^ bytes.charCodeAt(i), 0x01000193)
-  return `${bytes.length}:${(h >>> 0).toString(16)}`
-}
-
-interface SpeechRemoteLike {
-  transcribe(request: { audioBase64: string }, signal?: AbortSignal): Promise<unknown>
 }
 
 interface HostRpcLike {
@@ -193,42 +143,14 @@ export function apply(ctx: ClientContext): void {
   // 2) Русский язык интерфейса (штатный языковой пакет dsh).
   const locale = ctx.get('locale') as LocaleLike
   ctx.effect(() => locale.addLanguage({ id: 'ru', label: 'Русский', fallback: 'en' }), 'customer-form: язык ru')
-  const dictionaries = { conversation: RU_CONVERSATION, question: RU_QUESTION, plan: RU_PLAN, chat: RU_CHAT, common: RU_COMMON, 'voice-input': RU_SPEECH }
+  const dictionaries = { conversation: RU_CONVERSATION, question: RU_QUESTION, plan: RU_PLAN, chat: RU_CHAT, common: RU_COMMON }
   for (const [namespace, dictionary] of Object.entries(dictionaries)) {
     ctx.effect(() => locale.register(namespace, 'ru', dictionary), `customer-form: словарь ru/${namespace}`)
   }
 
-  // 3) Подсказка терминов микрофону (speech-ru, ADR-0008): штатный голосовой
-  //    ввод шлёт на узел только запись, поэтому перед распознаванием говорим
-  //    узлу, из какого диалога она, — распознаватель возьмёт его термины.
+  // 3) RPC к узлу customer-form; сессия, которую открыл портал.
   const host = ctx.get('connection') as unknown as HostRpcLike
   let activeSessionId: string | undefined
-  //    Метод namespace-службы remote.speech — геттер (шлюз dsh отдаёт функцию,
-  //    привязанную к контексту вызывающего плагина), поэтому переопределяем
-  //    геттер и зовём исходный с тем же this.
-  ctx.inject(['remote.speech'], (scoped) => {
-    const speech = scoped.get('remote.speech') as SpeechRemoteLike | undefined
-    const original = speech && Object.getOwnPropertyDescriptor(speech, 'transcribe')
-    if (!speech || !original?.get) {
-      console.warn('[customer-form] remote.speech.transcribe не найден — микрофон без терминов диалога')
-      return
-    }
-    const originalGet = original.get
-    Object.defineProperty(speech, 'transcribe', {
-      ...original,
-      get(this: SpeechRemoteLike) {
-        const call = originalGet.call(this) as SpeechRemoteLike['transcribe']
-        return async (request: { audioBase64: string }, signal?: AbortSignal) => {
-          if (activeSessionId) {
-            await host.rpc.call('/api', 'customer-form.voiceContext', { audioKey: audioKeyOfBase64(request.audioBase64), sessionId: activeSessionId })
-              .catch(() => undefined) // без подсказки распознавание всё равно идёт
-          }
-          return call(request, signal)
-        }
-      },
-    })
-    scoped.effect(() => () => { Object.defineProperty(speech, 'transcribe', original) }, 'customer-form: термины диалога для микрофона')
-  })
 
   // 4) Сценарий приёмки страницей в правой панели, замечания → строка ввода,
   //    вкладка Information (ADR-0007 rev10).
@@ -246,8 +168,10 @@ export function apply(ctx: ClientContext): void {
   })
   slots.inject('sidebar.right.pane.tab', () => slots.register({ name: 'sidebar.right.pane.tab', key: ACCEPTANCE_TAB }, AcceptanceTab as ComponentType<never>))
   slots.inject('sidebar.right.pane.tab.title', () => slots.register({ name: 'sidebar.right.pane.tab.title', key: ACCEPTANCE_TAB }, AcceptanceTitle as ComponentType<never>))
-  // conversation.input.activity — одиночный слот (его держит голосовой ввод), поэтому мост — в списочном input.right.
+  // Мост — в списочном input.right: одиночный input.activity занят микрофоном.
   slots.inject('conversation.input.right', () => slots.register({ name: 'conversation.input.right', id: 'customer-form-bridge' }, InputBridge as ComponentType<never>))
+  // Потоковый микрофон вместо штатного голосового ввода (ui-voice-input выключен в профиле, ADR-0008 rev4).
+  slots.inject('conversation.input.activity', () => slots.register({ name: 'conversation.input.activity' }, StreamingMic as ComponentType<never>))
 
   const loadInfo = async (sessionId: string): Promise<SessionInfo | undefined> => {
     const res = await host.rpc.call('/api', 'customer-form.sessionInfo', { sessionId })

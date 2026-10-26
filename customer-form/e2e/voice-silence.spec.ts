@@ -11,5 +11,5 @@ test.use(fakeMic('silence.wav'))
 test('микрофон молчит → подсказка про устройство, а не «Речь не распознана»', async ({ page }) => {
   test.setTimeout(60_000)
   await dictate(page, 3)
-  await expect(page.getByText(/микрофон передал тишину/).first()).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByText(/микрофон передал тишину/i).first()).toBeVisible({ timeout: 15_000 })
 })
