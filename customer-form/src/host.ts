@@ -33,6 +33,19 @@ export interface Ticket {
   demoApprovedAt?: string
 }
 
+/** Обращение в списке «Мои обращения» на стартовом экране портала. */
+export interface RequestSummary {
+  sessionId: string
+  taskId: number
+  url: string
+  title: string
+  /** ISO-время создания задачи в трекере. */
+  created: string
+  /** Колонка доски «Запросы»: Создан, Ожидает PO, Проработка БФТ… */
+  status?: string | undefined
+  demoApproved: boolean
+}
+
 /** Дата для людей: заказчик и PO — в Москве. */
 function when(iso: string): string {
   return new Date(iso).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow', dateStyle: 'short', timeStyle: 'short' })
@@ -190,6 +203,62 @@ export class Backlog {
     ].join('')
     await this.fetchImpl(`${task}/comments`, { method: 'PUT', headers, body: JSON.stringify({ comment: summary }) })
     await this.attach(ticket, `context-${ticket.taskId}.md`, new TextEncoder().encode(transcript))
+  }
+
+  /**
+   * Обращения заказчика для стартового экрана: заявки его сессий (браузер
+   * помнит их сам) — свежие первыми, статус — колонка доски «Запросы».
+   */
+  async overview(sessionIds: readonly string[]): Promise<RequestSummary[]> {
+    const all = await this.tickets
+    const own = sessionIds.flatMap((sessionId) => (all[sessionId] ? [{ sessionId, ticket: all[sessionId] }] : []))
+    if (!own.length) return []
+    const headers = await this.vkHeaders()
+    const statuses = await this.statuses().catch(() => new Map<number, string>())
+    const fallback = statuses.get(0)
+    const items = await Promise.all(own.map(async ({ sessionId, ticket }): Promise<RequestSummary | undefined> => {
+      const res = await this.fetchImpl(`${this.cfg.trackerUrl}/tasks/${ticket.taskId}`, { headers }).catch(() => undefined)
+      if (!res?.ok) return undefined // задачу удалили в трекере — обращения нет
+      const task = (await res.json()) as { title?: string; created?: string; done?: boolean }
+      return {
+        sessionId,
+        taskId: ticket.taskId,
+        url: ticket.url,
+        title: task.title || `Заявка #${ticket.taskId}`,
+        created: task.created ?? '',
+        status: statuses.get(ticket.taskId) ?? (task.done ? 'Закрыта' : fallback),
+        demoApproved: !!ticket.demoApprovedAt,
+      }
+    }))
+    return items.filter((item): item is RequestSummary => !!item).sort((a, b) => b.created.localeCompare(a.created) || b.taskId - a.taskId)
+  }
+
+  /** Доска со всеми обращениями: вид «Запросы» проекта БФТ (или сам проект). */
+  async boardUrl(): Promise<string> {
+    const pid = await this.projectId()
+    const view = (await this.requestsView().catch(() => undefined))?.id
+    return `${this.cfg.trackerPublicUrl}/projects/${pid}${view ? `/${view}` : ''}`
+  }
+
+  private async requestsView(): Promise<{ id: number } | undefined> {
+    const pid = await this.projectId()
+    const res = await this.fetchImpl(`${this.cfg.trackerUrl}/projects/${pid}`, { headers: await this.vkHeaders() })
+    const views = ((await res.json()) as { views?: { id: number; title: string; view_kind: string }[] }).views ?? []
+    return views.find((v) => v.title === 'Запросы') ?? views.find((v) => v.view_kind === 'kanban')
+  }
+
+  /** Задача → колонка доски «Запросы»; ключ 0 — первая колонка (новые). */
+  private async statuses(): Promise<Map<number, string>> {
+    const view = await this.requestsView()
+    const out = new Map<number, string>()
+    if (!view) return out
+    const pid = await this.projectId()
+    const res = await this.fetchImpl(`${this.cfg.trackerUrl}/projects/${pid}/views/${view.id}/tasks?per_page=200`, { headers: await this.vkHeaders() })
+    const buckets = (await res.json()) as { title: string; tasks?: { id: number }[] }[]
+    if (!Array.isArray(buckets)) return out
+    if (buckets[0]) out.set(0, buckets[0].title)
+    for (const bucket of buckets) for (const task of bucket.tasks ?? []) out.set(task.id, bucket.title)
+    return out
   }
 
   private async vkHeaders(): Promise<Record<string, string>> {

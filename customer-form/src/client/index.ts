@@ -13,6 +13,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { ComponentType } from 'react'
 import { StreamingMic } from './mic.js'
+import { RecentRequests, rememberSession, type MyRequests } from './recent.js'
 import {
   ACCEPTANCE_PREFIX, ACCEPTANCE_TAB, AcceptanceTab, AcceptanceTitle, bridges, InfoView, InputBridge, lastSessionId, sessionOfAddress,
   type SessionInfo,
@@ -189,6 +190,19 @@ export function apply(ctx: ClientContext): void {
     inject: (sessionId: string) => ({ sessionId, loadInfo, openAcceptance }),
   }, InfoView as ComponentType<never>))
 
+  // «Мои обращения» под формой стартового экрана (rev12): слот hero.agentPreset
+  // свободен (ui-agent-preset выключен в профиле) и есть только у пустого чата.
+  const uiWorkspaceOf = () => ctx.get('uiWorkspace') as { openSession(id: string): void } | undefined
+  const loadRequests = async (sessionIds: string[]): Promise<MyRequests | undefined> => {
+    const res = await host.rpc.call('/api', 'customer-form.myRequests', { sessionIds })
+    return res.ok ? (res.value as unknown as MyRequests) : undefined
+  }
+  const openSession = (sessionId: string) => uiWorkspaceOf()?.openSession(sessionId)
+  slots.inject('conversation.hero.agentPreset', () => slots.register({
+    name: 'conversation.hero.agentPreset',
+    inject: () => ({ loadRequests, openSession }),
+  }, RecentRequests as ComponentType<never>))
+
   // Замечание со страницы сценария (iframe того же origin) → строка ввода.
   const onRemark = (event: MessageEvent) => {
     const data = event.data as { type?: string; id?: string; text?: string } | undefined
@@ -225,6 +239,7 @@ export function apply(ctx: ClientContext): void {
       for (let attempt = 0; ; attempt++) {
         try {
           activeSessionId = await sessions.create({ workspaceId: workspace.workspaceId })
+          rememberSession(activeSessionId) // «мои обращения» — сессии этого браузера
           uiWorkspace.openSession(activeSessionId)
           break
         } catch (e) {

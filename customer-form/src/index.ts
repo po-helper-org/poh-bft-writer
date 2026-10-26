@@ -237,6 +237,30 @@ export function apply(ctx: HarnessContext): void {
       },
     }), 'customer-form: /api/customer-form.demo')
 
+    // Стартовый экран: последние обращения заказчика (сессии помнит его браузер)
+    // и ссылка на доску со всеми обращениями.
+    scoped.effect(() => register({
+      path: '/api/customer-form.myRequests',
+      methods: ['POST'],
+      requestBody: 'buffered',
+      fetch: async (request: Request) => {
+        let rpcId = 'r'
+        let sessionIds: string[] = []
+        try {
+          const body = (await request.json()) as { rpcId?: string; payload?: { sessionIds?: unknown } }
+          rpcId = body.rpcId ?? rpcId
+          if (Array.isArray(body.payload?.sessionIds)) sessionIds = body.payload.sessionIds.filter((id): id is string => typeof id === 'string').slice(0, 200)
+        } catch { /* пустое тело */ }
+        try {
+          const [items, boardUrl] = await Promise.all([backlog.overview(sessionIds), backlog.boardUrl()])
+          return Response.json({ type: 'server-response', rpcId, result: { ok: true, value: { items, boardUrl } } })
+        } catch (e) {
+          console.error('[customer-form] обращения не загрузились:', e)
+          return Response.json({ type: 'server-response', rpcId, result: { ok: false, error: (e as Error).message } })
+        }
+      },
+    }), 'customer-form: /api/customer-form.myRequests')
+
     // Вкладка Information: ссылка на заявку, материалы диалога, статус сценария.
     scoped.effect(() => register({
       path: '/api/customer-form.sessionInfo',
