@@ -7,8 +7,9 @@
  * строкой пресета (customer.patch.yml), а Backlog берёт общий с узлом
  * customer-form (заявку тот создал по первому сообщению).
  */
-import { demoSteps, doneList, repairDemo, sharedDemos, storyboardMarkdown, type AcceptanceDemo } from './demo.js'
-import { sharedBacklog, type Backlog, type Intake, type Ticket } from './host.js'
+import { demoSteps, doneList, repairDemo, sharedDemos, storyboardMarkdown, type AcceptanceDemo, type DemoRecord } from './demo.js'
+import { demoPageHtml } from './demo-page.js'
+import { moscowTime, sharedBacklog, type Backlog, type Intake, type Ticket } from './host.js'
 import { materialsPack, pendingNote, sharedMaterials, type Materials } from './materials.js'
 
 // defineTool — значение из dsh-tools профиля (не из devDependencies плагина).
@@ -142,6 +143,8 @@ function confirmDemoTool(ctx: ToolContext, backlog: Backlog) {
       const demos = sharedDemos()
       const record = { demo: args, rev: (demos.get(agent.session.id)?.rev ?? 0) + 1 }
       demos.set(agent.session.id, record)
+      // Каждая версия сценария — страницей в заявку: PO видит, что предлагали заказчику.
+      void attachAcceptancePage(backlog, agent.session.id, record)
       const answer = await questions.ask({
         questions: [{
           id: DEMO_REVIEW,
@@ -168,13 +171,34 @@ function confirmDemoTool(ctx: ToolContext, backlog: Backlog) {
         throw new Error(`Заказчик не согласовал сценарий${feedback ? `: ${feedback}` : ''}. Исправь шаги и снова вызови confirm_acceptance_demo.`)
       }
       const steps = demoSteps(args)
-      demos.set(agent.session.id, { ...record, approvedAt: new Date().toISOString() })
+      const approved = { ...record, approvedAt: new Date().toISOString() }
+      demos.set(agent.session.id, approved)
       const ticket = await backlog.find(agent.session.id)
       const checklist = doneList(args)
       if (ticket) await backlog.approveDemo(agent.session.id, ticket, steps, checklist.join('; '), storyboard)
+      await attachAcceptancePage(backlog, agent.session.id, approved)
       return ['Заказчик согласовал сценарий приёмки кнопкой «Согласую». В howToDemo заявки перенеси эти шаги без изменений:',
         ...steps.map((s, i) => `${i + 1}. ${s}`), 'Работа принята, если (чек-лист заказчика):', ...checklist.map((c) => `- ${c}`)].join('\n')
     },
+  }
+}
+
+/**
+ * Страница сценария приёмки (UserFlow, раскадровка, чек-лист, замечания) —
+ * файлом .html в заявку: та же, что заказчик видел в правой панели, открывается
+ * и без портала. Согласованная версия — отдельным файлом с отметкой времени.
+ * Сбой трекера диалог не роняет.
+ */
+async function attachAcceptancePage(backlog: Backlog, sessionId: string, record: DemoRecord): Promise<void> {
+  try {
+    const ticket = await backlog.find(sessionId)
+    if (!ticket) return
+    const approved = record.approvedAt ? moscowTime(record.approvedAt) : undefined
+    const html = demoPageHtml(record.demo, { sessionId, rev: record.rev, taskId: ticket.taskId, ...(approved ? { approved } : {}) })
+    const name = `scenarij-priyomki-${ticket.taskId}-v${record.rev}${approved ? '-soglasovan' : ''}.html`
+    await backlog.attach(ticket, name, new TextEncoder().encode(html))
+  } catch (e) {
+    console.error('[customer-form] страница сценария не ушла в задачу:', e)
   }
 }
 

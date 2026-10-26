@@ -77,4 +77,13 @@ test('материалы: m4a + docx → черновик по материал�
   expect(files.some((f) => /^S\d+-brief-.*\.md$/.test(f)), 'текст брифа в задаче').toBeTruthy()
   const body = await (await request.get(`${TRACKER_API}/tasks/${taskId}/attachments/${transcript!.id}`, { headers: auth })).text()
   expect(body, 'расшифровка содержит речь').toMatch(/отдел\S* кадров/i)
+
+  // Страница сценария приёмки — .html в задаче: предложенная версия и согласованная.
+  expect(files, 'сценарий приёмки страницей').toContain(`scenarij-priyomki-${taskId}-v1.html`)
+  const agreed = (task.attachments ?? []).find((a) => a.file.name === `scenarij-priyomki-${taskId}-v1-soglasovan.html`)
+  expect(agreed, `согласованный сценарий в задаче (есть: ${files.join(', ')})`).toBeTruthy()
+  const page2 = await (await request.get(`${TRACKER_API}/tasks/${taskId}/attachments/${agreed!.id}`, { headers: auth })).text()
+  expect(page2).toContain('<!doctype html>')
+  expect(page2, 'отметка согласования').toContain('class="ok">согласован')
+  expect(page2, 'UserFlow').toContain('flowchart')
 })

@@ -17,7 +17,7 @@
 
 import { randomUUID } from 'node:crypto'
 import { mkdir, readFile } from 'node:fs/promises'
-import { Backlog, sharedBacklog, type Ticket } from './host.js'
+import { Backlog, moscowTime, sharedBacklog, type Ticket } from './host.js'
 import { sharedMaterials, type Material, type Materials, type WebLike } from './materials.js'
 import { VoiceContext } from './voice.js'
 import { sharedDemos } from './demo.js'
@@ -231,7 +231,7 @@ export function apply(ctx: HarnessContext): void {
             { status: 404, headers: { 'content-type': 'text/html; charset=utf-8' } })
         }
         const ticket = await backlog.find(sessionId).catch(() => undefined)
-        const approved = record.approvedAt ? new Date(record.approvedAt).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow', dateStyle: 'short', timeStyle: 'short' }) : undefined
+        const approved = record.approvedAt ? moscowTime(record.approvedAt) : undefined
         const html = demoPageHtml(record.demo, { sessionId, rev: record.rev, taskId: ticket?.taskId, approved })
         return new Response(html, { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } })
       },

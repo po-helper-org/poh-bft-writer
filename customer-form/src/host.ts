@@ -47,7 +47,7 @@ export interface RequestSummary {
 }
 
 /** Дата для людей: заказчик и PO — в Москве. */
-function when(iso: string): string {
+export function moscowTime(iso: string): string {
   return new Date(iso).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow', dateStyle: 'short', timeStyle: 'short' })
 }
 
@@ -88,7 +88,7 @@ export function intakeHtml(intake: Intake, taskId: number, demoApprovedAt?: stri
     '<h2>ASIS — как работает сейчас</h2>', paragraphs(intake.asis),
     '<h2>GAP — почему не устраивает</h2>', paragraphs(intake.gap),
     '<h2>TOBE — как должно работать</h2>', paragraphs(intake.tobe),
-    `<h2>HowToDemo — сценарий приёмки${demoApprovedAt ? ` (согласован заказчиком ${when(demoApprovedAt)})` : ''}</h2>`, items('ol', intake.howToDemo.map(esc), '— уточнит PO —'),
+    `<h2>HowToDemo — сценарий приёмки${demoApprovedAt ? ` (согласован заказчиком ${moscowTime(demoApprovedAt)})` : ''}</h2>`, items('ol', intake.howToDemo.map(esc), '— уточнит PO —'),
     '<h2>Глоссарий</h2>',
     items('ul', intake.glossary.map((g) => `<strong>${esc(g.term)}</strong> — ${esc(g.expansion)}`), '— сокращений нет —'),
     '<h2>Ссылки</h2>', items('ul', intake.links.map((l) => `<a href="${esc(l)}">${esc(l)}</a>`), '— нет —'),
@@ -149,7 +149,7 @@ export class Backlog {
     const approved = { ...ticket, demoApprovedAt: new Date().toISOString() }
     await this.save(sessionId, approved)
     const comment = [
-      `<p><strong>✅ Заказчик согласовал сценарий приёмки</strong> — ${esc(when(approved.demoApprovedAt))}</p>`,
+      `<p><strong>✅ Заказчик согласовал сценарий приёмки</strong> — ${esc(moscowTime(approved.demoApprovedAt))}</p>`,
       items('ol', steps.map(esc), ''),
       `<p><strong>Работа принята, если:</strong> ${esc(done)}</p>`,
       '<p>Раскадровка по экранам — во вложении.</p>',
