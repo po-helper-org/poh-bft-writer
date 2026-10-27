@@ -53,6 +53,11 @@ if ! grep -q '^TRACKER_HOOK_TOKEN=..' .env; then
   set_kv TRACKER_HOOK_TOKEN "$(gen)"
   echo "✓ TRACKER_HOOK_TOKEN сгенерирован (вебхук Трекер → Коробка)"
 fi
+# Команда PO/аналитиков в Трекере (ADR-0009): общий стартовый пароль учёток.
+if ! grep -q '^TRACKER_TEAM_PASSWORD=..' .env; then
+  set_kv TRACKER_TEAM_PASSWORD "$(gen)"
+  echo "✓ TRACKER_TEAM_PASSWORD сгенерирован (учётки команды в Трекере)"
+fi
 # Шлюз Matrix (Т11): секрет регистрации Synapse генерирует сам при первом
 # старте — извлекаем из homeserver.yaml (том матрикса) после подъёма ниже.
 # Демо-профиль: коробка идёт в LLM-двойника, ключ не нужен.
