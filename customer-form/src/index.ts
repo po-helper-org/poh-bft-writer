@@ -23,6 +23,7 @@ import { VoiceContext } from './voice.js'
 import { sharedDemos } from './demo.js'
 import { demoPageHtml } from './demo-page.js'
 import type { AgentLike, BlockLike } from './tool.js'
+import { FAST_ROOT, fastFiles, fastPagePath, fastSlug } from './bft-fast.js'
 
 export const name = 'customer-form'
 
@@ -106,7 +107,9 @@ export const CUSTOMER_PROMPT = `Ты — ассистент приёма ини�
   Если read_customer_materials ответил «Ещё разбираются» — длинную запись не жди: сразу задай первую форму (ФИО и email, краткое название), разбор идёт, пока заказчик отвечает. После ответов снова вызови read_customer_materials и продолжай по шагам 1–4.
 - HowToDemo без материалов: спроси «Как вы будете проверять результат? Где зайдёте, что нажмёте, что должны увидеть» — можно в свободной форме. По ответу сам составь 2–7 шагов (по одному экрану на шаг, результат — проверяемый) и вызови confirm_acceptance_demo: заказчик увидит раскадровку по экранам и согласует её кнопкой. Если просит правки — исправь и покажи снова. Без его «Согласую» ИТОГ не собирай.
 - Когда всё собрано и сценарий согласован — одной репликой собери ИТОГ: пронумерованный список по семи пунктам (в HowToDemo — согласованные шаги) и спроси подтверждение.
-- После подтверждения вызови submit_customer_request со всеми полями, затем одной фразой поблагодари и дай ссылку на отслеживание из результата инструмента.
+- После подтверждения вызови submit_customer_request со всеми полями и сразу, не дожидаясь ответа заказчика, напиши «Собираю быструю версию БФТ…» и вызови create_bft_fast — документ на согласование собирается в этом же чате. Поля create_bft_fast бери только из сказанного заказчиком и его материалов (стенографист, а не аналитик): SMART — S что делаем, M по чему проверяем, R зачем; чего не звучало (часто A и T) — «[УТОЧНИТЬ]». Требования — строки БТ (зачем), ПТ (что хочет пользователь), ИТ (что видит на экране), ФТ (что делает система), НФТ (только если названы измеримые свойства); каждая строка — с цитатой: «Заказчик: «…»» — только дословные слова заказчика из его сообщений и ответов в форме, «Материалы [S1]: «…»» — из его файлов, «Сценарий приёмки (согласован): «…»» — из шагов и чек-листа, которые он согласовал кнопкой. Свои формулировки заказчику не приписывай; без цитаты строки нет. ASIS — как сейчас по словам заказчика (то, что вошло в ASIS заявки) у тех строк, к которым он относится; не звучал — пусто. Границы — только то, что заказчик выбрал или сказал: варианты из формы, которые он не выбрал, не переноси. Персоны — заказчик и люди, которых он назвал, роль и влияние — только из сказанного. Без служебных пометок в скобках («(слова заказчика)», «(чек-лист)»). Открытые вопросы — только настоящие пробелы задачи, на которые ответит заказчик или команда; про незаполненные ячейки документа («A и T в SMART») не пиши. Если инструмент вернул ошибки — исправь поля и вызови снова.
+- Когда документ собран: одной репликой поблагодари, дай ссылку на отслеживание заявки и ссылку на страницу документа из результата create_bft_fast, перечисли открытые вопросы и скажи, что замечания можно оставить прямо на странице или написать в чат — документ пересоберётся.
+- Правки документа после сборки: заказчик пишет, что поменять, — исправь поля и снова вызови create_bft_fast (submit_customer_request повторно не вызывай).
 - Сообщение «📌 Заявка #N …» добавляет портал, а не заказчик: на него не отвечай, номер заявки упомяни в итоговой сводке.
 - Не обещай сроков и бюджета — это решает PO. Не уходи в технические детали реализации.`
 
@@ -237,6 +240,24 @@ export function apply(ctx: HarnessContext): void {
       },
     }), 'customer-form: /api/customer-form.demo')
 
+    // Страница быстрой версии БФТ (bft-html-export.py навыка): ссылка из чата
+    // и вкладки Information. Документ лежит на диске — переживает рестарт.
+    scoped.effect(() => register({
+      path: '/api/customer-form.bftFast',
+      methods: ['GET'],
+      requestBody: 'buffered',
+      fetch: async (request: Request) => {
+        const sessionId = new URL(request.url).searchParams.get('session') ?? ''
+        const ticket = sessionId ? await backlog.find(sessionId).catch(() => undefined) : undefined
+        const html = ticket ? await readFile(fastFiles(FAST_ROOT, fastSlug(ticket.taskId)).html, 'utf8').catch(() => undefined) : undefined
+        if (!html) {
+          return new Response('<!doctype html><meta charset="utf-8"><p style="font:14px sans-serif;color:#888;padding:16px">Быстрая версия БФТ ещё не собрана.</p>',
+            { status: 404, headers: { 'content-type': 'text/html; charset=utf-8' } })
+        }
+        return new Response(html, { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } })
+      },
+    }), 'customer-form: /api/customer-form.bftFast')
+
     // Стартовый экран: последние обращения заказчика (сессии помнит его браузер)
     // и ссылка на доску со всеми обращениями.
     scoped.effect(() => register({
@@ -280,6 +301,7 @@ export function apply(ctx: HarnessContext): void {
           ticket: ticket ? { taskId: ticket.taskId, url: ticket.url, demoApprovedAt: ticket.demoApprovedAt } : null,
           files: sessionId ? materials.list(sessionId) : [],
           demo: record ? { rev: record.rev, title: record.demo.title, approved: !!record.approvedAt } : null,
+          bftFast: ticket && await readFile(fastFiles(FAST_ROOT, fastSlug(ticket.taskId)).md).then(() => true, () => false) ? fastPagePath(sessionId) : null,
         }
         return Response.json({ type: 'server-response', rpcId, result: { ok: true, value } })
       },

@@ -145,6 +145,8 @@ services:
       DSH_TRUSTED_HOSTS: ${PORTAL_TRUSTED_HOSTS:-customer-web.poh-bft-system.orb.local}
       TRACKER_URL: http://tracker:3456/api/v1
       TRACKER_PUBLIC_URL: ${TRACKER_PUBLIC_URL:-http://127.0.0.1:3456}
+      # Адрес портала в ссылках чата (страница быстрой версии БФТ, rev14).
+      PORTAL_PUBLIC_URL: ${PORTAL_PUBLIC_URL:-http://127.0.0.1:3080}
       TRACKER_USER: ${TRACKER_USER:-${TRACKER_ADMIN_USER:-bft-admin}}
       TRACKER_PASSWORD: ${TRACKER_ADMIN_PASSWORD:-}
       ZAI_API_KEY: ${ZAI_API_KEY:-}

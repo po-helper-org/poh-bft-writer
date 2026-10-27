@@ -71,14 +71,32 @@ const INTAKE = {
   links: [], openQuestions: ['Какие регионы входят в выгрузку'],
 }
 
+/** Быстрая версия БФТ по той же заявке (rev14): только сказанное в диалоге. */
+const FAST = {
+  title: INTAKE.title,
+  smart: { s: INTAKE.tobe, m: DEMO.done[0], r: INTAKE.gap },
+  boundaries: ['Отчёт продаж по регионам за вчера', 'Не входит: изменение отчёта в BI'],
+  personas: [{ name: 'E2E Тестов', role: 'Заказчик', influence: 'Принимает работу по сценарию приёмки' }],
+  requirements: [
+    { id: 'БТ-1', asis: INTAKE.asis, tobe: 'Отчёт готов к планёрке без ручной сборки', source: `Заказчик: «${INTAKE.gap}»` },
+    { id: 'ФТ-1', tobe: INTAKE.tobe, related: ['БТ-1'], source: `Заказчик: «${INTAKE.tobe}»` },
+  ],
+  openQuestions: INTAKE.openQuestions,
+}
+
 /** Следующий ход сценария по истории запроса. */
 function nextTurn(messages) {
   const last = messages.at(-1)
   if (last?.role === 'tool') {
     const call = messages.flatMap((m) => m.tool_calls ?? []).find((c) => c.id === last.tool_call_id)
     if (call?.function.name === 'submit_customer_request') {
-      const url = /https?:\/\/\S+\/tasks\/\d+/.exec(text(last))?.[0] ?? ''
-      return { content: `Спасибо! Заявка сдана, PO возьмёт её в работу. Отслеживание статуса: ${url}` }
+      return { content: 'Собираю быструю версию БФТ…', tool: { name: 'create_bft_fast', args: FAST } }
+    }
+    if (call?.function.name === 'create_bft_fast') {
+      const submitted = messages.find((m) => m.role === 'tool' && /tasks\/\d+/.test(text(m)))
+      const url = /https?:\/\/\S+\/tasks\/\d+/.exec(submitted ? text(submitted) : '')?.[0] ?? ''
+      const page = /https?:\/\/\S+\/api\/customer-form\.bftFast\?session=\S+/.exec(text(last))?.[0] ?? ''
+      return { content: `Спасибо! Заявка сдана, PO возьмёт её в работу. Отслеживание статуса: ${url}\n\nБыстрая версия БФТ на согласование: [открыть документ](${page})` }
     }
     if (call?.function.name === 'read_customer_materials' && text(last).includes('Ещё разбираются')) {
       return { content: 'Запись длинная — пока она расшифровывается, один вопрос:', tool: { name: 'ask_user_question', args: TITLE_QUESTIONS } }

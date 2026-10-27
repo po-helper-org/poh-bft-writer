@@ -67,6 +67,8 @@ export interface SessionInfo {
   ticket: { taskId: number; url: string; demoApprovedAt?: string } | null
   files: { id: string; name: string; status: 'ready' | 'pending' | 'error'; label: string; error?: string }[]
   demo: { rev: number; title: string; approved: boolean } | null
+  /** Страница быстрой версии БФТ, если документ собран (rev14). */
+  bftFast?: string | null
 }
 
 interface InfoProps {
@@ -106,6 +108,14 @@ export function InfoView({ sessionId, loadInfo, openAcceptance }: InfoProps): Re
               <button type="button" onClick={() => openAcceptance(sessionId)} style={{ marginLeft: 10, cursor: 'pointer', borderRadius: 8, padding: '2px 10px', border: '1px solid rgba(127,127,127,.4)', background: 'transparent', color: 'inherit' }}>Открыть</button>
             </div>
           : <div style={{ marginTop: 4 }}>Ещё не составлен.</div>}
+      </div>
+      <div style={card}>
+        <div style={muted}>Быстрая версия БФТ</div>
+        {info?.bftFast
+          ? <div style={{ marginTop: 4 }}>
+              <a href={info.bftFast} target="_blank" rel="noreferrer" data-bft-fast style={{ color: 'inherit', fontWeight: 600 }}>Открыть документ на согласование</a>
+            </div>
+          : <div style={{ marginTop: 4 }}>Соберётся в чате после подтверждения заявки.</div>}
       </div>
       <div style={card}>
         <div style={muted}>Материалы диалога ({info?.files.length ?? 0})</div>

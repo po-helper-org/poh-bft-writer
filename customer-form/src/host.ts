@@ -162,6 +162,15 @@ export class Backlog {
     return approved
   }
 
+  /** Комментарий в задачу (HTML Vikunja). */
+  async comment(ticket: Ticket, html: string): Promise<void> {
+    const headers = await this.vkHeaders()
+    const res = await this.fetchImpl(`${this.cfg.trackerUrl}/tasks/${ticket.taskId}/comments`, {
+      method: 'PUT', headers, body: JSON.stringify({ comment: html }),
+    })
+    if (!res.ok) throw new Error(`трекер: комментарий ${res.status}`)
+  }
+
   /** Вложение заказчика → файл задачи (грабля Vikunja: multipart PUT, поле files). */
   async attach(ticket: Ticket, name: string, bytes: Uint8Array): Promise<void> {
     const headers = await this.vkHeaders()

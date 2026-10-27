@@ -1,7 +1,8 @@
 /**
  * E2E · HowToDemo заказчика п.3–10 — обращение с вложением → вопросы формой →
  * раскадровка сценария приёмки → «Согласую» → ИТОГ → подтверждение →
- * постановка, сводка, согласование и контекст в задаче Vikunja.
+ * постановка, сводка, согласование и контекст в задаче Vikunja → быстрая
+ * версия БФТ в том же чате (rev14): страница документа и файлы в задаче.
  *
  * Модель — двойник (e2e/llm-double.mjs, его подключает harness/e2e-customer.sh):
  * сценарий детерминирован и не зависит от квоты ключа. Проверяется всё, что
@@ -57,6 +58,18 @@ test('микродиалог: вложение → вопросы → согла
   await page.keyboard.press('Enter')
   await expect(page.getByText(new RegExp(`Отслеживание статуса: \\S+/tasks/${taskId}`))).toBeVisible({ timeout: 30_000 })
 
+  // rev14: сразу в этом же чате — быстрая версия БФТ и страница на согласование.
+  const fastLink = page.getByRole('link', { name: 'открыть документ' })
+  await expect(fastLink, 'ссылка на быструю версию БФТ').toBeVisible({ timeout: 30_000 })
+  const fastHref = (await fastLink.getAttribute('href')) ?? ''
+  const fastPage = await page.context().newPage()
+  await fastPage.goto(new URL(fastHref, CUSTOMER_URL).toString())
+  await expect(fastPage.getByRole('heading', { name: new RegExp(`\\[БФТ\\] zayavka-${taskId}`) }), 'документ БФТ').toBeVisible()
+  await expect(fastPage.getByText('Почта Outlook').first(), 'How to demo — согласованный сценарий').toBeVisible()
+  await expect(fastPage.getByText('ФТ-1').first(), 'скелет требований').toBeVisible()
+  await fastPage.screenshot({ path: 'test-results/bft-fast.png', fullPage: true })
+  await fastPage.close()
+
   // Задача: постановка по разделам, сводка в комментарии, вложение + контекст.
   const login = await request.post(`${TRACKER_API}/login`, {
     data: { username: process.env.TRACKER_USER ?? 'bft-admin', password: process.env.TRACKER_PASSWORD ?? '' },
@@ -73,8 +86,12 @@ test('микродиалог: вложение → вопросы → согла
   expect(files, 'вложение заказчика в задаче').toContain(`interview-${UNIQUE}.txt`)
   expect(files, 'файл полного контекста').toContain(`context-${taskId}.md`)
   expect(files, 'раскадровка сценария приёмки').toContain(`howtodemo-${taskId}.md`)
+  for (const name of [`zayavka-${taskId}-fast.html`, `zayavka-${taskId}-fast.md`, `zayavka-${taskId}-requirements.csv`]) {
+    expect(files, `быстрая версия БФТ: ${name}`).toContain(name)
+  }
   const comments = (await (await request.get(`${TRACKER_API}/tasks/${taskId}/comments`, { headers: auth })).json()) as { comment: string }[]
   const thread = comments.map((c) => c.comment).join(' ')
   expect(thread, 'сводка в комментарии').toContain('Сводка ассистента портала')
   expect(thread, 'согласование заказчика в комментарии').toContain('Заказчик согласовал сценарий приёмки')
+  expect(thread, 'отметка о быстрой версии БФТ').toContain('Быстрая версия БФТ собрана')
 })

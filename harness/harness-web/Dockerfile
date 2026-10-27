@@ -60,7 +60,9 @@ ENV NODE_ENV=production DSH_HOME=/data
 # поэтому он слушает loopback-КОНТЕЙНЕРА, а наружу (внутрь compose-сети)
 # публикует socat. Публикация наружу хоста — по-прежнему HARNESS_BIND
 # (127.0.0.1 по умолчанию): конверт безопасности тот же, что у нативного dsh.
-RUN apt-get update && apt-get install -y --no-install-recommends socat \
+# python3: линтер и страница ревью быстрой версии БФТ портала (bft-lint.py,
+# bft-html-export.py — только стандартная библиотека).
+RUN apt-get update && apt-get install -y --no-install-recommends socat python3 \
  && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 # dsh-CLI из профиля: один пин на весь набор @deepseek-ai/dsh-* (ADR-0002).
