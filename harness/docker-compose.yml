@@ -110,6 +110,7 @@ services:
       # достаёт и открывает).
       PUBLIC_URL: ${PUBLIC_URL:-http://127.0.0.1:3080}
       DSH_PORT: "3080"
+      DSH_TRUSTED_HOSTS: ${HARNESS_TRUSTED_HOSTS:-harness-web.poh-bft-system.orb.local}
     ports:
       - "${HARNESS_BIND:-127.0.0.1}:3081:3080"   # PO-харнесс на 3081 (ADR-0007): 3080 — портал заказчика
     volumes:
@@ -140,6 +141,8 @@ services:
     environment:
       DSH_PROFILE: customer
       DSH_PORT: "3080"
+      # Доп. имена портала для /api-fence dsh (через пробел); по умолчанию — домен OrbStack.
+      DSH_TRUSTED_HOSTS: ${PORTAL_TRUSTED_HOSTS:-customer-web.poh-bft-system.orb.local}
       TRACKER_URL: http://tracker:3456/api/v1
       TRACKER_PUBLIC_URL: ${TRACKER_PUBLIC_URL:-http://127.0.0.1:3456}
       TRACKER_USER: ${TRACKER_USER:-${TRACKER_ADMIN_USER:-bft-admin}}

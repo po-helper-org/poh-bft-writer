@@ -63,6 +63,12 @@ if [ -f "${DSH_HOME}/override.patch.yml" ]; then
   set -- --profile web --patch "${DSH_HOME}/override.patch.yml"
 fi
 
+# Прочие имена, под которыми открывают UI (OrbStack: <сервис>.<проект>.orb.local),
+# через пробел в DSH_TRUSTED_HOSTS: без них /api отвечает 403 (DNS-rebinding fence).
+for host in ${DSH_TRUSTED_HOSTS:-}; do
+  set -- "$@" --trusted-host "${host}"
+done
+
 exec "${PROFILE_DST}/node_modules/.bin/dsh" "$@" \
   --no-open \
   --host 127.0.0.1 \
