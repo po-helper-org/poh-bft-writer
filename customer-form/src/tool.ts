@@ -7,7 +7,7 @@
  * строкой пресета (customer.patch.yml), а Backlog берёт общий с узлом
  * customer-form (заявку тот создал по первому сообщению).
  */
-import { readFile } from 'node:fs/promises'
+import { readFile, writeFile } from 'node:fs/promises'
 import { buildFast, FAST_ROOT, fastPageUrl, fastSlug, SKILLS_PATH, type FastInput } from './bft-fast.js'
 import { demoSteps, doneList, repairDemo, sharedDemos, storyboardMarkdown, type AcceptanceDemo, type DemoRecord } from './demo.js'
 import { demoPageHtml } from './demo-page.js'
@@ -240,9 +240,6 @@ function submitTool(backlog: Backlog) {
   }
 }
 
-/** Версия документа по сессии — в имени вложения: PO видит, что пересобиралось. */
-const fastRevs = new Map<string, number>()
-
 /**
  * Быстрая версия БФТ в том же чате (ADR-0007 rev14): модель раскладывает
  * подтверждённый запрос по полям, документ и страницу ревью собирает
@@ -311,8 +308,10 @@ function fastTool(backlog: Backlog) {
       const slug = fastSlug(ticket.taskId)
       const built = await buildFast(args, { slug, howToDemo, source: `заявка #${ticket.taskId} в трекере — ${ticket.url}`, skillsPath: SKILLS_PATH }, FAST_ROOT)
       if (!built.ok) throw new Error(`Документ не собран, исправь поля и вызови create_bft_fast снова:\n${built.errors}`)
-      const rev = (fastRevs.get(sessionId) ?? 0) + 1
-      fastRevs.set(sessionId, rev)
+      // Номер сборки — в имени вложения: PO видит, что пересобиралось. Счётчик — на диске, рестарт его не обнуляет.
+      const counter = `${built.files.dir}/version`
+      const rev = Number(await readFile(counter, 'utf8').catch(() => '0')) + 1
+      await writeFile(counter, String(rev), 'utf8')
       const questions = (args.openQuestions ?? []).map((q) => q.trim()).filter(Boolean)
       void publishFast(backlog, ticket, slug, rev, built.files, questions)
       return [

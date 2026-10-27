@@ -10,6 +10,9 @@
  *    ввода (как голосовой ввод dsh вставляет распознанный текст).
  *  - InfoView — вкладка Information рядом с Chat: ссылка на заявку и все
  *    материалы диалога — не надо листать переписку.
+ *  - BftTab / BftWatcher — быстрая версия БФТ в правой панели (rev15): новая
+ *    версия документа открывается сама, страница отправляет замечания и
+ *    согласование сообщением в чат.
  */
 import { useEffect, useState, type ReactElement } from 'react'
 
@@ -19,6 +22,9 @@ export const ACCEPTANCE_PREFIX = 'dsh-resource://customer-acceptance/'
 export interface InputActionsLike {
   captureInsertion(): unknown
   insertText(text: string, span: unknown): boolean
+  /** Заменить черновик целиком и отправить — сообщения со страницы документа БФТ. */
+  setDraft(text: string): void
+  submit(): void
 }
 
 /** Поле ввода каждой сессии, последнее активное — первым. */
@@ -54,6 +60,64 @@ export function AcceptanceTitle(): ReactElement {
   return <>Сценарий приёмки</>
 }
 
+export const BFT_TAB = 'customer-form/bft-fast'
+export const BFT_PREFIX = 'dsh-resource://customer-bft/'
+
+/** Сессия по адресу вкладки документа: customer-bft/<session>/<метка>. */
+export function sessionOfBftAddress(address: string): string | undefined {
+  const m = /^dsh-resource:\/\/customer-bft\/([^/]+)/.exec(address)
+  return m ? decodeURIComponent(m[1]) : undefined
+}
+
+/** Правая панель: быстрая версия БФТ со слоем заказчика (rev15). */
+export function BftTab({ useTabInfo }: { useTabInfo: () => TabInfo }): ReactElement {
+  const address = useTabInfo().tab.navigation.address
+  const sessionId = sessionOfBftAddress(address)
+  if (!sessionId) return <div style={{ padding: 16, opacity: 0.7 }}>Документ не найден.</div>
+  const src = `/api/customer-form.bftFast?session=${encodeURIComponent(sessionId)}&v=${encodeURIComponent(address)}`
+  return (
+    <iframe
+      key={src}
+      src={src}
+      title="Документ БФТ"
+      data-customer-bft={sessionId}
+      style={{ border: 0, width: '100%', height: '100%', display: 'block', background: '#fff' }}
+    />
+  )
+}
+
+export function BftTitle(): ReactElement {
+  return <>Документ БФТ</>
+}
+
+/** Задаёт клиент при старте: чем читать состояние сессии и как открыть документ. */
+export const bftWatch: { loadInfo?: (sessionId: string) => Promise<SessionInfo | undefined>; openBft?: (sessionId: string) => void } = {}
+
+/**
+ * Невидимый наблюдатель чата: собралась новая версия документа (create_bft_fast)
+ * — открыть её в правой панели. Уже открытый чат со старым документом панель
+ * не трогает: открывает только смена версии.
+ */
+export function BftWatcher({ sessionId }: { sessionId?: string }): null {
+  useEffect(() => {
+    if (!sessionId) return
+    let alive = true
+    let seen: string | null | undefined
+    const tick = () => {
+      void bftWatch.loadInfo?.(sessionId).then((info) => {
+        if (!alive || !info) return
+        const rev = info.bftFast?.rev ?? null
+        if (seen !== undefined && rev && rev !== seen) bftWatch.openBft?.(sessionId)
+        seen = rev
+      }).catch(() => undefined)
+    }
+    tick()
+    const timer = setInterval(tick, 4000)
+    return () => { alive = false; clearInterval(timer) }
+  }, [sessionId])
+  return null
+}
+
 export function InputBridge({ sessionId, inputActions }: { sessionId?: string; inputActions?: InputActionsLike }): null {
   useEffect(() => {
     if (!sessionId || !inputActions) return
@@ -67,20 +131,21 @@ export interface SessionInfo {
   ticket: { taskId: number; url: string; demoApprovedAt?: string } | null
   files: { id: string; name: string; status: 'ready' | 'pending' | 'error'; label: string; error?: string }[]
   demo: { rev: number; title: string; approved: boolean } | null
-  /** Страница быстрой версии БФТ, если документ собран (rev14). */
-  bftFast?: string | null
+  /** Быстрая версия БФТ, если документ собран (rev14): версия — хэш, согласование — этой версии. */
+  bftFast?: { url: string; rev: string; approvedAt: string | null } | null
 }
 
 interface InfoProps {
   sessionId: string
   loadInfo(sessionId: string): Promise<SessionInfo | undefined>
   openAcceptance(sessionId: string): void
+  openBft(sessionId: string): void
 }
 
 const muted = { opacity: 0.65, fontSize: 13 }
 const card = { border: '1px solid rgba(127,127,127,.28)', borderRadius: 12, padding: '12px 14px', margin: '0 0 14px' }
 
-export function InfoView({ sessionId, loadInfo, openAcceptance }: InfoProps): ReactElement {
+export function InfoView({ sessionId, loadInfo, openAcceptance, openBft }: InfoProps): ReactElement {
   const [info, setInfo] = useState<SessionInfo | undefined>()
   useEffect(() => {
     let alive = true
@@ -113,7 +178,8 @@ export function InfoView({ sessionId, loadInfo, openAcceptance }: InfoProps): Re
         <div style={muted}>Быстрая версия БФТ</div>
         {info?.bftFast
           ? <div style={{ marginTop: 4 }}>
-              <a href={info.bftFast} target="_blank" rel="noreferrer" data-bft-fast style={{ color: 'inherit', fontWeight: 600 }}>Открыть документ на согласование</a>
+              {info.bftFast.approvedAt ? `согласован ${new Date(info.bftFast.approvedAt).toLocaleString('ru-RU', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}` : 'на согласовании'}
+              <button type="button" data-bft-fast onClick={() => openBft(sessionId)} style={{ marginLeft: 10, cursor: 'pointer', borderRadius: 8, padding: '2px 10px', border: '1px solid rgba(127,127,127,.4)', background: 'transparent', color: 'inherit' }}>Открыть</button>
             </div>
           : <div style={{ marginTop: 4 }}>Соберётся в чате после подтверждения заявки.</div>}
       </div>

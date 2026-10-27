@@ -9,6 +9,7 @@
  * bft-html-export.py навыка: документ и страница ревью те же, что у PO.
  */
 import { execFile } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
@@ -206,7 +207,7 @@ export function requirementsCsv(input: FastInput): string {
     ...checkRequirements(input).rows.map((r) => [r.id, cell(r.asis, '[ASIS не озвучен]'), cell(r.tobe), relatedOf(r).join(', '), cell(r.source)])])
 }
 
-export interface FastFiles { dir: string; md: string; html: string; personas: string; requirements: string }
+export interface FastFiles { dir: string; md: string; html: string; personas: string; requirements: string; approval: string }
 
 export function fastFiles(root: string, slug: string): FastFiles {
   const dir = join(root, slug)
@@ -216,7 +217,33 @@ export function fastFiles(root: string, slug: string): FastFiles {
     html: join(dir, `${slug}-fast.html`),
     personas: join(dir, 'personas.csv'),
     requirements: join(dir, 'requirements.csv'),
+    approval: join(dir, 'approval.json'),
   }
+}
+
+/** Версия документа — хэш содержимого: согласование относится к одной версии. */
+export function docHash(markdown: string): string {
+  return createHash('sha1').update(markdown).digest('hex').slice(0, 12)
+}
+
+export interface FastState { rev: string; approvedAt?: string }
+
+/** Что сейчас с документом: версия и согласование этой версии (пересборка его снимает). */
+export async function fastState(files: FastFiles): Promise<FastState | undefined> {
+  const markdown = await readFile(files.md, 'utf8').catch(() => undefined)
+  if (markdown === undefined) return undefined
+  const rev = docHash(markdown)
+  const approval = await readFile(files.approval, 'utf8').then((s) => JSON.parse(s) as { rev?: string; approvedAt?: string }).catch(() => undefined)
+  return approval?.rev === rev && approval.approvedAt ? { rev, approvedAt: approval.approvedAt } : { rev }
+}
+
+export async function approveFast(files: FastFiles): Promise<FastState> {
+  const state = await fastState(files)
+  if (!state) throw new Error('документ ещё не собран')
+  if (state.approvedAt) return state
+  const approved = { rev: state.rev, approvedAt: new Date().toISOString() }
+  await writeFile(files.approval, JSON.stringify(approved), 'utf8')
+  return approved
 }
 
 function python(script: string, args: string[]): Promise<{ code: number; out: string }> {

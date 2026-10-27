@@ -16,7 +16,7 @@ const UNIQUE = Date.now().toString(36)
 
 test('микродиалог: вложение → вопросы → согласование приёмки → постановка в задаче', async ({ page, request }) => {
   test.skip(process.env.LLM_DOUBLE !== '1', 'нужна модель-двойник: запускайте через harness/e2e-customer.sh')
-  test.setTimeout(120_000)
+  test.setTimeout(180_000)
 
   await page.goto(CUSTOMER_URL)
   const composer = page.locator("[data-composer-input][contenteditable='true']").first()
@@ -58,17 +58,32 @@ test('микродиалог: вложение → вопросы → согла
   await page.keyboard.press('Enter')
   await expect(page.getByText(new RegExp(`Отслеживание статуса: \\S+/tasks/${taskId}`))).toBeVisible({ timeout: 30_000 })
 
-  // rev14: сразу в этом же чате — быстрая версия БФТ и страница на согласование.
+  // rev14–15: сразу в этом же чате — быстрая версия БФТ; документ сам открывается
+  // справа, со страницы — замечания в чат и «Согласовать».
   const fastLink = page.getByRole('link', { name: 'открыть документ' })
   await expect(fastLink, 'ссылка на быструю версию БФТ').toBeVisible({ timeout: 30_000 })
-  const fastHref = (await fastLink.getAttribute('href')) ?? ''
-  const fastPage = await page.context().newPage()
-  await fastPage.goto(new URL(fastHref, CUSTOMER_URL).toString())
-  await expect(fastPage.getByRole('heading', { name: new RegExp(`\\[БФТ\\] zayavka-${taskId}`) }), 'документ БФТ').toBeVisible()
-  await expect(fastPage.getByText('Почта Outlook').first(), 'How to demo — согласованный сценарий').toBeVisible()
-  await expect(fastPage.getByText('ФТ-1').first(), 'скелет требований').toBeVisible()
-  await fastPage.screenshot({ path: 'test-results/bft-fast.png', fullPage: true })
-  await fastPage.close()
+  const doc = page.frameLocator('iframe[data-customer-bft]')
+  await expect(doc.getByRole('heading', { name: new RegExp(`\\[БФТ\\] zayavka-${taskId}`) }), 'документ в правой панели').toBeVisible({ timeout: 15_000 })
+  await expect(doc.getByText('Почта Outlook').first(), 'How to demo — согласованный сценарий').toBeVisible()
+  await expect(doc.getByText('ФТ-1').first(), 'скелет требований').toBeVisible()
+  await expect(doc.getByRole('button', { name: 'Согласовать' }), 'кнопка заказчика вместо отгрузки').toBeVisible()
+  await expect(doc.getByText('Всё ок — отгружай'), 'отгрузка PO скрыта').toHaveCount(0)
+  await expect(doc.getByText('Полный БФТ — в проработке'), 'открытое поле для /bft-deep убрано').toHaveCount(0)
+  await page.screenshot({ path: 'test-results/bft-fast-panel.png' })
+
+  // Замечание со страницы → «Отправить замечания в чат» → сообщение в чате → новая версия.
+  await doc.locator('body').evaluate((_, key) => {
+    localStorage.setItem(key, JSON.stringify([{ section: 'Цель', quote: '[УТОЧНИТЬ]', text: 'Срок — к концу квартала', ts: new Date().toISOString(), uncId: null }]))
+  }, `bft-comments-zayavka-${taskId}`)
+  await doc.getByRole('button', { name: 'Комментарии' }).click()
+  await doc.getByRole('button', { name: 'Отправить замечания в чат' }).click()
+  await expect(page.getByText('Замечания к документу БФТ:').first(), 'замечания ушли в чат').toBeVisible({ timeout: 10_000 })
+  await expect(doc.getByRole('cell', { name: 'К концу квартала', exact: true }), 'документ пересобран по замечанию').toBeVisible({ timeout: 30_000 })
+
+  // «Согласовать» → отметка на странице и сообщение в чате.
+  await doc.getByRole('button', { name: 'Согласовать' }).click()
+  await expect(doc.getByRole('button', { name: /Согласовано/ }), 'согласовано на странице').toBeVisible({ timeout: 10_000 })
+  await expect(page.getByText('Согласовываю быструю версию БФТ').first(), 'согласование в чате').toBeVisible({ timeout: 10_000 })
 
   // Задача: постановка по разделам, сводка в комментарии, вложение + контекст.
   const login = await request.post(`${TRACKER_API}/login`, {
@@ -94,4 +109,6 @@ test('микродиалог: вложение → вопросы → согла
   expect(thread, 'сводка в комментарии').toContain('Сводка ассистента портала')
   expect(thread, 'согласование заказчика в комментарии').toContain('Заказчик согласовал сценарий приёмки')
   expect(thread, 'отметка о быстрой версии БФТ').toContain('Быстрая версия БФТ собрана')
+  expect(thread, 'согласование документа заказчиком').toContain('Заказчик согласовал быструю версию БФТ')
+  expect(files, 'согласованная страница').toContain(`zayavka-${taskId}-fast-soglasovan.html`)
 })

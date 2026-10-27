@@ -23,7 +23,8 @@ import { VoiceContext } from './voice.js'
 import { sharedDemos } from './demo.js'
 import { demoPageHtml } from './demo-page.js'
 import type { AgentLike, BlockLike } from './tool.js'
-import { FAST_ROOT, fastFiles, fastPagePath, fastSlug } from './bft-fast.js'
+import { approveFast, FAST_ROOT, fastFiles, fastPagePath, fastSlug, fastState } from './bft-fast.js'
+import { customerFastPage } from './fast-page.js'
 
 export const name = 'customer-form'
 
@@ -108,8 +109,9 @@ export const CUSTOMER_PROMPT = `Ты — ассистент приёма ини�
 - HowToDemo без материалов: спроси «Как вы будете проверять результат? Где зайдёте, что нажмёте, что должны увидеть» — можно в свободной форме. По ответу сам составь 2–7 шагов (по одному экрану на шаг, результат — проверяемый) и вызови confirm_acceptance_demo: заказчик увидит раскадровку по экранам и согласует её кнопкой. Если просит правки — исправь и покажи снова. Без его «Согласую» ИТОГ не собирай.
 - Когда всё собрано и сценарий согласован — одной репликой собери ИТОГ: пронумерованный список по семи пунктам (в HowToDemo — согласованные шаги) и спроси подтверждение.
 - После подтверждения вызови submit_customer_request со всеми полями и сразу, не дожидаясь ответа заказчика, напиши «Собираю быструю версию БФТ…» и вызови create_bft_fast — документ на согласование собирается в этом же чате. Поля create_bft_fast бери только из сказанного заказчиком и его материалов (стенографист, а не аналитик): SMART — S что делаем, M по чему проверяем, R зачем; чего не звучало (часто A и T) — «[УТОЧНИТЬ]». Требования — строки БТ (зачем), ПТ (что хочет пользователь), ИТ (что видит на экране), ФТ (что делает система), НФТ (только если названы измеримые свойства); каждая строка — с цитатой: «Заказчик: «…»» — только дословные слова заказчика из его сообщений и ответов в форме, «Материалы [S1]: «…»» — из его файлов, «Сценарий приёмки (согласован): «…»» — из шагов и чек-листа, которые он согласовал кнопкой. Свои формулировки заказчику не приписывай; без цитаты строки нет. ASIS — как сейчас по словам заказчика (то, что вошло в ASIS заявки) у тех строк, к которым он относится; не звучал — пусто. Границы — только то, что заказчик выбрал или сказал: варианты из формы, которые он не выбрал, не переноси. Персоны — заказчик и люди, которых он назвал, роль и влияние — только из сказанного. Без служебных пометок в скобках («(слова заказчика)», «(чек-лист)»). Открытые вопросы — только настоящие пробелы задачи, на которые ответит заказчик или команда; про незаполненные ячейки документа («A и T в SMART») не пиши. Если инструмент вернул ошибки — исправь поля и вызови снова.
-- Когда документ собран: одной репликой поблагодари, дай ссылку на отслеживание заявки и ссылку на страницу документа из результата create_bft_fast, перечисли открытые вопросы и скажи, что замечания можно оставить прямо на странице или написать в чат — документ пересоберётся.
-- Правки документа после сборки: заказчик пишет, что поменять, — исправь поля и снова вызови create_bft_fast (submit_customer_request повторно не вызывай).
+- Когда документ собран: одной репликой поблагодари, дай ссылку на отслеживание заявки и ссылку на страницу документа из результата create_bft_fast (она открыта справа), перечисли открытые вопросы и скажи: замечания можно оставить прямо на странице и отправить кнопкой «Отправить замечания в чат» или написать сюда — документ пересоберётся; если всё верно — кнопка «Согласовать».
+- Правки документа после сборки: заказчик пишет, что поменять, или присылает «Замечания к документу БФТ:» со страницы документа, — исправь поля и снова вызови create_bft_fast (submit_customer_request повторно не вызывай).
+- Сообщение «✅ Согласовываю быструю версию БФТ.» отправляет кнопка «Согласовать» на странице документа — согласование уже записано в заявку. Поблагодари одной фразой и скажи, что PO возьмёт документ в проработку; инструменты не вызывай.
 - Сообщение «📌 Заявка #N …» добавляет портал, а не заказчик: на него не отвечай, номер заявки упомяни в итоговой сводке.
 - Не обещай сроков и бюджета — это решает PO. Не уходи в технические детали реализации.`
 
@@ -249,14 +251,43 @@ export function apply(ctx: HarnessContext): void {
       fetch: async (request: Request) => {
         const sessionId = new URL(request.url).searchParams.get('session') ?? ''
         const ticket = sessionId ? await backlog.find(sessionId).catch(() => undefined) : undefined
-        const html = ticket ? await readFile(fastFiles(FAST_ROOT, fastSlug(ticket.taskId)).html, 'utf8').catch(() => undefined) : undefined
+        const slug = ticket ? fastSlug(ticket.taskId) : ''
+        const files = fastFiles(FAST_ROOT, slug)
+        const html = ticket ? await readFile(files.html, 'utf8').catch(() => undefined) : undefined
         if (!html) {
           return new Response('<!doctype html><meta charset="utf-8"><p style="font:14px sans-serif;color:#888;padding:16px">Быстрая версия БФТ ещё не собрана.</p>',
             { status: 404, headers: { 'content-type': 'text/html; charset=utf-8' } })
         }
-        return new Response(html, { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } })
+        // Заказчику — со слоем «Согласовать» и «Отправить замечания в чат»; PO в заявке — исходная.
+        const state = await fastState(files)
+        const page = customerFastPage(html, { sessionId, slug, approveUrl: '/api/customer-form.bftFastApprove', ...(state?.approvedAt ? { approvedAt: state.approvedAt } : {}) })
+        return new Response(page, { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } })
       },
     }), 'customer-form: /api/customer-form.bftFast')
+
+    // Заказчик согласовал быструю версию БФТ кнопкой на странице: отметка у
+    // документа (только эта версия — пересборка её снимает) и в заявке.
+    scoped.effect(() => register({
+      path: '/api/customer-form.bftFastApprove',
+      methods: ['POST'],
+      requestBody: 'buffered',
+      fetch: async (request: Request) => {
+        const body = (await request.json().catch(() => ({}))) as { sessionId?: unknown }
+        const sessionId = typeof body.sessionId === 'string' ? body.sessionId : ''
+        const ticket = sessionId ? await backlog.find(sessionId).catch(() => undefined) : undefined
+        if (!ticket) return Response.json({ error: 'заявка не найдена' }, { status: 404 })
+        const slug = fastSlug(ticket.taskId)
+        const files = fastFiles(FAST_ROOT, slug)
+        try {
+          const before = await fastState(files)
+          const state = await approveFast(files)
+          if (!before?.approvedAt) void reportFastApproval(backlog, ticket, slug, files.html, state.approvedAt!)
+          return Response.json({ approvedAt: state.approvedAt })
+        } catch (e) {
+          return Response.json({ error: (e as Error).message }, { status: 409 })
+        }
+      },
+    }), 'customer-form: /api/customer-form.bftFastApprove')
 
     // Стартовый экран: последние обращения заказчика (сессии помнит его браузер)
     // и ссылка на доску со всеми обращениями.
@@ -297,16 +328,27 @@ export function apply(ctx: HarnessContext): void {
         } catch { /* пустое тело */ }
         const ticket = sessionId ? await backlog.find(sessionId).catch(() => undefined) : undefined
         const record = sharedDemos().get(sessionId)
+        const fast = ticket ? await fastState(fastFiles(FAST_ROOT, fastSlug(ticket.taskId))) : undefined
         const value = {
           ticket: ticket ? { taskId: ticket.taskId, url: ticket.url, demoApprovedAt: ticket.demoApprovedAt } : null,
           files: sessionId ? materials.list(sessionId) : [],
           demo: record ? { rev: record.rev, title: record.demo.title, approved: !!record.approvedAt } : null,
-          bftFast: ticket && await readFile(fastFiles(FAST_ROOT, fastSlug(ticket.taskId)).md).then(() => true, () => false) ? fastPagePath(sessionId) : null,
+          bftFast: fast ? { url: fastPagePath(sessionId), rev: fast.rev, approvedAt: fast.approvedAt ?? null } : null,
         }
         return Response.json({ type: 'server-response', rpcId, result: { ok: true, value } })
       },
     }), 'customer-form: /api/customer-form.sessionInfo')
   })
+}
+
+/** Согласование быстрой версии БФТ — в заявку: комментарий и согласованная страница. */
+async function reportFastApproval(backlog: Backlog, ticket: Ticket, slug: string, htmlPath: string, approvedAt: string): Promise<void> {
+  try {
+    await backlog.comment(ticket, `<p><strong>✅ Заказчик согласовал быструю версию БФТ</strong> — ${moscowTime(approvedAt)}</p><p>Согласованная страница — во вложении ${slug}-fast-soglasovan.html; следующий шаг — /bft-deep по документу.</p>`)
+    await backlog.attach(ticket, `${slug}-fast-soglasovan.html`, await readFile(htmlPath))
+  } catch (e) {
+    console.error('[customer-form] согласование БФТ не ушло в задачу:', e)
+  }
 }
 
 /** Разобранный текст материала — файлом в задачу: PO читает то же, что модель. */

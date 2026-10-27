@@ -15,7 +15,8 @@ import type { ComponentType } from 'react'
 import { StreamingMic } from './mic.js'
 import { RecentRequests, rememberSession, type MyRequests } from './recent.js'
 import {
-  ACCEPTANCE_PREFIX, ACCEPTANCE_TAB, AcceptanceTab, AcceptanceTitle, bridges, InfoView, InputBridge, lastSessionId, sessionOfAddress,
+  ACCEPTANCE_PREFIX, ACCEPTANCE_TAB, AcceptanceTab, AcceptanceTitle, BFT_PREFIX, BFT_TAB, BftTab, BftTitle, BftWatcher, bftWatch,
+  bridges, InfoView, InputBridge, lastSessionId, sessionOfAddress, sessionOfBftAddress,
   type SessionInfo,
 } from './panels.js'
 
@@ -166,7 +167,18 @@ export function apply(ctx: ClientContext): void {
       canOpen: (address) => sessionOfAddress(address) !== undefined,
       title: () => 'Сценарий приёмки',
     }), 'customer-form: вкладка сценария приёмки')
+    scoped.effect(() => tabs.register({
+      id: BFT_TAB,
+      kind: 'customer-bft',
+      patterns: [`${BFT_PREFIX}**`],
+      priority: 'extension',
+      canOpen: (address) => sessionOfBftAddress(address) !== undefined,
+      title: () => 'Документ БФТ',
+    }), 'customer-form: вкладка документа БФТ')
   })
+  slots.inject('sidebar.right.pane.tab', () => slots.register({ name: 'sidebar.right.pane.tab', key: BFT_TAB }, BftTab as ComponentType<never>))
+  slots.inject('sidebar.right.pane.tab.title', () => slots.register({ name: 'sidebar.right.pane.tab.title', key: BFT_TAB }, BftTitle as ComponentType<never>))
+  slots.inject('conversation.input.right', () => slots.register({ name: 'conversation.input.right', id: 'customer-form-bft-watch' }, BftWatcher as ComponentType<never>))
   slots.inject('sidebar.right.pane.tab', () => slots.register({ name: 'sidebar.right.pane.tab', key: ACCEPTANCE_TAB }, AcceptanceTab as ComponentType<never>))
   slots.inject('sidebar.right.pane.tab.title', () => slots.register({ name: 'sidebar.right.pane.tab.title', key: ACCEPTANCE_TAB }, AcceptanceTitle as ComponentType<never>))
   // Мост — в списочном input.right: одиночный input.activity занят микрофоном.
@@ -182,12 +194,18 @@ export function apply(ctx: ClientContext): void {
     const right = ctx.get('sidebarRight') as { openResource(address: string): void } | undefined
     right?.openResource(`${ACCEPTANCE_PREFIX}${encodeURIComponent(sessionId)}/${Date.now()}`)
   }
+  const openBft = (sessionId: string) => {
+    const right = ctx.get('sidebarRight') as { openResource(address: string): void } | undefined
+    right?.openResource(`${BFT_PREFIX}${encodeURIComponent(sessionId)}/${Date.now()}`)
+  }
+  bftWatch.loadInfo = loadInfo
+  bftWatch.openBft = openBft
   slots.inject('conversation.view', () => slots.register({
     name: 'conversation.view',
     id: 'information',
     order: 20,
     label: () => 'Information',
-    inject: (sessionId: string) => ({ sessionId, loadInfo, openAcceptance }),
+    inject: (sessionId: string) => ({ sessionId, loadInfo, openAcceptance, openBft }),
   }, InfoView as ComponentType<never>))
 
   // «Мои обращения» под формой стартового экрана (rev12): слот hero.agentPreset
@@ -216,6 +234,36 @@ export function apply(ctx: ClientContext): void {
   }
   window.addEventListener('message', onRemark)
   ctx.effect(() => () => window.removeEventListener('message', onRemark), 'customer-form: замечания со страницы сценария')
+
+  // Страница документа БФТ (rev15): «Отправить замечания в чат» и «Согласовать»
+  // сразу отправляют сообщение в чат своей сессии — как будто заказчик написал сам.
+  const onSay = (event: MessageEvent) => {
+    const data = event.data as { type?: string; id?: string; text?: string } | undefined
+    if (event.origin !== location.origin || data?.type !== 'customer-form/say' || typeof data.text !== 'string') return
+    const frame = Array.from(document.querySelectorAll<HTMLIFrameElement>('iframe[data-customer-bft]')).find((f) => f.contentWindow === event.source)
+    const sessionId = frame?.dataset.customerBft ?? lastSessionId
+    const actions = sessionId ? bridges.get(sessionId) : undefined
+    let ok = false
+    try {
+      if (actions) { actions.setDraft(data.text); actions.submit(); ok = true }
+    } catch { ok = false }
+    ;(event.source as Window | null)?.postMessage({ type: 'customer-form/say-ack', id: data.id, ok }, location.origin)
+  }
+  window.addEventListener('message', onSay)
+  ctx.effect(() => () => window.removeEventListener('message', onSay), 'customer-form: сообщения со страницы документа БФТ')
+
+  // Ссылка на документ в ответе ассистента открывает его в правой панели, а не новой вкладкой.
+  const onDocLink = (event: MouseEvent) => {
+    const link = (event.target as Element | null)?.closest?.('a[href*="/api/customer-form.bftFast?session="]') as HTMLAnchorElement | null
+    if (!link || event.metaKey || event.ctrlKey || event.shiftKey) return
+    const sessionId = new URL(link.href).searchParams.get('session')
+    if (!sessionId) return
+    event.preventDefault()
+    event.stopPropagation()
+    openBft(sessionId)
+  }
+  document.addEventListener('click', onDocLink, true)
+  ctx.effect(() => () => document.removeEventListener('click', onDocLink, true), 'customer-form: ссылка на документ БФТ — в правую панель')
 
   // 5) Чаты заказчика — в workspace «Customer-requests»: создаём по имени
   //    (идемпотентно, как workspaces.create({path}) у poh-bft-plugin) и

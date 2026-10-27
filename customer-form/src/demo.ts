@@ -6,6 +6,8 @@
  * в штатную карточку согласования dsh (intent plan-review) и открывается
  * в правом сайдбаре — заказчик сам жмёт «Согласую» (ADR-0007 rev7).
  */
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { dirname } from 'node:path'
 
 export interface DemoStep {
   /** Экран или место, где заказчик находится на этом шаге. */
@@ -114,11 +116,36 @@ export interface DemoRecord {
   approvedAt?: string
 }
 
+/**
+ * Реестр на томе узла: согласованный сценарий переживает рестарт — без него
+ * create_bft_fast после обновления портала не нашёл бы How to demo, а правая
+ * панель показала бы «Сценарий приёмки ещё не составлен».
+ */
+class PersistedDemos extends Map<string, DemoRecord> {
+  constructor(private readonly file: string) {
+    super()
+    try {
+      for (const [id, record] of Object.entries(JSON.parse(readFileSync(file, 'utf8')) as Record<string, DemoRecord>)) super.set(id, record)
+    } catch { /* первый запуск — пусто */ }
+  }
+
+  override set(id: string, record: DemoRecord): this {
+    super.set(id, record)
+    try {
+      mkdirSync(dirname(this.file), { recursive: true })
+      writeFileSync(this.file, JSON.stringify(Object.fromEntries(this)), 'utf8')
+    } catch (e) {
+      console.error('[customer-form] сценарии приёмки не сохранились:', e)
+    }
+    return this
+  }
+}
+
 let demos: Map<string, DemoRecord> | undefined
 
 /** Один реестр на процесс: пишет инструмент confirm_acceptance_demo, читает узел. */
 export function sharedDemos(): Map<string, DemoRecord> {
-  demos ??= new Map()
+  demos ??= new PersistedDemos(`${process.env.DSH_HOME ?? '/data'}/customer-form/demos.json`)
   return demos
 }
 

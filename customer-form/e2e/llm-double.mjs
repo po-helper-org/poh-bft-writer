@@ -84,6 +84,9 @@ const FAST = {
   openQuestions: INTAKE.openQuestions,
 }
 
+/** Вторая версия после замечания со страницы: срок назван. */
+const FAST_REVISED = { ...FAST, smart: { ...FAST.smart, t: 'К концу квартала' } }
+
 /** Следующий ход сценария по истории запроса. */
 function nextTurn(messages) {
   const last = messages.at(-1)
@@ -119,6 +122,13 @@ function nextTurn(messages) {
       + '7. Глоссарий: BI — система бизнес-аналитики\nВсё верно? Напишите «подтверждаю».' }
   }
   const said = messages.filter((m) => m.role === 'user').map(text)
+  // Страница документа БФТ (rev15): замечания → пересборка, «Согласовать» → благодарность.
+  if ((said.at(-1) ?? '').includes('Замечания к документу БФТ')) {
+    return { content: 'Учла замечания, пересобираю документ…', tool: { name: 'create_bft_fast', args: FAST_REVISED } }
+  }
+  if ((said.at(-1) ?? '').includes('Согласовываю быструю версию БФТ')) {
+    return { content: 'Спасибо! Документ согласован, PO возьмёт его в проработку.' }
+  }
   if (/подтвержда/i.test(said.at(-1) ?? '')) {
     return { tool: { name: 'submit_customer_request', args: INTAKE } }
   }
