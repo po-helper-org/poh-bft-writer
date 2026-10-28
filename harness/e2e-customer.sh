@@ -22,7 +22,7 @@ wait_portal() {
 }
 
 restore() {
-  docker compose exec -T customer-web rm -f /data/override.patch.yml >/dev/null 2>&1 || true
+  docker compose exec -T customer-web rm -f /data/override.patch.yml /data/e2e-hooks >/dev/null 2>&1 || true
   docker compose restart customer-web >/dev/null 2>&1 || true
   docker rm -f llm-double >/dev/null 2>&1 || true
   wait_portal && echo "▸ портал возвращён на модель профиля"
@@ -33,6 +33,8 @@ echo "▸ модель-двойник :8799"
 docker rm -f llm-double >/dev/null 2>&1 || true
 docker run -d --name llm-double --network host -v "$E2E_DIR:/e2e:ro" "$NODE_IMAGE" node /e2e/llm-double.mjs >/dev/null
 docker compose cp "$E2E_DIR/llm-double.patch.yml" customer-web:/data/override.patch.yml >/dev/null
+# Сбои трекера по заказу (e2e/tracker-recovery.spec.ts) — только на время прогона.
+docker compose exec -T customer-web touch /data/e2e-hooks
 docker compose restart customer-web >/dev/null
 wait_portal
 

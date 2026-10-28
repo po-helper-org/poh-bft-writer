@@ -107,11 +107,40 @@ export class Backlog {
   /** Одна заявка на сессию даже при гонке «первое сообщение ↔ /request». */
   private pending = new Map<string, Promise<Ticket>>()
 
-  constructor(private readonly cfg: Cfg, private readonly fetchImpl: FetchLike = (u, i) => fetch(u, i)) {
+  /**
+   * Все запросы к трекеру. Токен Vikunja живёт недолго, а узел — сутками:
+   * на 401 входим заново и повторяем запрос один раз (rev17). Без этого после
+   * истечения токена молча переставали создаваться заявки, вложения и
+   * постановки — заказчик узнавал об этом только на сдаче.
+   */
+  private readonly fetchImpl: FetchLike
+
+  constructor(private readonly cfg: Cfg, rawFetch: FetchLike = (u, i) => fetch(u, i)) {
+    this.fetchImpl = async (url, init) => {
+      const res = await rawFetch(url, init)
+      const auth = new Headers(init.headers).get('authorization')
+      if (res.status !== 401 || !auth?.startsWith('Bearer ')) return res
+      this.vkToken = ''
+      const fresh = (await this.vkHeaders()).authorization
+      const headers = new Headers(init.headers)
+      headers.set('authorization', fresh)
+      return rawFetch(url, { ...init, headers })
+    }
     this.tickets = readFile(cfg.ticketsFile, 'utf8')
       .then((s) => JSON.parse(s) as Record<string, Ticket>)
       .catch(() => ({}))
   }
+
+  /** E2E (rev17): токен «истёк» — следующий запрос получит 401, как у живого узла через несколько минут. */
+  expireTokenForTest(): void {
+    if (this.vkToken) this.vkToken = 'expired.' + this.vkToken
+  }
+
+  /** E2E (rev17): трекер «недоступен» для обращения с этой меткой — заявка создастся при сдаче. */
+  failCreateForTest(marker: string): void {
+    this.failCreate.add(marker)
+  }
+  private readonly failCreate = new Set<string>()
 
   async find(sessionId: string): Promise<Ticket | undefined> {
     return (await this.tickets)[sessionId]
@@ -294,6 +323,11 @@ export class Backlog {
   }
 
   private async submit(text: string): Promise<Ticket> {
+    for (const marker of this.failCreate) {
+      if (!text.includes(marker)) continue
+      this.failCreate.delete(marker)
+      throw new Error('трекер: создание задачи 503 (e2e)')
+    }
     const body = text.trim()
     const email = EMAIL.exec(body)?.[0]
     const description = [

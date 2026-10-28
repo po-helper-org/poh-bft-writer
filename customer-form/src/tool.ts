@@ -217,6 +217,38 @@ async function attachAcceptancePage(backlog: Backlog, sessionId: string, record:
   }
 }
 
+/**
+ * Заявка сессии — найденная или созданная сейчас (rev17). Заявку создаёт узел
+ * по первому сообщению, но трекер мог не ответить (истёкший токен, сбой сети):
+ * тогда сдача не упирается в «ещё не зарегистрирована», а заводит её сама —
+ * с отметкой согласованного сценария и ссылкой заказчику, как при первом
+ * сообщении. Не вышло и сейчас — модели настоящая причина, а не «повтори».
+ */
+async function ensureTicket(backlog: Backlog, agent: AgentLike, text: string): Promise<Ticket> {
+  const sessionId = agent.session.id
+  const known = await backlog.find(sessionId)
+  let ticket: Ticket
+  try {
+    ticket = known ?? await backlog.ensure(sessionId, text)
+  } catch (e) {
+    throw new Error(`Трекер не принял заявку: ${(e as Error).message}. Повторять сразу бесполезно — скажи заказчику, что всё сказанное сохранено в этом чате и заявка будет заведена, как только трекер ответит; попробуй ещё раз на следующем его сообщении.`)
+  }
+  // Сценарий согласовали, пока заявки не было: отметка и страница — сейчас.
+  const record = sharedDemos().get(sessionId)
+  if (record?.approvedAt && !ticket.demoApprovedAt) {
+    ticket = await backlog.approveDemo(sessionId, ticket, demoSteps(record.demo), doneList(record.demo).join('; '), storyboardMarkdown(record.demo))
+    void attachAcceptancePage(backlog, sessionId, record)
+  }
+  if (known) return ticket
+  agent.inject({
+    id: randomUUID(),
+    role: 'user',
+    source: { kind: 'user' },
+    content: [{ type: 'text', text: `📌 Заявка #${ticket.taskId} зарегистрирована в беклоге: ${ticket.url}. Статус — по ссылке.` }],
+  })
+  return ticket
+}
+
 function submitTool(backlog: Backlog) {
   return {
     name: 'submit_customer_request',
@@ -244,8 +276,7 @@ function submitTool(backlog: Backlog) {
     async execute(args: Intake, exec: { agent?: AgentLike }) {
       const agent = exec.agent
       if (!agent) throw new Error('нет сессии заказчика')
-      const ticket = await backlog.find(agent.session.id)
-      if (!ticket) throw new Error('заявка этой сессии ещё не зарегистрирована — повтори через пару секунд')
+      const ticket = await ensureTicket(backlog, agent, [args.title, args.summary, `${args.customerName} ${args.customerEmail}`].join('\n'))
       await backlog.finalize(ticket, args, transcriptOf(agent, ticket, args))
       fastProgress.stage(agent.session.id, 'submitted')
       return `Заявка #${ticket.taskId} обновлена: постановка, сводка и полный контекст сохранены. Отслеживание статуса: ${ticket.url}`
@@ -314,8 +345,7 @@ function fastTool(backlog: Backlog) {
       const agent = exec.agent
       if (!agent) throw new Error('нет сессии заказчика')
       const sessionId = agent.session.id
-      const ticket = await backlog.find(sessionId)
-      if (!ticket) throw new Error('заявка этой сессии ещё не зарегистрирована — сначала submit_customer_request')
+      const ticket = await ensureTicket(backlog, agent, args.title)
       const record = sharedDemos().get(sessionId)
       const howToDemo = record?.approvedAt ? demoSteps(record.demo) : []
       const slug = fastSlug(ticket.taskId)

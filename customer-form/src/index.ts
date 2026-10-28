@@ -16,6 +16,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
+import { existsSync } from 'node:fs'
 import { mkdir, readFile } from 'node:fs/promises'
 import { Backlog, moscowTime, sharedBacklog, type Ticket } from './host.js'
 import { sharedMaterials, type Material, type Materials, type WebLike } from './materials.js'
@@ -157,6 +158,8 @@ export function apply(ctx: HarnessContext): void {
     const linked = new Set<string>()
     scoped.effect(() => scoped.on('agent/inbox/claimed', (({ agent, message }: { agent: AgentLike; message: UserMessageLike }) => {
       if (message.source.kind !== 'user') return
+      // «📌 …» — служебные пузыри портала (заявка, сценарий согласован): не обращение заказчика.
+      if (textOf(message).trimStart().startsWith('📌')) return
       const sessionId = agent.session.id
       voice.remember(agent)
       const found = collectMaterials(materials, attachments, sessionId, message)
@@ -274,6 +277,22 @@ export function apply(ctx: HarnessContext): void {
         return new Response(page, { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } })
       },
     }), 'customer-form: /api/customer-form.bftFast')
+
+    // E2E (rev17): сбои трекера по заказу — только при флаге <DSH_HOME>/e2e-hooks,
+    // его ставит и снимает harness/e2e-customer.sh. В бою эндпоинт отвечает 404.
+    scoped.effect(() => register({
+      path: '/api/customer-form.e2e',
+      methods: ['POST'],
+      requestBody: 'buffered',
+      fetch: async (request: Request) => {
+        if (!existsSync(`${process.env.DSH_HOME ?? '/data'}/e2e-hooks`)) return new Response('not found', { status: 404 })
+        const { action, marker } = (await request.json().catch(() => ({}))) as { action?: string; marker?: string }
+        if (action === 'expireToken') backlog.expireTokenForTest()
+        else if (action === 'failCreate' && marker) backlog.failCreateForTest(marker)
+        else return Response.json({ error: 'unknown action' }, { status: 400 })
+        return Response.json({ ok: true })
+      },
+    }), 'customer-form: /api/customer-form.e2e')
 
     // Ход сборки для экрана ожидания: опрос раз в 2 с.
     scoped.effect(() => register({
