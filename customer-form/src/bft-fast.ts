@@ -44,8 +44,35 @@ export const fastSlug = (taskId: number) => `zayavka-${taskId}`
 /** Путь страницы документа на узле портала. */
 export const fastPagePath = (sessionId: string) => `/api/customer-form.bftFast?session=${encodeURIComponent(sessionId)}`
 /** Полный адрес для чата: относительную ссылку чат dsh показывает текстом, без перехода. */
-export const fastPageUrl = (sessionId: string) =>
-  `${(process.env.PORTAL_PUBLIC_URL ?? 'http://127.0.0.1:3080').replace(/\/+$/, '')}${fastPagePath(sessionId)}`
+export const portalUrl = (path: string) => `${(process.env.PORTAL_PUBLIC_URL ?? 'http://127.0.0.1:3080').replace(/\/+$/, '')}${path}`
+export const fastPageUrl = (sessionId: string) => portalUrl(fastPagePath(sessionId))
+
+/**
+ * Ход сборки документа (rev16): от «Согласую» на сценарии до готовой страницы.
+ * Правая панель показывает его заказчику, пока модель раскладывает требования.
+ * В памяти: после рестарта сборки нет — показывается готовый документ.
+ */
+export type FastStage = 'approved' | 'submitted' | 'building' | 'ready'
+export interface FastProgress { stage: FastStage; startedAt: string }
+
+class ProgressRegistry {
+  private readonly items = new Map<string, FastProgress>()
+  start(sessionId: string): void {
+    this.items.set(sessionId, { stage: 'approved', startedAt: new Date().toISOString() })
+  }
+  /** Следующий этап; пересборка по замечаниям начинает отсчёт заново. */
+  stage(sessionId: string, stage: FastStage): void {
+    const current = this.items.get(sessionId)
+    const fresh = !current || current.stage === 'ready'
+    this.items.set(sessionId, { stage, startedAt: fresh ? new Date().toISOString() : current.startedAt })
+  }
+  get(sessionId: string): FastProgress | undefined {
+    return this.items.get(sessionId)
+  }
+}
+
+let progress: ProgressRegistry | undefined
+export const fastProgress = (progress ??= new ProgressRegistry())
 
 const TYPES = ['БТ', 'ПТ', 'ИТ', 'ФТ', 'НФТ'] as const
 const ID = /^(БТ|ПТ|ИТ|ФТ|НФТ)-([1-9]\d*)$/
@@ -207,7 +234,7 @@ export function requirementsCsv(input: FastInput): string {
     ...checkRequirements(input).rows.map((r) => [r.id, cell(r.asis, '[ASIS не озвучен]'), cell(r.tobe), relatedOf(r).join(', '), cell(r.source)])])
 }
 
-export interface FastFiles { dir: string; md: string; html: string; personas: string; requirements: string; approval: string }
+export interface FastFiles { dir: string; md: string; html: string; personas: string; requirements: string; approval: string; input: string }
 
 export function fastFiles(root: string, slug: string): FastFiles {
   const dir = join(root, slug)
@@ -218,6 +245,7 @@ export function fastFiles(root: string, slug: string): FastFiles {
     personas: join(dir, 'personas.csv'),
     requirements: join(dir, 'requirements.csv'),
     approval: join(dir, 'approval.json'),
+    input: join(dir, 'input.json'),
   }
 }
 
@@ -273,6 +301,8 @@ export async function buildFast(input: FastInput, ctx: FastContext, root: string
   await writeFile(files.md, markdown, 'utf8')
   await writeFile(files.personas, personasCsv(input), 'utf8')
   await writeFile(files.requirements, requirementsCsv(input), 'utf8')
+  // Поля как есть — из них страница собирает сводку для заказчика (fast-page.ts).
+  await writeFile(files.input, JSON.stringify({ ...input, requirements: checkRequirements(input).rows, howToDemo: ctx.howToDemo }), 'utf8')
   const lint = await python(join(ctx.skillsPath, 'bft-writer/scripts/bft-lint.py'), [files.md])
   if (lint.code !== 0) return { ok: false, errors: `bft-lint.py:\n${lint.out}` }
   const html = await python(join(ctx.skillsPath, 'bft-writer/scripts/bft-html-export.py'), [files.md])

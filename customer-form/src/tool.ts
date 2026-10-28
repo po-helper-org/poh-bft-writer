@@ -7,8 +7,9 @@
  * строкой пресета (customer.patch.yml), а Backlog берёт общий с узлом
  * customer-form (заявку тот создал по первому сообщению).
  */
+import { randomUUID } from 'node:crypto'
 import { readFile, writeFile } from 'node:fs/promises'
-import { buildFast, FAST_ROOT, fastPageUrl, fastSlug, SKILLS_PATH, type FastInput } from './bft-fast.js'
+import { buildFast, FAST_ROOT, fastPageUrl, fastProgress, fastSlug, portalUrl, SKILLS_PATH, type FastInput } from './bft-fast.js'
 import { demoSteps, doneList, repairDemo, sharedDemos, storyboardMarkdown, type AcceptanceDemo, type DemoRecord } from './demo.js'
 import { demoPageHtml } from './demo-page.js'
 import { moscowTime, sharedBacklog, type Backlog, type Intake, type Ticket } from './host.js'
@@ -102,7 +103,7 @@ function confirmDemoTool(ctx: ToolContext, backlog: Backlog) {
   return {
     name: 'confirm_acceptance_demo',
     description: 'Показать заказчику сценарий приёмки (HowToDemo) раскадровкой по экранам и получить его согласие кнопкой «Согласую». '
-      + 'Вызывай, когда понятно, где и как заказчик будет проверять результат; до ИТОГА. При правках — исправь шаги и вызови снова.',
+      + 'Вызывай, когда понятно, где и как заказчик будет проверять результат. «Согласую» — полное согласие с постановкой: дальше сразу submit_customer_request и create_bft_fast. При правках — исправь шаги и вызови снова.',
     parameters: {
       title: text('Что принимаем — результат работы, 3–8 слов'),
       where: text('Где заказчик проверяет: система, окружение или канал (почта, папка, портал, отчёт)'),
@@ -180,7 +181,18 @@ function confirmDemoTool(ctx: ToolContext, backlog: Backlog) {
       const checklist = doneList(args)
       if (ticket) await backlog.approveDemo(agent.session.id, ticket, steps, checklist.join('; '), storyboard)
       await attachAcceptancePage(backlog, agent.session.id, approved)
-      return ['Заказчик согласовал сценарий приёмки кнопкой «Согласую». В howToDemo заявки перенеси эти шаги без изменений:',
+      // Дальше заказчик только ждёт документ (rev16): ссылку и «уже готовлю» пишет
+      // портал сам — сразу, не дожидаясь модели; справа — ход сборки.
+      fastProgress.start(agent.session.id)
+      agent.inject({
+        id: randomUUID(),
+        role: 'user',
+        source: { kind: 'user' },
+        content: [{ type: 'text', text: `📌 Сценарий приёмки согласован: ${portalUrl(`/api/customer-form.demo?session=${encodeURIComponent(agent.session.id)}`)}\nУже готовлю БФТ-документ на проверку, буквально 3 минуты — ход сборки справа.` }],
+      })
+      return ['Заказчик САМ нажал кнопку «Согласую» на карточке сценария приёмки — это его подтверждение и полное согласие с постановкой.',
+        'Нажатие кнопки не появляется сообщением в чате: результат этого инструмента и есть его ответ (модель кнопку нажать не может). Не переспрашивай, ИТОГ не собирай.',
+        'Ссылку на согласованный сценарий и «Уже готовлю БФТ-документ» портал уже показал заказчику. Без реплик сразу вызови submit_customer_request, затем create_bft_fast. В howToDemo заявки перенеси эти шаги без изменений:',
         ...steps.map((s, i) => `${i + 1}. ${s}`), 'Работа принята, если (чек-лист заказчика):', ...checklist.map((c) => `- ${c}`)].join('\n')
     },
   }
@@ -208,7 +220,7 @@ async function attachAcceptancePage(backlog: Backlog, sessionId: string, record:
 function submitTool(backlog: Backlog) {
   return {
     name: 'submit_customer_request',
-    description: 'Сдать подтверждённую заказчиком постановку в заявку беклога: описание, сводку и полный контекст. Вызывай один раз, после подтверждения ИТОГА.',
+    description: 'Сдать согласованную заказчиком постановку в заявку беклога: описание, сводку и полный контекст. Вызывай один раз — сразу после «Согласую» на сценарии приёмки, без ИТОГА и повторного подтверждения; пробелы — в openQuestions.',
     parameters: {
       title: text('Короткое название заявки для доски, до 8 слов'),
       customerName: text('ФИО заказчика'),
@@ -235,6 +247,7 @@ function submitTool(backlog: Backlog) {
       const ticket = await backlog.find(agent.session.id)
       if (!ticket) throw new Error('заявка этой сессии ещё не зарегистрирована — повтори через пару секунд')
       await backlog.finalize(ticket, args, transcriptOf(agent, ticket, args))
+      fastProgress.stage(agent.session.id, 'submitted')
       return `Заявка #${ticket.taskId} обновлена: постановка, сводка и полный контекст сохранены. Отслеживание статуса: ${ticket.url}`
     },
   }
@@ -306,6 +319,7 @@ function fastTool(backlog: Backlog) {
       const record = sharedDemos().get(sessionId)
       const howToDemo = record?.approvedAt ? demoSteps(record.demo) : []
       const slug = fastSlug(ticket.taskId)
+      fastProgress.stage(sessionId, 'building')
       const built = await buildFast(args, { slug, howToDemo, source: `заявка #${ticket.taskId} в трекере — ${ticket.url}`, skillsPath: SKILLS_PATH }, FAST_ROOT)
       if (!built.ok) throw new Error(`Документ не собран, исправь поля и вызови create_bft_fast снова:\n${built.errors}`)
       // Номер сборки — в имени вложения: PO видит, что пересобиралось. Счётчик — на диске, рестарт его не обнуляет.
@@ -313,6 +327,7 @@ function fastTool(backlog: Backlog) {
       const rev = Number(await readFile(counter, 'utf8').catch(() => '0')) + 1
       await writeFile(counter, String(rev), 'utf8')
       const questions = (args.openQuestions ?? []).map((q) => q.trim()).filter(Boolean)
+      fastProgress.stage(sessionId, 'ready')
       void publishFast(backlog, ticket, slug, rev, built.files, questions)
       return [
         `Быстрая версия БФТ собрана (версия ${rev}, линтер шаблона пройден) и приложена к заявке #${ticket.taskId}.`,

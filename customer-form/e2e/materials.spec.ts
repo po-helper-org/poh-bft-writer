@@ -1,7 +1,7 @@
 /**
  * E2E · материалы заказчика (rev8): диктофон iPhone (m4a) + бриф (docx) →
  * портал расшифровывает и читает их сам → ассистент сразу показывает черновик
- * «Как я понял задачу» с раскадровкой приёмки → «Согласую» → ИТОГ → задача,
+ * «Как я понял задачу» с раскадровкой приёмки → «Согласую» → документ БФТ → задача,
  * в которой лежат расшифровка и текст брифа.
  *
  * Модель — двойник (e2e/llm-double.mjs): он продолжает сценарий, только если в
@@ -55,10 +55,7 @@ test('материалы: m4a + docx → черновик по материал�
   await page.screenshot({ path: 'test-results/materials-draft.png' })
   await page.getByRole('button', { name: 'Согласую' }).click()
 
-  await expect(page.getByText(/ИТОГ по заявке/)).toBeVisible({ timeout: 30_000 })
-  await composer.click()
-  await page.keyboard.type('подтверждаю')
-  await page.keyboard.press('Enter')
+  // «Согласую» — полное согласие (rev16): без ИТОГ сразу сдача заявки и документ БФТ.
   await expect(page.getByText(new RegExp(`Отслеживание статуса: \\S+/tasks/${taskId}`))).toBeVisible({ timeout: 30_000 })
 
   // В задаче: исходники, расшифровка голоса и текст брифа — PO читает то же, что модель.

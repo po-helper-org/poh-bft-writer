@@ -94,9 +94,10 @@ export function BftTitle(): ReactElement {
 export const bftWatch: { loadInfo?: (sessionId: string) => Promise<SessionInfo | undefined>; openBft?: (sessionId: string) => void } = {}
 
 /**
- * Невидимый наблюдатель чата: собралась новая версия документа (create_bft_fast)
- * — открыть её в правой панели. Уже открытый чат со старым документом панель
- * не трогает: открывает только смена версии.
+ * Невидимый наблюдатель чата: началась сборка документа (заказчик нажал
+ * «Согласую» — справа экран ожидания, rev16) или собралась новая версия —
+ * открыть правую панель. Уже открытый чат со старым документом панель не
+ * трогает: открывает только смена состояния.
  */
 export function BftWatcher({ sessionId }: { sessionId?: string }): null {
   useEffect(() => {
@@ -106,9 +107,12 @@ export function BftWatcher({ sessionId }: { sessionId?: string }): null {
     const tick = () => {
       void bftWatch.loadInfo?.(sessionId).then((info) => {
         if (!alive || !info) return
-        const rev = info.bftFast?.rev ?? null
-        if (seen !== undefined && rev && rev !== seen) bftWatch.openBft?.(sessionId)
-        seen = rev
+        const fast = info.bftFast
+        const key = fast ? (fast.building ? 'building' : fast.rev) : null
+        // Сборку показываем и при первом опросе: заказчик только что нажал «Согласую».
+        const opened = key === 'building' ? seen !== 'building' : seen !== undefined && !!key && key !== seen
+        if (opened) bftWatch.openBft?.(sessionId)
+        seen = key
       }).catch(() => undefined)
     }
     tick()
@@ -132,7 +136,7 @@ export interface SessionInfo {
   files: { id: string; name: string; status: 'ready' | 'pending' | 'error'; label: string; error?: string }[]
   demo: { rev: number; title: string; approved: boolean } | null
   /** Быстрая версия БФТ, если документ собран (rev14): версия — хэш, согласование — этой версии. */
-  bftFast?: { url: string; rev: string; approvedAt: string | null } | null
+  bftFast?: { url: string; rev: string | null; approvedAt: string | null; building: boolean } | null
 }
 
 interface InfoProps {
@@ -178,7 +182,7 @@ export function InfoView({ sessionId, loadInfo, openAcceptance, openBft }: InfoP
         <div style={muted}>Быстрая версия БФТ</div>
         {info?.bftFast
           ? <div style={{ marginTop: 4 }}>
-              {info.bftFast.approvedAt ? `согласован ${new Date(info.bftFast.approvedAt).toLocaleString('ru-RU', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}` : 'на согласовании'}
+              {info.bftFast.building ? 'собирается…' : info.bftFast.approvedAt ? `согласован ${new Date(info.bftFast.approvedAt).toLocaleString('ru-RU', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}` : 'на согласовании'}
               <button type="button" data-bft-fast onClick={() => openBft(sessionId)} style={{ marginLeft: 10, cursor: 'pointer', borderRadius: 8, padding: '2px 10px', border: '1px solid rgba(127,127,127,.4)', background: 'transparent', color: 'inherit' }}>Открыть</button>
             </div>
           : <div style={{ marginTop: 4 }}>Соберётся в чате после подтверждения заявки.</div>}

@@ -1,6 +1,6 @@
 /**
  * E2E · HowToDemo заказчика п.3–10 — обращение с вложением → вопросы формой →
- * раскадровка сценария приёмки → «Согласую» → ИТОГ → подтверждение →
+ * раскадровка сценария приёмки → «Согласую» (полное согласие, без ИТОГ) →
  * постановка, сводка, согласование и контекст в задаче Vikunja → быстрая
  * версия БФТ в том же чате (rev14): страница документа и файлы в задаче.
  *
@@ -51,27 +51,36 @@ test('микродиалог: вложение → вопросы → согла
   await page.screenshot({ path: 'test-results/acceptance-demo.png' })
   await page.getByRole('button', { name: 'Согласую' }).click()
 
-  // ИТОГ → подтверждение текстом → сдача заявки → финальная ссылка (п.9–10).
-  await expect(page.getByText(/ИТОГ по заявке/)).toBeVisible({ timeout: 30_000 })
-  await composer.click()
-  await page.keyboard.type('подтверждаю')
-  await page.keyboard.press('Enter')
-  await expect(page.getByText(new RegExp(`Отслеживание статуса: \\S+/tasks/${taskId}`))).toBeVisible({ timeout: 30_000 })
-
-  // rev14–15: сразу в этом же чате — быстрая версия БФТ; документ сам открывается
-  // справа, со страницы — замечания в чат и «Согласовать».
-  const fastLink = page.getByRole('link', { name: 'открыть документ' })
-  await expect(fastLink, 'ссылка на быструю версию БФТ').toBeVisible({ timeout: 30_000 })
+  // rev16: «Согласую» — полное согласие. Ни ИТОГ, ни повторного «подтверждаю»:
+  // ссылка на согласованный сценарий, «уже готовлю» и экран ожидания справа.
+  await expect(page.getByText('Уже готовлю БФТ-документ на проверку').first(), 'сразу «уже готовлю»').toBeVisible({ timeout: 15_000 })
+  await expect(page.getByText(/ИТОГ по заявке/), 'ИТОГ больше не собирается').toHaveCount(0)
   const doc = page.frameLocator('iframe[data-customer-bft]')
-  await expect(doc.getByRole('heading', { name: new RegExp(`\\[БФТ\\] zayavka-${taskId}`) }), 'документ в правой панели').toBeVisible({ timeout: 15_000 })
-  await expect(doc.getByText('Почта Outlook').first(), 'How to demo — согласованный сценарий').toBeVisible()
-  await expect(doc.getByText('ФТ-1').first(), 'скелет требований').toBeVisible()
-  await expect(doc.getByRole('button', { name: 'Согласовать' }), 'кнопка заказчика вместо отгрузки').toBeVisible()
+  await expect(doc.getByRole('heading', { name: 'Уже готовлю БФТ-документ' }), 'экран ожидания справа').toBeVisible({ timeout: 15_000 })
+  await page.screenshot({ path: 'test-results/bft-fast-waiting.png' })
+
+  // Документ сам сменяет экран ожидания: сводка для заказчика сверху.
+  await expect(doc.getByRole('heading', { name: new RegExp(`\\[БФТ\\] zayavka-${taskId}`) }), 'документ в правой панели').toBeVisible({ timeout: 30_000 })
+  const summary = doc.getByRole('region', { name: 'Коротко для заказчика' })
+  await expect(summary.getByText(`На проверку · заявка #${taskId}`), 'сводка сверху').toBeVisible()
+  await expect(summary.getByText('Работа принята, если'), 'чек-лист приёмки').toBeVisible()
+  await expect(summary.getByText('Почта Outlook').first(), 'как проверите — согласованный сценарий').toBeVisible()
+  await expect(summary.getByText('К кому обращаться'), 'контакты').toBeVisible()
+  await expect(summary.getByRole('button', { name: 'Да, согласен' })).toBeVisible()
   await expect(doc.getByText('Всё ок — отгружай'), 'отгрузка PO скрыта').toHaveCount(0)
   await expect(doc.getByText('Полный БФТ — в проработке'), 'открытое поле для /bft-deep убрано').toHaveCount(0)
+  await expect(page.getByText(new RegExp(`Отслеживание статуса: \\S+/tasks/${taskId}`)), 'ссылка на заявку в чате').toBeVisible()
   await page.screenshot({ path: 'test-results/bft-fast-panel.png' })
 
-  // Замечание со страницы → «Отправить замечания в чат» → сообщение в чате → новая версия.
+  // «Добавить требования» — начало фразы в поле ввода чата (дальше заказчик диктует).
+  await summary.getByRole('button', { name: 'Добавить требования' }).click()
+  await expect(composer, 'фраза в поле ввода').toContainText('Добавь требования', { timeout: 5_000 })
+  await page.getByRole('button', { name: 'Остановить и распознать' }).click({ timeout: 3_000 }).catch(() => undefined)
+  await composer.click()
+  await page.keyboard.press('ControlOrMeta+a')
+  await page.keyboard.press('Backspace')
+
+  // Замечание со страницы → «Отправить замечания в чат» → новая версия.
   await doc.locator('body').evaluate((_, key) => {
     localStorage.setItem(key, JSON.stringify([{ section: 'Цель', quote: '[УТОЧНИТЬ]', text: 'Срок — к концу квартала', ts: new Date().toISOString(), uncId: null }]))
   }, `bft-comments-zayavka-${taskId}`)
@@ -80,10 +89,10 @@ test('микродиалог: вложение → вопросы → согла
   await expect(page.getByText('Замечания к документу БФТ:').first(), 'замечания ушли в чат').toBeVisible({ timeout: 10_000 })
   await expect(doc.getByRole('cell', { name: 'К концу квартала', exact: true }), 'документ пересобран по замечанию').toBeVisible({ timeout: 30_000 })
 
-  // «Согласовать» → отметка на странице и сообщение в чате.
-  await doc.getByRole('button', { name: 'Согласовать' }).click()
-  await expect(doc.getByRole('button', { name: /Согласовано/ }), 'согласовано на странице').toBeVisible({ timeout: 10_000 })
-  await expect(page.getByText('Согласовываю быструю версию БФТ').first(), 'согласование в чате').toBeVisible({ timeout: 10_000 })
+  // «Да, согласен» → отметка на странице и сообщение в чате.
+  await doc.getByRole('region', { name: 'Коротко для заказчика' }).getByRole('button', { name: 'Да, согласен' }).click()
+  await expect(doc.getByRole('button', { name: /Согласовано/ }).first(), 'согласовано на странице').toBeVisible({ timeout: 10_000 })
+  await expect(page.getByText('Да, согласен с документом БФТ').first(), 'согласование в чате').toBeVisible({ timeout: 10_000 })
 
   // Задача: постановка по разделам, сводка в комментарии, вложение + контекст.
   const login = await request.post(`${TRACKER_API}/login`, {

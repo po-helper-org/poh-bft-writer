@@ -1,8 +1,8 @@
 /**
  * Модель-ДВОЙНИК для E2E микродиалога портала (не ИИ): OpenAI-совместимый
  * /v1/chat/completions со стримингом и tool-calls, проигрывающий сценарий
- * «вопросы формой → раскадровка на согласование → ИТОГ → подтверждение →
- * submit_customer_request → ссылка».
+ * «вопросы формой → раскадровка на согласование → «Согласую» → «уже готовлю» →
+ * submit_customer_request → create_bft_fast → ссылка на документ» (rev16: без ИТОГ).
  * Нужен, чтобы путь заказчика проверялся без внешнего ключа и квоты.
  *
  *   node e2e/llm-double.mjs            # порт LLM_DOUBLE_PORT (8799)
@@ -92,14 +92,19 @@ function nextTurn(messages) {
   const last = messages.at(-1)
   if (last?.role === 'tool') {
     const call = messages.flatMap((m) => m.tool_calls ?? []).find((c) => c.id === last.tool_call_id)
+    // «Согласую» на сценарии — полное согласие (rev16): «уже готовлю» пишет портал, модель сразу сдаёт заявку.
+    if (call?.function.name === 'confirm_acceptance_demo' && text(last).includes('нажал кнопку «Согласую»')) {
+      return { tool: { name: 'submit_customer_request', args: INTAKE } }
+    }
+    // Раскладка требований у настоящей модели идёт минуту-две: пауза, чтобы был виден экран ожидания.
     if (call?.function.name === 'submit_customer_request') {
-      return { content: 'Собираю быструю версию БФТ…', tool: { name: 'create_bft_fast', args: FAST } }
+      return { tool: { name: 'create_bft_fast', args: FAST }, delay: 4000 }
     }
     if (call?.function.name === 'create_bft_fast') {
       const submitted = messages.find((m) => m.role === 'tool' && /tasks\/\d+/.test(text(m)))
       const url = /https?:\/\/\S+\/tasks\/\d+/.exec(submitted ? text(submitted) : '')?.[0] ?? ''
       const page = /https?:\/\/\S+\/api\/customer-form\.bftFast\?session=\S+/.exec(text(last))?.[0] ?? ''
-      return { content: `Спасибо! Заявка сдана, PO возьмёт её в работу. Отслеживание статуса: ${url}\n\nБыстрая версия БФТ на согласование: [открыть документ](${page})` }
+      return { content: `БФТ-документ на проверку: [открыть документ](${page}). Отслеживание статуса: ${url}\n\nЕсли всё верно — нажмите «Да, согласен». Если что-то пропущено — «Добавить требования».` }
     }
     if (call?.function.name === 'read_customer_materials' && text(last).includes('Ещё разбираются')) {
       return { content: 'Запись длинная — пока она расшифровывается, один вопрос:', tool: { name: 'ask_user_question', args: TITLE_QUESTIONS } }
@@ -117,16 +122,14 @@ function nextTurn(messages) {
     if (call?.function.name === 'ask_user_question') {
       return { content: 'Собрала сценарий приёмки — посмотрите раскадровку:', tool: { name: 'confirm_acceptance_demo', args: DEMO } }
     }
-    return { content: 'ИТОГ по заявке:\n1. Заказчик: E2E Тестов, e2e@test.local\n2. Суть: утренняя выгрузка отчётов в CSV\n'
-      + '3. ASIS: вручную в Excel\n4. GAP: долго, опаздывает\n5. TOBE: CSV к 9:00 сам\n6. HowToDemo (согласован): письмо в 9:00, CSV, сверка с BI\n'
-      + '7. Глоссарий: BI — система бизнес-аналитики\nВсё верно? Напишите «подтверждаю».' }
+    return { content: 'Поняла.' }
   }
   const said = messages.filter((m) => m.role === 'user').map(text)
   // Страница документа БФТ (rev15): замечания → пересборка, «Согласовать» → благодарность.
   if ((said.at(-1) ?? '').includes('Замечания к документу БФТ')) {
     return { content: 'Учла замечания, пересобираю документ…', tool: { name: 'create_bft_fast', args: FAST_REVISED } }
   }
-  if ((said.at(-1) ?? '').includes('Согласовываю быструю версию БФТ')) {
+  if ((said.at(-1) ?? '').includes('Да, согласен с документом БФТ')) {
     return { content: 'Спасибо! Документ согласован, PO возьмёт его в проработку.' }
   }
   if (/подтвержда/i.test(said.at(-1) ?? '')) {
@@ -163,6 +166,10 @@ createServer((req, res) => {
     const turn = body.tools?.length ? nextTurn(messages) : { content: 'Заявка заказчика' }
     const last = messages.at(-1)
     console.log(`[llm-double] tools=${(body.tools ?? []).map((t) => t.function?.name).join(',')} last=${last?.role}:${text(last ?? {}).slice(0, 160)}`)
+    if (turn.delay) { setTimeout(() => respond(turn, body), turn.delay); return }
+    respond(turn, body)
+  })
+  function respond(turn, body) {
     const base = { id: `dbl-${Date.now()}`, object: 'chat.completion.chunk', created: Math.floor(Date.now() / 1000), model: body.model }
     const toolCall = turn.tool && { index: 0, id: `call_${Date.now()}`, type: 'function',
       function: { name: turn.tool.name, arguments: JSON.stringify(turn.tool.args) } }
@@ -182,5 +189,5 @@ createServer((req, res) => {
       usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } })
     res.write('data: [DONE]\n\n')
     res.end()
-  })
+  }
 }).listen(PORT, '0.0.0.0', () => console.log(`[llm-double] :${PORT}`))

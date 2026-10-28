@@ -55,10 +55,7 @@ test('сканы: PDF без текста + фото → OCR → чернови�
   await page.screenshot({ path: 'test-results/ocr-draft.png' })
   await page.getByRole('button', { name: 'Согласую' }).click()
 
-  await expect(page.getByText(/ИТОГ по заявке/)).toBeVisible({ timeout: 30_000 })
-  await composer.click()
-  await page.keyboard.type('подтверждаю')
-  await page.keyboard.press('Enter')
+  // «Согласую» — полное согласие (rev16): без ИТОГ сразу сдача заявки и документ БФТ.
   await expect(page.getByText(new RegExp(`Отслеживание статуса: \\S+/tasks/${taskId}`))).toBeVisible({ timeout: 30_000 })
 
   // В задаче: распознанный текст скана и фото — PO читает то же, что модель.

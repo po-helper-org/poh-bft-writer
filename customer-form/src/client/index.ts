@@ -237,15 +237,23 @@ export function apply(ctx: ClientContext): void {
 
   // Страница документа БФТ (rev15): «Отправить замечания в чат» и «Согласовать»
   // сразу отправляют сообщение в чат своей сессии — как будто заказчик написал сам.
+  // «Добавить требования» (rev16): начало фразы в поле ввода и запись голосом — без отправки.
   const onSay = (event: MessageEvent) => {
     const data = event.data as { type?: string; id?: string; text?: string } | undefined
-    if (event.origin !== location.origin || data?.type !== 'customer-form/say' || typeof data.text !== 'string') return
+    const compose = data?.type === 'customer-form/compose'
+    if (event.origin !== location.origin || (data?.type !== 'customer-form/say' && !compose) || typeof data?.text !== 'string') return
     const frame = Array.from(document.querySelectorAll<HTMLIFrameElement>('iframe[data-customer-bft]')).find((f) => f.contentWindow === event.source)
     const sessionId = frame?.dataset.customerBft ?? lastSessionId
     const actions = sessionId ? bridges.get(sessionId) : undefined
     let ok = false
     try {
-      if (actions) { actions.setDraft(data.text); actions.submit(); ok = true }
+      if (actions && compose) {
+        actions.setDraft(data.text)
+        ;(document.querySelector('[data-composer-input][contenteditable="true"]') as HTMLElement | null)?.focus()
+        // Микрофон портала (StreamingMic): заказчик сразу говорит, что и где добавить.
+        ;(document.querySelector('[data-streaming-mic] button[aria-label="Начать запись"]') as HTMLButtonElement | null)?.click()
+        ok = true
+      } else if (actions) { actions.setDraft(data.text); actions.submit(); ok = true }
     } catch { ok = false }
     ;(event.source as Window | null)?.postMessage({ type: 'customer-form/say-ack', id: data.id, ok }, location.origin)
   }
