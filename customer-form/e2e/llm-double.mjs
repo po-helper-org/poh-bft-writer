@@ -74,18 +74,18 @@ const INTAKE = {
 /** Быстрая версия БФТ по той же заявке (rev14): только сказанное в диалоге. */
 const FAST = {
   title: INTAKE.title,
-  smart: { s: INTAKE.tobe, m: DEMO.done[0], r: INTAKE.gap },
-  boundaries: ['Отчёт продаж по регионам за вчера', 'Не входит: изменение отчёта в BI'],
-  personas: [{ name: 'E2E Тестов', role: 'Заказчик', influence: 'Принимает работу по сценарию приёмки' }],
+  want: { what: INTAKE.tobe, why: INTAKE.gap, quote: `Заказчик: «${INTAKE.tobe}»` },
   requirements: [
-    { id: 'БТ-1', asis: INTAKE.asis, tobe: 'Отчёт готов к планёрке без ручной сборки', source: `Заказчик: «${INTAKE.gap}»` },
-    { id: 'ФТ-1', tobe: INTAKE.tobe, related: ['БТ-1'], source: `Заказчик: «${INTAKE.tobe}»` },
+    { kind: 'зачем', text: 'Отчёт готов к планёрке без ручной сборки', quote: `Заказчик: «${INTAKE.gap}»` },
+    { kind: 'система', text: 'Система сама формирует CSV к 9:00 и присылает его', quote: `Заказчик: «${INTAKE.tobe}»` },
   ],
+  outOfScope: ['изменение отчёта в BI'],
+  people: [{ name: 'E2E Тестов', role: 'Заказчик' }],
   openQuestions: INTAKE.openQuestions,
 }
 
-/** Вторая версия после замечания со страницы: срок назван. */
-const FAST_REVISED = { ...FAST, smart: { ...FAST.smart, t: 'К концу квартала' } }
+/** Вторая версия после правки голосом: добавлено требование. */
+const FAST_REVISED = { ...FAST, requirements: [...FAST.requirements, { kind: 'на экране', text: 'В письме видна дата отчёта', quote: 'Заказчик: «в письме видна дата отчёта»' }] }
 
 /** Следующий ход сценария по истории запроса. */
 function nextTurn(messages) {
@@ -126,7 +126,7 @@ function nextTurn(messages) {
   }
   const said = messages.filter((m) => m.role === 'user').map(text)
   // Страница документа БФТ (rev15): замечания → пересборка, «Согласовать» → благодарность.
-  if ((said.at(-1) ?? '').includes('Замечания к документу БФТ')) {
+  if (/Замечания к документу БФТ|Добавь требования|Поправь в документе/.test(said.at(-1) ?? '')) {
     return { content: 'Учла замечания, пересобираю документ…', tool: { name: 'create_bft_fast', args: FAST_REVISED } }
   }
   if ((said.at(-1) ?? '').includes('Да, согласен с документом БФТ')) {

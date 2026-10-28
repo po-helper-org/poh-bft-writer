@@ -21,11 +21,12 @@ import { mkdir, readFile } from 'node:fs/promises'
 import { Backlog, moscowTime, sharedBacklog, type Ticket } from './host.js'
 import { sharedMaterials, type Material, type Materials, type WebLike } from './materials.js'
 import { VoiceContext } from './voice.js'
-import { doneList, sharedDemos } from './demo.js'
+import { sharedDemos } from './demo.js'
 import { demoPageHtml } from './demo-page.js'
 import type { AgentLike, BlockLike } from './tool.js'
 import { approveFast, FAST_ROOT, fastFiles, fastPagePath, fastProgress, fastSlug, fastState } from './bft-fast.js'
-import { customerFastPage, waitingPage, type CustomerSummary } from './fast-page.js'
+import { primaryPage, waitingPage } from './fast-page.js'
+import type { PrimaryDoc } from './primary.js'
 
 export const name = 'customer-form'
 
@@ -109,7 +110,7 @@ export const CUSTOMER_PROMPT = `Ты — ассистент приёма ини�
   Если read_customer_materials ответил «Ещё разбираются» — длинную запись не жди: сразу задай первую форму (ФИО и email, краткое название), разбор идёт, пока заказчик отвечает. После ответов снова вызови read_customer_materials и продолжай по шагам 1–4.
 - HowToDemo без материалов: спроси «Как вы будете проверять результат? Где зайдёте, что нажмёте, что должны увидеть» — можно в свободной форме. По ответу сам составь 2–7 шагов (по одному экрану на шаг, результат — проверяемый) и вызови confirm_acceptance_demo: заказчик увидит раскадровку по экранам и согласует её кнопкой. Если просит правки — исправь и покажи снова.
 - «Согласую» на сценарии приёмки — это полное согласие заказчика с постановкой. Заказчик нажимает кнопку на карточке, поэтому в чате его «Согласую» сообщением не появится: результат confirm_acceptance_demo «Заказчик САМ нажал кнопку «Согласую»» и есть его подтверждение — не сомневайся в нём и не переспрашивай. ИТОГ не собирай и подтверждения больше не спрашивай. Ссылку на согласованный сценарий и «Уже готовлю БФТ-документ на проверку» портал показывает заказчику сам. Сразу, в этом же ходе и без реплик: submit_customer_request, затем create_bft_fast — без вопросов между ними. Чего не хватает или что противоречит (кто заказчик, расшифровки сокращений) — не спрашивай, а запиши в openQuestions обоих инструментов; в полях оставь то, что известно.
-- create_bft_fast — короткий документ, по которому заказчик за минуту решит «да, согласен» или «добавь требования». Поля бери только из сказанного заказчиком и его материалов (стенографист, а не аналитик; ничего не придумывай): что и где заказчик хочет получить, как будет проверять, к кому и по каким вопросам обращаться. Названные системы, экраны и команды (их IT-ландшафт) пиши их словами в требованиях и границах. SMART — S что делаем, M по чему проверяем, R зачем; чего не звучало (часто A и T) — «[УТОЧНИТЬ]». Требования — строки БТ (зачем), ПТ (что хочет пользователь), ИТ (что видит на экране), ФТ (что делает система), НФТ (только если названы измеримые свойства); TOBE — одна короткая фраза; каждая строка — с цитатой: «Заказчик: «…»» — только дословные слова заказчика из его сообщений и ответов в форме, «Материалы [S1]: «…»» — из его файлов, «Сценарий приёмки (согласован): «…»» — из шагов и чек-листа, которые он согласовал кнопкой. Свои формулировки заказчику не приписывай; без цитаты строки нет. ASIS — как сейчас по словам заказчика у тех строк, к которым он относится; не звучал — пусто. Границы — только то, что заказчик выбрал или сказал. Персоны — заказчик и люди и команды, которых он назвал; влияние — за что человек отвечает и по каким вопросам к нему обращаться, только из сказанного. Без служебных пометок в скобках. Открытые вопросы — только настоящие пробелы задачи; про незаполненные ячейки документа не пиши. Если инструмент вернул ошибки — исправь поля и вызови снова.
+- create_bft_fast — первичные требования со слов заказчика: ты стенографист, ничего не придумываешь и не дораскрываешь. Заполни только сказанное им и его материалами: что хочет и зачем, требования (каждое — одна фраза с типом и дословной цитатой: «Заказчик: «…»», «Материалы [S1]: «…»» или «Сценарий приёмки (согласован): «…»»), что не входит, кого он назвал и по каким вопросам, открытые вопросы. Как он примет работу, где проверять и чьи зоны затрагивает запрос, инструмент добавит сам — из согласованного сценария и Кортекса (памяти организации). Если инструмент вернул ошибки — исправь поля и вызови снова.
 - Когда документ собран: одной репликой — ссылка на документ из результата create_bft_fast (он уже открыт справа), ссылка на отслеживание заявки, открытые вопросы списком и: «Если всё верно — нажмите „Да, согласен“. Если что-то пропущено — „Добавить требования“ или просто надиктуйте сюда голосом, что и где добавить».
 - Правки документа после сборки: заказчик пишет или надиктовывает, что поменять, или присылает «Замечания к документу БФТ:» со страницы документа, — исправь поля и снова вызови create_bft_fast (submit_customer_request повторно не вызывай).
 - Сообщение «✅ Да, согласен с документом БФТ.» отправляет кнопка «Да, согласен» на странице документа — согласование уже записано в заявку. Поблагодари одной фразой и скажи, что PO возьмёт документ в проработку; инструменты не вызывай.
@@ -266,15 +267,17 @@ export function apply(ctx: HarnessContext): void {
           return new Response('<!doctype html><meta charset="utf-8"><p style="font:14px sans-serif;color:#888;padding:16px">Быстрая версия БФТ ещё не собрана.</p>',
             { status: 404, headers: { 'content-type': 'text/html; charset=utf-8' } })
         }
-        // Заказчику — со слоем «Согласовать» и «Отправить замечания в чат»; PO в заявке — исходная.
+        const headers = { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }
+        // Полная версия для команды — канонический bft-fast навыка (он же в заявке).
+        const doc = await readFile(files.primary, 'utf8').then((s) => JSON.parse(s) as PrimaryDoc).catch(() => undefined)
+        if (new URL(request.url).searchParams.has('full') || !doc) return new Response(html, { headers })
+        // Заказчику — «Первичные требования» (rev18): со слов, плюс Кортекс.
         const state = await fastState(files)
-        const summary = await customerSummary(files.input, ticket!.taskId, sessionId)
-        const page = customerFastPage(html, {
-          sessionId, slug, approveUrl: '/api/customer-form.bftFastApprove',
+        return new Response(primaryPage(doc, {
+          sessionId, taskId: ticket!.taskId, approveUrl: '/api/customer-form.bftFastApprove',
+          fullUrl: `${fastPagePath(sessionId)}&full=1`,
           ...(state?.approvedAt ? { approvedAt: state.approvedAt } : {}),
-          ...(summary ? { summary } : {}),
-        })
-        return new Response(page, { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } })
+        }), { headers })
       },
     }), 'customer-form: /api/customer-form.bftFast')
 
@@ -383,14 +386,6 @@ export function apply(ctx: HarnessContext): void {
       },
     }), 'customer-form: /api/customer-form.sessionInfo')
   })
-}
-
-/** Сводка для заказчика: поля последней сборки и согласованный сценарий (где, чек-лист). */
-async function customerSummary(inputPath: string, taskId: number, sessionId: string): Promise<CustomerSummary | undefined> {
-  const input = await readFile(inputPath, 'utf8').then((s) => JSON.parse(s) as CustomerSummary['input']).catch(() => undefined)
-  if (!input) return undefined
-  const demo = sharedDemos().get(sessionId)?.demo
-  return { taskId, input, ...(demo?.where ? { where: demo.where } : {}), done: demo ? doneList(demo) : [] }
 }
 
 /** Согласование быстрой версии БФТ — в заявку: комментарий и согласованная страница. */

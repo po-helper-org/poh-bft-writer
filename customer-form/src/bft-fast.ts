@@ -234,7 +234,7 @@ export function requirementsCsv(input: FastInput): string {
     ...checkRequirements(input).rows.map((r) => [r.id, cell(r.asis, '[ASIS не озвучен]'), cell(r.tobe), relatedOf(r).join(', '), cell(r.source)])])
 }
 
-export interface FastFiles { dir: string; md: string; html: string; personas: string; requirements: string; approval: string; input: string }
+export interface FastFiles { dir: string; md: string; html: string; personas: string; requirements: string; approval: string; primary: string; contextMap: string }
 
 export function fastFiles(root: string, slug: string): FastFiles {
   const dir = join(root, slug)
@@ -245,7 +245,8 @@ export function fastFiles(root: string, slug: string): FastFiles {
     personas: join(dir, 'personas.csv'),
     requirements: join(dir, 'requirements.csv'),
     approval: join(dir, 'approval.json'),
-    input: join(dir, 'input.json'),
+    primary: join(dir, 'primary.json'),
+    contextMap: join(dir, 'context_map.md'),
   }
 }
 
@@ -301,8 +302,6 @@ export async function buildFast(input: FastInput, ctx: FastContext, root: string
   await writeFile(files.md, markdown, 'utf8')
   await writeFile(files.personas, personasCsv(input), 'utf8')
   await writeFile(files.requirements, requirementsCsv(input), 'utf8')
-  // Поля как есть — из них страница собирает сводку для заказчика (fast-page.ts).
-  await writeFile(files.input, JSON.stringify({ ...input, requirements: checkRequirements(input).rows, howToDemo: ctx.howToDemo }), 'utf8')
   const lint = await python(join(ctx.skillsPath, 'bft-writer/scripts/bft-lint.py'), [files.md])
   if (lint.code !== 0) return { ok: false, errors: `bft-lint.py:\n${lint.out}` }
   const html = await python(join(ctx.skillsPath, 'bft-writer/scripts/bft-html-export.py'), [files.md])

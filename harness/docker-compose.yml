@@ -156,6 +156,8 @@ services:
       PORTAL_MODEL: ${PORTAL_MODEL:-}
       # Разбор материалов заказчика: голос (m4a…) → текст, документы → Markdown.
       INGEST_URL: http://context-ingest:8090
+      # Кортекс (ADR-0011): bft-fast дораскрывает запрос — контуры проверки и зоны влияния.
+      CORTEX_URL: http://cortex:8095
     depends_on:
       context-ingest: { condition: service_healthy }
     ports:
@@ -168,6 +170,16 @@ services:
       retries: 30
       start_period: 15s
     mem_limit: 1g
+
+  cortex:   # ADR-0011: Кортекс — память организации (poh-cortex) только на чтение: кто, процессы, зоны влияния, IT-ландшафт
+    build:
+      context: ./cortex
+    image: poh-cortex:local
+    restart: unless-stopped
+    volumes:
+      # Память организации — клон своего poh-cortex; не задана — демо-память образа.
+      - ${CORTEX_VAULT:-./cortex/no-vault}:/vault:ro
+    mem_limit: 256m
 
   context-ingest:   # ADR-0007 rev8: MarkItDown + GigaAM v3 (CPU), без ключей и без доступа к трекеру
     build:

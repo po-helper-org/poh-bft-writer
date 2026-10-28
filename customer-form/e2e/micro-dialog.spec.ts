@@ -59,39 +59,41 @@ test('микродиалог: вложение → вопросы → согла
   await expect(doc.getByRole('heading', { name: 'Уже готовлю БФТ-документ' }), 'экран ожидания справа').toBeVisible({ timeout: 15_000 })
   await page.screenshot({ path: 'test-results/bft-fast-waiting.png' })
 
-  // Документ сам сменяет экран ожидания: сводка для заказчика сверху.
-  await expect(doc.getByRole('heading', { name: new RegExp(`\\[БФТ\\] zayavka-${taskId}`) }), 'документ в правой панели').toBeVisible({ timeout: 30_000 })
-  const summary = doc.getByRole('region', { name: 'Коротко для заказчика' })
-  await expect(summary.getByText(`На проверку · заявка #${taskId}`), 'сводка сверху').toBeVisible()
-  await expect(summary.getByText('Работа принята, если'), 'чек-лист приёмки').toBeVisible()
-  await expect(summary.getByText('Почта Outlook').first(), 'как проверите — согласованный сценарий').toBeVisible()
-  await expect(summary.getByText('К кому обращаться'), 'контакты').toBeVisible()
-  await expect(summary.getByRole('button', { name: 'Да, согласен' })).toBeVisible()
-  await expect(doc.getByText('Всё ок — отгружай'), 'отгрузка PO скрыта').toHaveCount(0)
-  await expect(doc.getByText('Полный БФТ — в проработке'), 'открытое поле для /bft-deep убрано').toHaveCount(0)
+  // Документ сам сменяет экран ожидания: «Первичные требования» (rev18) — со слов + Кортекс.
+  await expect(doc.getByText(`Первичные требования · заявка #${taskId}`), 'документ в правой панели').toBeVisible({ timeout: 30_000 })
+  for (const block of ['Что хотите и зачем', 'Как примете работу', 'Требования с ваших слов', 'Работа принята, если', 'Открытые вопросы']) {
+    await expect(doc.getByText(block).first(), `блок «${block}»`).toBeVisible()
+  }
+  await expect(doc.getByText('Почта Outlook').first(), 'как примет — согласованный сценарий').toBeVisible()
+  await expect(doc.getByText('Система сама формирует CSV к 9:00 и присылает его').first(), 'требование со слов').toBeVisible()
+  await expect(doc.getByRole('heading', { name: /Где проверять/ }), 'контуры проверки — Кортекс').toBeVisible()
+  await expect(doc.getByText(/из памяти организации/).first(), 'Кортекс помечен').toBeVisible()
+  for (const cut of ['How to demo', 'S (Specific)', 'Общая информация', 'Всё ок — отгружай']) {
+    await expect(doc.getByText(cut), `в документе заказчика нет «${cut}»`).toHaveCount(0)
+  }
   await expect(page.getByText(new RegExp(`Отслеживание статуса: \\S+/tasks/${taskId}`)), 'ссылка на заявку в чате').toBeVisible()
   await page.screenshot({ path: 'test-results/bft-fast-panel.png' })
 
-  // «Добавить требования» — начало фразы в поле ввода чата (дальше заказчик диктует).
-  await summary.getByRole('button', { name: 'Добавить требования' }).click()
+  // Полная версия для команды — канонический bft-fast навыка.
+  const full = await doc.getByRole('link', { name: 'документ bft-fast' }).getAttribute('href')
+  const fullPage = await page.context().newPage()
+  await fullPage.goto(new URL(full ?? '', CUSTOMER_URL).toString())
+  await expect(fullPage.getByRole('heading', { name: new RegExp(`\\[БФТ\\] zayavka-${taskId}`) }), 'полная версия для PO').toBeVisible()
+  await fullPage.close()
+
+  // «Добавить требования» → фраза в поле ввода → заказчик досказывает → новая версия.
+  await doc.getByRole('button', { name: 'Добавить требования' }).click()
   await expect(composer, 'фраза в поле ввода').toContainText('Добавь требования', { timeout: 5_000 })
   await page.getByRole('button', { name: 'Остановить и распознать' }).click({ timeout: 3_000 }).catch(() => undefined)
   await composer.click()
-  await page.keyboard.press('ControlOrMeta+a')
-  await page.keyboard.press('Backspace')
-
-  // Замечание со страницы → «Отправить замечания в чат» → новая версия.
-  await doc.locator('body').evaluate((_, key) => {
-    localStorage.setItem(key, JSON.stringify([{ section: 'Цель', quote: '[УТОЧНИТЬ]', text: 'Срок — к концу квартала', ts: new Date().toISOString(), uncId: null }]))
-  }, `bft-comments-zayavka-${taskId}`)
-  await doc.getByRole('button', { name: 'Комментарии' }).click()
-  await doc.getByRole('button', { name: 'Отправить замечания в чат' }).click()
-  await expect(page.getByText('Замечания к документу БФТ:').first(), 'замечания ушли в чат').toBeVisible({ timeout: 10_000 })
-  await expect(doc.getByRole('cell', { name: 'К концу квартала', exact: true }), 'документ пересобран по замечанию').toBeVisible({ timeout: 30_000 })
+  await page.keyboard.press('End')
+  await page.keyboard.type('в письме видна дата отчёта')
+  await page.keyboard.press('Enter')
+  await expect(doc.getByText('В письме видна дата отчёта'), 'документ пересобран с новым требованием').toBeVisible({ timeout: 30_000 })
 
   // «Да, согласен» → отметка на странице и сообщение в чате.
-  await doc.getByRole('region', { name: 'Коротко для заказчика' }).getByRole('button', { name: 'Да, согласен' }).click()
-  await expect(doc.getByRole('button', { name: /Согласовано/ }).first(), 'согласовано на странице').toBeVisible({ timeout: 10_000 })
+  await doc.getByRole('button', { name: 'Да, согласен' }).click()
+  await expect(doc.getByRole('button', { name: /Согласовано/ }), 'согласовано на странице').toBeVisible({ timeout: 10_000 })
   await expect(page.getByText('Да, согласен с документом БФТ').first(), 'согласование в чате').toBeVisible({ timeout: 10_000 })
 
   // Задача: постановка по разделам, сводка в комментарии, вложение + контекст.
@@ -120,4 +122,5 @@ test('микродиалог: вложение → вопросы → согла
   expect(thread, 'отметка о быстрой версии БФТ').toContain('Быстрая версия БФТ собрана')
   expect(thread, 'согласование документа заказчиком').toContain('Заказчик согласовал быструю версию БФТ')
   expect(files, 'согласованная страница').toContain(`zayavka-${taskId}-fast-soglasovan.html`)
+  expect(files, 'карта контекста Кортекса').toContain(`zayavka-${taskId}-context-map.md`)
 })

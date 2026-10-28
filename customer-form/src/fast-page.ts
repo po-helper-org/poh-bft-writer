@@ -1,130 +1,125 @@
 /**
- * Страница быстрой версии БФТ глазами заказчика (ADR-0007 rev15–16).
+ * Страницы заказчика для bft-fast (ADR-0007 rev15–18).
  *
- * Сам документ рендерит bft-html-export.py навыка — та же страница уходит PO в
- * заявку. Узел при выдаче заказчику накладывает поверх неё слой:
- *  - сводка сверху (rev16): что и где получите, как проверите, что
- *    зафиксировано, к кому обращаться, открытые вопросы — на минуту чтения;
- *    канонический документ bft-fast — ниже, целиком;
- *  - «Всё ок — отгружай в Confluence/Jira» → «Да, согласен»: согласование
- *    фиксирует узел (/api/customer-form.bftFastApprove), в чат уходит строка
- *    о согласовании;
- *  - «Добавить требования»: курсор в поле ввода чата и запись голосом —
- *    заказчик надиктовывает, что и где пропущено;
- *  - «Скопировать промт» → «Отправить замечания в чат»: замечания сразу
- *    отправляются сообщением в чат (клиент customer-form: setDraft + submit);
- *  - промт для PO и открытое поле для /bft-deep заказчику не показываются.
- * Хранилище замечаний — то же, что у страницы (bft-comments-<slug>): отметка
- * sentAt не даёт отправить одно замечание дважды.
- *
- * Пока документ собирается — waitingPage(): ход сборки по этапам.
+ *  - primaryPage — «Первичные требования» (rev18): документ со слов
+ *    заказчика на минуту чтения. Что хочет и зачем, как примет работу
+ *    (согласованный сценарий), требования с цитатами, что не входит; от
+ *    Кортекса — контуры проверки и зоны влияния (с якорями, помечено
+ *    «из памяти организации»); открытые вопросы.
+ *    «Да, согласен» фиксирует согласование (/api/customer-form.bftFastApprove),
+ *    «Добавить требования» и «Поправить» (по выделенному тексту) ставят фразу
+ *    в поле ввода чата и включают микрофон — заказчик надиктовывает.
+ *    Канонический bft-fast для PO (bft-html-export.py навыка) — по ссылке
+ *    «Полная версия для команды» и в заявке.
+ *  - waitingPage — пока документ собирается: ход сборки по этапам.
  */
-import type { FastInput, FastProgress, FastRequirement } from './bft-fast.js'
+import type { FastProgress } from './bft-fast.js'
+import type { PrimaryDoc } from './primary.js'
 
-export interface CustomerLayer {
+export interface PrimaryPageOptions {
   sessionId: string
-  slug: string
-  approveUrl: string
-  /** Согласование этой же версии документа, если было. */
-  approvedAt?: string
-  /** Сводка сверху документа (rev16). */
-  summary?: CustomerSummary
-}
-
-export interface CustomerSummary {
   taskId: number
-  input: FastInput & { howToDemo?: string[]; requirements: FastRequirement[] }
-  where?: string
-  done: string[]
+  approveUrl: string
+  fullUrl: string
+  approvedAt?: string
 }
 
 const esc = (s: unknown) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!))
-const known = (s: string | undefined) => !!s && !/^\[(УТОЧНИТЬ|ASIS не озвучен|роль не подтверждена|не указано)/.test(s.trim())
+const unquote = (q: string) => q.replace(/^[^:«]{0,60}:\s*/, '').replace(/^«|»$/g, '')
+const TAG: Record<string, string> = { зачем: 'Зачем', пользователю: 'Пользователю', 'на экране': 'На экране', система: 'Система', качество: 'Качество' }
 
-const KIND: Record<string, string> = { БТ: 'Зачем', ПТ: 'Пользователю', ИТ: 'На экране', ФТ: 'Система', НФТ: 'Качество' }
-
-const STYLE = `<style id="customer-layer-style">
-#promptOut{ display:none !important; }
-.shipbtn.approved{ border-color:#2f6b2a; color:#2f6b2a; cursor:default; }
-/* Узкая правая панель портала: плавающие кнопки сверху и рейка слева не наезжают на текст. */
-@media (max-width:1100px){ .layout{ padding-top:5.5rem; padding-left:3rem; padding-right:1.25rem; } }
-#panel h4 + #itemsList + h4{ display:none; }
-.panel{ width:min(360px, calc(100vw - 4rem)); box-sizing:border-box; }
-.shiphint{ max-width:min(340px, calc(100vw - 4rem)); }
-/* Сводка для заказчика */
-.cs{ border:1.5px solid var(--fg); padding:1.1rem 1.2rem 1.2rem; margin:0 0 2rem; }
-.cs-kicker{ font:.7rem/1.3 "Courier New",monospace; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:0 0 .4rem; }
-.cs-lead{ font-size:1.12rem; line-height:1.45; margin:0 0 1rem; }
-.cs h3{ font:.72rem/1.3 "Courier New",monospace; text-transform:uppercase; letter-spacing:.06em; margin:1.1rem 0 .45rem; border-bottom:1px solid var(--line-soft); padding-bottom:.25rem; }
-.cs ol, .cs ul{ margin:0; padding-left:1.25rem; }
-.cs li{ margin:.28rem 0; }
-.cs .check{ list-style:none; padding-left:0; }
-.cs .check li::before{ content:"☐"; margin-right:.5rem; }
-.cs .tag{ display:inline-block; font:.62rem/1.6 "Courier New",monospace; text-transform:uppercase; border:1px solid var(--line-soft); padding:0 .35rem; margin-right:.4rem; color:var(--muted); vertical-align:1px; }
-.cs .who{ font-weight:600; }
-.cs .q li{ color:#7a4b00; }
-.cs-actions{ display:flex; flex-wrap:wrap; gap:.6rem; margin-top:1.3rem; }
-.cs-actions button{ font:inherit; font-size:.95rem; padding:.55rem 1rem; cursor:pointer; border:1.5px solid var(--fg); }
-.cs-yes{ background:var(--fg); color:var(--bg); }
-.cs-yes[disabled]{ background:#2f6b2a; border-color:#2f6b2a; cursor:default; }
-.cs-add{ background:var(--bg); color:var(--fg); }
-.cs-note{ font-size:.8rem; color:var(--muted); margin:.6rem 0 0; }
-.cs-divider{ font:.7rem/1.3 "Courier New",monospace; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:0 0 1rem; }
-</style>`
-
-function summaryHtml(summary: CustomerSummary): string {
-  const { input } = summary
-  const steps = input.howToDemo ?? []
-  const people = (input.personas ?? []).filter((p) => p.name?.trim())
-  const questions = (input.openQuestions ?? []).filter((q) => q.trim())
-  const section = (title: string, body: string) => (body ? `<h3>${esc(title)}</h3>${body}` : '')
-  return `<section class="cs" id="customer-summary" aria-label="Коротко для заказчика">
-<p class="cs-kicker">На проверку · заявка #${summary.taskId}</p>
-<p class="cs-lead">${esc(known(input.smart?.s) ? input.smart.s : input.title)}</p>
-${section(summary.where ? `Где и как вы проверите — ${summary.where}` : 'Как вы проверите', steps.length ? `<ol>${steps.map((s) => `<li>${esc(s)}</li>`).join('')}</ol>` : '')}
-${section('Работа принята, если', summary.done.length ? `<ul class="check">${summary.done.map((d) => `<li>${esc(d)}</li>`).join('')}</ul>` : '')}
-${section('Что зафиксировано', input.requirements.length ? `<ul>${input.requirements.map((r) => `<li><span class="tag">${esc(KIND[r.id.split('-')[0]] ?? r.id)}</span>${esc(r.tobe)}</li>`).join('')}</ul>` : '')}
-${section('Не входит и договорённости', (input.boundaries ?? []).length ? `<ul>${input.boundaries.map((b) => `<li>${esc(b)}</li>`).join('')}</ul>` : '')}
-${section('К кому обращаться', people.length ? `<ul>${people.map((p) => `<li><span class="who">${esc(p.name)}</span>${known(p.role) ? ` — ${esc(p.role)}` : ''}${known(p.influence) ? `: ${esc(p.influence)}` : ''}</li>`).join('')}</ul>` : '')}
-${section('Открытые вопросы', questions.length ? `<ol class="q">${questions.map((q) => `<li>${esc(q)}</li>`).join('')}</ol>` : '')}
-<div class="cs-actions">
-  <button type="button" class="cs-yes" id="csYes">Да, согласен</button>
-  <button type="button" class="cs-add" id="csAdd">Добавить требования</button>
-</div>
-<p class="cs-note">Что-то пропущено? «Добавить требования» — и надиктуйте голосом, что и где добавить. Можно и выделить фрагмент ниже и оставить замечание.</p>
-</section>
-<p class="cs-divider">Документ bft-fast целиком</p>`
+function list(items: string[], cls = ''): string {
+  return items.length ? `<ul${cls ? ` class="${cls}"` : ''}>${items.join('')}</ul>` : ''
 }
 
-function script(layer: CustomerLayer): string {
-  // json.dumps-подобная подстановка: значения не ломают литерал скрипта.
-  const cfg = JSON.stringify({ sessionId: layer.sessionId, approveUrl: layer.approveUrl, approvedAt: layer.approvedAt, store: `bft-comments-${layer.slug}` }).replace(/</g, '\\u003c')
-  return `<script id="customer-layer">
+function section(n: number, title: string, body: string, note = ''): string {
+  if (!body) return ''
+  return `<section class="blk" data-section="${esc(title)}"><h2><span class="n">${n}</span>${esc(title)}${note ? `<small>${esc(note)}</small>` : ''}</h2>${body}</section>`
+}
+
+export function primaryPage(doc: PrimaryDoc, o: PrimaryPageOptions): string {
+  const { args, brief } = doc
+  const cortexNote = brief ? `из памяти организации${brief.vault.demo ? ' · демо' : ''}` : ''
+  const anchor = (id: string) => `<code class="anc">${esc(id)}</code>`
+  let n = 0
+  const blocks = [
+    section(++n, 'Что хотите и зачем', `<p class="lead">${esc(args.want?.what)}</p>${args.want?.why ? `<p>${esc(args.want.why)}</p>` : ''}${args.want?.quote && unquote(args.want.quote).trim() !== args.want.what?.trim() ? `<p class="q">«${esc(unquote(args.want.quote))}»</p>` : ''}`),
+    section(++n, doc.where ? `Как примете работу — ${doc.where}` : 'Как примете работу',
+      (doc.howToDemo.length ? `<ol>${doc.howToDemo.map((s) => `<li>${esc(s)}</li>`).join('')}</ol>` : '')
+      + (doc.checklist.length ? `<p class="sub">Работа принята, если</p>${list(doc.checklist.map((c) => `<li>${esc(c)}</li>`), 'check')}` : '')),
+    section(++n, 'Требования с ваших слов', list((args.requirements ?? []).map((r) => `<li><span class="tag">${esc(TAG[r.kind] ?? r.kind)}</span>${esc(r.text)}<span class="q">«${esc(unquote(r.quote))}»</span></li>`))),
+    section(++n, 'Не входит и договорённости', list((args.outOfScope ?? []).map((b) => `<li>${esc(b)}</li>`))),
+    brief ? section(++n, 'Где проверять', brief.landscape.length
+      ? list(brief.landscape.map((s) => `<li><b>${esc(s.title.replace(/\s*\(демо\)$/, ''))}</b>${s.where_to_check.length ? ` — ${esc(s.where_to_check.join('; '))}` : ''}${s.owner ? `<span class="who">владелец: ${esc(s.owner)}</span>` : ''} ${anchor(s.node_id)}</li>`))
+      : '<p class="empty">Память организации не знает систем по этому запросу — контур проверки уточнит команда.</p>', cortexNote) : '',
+    brief ? section(++n, 'Чьи зоны затрагивает и к кому обращаться', (brief.people.length || (args.people ?? []).length)
+      ? list([
+        ...(args.people ?? []).map((p) => `<li><b>${esc(p.name)}</b>${p.role ? ` — ${esc(p.role)}` : ''}${p.about ? `: ${esc(p.about)}` : ''} <span class="who">назвали вы</span></li>`),
+        ...brief.people.map((p) => `<li><b>${esc(p.name)}</b> — ${esc(p.role)}${p.contact_for.length ? `: ${esc(p.contact_for.join(', '))}` : ''}${p.zones.length ? `<span class="who">зоны: ${esc(p.zones.join(', '))}</span>` : ''} ${anchor(p.node_id)}</li>`),
+      ])
+      : '<p class="empty">Память организации не знает владельцев по этому запросу.</p>', cortexNote)
+      : section(++n, 'К кому обращаться', list((args.people ?? []).map((p) => `<li><b>${esc(p.name)}</b>${p.role ? ` — ${esc(p.role)}` : ''}${p.about ? `: ${esc(p.about)}` : ''}</li>`))),
+    section(++n, 'Открытые вопросы', (args.openQuestions ?? []).length ? `<ol class="oq">${args.openQuestions!.map((q) => `<li>${esc(q)}</li>`).join('')}</ol>` : ''),
+  ].join('\n')
+  const cfg = JSON.stringify({ sessionId: o.sessionId, approveUrl: o.approveUrl, approvedAt: o.approvedAt ?? null }).replace(/</g, '\\u003c')
+  return `<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Первичные требования · заявка #${o.taskId}</title>
+<style>
+:root{ --fg:#111; --muted:#6f6f6f; --line:#e6e3dc; --ok:#2f6b2a; --bg:#fff; --soft:#f6f4ef; }
+*{ box-sizing:border-box; }
+body{ margin:0; background:var(--bg); color:var(--fg); font:15.5px/1.55 Georgia,"Times New Roman",serif; }
+.wrap{ max-width:720px; margin:0 auto; padding:1.6rem 1.3rem 4rem; }
+.kicker{ font:.7rem/1.3 "Courier New",monospace; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); }
+h1{ font-size:1.45rem; line-height:1.25; margin:.35rem 0 .2rem; }
+.meta{ color:var(--muted); font-size:.85rem; margin:0 0 1.2rem; }
+.actions{ display:flex; flex-wrap:wrap; gap:.55rem; margin:0 0 1.6rem; position:sticky; top:0; background:var(--bg); padding:.6rem 0; z-index:5; border-bottom:1px solid var(--line); }
+.actions button{ font:inherit; font-size:.95rem; padding:.5rem .95rem; cursor:pointer; border:1.5px solid var(--fg); background:var(--bg); color:var(--fg); }
+.actions .yes{ background:var(--fg); color:var(--bg); }
+.actions .yes[disabled]{ background:var(--ok); border-color:var(--ok); cursor:default; }
+.hint{ font-size:.82rem; color:var(--muted); flex-basis:100%; margin:0; }
+.hint:empty{ display:none; }
+.blk{ margin:0 0 1.5rem; }
+.blk h2{ font-size:1.02rem; margin:0 0 .5rem; display:flex; align-items:baseline; gap:.5rem; flex-wrap:wrap; }
+.blk h2 .n{ font:.7rem "Courier New",monospace; border:1px solid var(--fg); border-radius:50%; width:1.3rem; height:1.3rem; display:inline-flex; align-items:center; justify-content:center; flex:none; }
+.blk h2 small{ font:.68rem "Courier New",monospace; text-transform:uppercase; letter-spacing:.05em; color:#7a5b00; background:#fbf3dc; padding:.05rem .4rem; }
+.lead{ font-size:1.1rem; margin:.2rem 0 .4rem; }
+ul, ol{ margin:0; padding-left:1.25rem; }
+li{ margin:.32rem 0; }
+.check{ list-style:none; padding-left:0; }
+.check li::before{ content:"☐"; margin-right:.5rem; }
+.sub{ font:.72rem "Courier New",monospace; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); margin:.8rem 0 .3rem; }
+.tag{ display:inline-block; font:.62rem/1.6 "Courier New",monospace; text-transform:uppercase; border:1px solid var(--line); padding:0 .35rem; margin-right:.45rem; color:var(--muted); vertical-align:1px; }
+.q{ display:block; color:var(--muted); font-size:.85rem; font-style:italic; }
+p.q{ margin:.2rem 0 0; }
+.who{ display:block; color:var(--muted); font-size:.82rem; }
+.anc{ font-size:.68rem; color:#8a8a8a; }
+.empty{ color:var(--muted); font-style:italic; margin:0; }
+.oq li{ color:#7a4b00; }
+.full{ margin-top:2rem; font-size:.85rem; }
+.full a{ color:inherit; }
+#fix{ position:absolute; z-index:20; display:none; font:600 .85rem Georgia,serif; padding:.3rem .65rem; border:1.5px solid var(--fg); background:var(--fg); color:var(--bg); cursor:pointer; }
+</style></head><body>
+<div class="wrap" data-primary="${esc(o.sessionId)}">
+  <div class="kicker">Первичные требования · заявка #${o.taskId}</div>
+  <h1>${esc(args.title)}</h1>
+  <p class="meta">Записано с ваших слов. Проверьте за минуту: всё ли, что вы будете проверять, здесь есть.</p>
+  <div class="actions">
+    <button type="button" class="yes" id="yes">Да, согласен</button>
+    <button type="button" id="add">Добавить требования</button>
+    <p class="hint" id="hint"></p>
+  </div>
+  <main>
+${blocks}
+  </main>
+  <p class="full">Полная версия для команды — <a href="${esc(o.fullUrl)}" target="_blank" rel="noreferrer">документ bft-fast</a>.</p>
+</div>
+<button type="button" id="fix">Поправить</button>
+<script>
 (function(){
   var CFG = ${cfg};
   function $(id){ return document.getElementById(id); }
-  function load(){ try{ return JSON.parse(localStorage.getItem(CFG.store) || "[]"); }catch(e){ return []; } }
-  function save(list){ try{ localStorage.setItem(CFG.store, JSON.stringify(list)); }catch(e){} }
-  function unsent(){ return load().filter(function(c){ return !c.closedAt && !c.sentAt; }); }
   function when(iso){ try{ return new Date(iso).toLocaleString("ru-RU", { day:"numeric", month:"long", hour:"2-digit", minute:"2-digit" }); }catch(e){ return iso; } }
-  // Подсказка висит поверх заголовка — убираем через несколько секунд.
-  function hint(text, ok){
-    var h = $("shipHint"); if(!h) return;
-    h.textContent = text; h.className = "shiphint " + (ok ? "ok" : "warn");
-    clearTimeout(hint.timer); hint.timer = setTimeout(function(){ h.textContent = ""; }, ok ? 5000 : 9000);
-  }
-  // Кнопки страницы — заново, без её обработчиков (копирование команд для PO).
-  function fresh(id){ var old = $(id); if(!old) return null; var b = old.cloneNode(true); old.parentNode.replaceChild(b, old); return b; }
-
-  // Открытое поле — промт для /bft-deep, это работа PO.
-  document.querySelectorAll("details.fold > summary h2").forEach(function(h){
-    if(h.textContent.indexOf("Полный БФТ") < 0) return;
-    // И пункт оглавления: оно уже собрано страницей из заголовков.
-    if(h.id) document.querySelectorAll('a[href="#' + h.id + '"]').forEach(function(a){ (a.closest("li") || a).remove(); });
-    h.closest("details.fold").remove();
-  });
-  var title = document.querySelector("#panel h4"); if(title) title.textContent = "Замечания к документу";
-
+  function hint(text){ $("hint").textContent = text; }
   // Связь с чатом: клиент customer-form выполняет действие в поле ввода и отвечает ack.
   var acked = {};
   window.addEventListener("message", function(e){
@@ -137,94 +132,57 @@ function script(layer: CustomerLayer): string {
     window.parent.postMessage({ type: type, id: id, text: text }, location.origin);
     setTimeout(function(){ done(acked[id] === true); }, 500);
   }
-  function say(text, done){ post("customer-form/say", text, done); }
-
-  var send = fresh("copyBtn");
-  if(send){
-    send.textContent = "Отправить замечания в чат";
-    send.addEventListener("click", function(){
-      var list = unsent();
-      if(!list.length){ hint("Новых замечаний нет: выделите текст или нажмите на точку рядом с [УТОЧНИТЬ].", false); return; }
-      var lines = ["Замечания к документу БФТ:"];
-      list.forEach(function(c, i){
-        lines.push((i + 1) + ". [" + c.section + "]" + (c.quote ? " (по фрагменту: «" + c.quote + "»)" : "") + " " + c.text);
-      });
-      var text = lines.join("\\n");
-      say(text, function(ok){
-        if(!ok){
-          try{ navigator.clipboard.writeText(text); }catch(e){}
-          hint("Чат не открыт рядом — замечания скопированы, вставьте их в чат портала.", false);
-          return;
-        }
-        var stamp = new Date().toISOString();
-        save(load().map(function(c){
-          return list.some(function(x){ return x.ts === c.ts && x.text === c.text; }) ? Object.assign({}, c, { sentAt: stamp }) : c;
-        }));
-        hint("Замечания отправлены в чат — ассистент пересоберёт документ.", true);
-      });
+  function compose(text){
+    post("customer-form/compose", text, function(ok){
+      hint(ok ? "Говорите — что и где поправить или добавить. Остановите запись и отправьте сообщение в чат." : "Напишите или надиктуйте в чат портала: " + text);
     });
   }
 
-  var approve = fresh("shipBtn");
-  var yes = $("csYes");
-  function approvedView(at){
-    [approve, yes].forEach(function(b){
-      if(!b) return;
-      b.textContent = "Согласовано · " + when(at);
-      b.classList.add("approved");
-      b.disabled = true;
-    });
-  }
-  function doApprove(){
-    var left = unsent().length;
-    if(left){ hint("Есть неотправленные замечания (" + left + "): отправьте их в чат или удалите, чтобы согласовать.", false); return; }
-    approve.disabled = true; if(yes) yes.disabled = true;
+  var yes = $("yes");
+  function approved(at){ yes.textContent = "Согласовано · " + when(at); yes.disabled = true; }
+  if(CFG.approvedAt) approved(CFG.approvedAt);
+  yes.addEventListener("click", function(){
+    yes.disabled = true;
     fetch(CFG.approveUrl, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sessionId: CFG.sessionId }) })
       .then(function(r){ return r.json().then(function(v){ if(!r.ok) throw new Error(v.error || r.status); return v; }); })
       .then(function(v){
-        approvedView(v.approvedAt);
-        hint("Документ согласован — PO возьмёт его в проработку.", true);
-        say("✅ Да, согласен с документом БФТ.", function(){});
+        approved(v.approvedAt);
+        hint("Документ согласован — PO возьмёт его в проработку.");
+        post("customer-form/say", "✅ Да, согласен с документом БФТ.", function(){});
       })
-      .catch(function(e){ approve.disabled = false; if(yes) yes.disabled = false; hint("Не удалось согласовать: " + e.message, false); });
-  }
-  if(approve){
-    approve.textContent = "Да, согласен";
-    approve.addEventListener("click", doApprove);
-  }
-  if(yes) yes.addEventListener("click", doApprove);
-  if(CFG.approvedAt) approvedView(CFG.approvedAt);
+      .catch(function(e){ yes.disabled = false; hint("Не удалось согласовать: " + e.message); });
+  });
+  $("add").addEventListener("click", function(){ compose("Добавь требования: "); });
 
-  // «Добавить требования»: начало фразы в поле ввода и запись голосом.
-  var add = $("csAdd");
-  if(add) add.addEventListener("click", function(){
-    post("customer-form/compose", "Добавь требования: ", function(ok){
-      var note = document.querySelector(".cs-note");
-      if(note) note.textContent = ok ? "Говорите — что и где добавить. Остановите запись и отправьте сообщение в чат слева."
-                                     : "Напишите или надиктуйте в чат портала, что и где добавить.";
-    });
+  // Выделил фрагмент → «Поправить»: цитата в поле ввода, дальше голосом.
+  var fix = $("fix"), picked = "";
+  document.addEventListener("mouseup", function(){
+    setTimeout(function(){
+      var sel = window.getSelection(), text = sel ? sel.toString().replace(/\\s+/g, " ").trim() : "";
+      if(!text || !document.querySelector("main").contains(sel.anchorNode)){ fix.style.display = "none"; return; }
+      picked = text.slice(0, 160);
+      var r = sel.getRangeAt(0).getBoundingClientRect();
+      fix.style.left = Math.max(8, Math.min(r.left + window.scrollX, document.documentElement.clientWidth - 120)) + "px";
+      fix.style.top = (r.bottom + window.scrollY + 6) + "px";
+      fix.style.display = "block";
+    }, 0);
+  });
+  fix.addEventListener("mousedown", function(e){ e.preventDefault(); });
+  fix.addEventListener("click", function(){
+    fix.style.display = "none";
+    var section = "";
+    try{ var host = window.getSelection().anchorNode.parentElement.closest("[data-section]"); section = host ? host.getAttribute("data-section") : ""; }catch(e){}
+    compose("Поправь в документе" + (section ? " (" + section + ")" : "") + " «" + picked + "»: ");
   });
 })();
-</script>`
-}
-
-/** Страница экспорта + слой заказчика: сводка в начало документа, скрипт перед </body>. */
-export function customerFastPage(html: string, layer: CustomerLayer): string {
-  let page = html
-  if (layer.summary) {
-    const main = /<main[^>]*>/.exec(page)
-    if (main) page = page.slice(0, main.index + main[0].length) + summaryHtml(layer.summary) + page.slice(main.index + main[0].length)
-  }
-  const at = page.lastIndexOf('</body>')
-  const layerHtml = STYLE + script(layer)
-  return at < 0 ? page + layerHtml : page.slice(0, at) + layerHtml + page.slice(at)
+</script></body></html>`
 }
 
 const STAGES: { key: FastProgress['stage']; title: string; note: string }[] = [
   { key: 'approved', title: 'Сценарий приёмки согласован', note: 'Ваше «Согласую» — основа документа' },
   { key: 'submitted', title: 'Заявка передана в беклог', note: 'Постановка и полный контекст — в трекере' },
   { key: 'building', title: 'Раскладываю требования', note: 'Что и где получите, как проверите, к кому обращаться' },
-  { key: 'ready', title: 'Проверяю по шаблону bft-fast', note: 'Линтер шаблона и страница на проверку' },
+  { key: 'ready', title: 'Сверяю с памятью организации', note: 'Кортекс: где проверять и чьи зоны затрагивает; шаблон bft-fast' },
 ]
 
 /**

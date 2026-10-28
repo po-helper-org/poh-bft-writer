@@ -9,7 +9,9 @@
  */
 import { randomUUID } from 'node:crypto'
 import { readFile, writeFile } from 'node:fs/promises'
-import { buildFast, FAST_ROOT, fastPageUrl, fastProgress, fastSlug, portalUrl, SKILLS_PATH, type FastInput } from './bft-fast.js'
+import { buildFast, FAST_ROOT, fastPageUrl, fastProgress, fastSlug, portalUrl, SKILLS_PATH } from './bft-fast.js'
+import { contextMapMarkdown, cortexBrief } from './cortex.js'
+import { cortexQuery, KINDS, toFastInput, type PrimaryArgs, type PrimaryDoc } from './primary.js'
 import { demoSteps, doneList, repairDemo, sharedDemos, storyboardMarkdown, type AcceptanceDemo, type DemoRecord } from './demo.js'
 import { demoPageHtml } from './demo-page.js'
 import { moscowTime, sharedBacklog, type Backlog, type Intake, type Ticket } from './host.js'
@@ -291,78 +293,76 @@ function submitTool(backlog: Backlog) {
  * заказчиком сценарий без пересказа модели.
  */
 function fastTool(backlog: Backlog) {
-  const smartRow = (letter: string) => optional(`${letter}; не звучало — «[УТОЧНИТЬ]»`)
+  const quote = (what: string) => text(`${what}. Цитата: «Заказчик: «дословно»» (его сообщения и ответы в форме), «Материалы [S1 00:12]: «…»» или «Сценарий приёмки (согласован): «…»»`)
   return {
     name: 'create_bft_fast',
-    description: 'Собрать быструю версию БФТ (bft-fast: шапка документа и страница ревью) по подтверждённой заявке — сразу после submit_customer_request, в этом же чате. '
-      + 'Только сказанное заказчиком и его материалы: каждое требование — с цитатой. How to demo инструмент берёт из согласованного сценария приёмки сам. '
-      + 'Ошибки формы возвращаются текстом — исправь поля и вызови снова; правки заказчика — тот же вызов с исправленными полями.',
+    description: 'Собрать первичные требования (bft-fast) по согласованной заявке — сразу после submit_customer_request, в этом же чате. '
+      + 'Ты — стенографист: только сказанное заказчиком и его материалы, каждое требование — с цитатой. Как он примет работу, контуры проверки и зоны влияния '
+      + 'инструмент добавит сам (сценарий приёмки и Кортекс). Ошибки формы — исправь поля и вызови снова; правки заказчика — тот же вызов.',
     parameters: {
-      title: text('Название документа — как у заявки, до 10 слов'),
-      smart: {
-        type: 'object', required: true, additionalProperties: false, description: 'Цель SMART-таблицей',
+      title: text('Название — как у заявки, до 10 слов'),
+      want: {
+        type: 'object', required: true, additionalProperties: false, description: 'Что заказчик хочет и зачем — его словами',
         properties: {
-          s: text('S (Specific): что именно делаем, конкретно, словами заказчика'),
-          m: smartRow('M (Measurable): по чему проверяем, что цель достигнута — из чек-листа приёмки'),
-          a: smartRow('A (Achievable): чем или кем достижимо, если обсуждали'),
-          r: smartRow('R (Relevant): зачем это сейчас, для кого — проблема из GAP'),
-          t: smartRow('T (Time-bound): срок или веха, если названы'),
-        },
-      },
-      boundaries: strings('Ограничения и договоренности: что входит, что не входит («Не входит: …»), «Дополнительно, если возможно: …», операционные договорённости. Только сказанное'),
-      documentation: { type: 'array', items: { type: 'string' }, description: 'Документы и ссылки, которые назвал сам заказчик; нет — пусто' },
-      personas: {
-        type: 'array', required: true, description: 'Заказчик и люди, которых он назвал',
-        items: {
-          type: 'object', additionalProperties: false,
-          properties: {
-            name: text('ФИО'),
-            role: optional('Роль — из сказанного; не названа — пусто'),
-            influence: optional('За что человек отвечает в этом запросе — одним предложением, из сказанного; не звучало — пусто'),
-          },
+          what: text('Что хочет получить — одна фраза'),
+          why: optional('Зачем — проблема или выгода, если звучала'),
+          quote: quote('Откуда это'),
         },
       },
       requirements: {
-        type: 'array', required: true, description: 'Скелет требований на цитатах: порядок БТ → ПТ → ИТ → ФТ → НФТ, типы без цитат не добивай',
+        type: 'array', required: true, description: 'Требования со слов: каждое — одна короткая фраза и цитата; чего не говорил — не добавляй',
         items: {
           type: 'object', additionalProperties: false,
           properties: {
-            id: text('БТ-1, ПТ-1, ИТ-1, ФТ-1, НФТ-1 — нумерация внутри типа с 1'),
-            asis: optional('Как сейчас — из слов заказчика (ASIS заявки), если относится к этой строке; не звучало — пусто'),
-            tobe: text('Как будет после — из слов заказчика'),
-            related: { type: 'array', items: { type: 'string' }, description: 'ID связанных строк (ПТ-1 → БТ-1), только если связь видна' },
-            source: text('Цитата: «Заказчик: «дословно»» (его сообщения и ответы в форме), «Материалы [S1 00:12]: «…»» или «Сценарий приёмки (согласован): «…»». Свои формулировки заказчику не приписывай'),
+            kind: { type: 'string', required: true, enum: [...KINDS], description: 'зачем — ценность; пользователю — что хочет пользователь; на экране — что он видит; система — что делает система; качество — измеримое свойство, только если названо' },
+            text: text('Требование — одна фраза'),
+            quote: quote('Откуда требование'),
           },
         },
       },
-      openQuestions: { type: 'array', items: { type: 'string' }, description: 'Открытые вопросы — уходят в ответ в чат и в заявку, не в документ' },
+      outOfScope: { type: 'array', items: { type: 'string' }, description: 'Что не входит и договорённости — только сказанное' },
+      people: {
+        type: 'array', description: 'Заказчик и люди, которых он назвал',
+        items: { type: 'object', additionalProperties: false, properties: { name: text('Имя'), role: optional('Роль — из сказанного'), about: optional('По каким вопросам к нему — из сказанного') } },
+      },
+      openQuestions: { type: 'array', items: { type: 'string' }, description: 'Настоящие пробелы задачи — уходят в чат и в заявку' },
     },
     output: {
       schema: { type: 'string' },
       render: (_args: unknown, value: string) => [{ type: 'text', text: value }],
     },
-    async execute(args: FastInput, exec: { agent?: AgentLike }) {
+    async execute(args: PrimaryArgs, exec: { agent?: AgentLike }) {
       const agent = exec.agent
       if (!agent) throw new Error('нет сессии заказчика')
       const sessionId = agent.session.id
       const ticket = await ensureTicket(backlog, agent, args.title)
       const record = sharedDemos().get(sessionId)
       const howToDemo = record?.approvedAt ? demoSteps(record.demo) : []
+      const checklist = record?.approvedAt ? doneList(record.demo) : []
       const slug = fastSlug(ticket.taskId)
       fastProgress.stage(sessionId, 'building')
-      const built = await buildFast(args, { slug, howToDemo, source: `заявка #${ticket.taskId} в трекере — ${ticket.url}`, skillsPath: SKILLS_PATH }, FAST_ROOT)
+      // Шаблон — кодом из полей модели; Кортекс — параллельно, его не ждёт линтер.
+      const [built, brief] = await Promise.all([
+        buildFast(toFastInput(args, checklist), { slug, howToDemo, source: `заявка #${ticket.taskId} в трекере — ${ticket.url}`, skillsPath: SKILLS_PATH }, FAST_ROOT),
+        cortexBrief(cortexQuery(args, howToDemo)),
+      ])
       if (!built.ok) throw new Error(`Документ не собран, исправь поля и вызови create_bft_fast снова:\n${built.errors}`)
+      const doc: PrimaryDoc = { args, howToDemo, checklist, ...(record?.demo.where ? { where: record.demo.where } : {}), ...(brief ? { brief } : {}) }
+      await writeFile(built.files.primary, JSON.stringify(doc), 'utf8')
+      if (brief) await writeFile(built.files.contextMap, contextMapMarkdown(brief, slug), 'utf8')
       // Номер сборки — в имени вложения: PO видит, что пересобиралось. Счётчик — на диске, рестарт его не обнуляет.
       const counter = `${built.files.dir}/version`
       const rev = Number(await readFile(counter, 'utf8').catch(() => '0')) + 1
       await writeFile(counter, String(rev), 'utf8')
       const questions = (args.openQuestions ?? []).map((q) => q.trim()).filter(Boolean)
       fastProgress.stage(sessionId, 'ready')
-      void publishFast(backlog, ticket, slug, rev, built.files, questions)
+      void publishFast(backlog, ticket, slug, rev, built.files, questions, !!brief)
+      const zones = brief?.people.map((p) => `${p.name} (${p.zones.slice(0, 2).join(', ')})`) ?? []
       return [
-        `Быстрая версия БФТ собрана (версия ${rev}, линтер шаблона пройден) и приложена к заявке #${ticket.taskId}.`,
+        `Первичные требования собраны (версия ${rev}, шаблон bft-fast пройден) и приложены к заявке #${ticket.taskId}.`,
         `Страница документа для заказчика: ${fastPageUrl(sessionId)}`,
-        questions.length ? ['Открытые вопросы (в документ не входят — перечисли заказчику):', ...questions.map((q) => `- ${q}`)].join('\n') : 'Открытых вопросов нет.',
+        brief ? `Кортекс${brief.vault.demo ? ' (демо-память)' : ''}: зоны влияния — ${zones.join('; ') || 'не найдены'}; систем для проверки — ${brief.landscape.length}. Это уже на странице.` : 'Кортекс не подключён: контуров проверки и зон влияния на странице нет.',
+        questions.length ? ['Открытые вопросы (перечисли заказчику):', ...questions.map((q) => `- ${q}`)].join('\n') : 'Открытых вопросов нет.',
       ].join('\n')
     },
   }
@@ -370,13 +370,14 @@ function fastTool(backlog: Backlog) {
 
 /** Документ, страница и csv — в заявку; комментарий — PO видит, что fast готов. Сбой трекера ответ не роняет. */
 async function publishFast(backlog: Backlog, ticket: Ticket, slug: string, rev: number,
-  files: { md: string; html: string; personas: string; requirements: string }, questions: string[]): Promise<void> {
+  files: { md: string; html: string; personas: string; requirements: string; contextMap: string }, questions: string[], cortex: boolean): Promise<void> {
   const suffix = rev > 1 ? `-v${rev}` : ''
   try {
-    for (const [path, name] of [[files.html, `${slug}-fast${suffix}.html`], [files.md, `${slug}-fast${suffix}.md`],
-      [files.personas, `${slug}-personas${suffix}.csv`], [files.requirements, `${slug}-requirements${suffix}.csv`]] as const) {
-      await backlog.attach(ticket, name, await readFile(path))
-    }
+    const out: [string, string][] = [[files.html, `${slug}-fast${suffix}.html`], [files.md, `${slug}-fast${suffix}.md`],
+      [files.personas, `${slug}-personas${suffix}.csv`], [files.requirements, `${slug}-requirements${suffix}.csv`]]
+    // Находки Кортекса — отдельным файлом, как карта /bft-recon: в документ со слов заказчика не вписываются.
+    if (cortex) out.push([files.contextMap, `${slug}-context-map${suffix}.md`])
+    for (const [path, name] of out) await backlog.attach(ticket, name, await readFile(path))
     await backlog.comment(ticket, [
       `<p><strong>📄 Быстрая версия БФТ собрана в чате заказчика</strong> — версия ${rev}, ${moscowTime(new Date().toISOString())}</p>`,
       `<p>Файлы: ${slug}-fast${suffix}.html (страница ревью) и .md; следующий шаг — /bft-deep по документу.</p>`,

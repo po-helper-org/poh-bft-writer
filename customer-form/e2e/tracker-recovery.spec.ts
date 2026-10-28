@@ -46,7 +46,7 @@ async function expectDocument(page: Page): Promise<number> {
   await expect(link, 'ссылка на заявку в чате').toBeVisible({ timeout: 30_000 })
   const taskId = Number(/#(\d+)/.exec((await link.textContent()) ?? '')?.[1])
   const doc = page.frameLocator('iframe[data-customer-bft]')
-  await expect(doc.getByRole('heading', { name: new RegExp(`\\[БФТ\\] zayavka-${taskId}`) }), 'документ БФТ справа').toBeVisible({ timeout: 45_000 })
+  await expect(doc.getByText(`Первичные требования · заявка #${taskId}`), 'документ БФТ справа').toBeVisible({ timeout: 45_000 })
   await expect(page.getByText(/не зарегистрирована|не удалось/), 'без ошибок регистрации в чате').toHaveCount(0)
   return taskId
 }
