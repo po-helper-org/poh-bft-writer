@@ -50,12 +50,12 @@ export function primaryPage(doc: PrimaryDoc, o: PrimaryPageOptions): string {
     section(++n, 'Требования с ваших слов', list((args.requirements ?? []).map((r) => `<li><span class="tag">${esc(TAG[r.kind] ?? r.kind)}</span>${esc(r.text)}<span class="q">«${esc(unquote(r.quote))}»</span></li>`))),
     section(++n, 'Не входит и договорённости', list((args.outOfScope ?? []).map((b) => `<li>${esc(b)}</li>`))),
     brief ? section(++n, 'Где проверять', brief.landscape.length
-      ? list(brief.landscape.map((s) => `<li><b>${esc(s.title.replace(/\s*\(демо\)$/, ''))}</b>${s.where_to_check.length ? ` — ${esc(s.where_to_check.join('; '))}` : ''}${s.owner ? `<span class="who">владелец: ${esc(s.owner)}</span>` : ''} ${anchor(s.node_id)}</li>`))
+      ? list(brief.landscape.map((s) => `<li><b>${esc(s.title.replace(/\s*\(демо\)$/, ''))}</b>${s.where_to_check.length ? ` — ${esc(s.where_to_check.join('; '))}` : s.summary ? `<span class="who">${esc(s.summary)}</span>` : ''}${s.owner ? `<span class="who">владелец: ${esc(s.owner)}</span>` : ''} ${anchor(s.node_id)}</li>`))
       : '<p class="empty">Память организации не знает систем по этому запросу — контур проверки уточнит команда.</p>', cortexNote) : '',
     brief ? section(++n, 'Чьи зоны затрагивает и к кому обращаться', (brief.people.length || (args.people ?? []).length)
       ? list([
         ...(args.people ?? []).map((p) => `<li><b>${esc(p.name)}</b>${p.role ? ` — ${esc(p.role)}` : ''}${p.about ? `: ${esc(p.about)}` : ''} <span class="who">назвали вы</span></li>`),
-        ...brief.people.map((p) => `<li><b>${esc(p.name)}</b> — ${esc(p.role)}${p.contact_for.length ? `: ${esc(p.contact_for.join(', '))}` : ''}${p.zones.length ? `<span class="who">зоны: ${esc(p.zones.join(', '))}</span>` : ''} ${anchor(p.node_id)}</li>`),
+        ...brief.people.map((p) => `<li><b>${esc(p.name)}</b> — ${esc(p.role)}${p.contact_for.length ? `: ${esc(p.contact_for.join(', '))}` : ''}${p.zones.length ? `<span class="who">зоны: ${esc(p.zones.join(', '))}</span>` : p.summary ? `<span class="who">${esc(p.summary)}</span>` : ''} ${anchor(p.node_id)}</li>`),
       ])
       : '<p class="empty">Память организации не знает владельцев по этому запросу.</p>', cortexNote)
       : section(++n, 'К кому обращаться', list((args.people ?? []).map((p) => `<li><b>${esc(p.name)}</b>${p.role ? ` — ${esc(p.role)}` : ''}${p.about ? `: ${esc(p.about)}` : ''}</li>`))),

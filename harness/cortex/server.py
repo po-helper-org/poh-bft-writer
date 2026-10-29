@@ -129,7 +129,10 @@ def brief(text: str) -> dict:
 
     people = []
     for n in hits(idx, text, lambda n: n["nexus"] == "team" and n["node_type"] == "person"):
-        people.append({**anchor(tool, cx, n), "name": str(n["full_name"] or n.title), "role": str(n["role_title"] or ""),
+        # Шаблон кладёт роль и зоны в поля; живая память часто — в заголовок
+        # «Имя — роль» и первый абзац тела (он уходит в summary).
+        head, _, tail = n.title.partition(" — ")
+        people.append({**anchor(tool, cx, n), "name": str(n["full_name"] or head), "role": str(n["role_title"] or tail),
                        "zones": as_list(n["influence_zones"]), "contact_for": as_list(n["contact_for"])})
 
     processes = [anchor(tool, cx, n) for n in hits(idx, text, lambda n: empirical(n) and n["nexus"] not in ("team", "landscape"))]
