@@ -82,6 +82,12 @@ const FAST = {
   outOfScope: ['изменение отчёта в BI'],
   people: [{ name: 'E2E Тестов', role: 'Заказчик' }],
   openQuestions: INTAKE.openQuestions,
+  achievable: {
+    vision: 'выгрузку настроит BI-команда, без новых систем',
+    teams: ['BI-команда'],
+    specialists: ['PO', 'BE'],
+    approvals: ['доступ к почтовому роботу'],
+  },
 }
 
 /** Вторая версия после правки голосом: добавлено требование. */

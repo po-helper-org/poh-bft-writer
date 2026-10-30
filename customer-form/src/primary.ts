@@ -23,6 +23,33 @@ export interface PrimaryArgs {
   outOfScope?: string[]
   people?: { name: string; role?: string; about?: string }[]
   openQuestions?: string[]
+  /** SMART A (rev22): видение решения заказчика → краткий план реализации. */
+  achievable?: Achievable
+}
+
+export const SPECIALISTS = ['PO', 'SA', 'BA', 'BE', 'FE', 'DevOps'] as const
+
+export interface Achievable {
+  /** Ответ на «Каким вы видите решение» — дословно, если был. */
+  vision?: string
+  teams?: string[]
+  approvals?: string[]
+  questions?: string[]
+  specialists?: string[]
+}
+
+/** План в ячейку SMART A: одна строка, части через « · ». */
+export function achievableText(a: Achievable | undefined): string | undefined {
+  if (!a) return undefined
+  const part = (head: string, items: string[] | undefined) => (items ?? []).filter((x) => x?.trim()).length ? `${head}: ${items!.filter((x) => x?.trim()).join(', ')}` : ''
+  const text = [
+    a.vision?.trim() ? `Видение заказчика: «${a.vision.trim().replace(/^«|»$/g, '')}»` : '',
+    part('Команды', a.teams),
+    part('Специалисты', a.specialists),
+    part('Согласования', a.approvals),
+    part('Проработать', a.questions),
+  ].filter(Boolean).join(' · ')
+  return text || undefined
 }
 
 /** Что лежит у документа (primary.json): поля модели + сценарий + ответ Кортекса. */
@@ -50,6 +77,7 @@ export function toFastInput(args: PrimaryArgs, checklist: string[]): FastInput {
     smart: {
       s: args.want?.what ?? '',
       ...(checklist.length ? { m: checklist.join('; ') } : {}),
+      ...(achievableText(args.achievable) ? { a: achievableText(args.achievable) } : {}),
       ...(args.want?.why ? { r: args.want.why } : {}),
     },
     boundaries: (args.outOfScope ?? []).map((b) => (/^не входит/i.test(b.trim()) ? b : `Не входит: ${b}`)),

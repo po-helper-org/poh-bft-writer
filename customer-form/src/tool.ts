@@ -11,7 +11,7 @@ import { randomUUID } from 'node:crypto'
 import { readFile, writeFile } from 'node:fs/promises'
 import { buildFast, FAST_ROOT, fastPageUrl, fastProgress, fastSlug, portalUrl, SKILLS_PATH } from './bft-fast.js'
 import { contextMapMarkdown, cortexBrief } from './cortex.js'
-import { cortexQuery, KINDS, toFastInput, type PrimaryArgs, type PrimaryDoc } from './primary.js'
+import { cortexQuery, KINDS, SPECIALISTS, toFastInput, type PrimaryArgs, type PrimaryDoc } from './primary.js'
 import { demoSteps, doneList, repairDemo, sharedDemos, storyboardMarkdown, type AcceptanceDemo, type DemoRecord } from './demo.js'
 import { demoPageHtml } from './demo-page.js'
 import { moscowTime, sharedBacklog, type Backlog, type Intake, type Ticket } from './host.js'
@@ -326,6 +326,17 @@ function fastTool(backlog: Backlog) {
         items: { type: 'object', additionalProperties: false, properties: { name: text('Имя'), role: optional('Роль — из сказанного'), about: optional('По каким вопросам к нему — из сказанного') } },
       },
       openQuestions: { type: 'array', items: { type: 'string' }, description: 'Настоящие пробелы задачи — уходят в чат и в заявку' },
+      achievable: {
+        type: 'object', additionalProperties: false,
+        description: 'SMART A — краткий план реализации из ответа заказчика «Каким вы видите решение»; здесь ты дораскрываешь, по 1–4 коротких пункта',
+        properties: {
+          vision: optional('Ответ заказчика «Каким вы видите решение» — дословно; не отвечал — не заполняй'),
+          teams: { type: 'array', items: { type: 'string' }, description: 'Какие команды участвуют в реализации' },
+          specialists: { type: 'array', items: { type: 'string', enum: [...SPECIALISTS] }, description: 'Какие специалисты нужны' },
+          approvals: { type: 'array', items: { type: 'string' }, description: 'Какие согласования нужны' },
+          questions: { type: 'array', items: { type: 'string' }, description: 'Что проработать до реализации' },
+        },
+      },
     },
     output: {
       schema: { type: 'string' },

@@ -6,10 +6,10 @@
  *    Слой заказчика (rev21):
  *     - «Да, согласен» и «Добавить требования» под заголовком,
  *       «Скопировать промт» → «Отправить замечания в чат»;
- *     - How to demo — путь приёмки (Mermaid) и таблица «Где · Делаю · Вижу ·
- *       Проверяю»: чек-лист приёмки разложен по шагам;
+ *     - How to demo — путь приёмки (Mermaid) и таблица «Где · Делаю · Вижу»;
  *     - вместо «Общей информации» — «Чьи зоны затрагивает и к кому
- *       обращаться»: кого назвал заказчик и кого знает Кортекс;
+ *       обращаться»: кого назвал заказчик и кого знает Кортекс; таблица
+ *       персон в «Критичных требованиях» её дублирует и скрыта (rev22);
  *     - «Источники» и открытое поле /bft-deep (работа PO) скрыты.
  *  - waitingPage — пока документ собирается: ход сборки по этапам.
  */
@@ -24,9 +24,8 @@ export interface CustomerLayer {
   approveUrl: string
   /** Согласование этой же версии документа, если было. */
   approvedAt?: string
-  /** Согласованный сценарий приёмки и его чек-лист — How to demo схемой и таблицей. */
+  /** Согласованный сценарий приёмки — How to demo схемой и таблицей. */
   demo?: AcceptanceDemo
-  checklist?: string[]
   /** Кого назвал заказчик и что знает Кортекс — раздел зон и контактов. */
   people?: { name: string; role?: string; about?: string }[]
   brief?: CortexBrief
@@ -55,40 +54,15 @@ const STYLE = `<style id="customer-layer-style">
 .hd-flow svg{ display:block; margin:0 auto; }
 .hd-table td.n{ width:1.6rem; text-align:center; font-family:"Courier New",monospace; }
 .hd-table td.where{ font-weight:600; }
-ul.hd-check{ list-style:none; padding-left:0; margin:0; }
-ul.hd-check li{ margin:.15rem 0; }
-ul.hd-check li::before{ content:"☐"; margin-right:.4rem; }
 .zone-from{ font-size:.8rem; color:var(--muted); white-space:nowrap; }
 </style>`
 
-/** Значимые основы слов: «застраховать» и «страховка» сходятся по «страх». */
-function stems(text: string): Set<string> {
-  return new Set((text.toLowerCase().match(/[a-zа-яё0-9]{4,}/g) ?? []).map((w) => w.slice(0, 5)))
-}
-
-/** Чек-лист приёмки по шагам: пункт — к шагу, с которым у него больше общих слов. */
-function checksByStep(demo: AcceptanceDemo, checklist: string[]): string[][] {
-  const steps = demo.steps.map((s) => stems(`${s.screen} ${s.action} ${s.expect}`))
-  const out = demo.steps.map(() => [] as string[])
-  for (const item of checklist) {
-    const words = stems(item)
-    let best = steps.length - 1, score = 0
-    steps.forEach((st, i) => {
-      const n = [...words].filter((w) => st.has(w)).length
-      if (n > score) { best = i; score = n }
-    })
-    out[best]!.push(item)
-  }
-  return out
-}
-
 // Эмодзи в подписях Mermaid под шрифтом документа меряются неверно — подпись обрезается.
-function howToDemoHtml(demo: AcceptanceDemo, checklist: string[]): string {
-  const checks = checksByStep(demo, checklist)
-  const rows = demo.steps.map((s, i) => `<tr><td class="n">${i + 1}</td><td class="where">${esc(s.screen)}</td><td>${esc(s.action)}</td><td>${esc(s.expect)}</td><td>${checks[i]!.length ? `<ul class="hd-check">${checks[i]!.map((c) => `<li>${esc(c)}</li>`).join('')}</ul>` : ''}</td></tr>`).join('')
+function howToDemoHtml(demo: AcceptanceDemo): string {
+  const rows = demo.steps.map((s, i) => `<tr><td class="n">${i + 1}</td><td class="where">${esc(s.screen)}</td><td>${esc(s.action)}</td><td>${esc(s.expect)}</td></tr>`).join('')
   return `<div class="hd" id="customer-howtodemo">
 <div class="hd-flow"><pre class="mermaid">${esc(userFlowMermaid(demo).replace('🧑 ', '').replace('✔ ', ''))}</pre></div>
-<div class="table-wrap"><table class="hd-table"><thead><tr><th>№</th><th>Где</th><th>Делаю</th><th>Вижу</th><th>Проверяю</th></tr></thead><tbody>${rows}</tbody></table></div>
+<div class="table-wrap"><table class="hd-table"><thead><tr><th>№</th><th>Где</th><th>Делаю</th><th>Вижу</th></tr></thead><tbody>${rows}</tbody></table></div>
 </div>`
 }
 
@@ -236,7 +210,7 @@ export function customerFastPage(html: string, layer: CustomerLayer): string {
   if (howTo && layer.demo?.steps.length) {
     const from = howTo.index + howTo[0].length
     const end = page.startsWith('<ol>', from) ? page.indexOf('</ol>', from) : -1
-    if (end > 0) page = page.slice(0, from) + howToDemoHtml(layer.demo, layer.checklist ?? []) + page.slice(end + '</ol>'.length)
+    if (end > 0) page = page.slice(0, from) + howToDemoHtml(layer.demo) + page.slice(end + '</ol>'.length)
   }
   // «Общая информация» (поля для PO) → зоны и контакты; до следующего раздела.
   const info = /<h3[^>]*>Общая информация<\/h3>/.exec(page)
@@ -244,6 +218,9 @@ export function customerFastPage(html: string, layer: CustomerLayer): string {
     const next = page.indexOf('<h2', info.index)
     page = page.slice(0, info.index) + zonesHtml(layer.people ?? [], layer.brief) + (next < 0 ? '' : page.slice(next))
   }
+  // Персоны и пояснение к ним — их дублирует раздел зон и контактов.
+  page = page.replace(/<p>Персоны \(домен знаний\):<\/p>\s*<div class="table-wrap">[\s\S]*?<\/div>\s*/, '')
+  page = page.replace(/<p>Роль\/влияние — [^<]*<\/p>\s*/, '')
   // «Источники» убираем, цитату — из сноски прямо в ячейку требования.
   const sources = /<h2[^>]*>Источники<\/h2>\s*<ol class="src-notes">[\s\S]*?<\/ol>/.exec(page)
   if (sources) page = page.slice(0, sources.index) + page.slice(sources.index + sources[0].length)

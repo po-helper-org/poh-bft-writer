@@ -65,18 +65,21 @@ test('микродиалог: вложение → вопросы → согла
   for (const head of ['How to demo', 'Критичные требования (скелет на цитатах)']) {
     await expect(doc.getByRole('heading', { name: head }), `раздел «${head}»`).toBeVisible()
   }
-  // How to demo — путь приёмки и таблица «Где · Делаю · Вижу · Проверяю» (rev21).
+  // How to demo — путь приёмки и таблица «Где · Делаю · Вижу» (rev22).
   const howTo = doc.locator('#customer-howtodemo')
   await expect(howTo.locator('.hd-flow'), 'путь приёмки схемой').toBeVisible()
-  await expect(howTo.getByRole('columnheader', { name: 'Проверяю' }), 'шаги таблицей').toBeVisible()
+  await expect(howTo.getByRole('columnheader', { name: 'Вижу' }), 'шаги таблицей').toBeVisible()
+  await expect(howTo.getByRole('columnheader', { name: 'Проверяю' }), 'без «Проверяю» — дублировал «Вижу»').toHaveCount(0)
   await expect(howTo.getByRole('cell', { name: 'Почта Outlook' }).first(), 'согласованный сценарий').toBeVisible()
-  await expect(howTo.locator('ul.hd-check li').first(), 'чек-лист разложен по шагам').toBeVisible()
   await expect(doc.getByRole('heading', { name: 'Чьи зоны затрагивает и к кому обращаться' }), 'зоны и контакты').toBeVisible()
   // Требования и персоны — таблицы документа.
   await expect(doc.getByRole('columnheader', { name: 'TOBE (после)' }), 'требования таблицей').toBeVisible()
   await expect(doc.getByRole('cell', { name: 'Система сама формирует CSV к 9:00 и присылает его' }).first(), 'требование со слов').toBeVisible()
-  await expect(doc.getByRole('columnheader', { name: 'ФИО' }), 'персоны таблицей').toBeVisible()
-  for (const cut of ['Где проверять', 'Раскадровка по шагам', 'Работа принята, если', 'Общая информация', 'Источники', 'Полный БФТ — в проработке', 'Всё ок — отгружай']) {
+  await expect(doc.getByRole('columnheader', { name: 'ФИО' }), 'персоны — только в разделе зон').toHaveCount(0)
+  // SMART A — план реализации из видения заказчика (rev22).
+  await expect(doc.getByRole('row', { name: /A \(Achievable\)/ }), 'Achievable — план').toContainText('Видение заказчика: «выгрузку настроит BI-команда')
+  await expect(doc.getByRole('row', { name: /A \(Achievable\)/ })).toContainText('Специалисты: PO, BE')
+  for (const cut of ['Где проверять', 'Раскадровка по шагам', 'Работа принята, если', 'Общая информация', 'Источники', 'Роль/влияние', 'Полный БФТ — в проработке', 'Всё ок — отгружай']) {
     await expect(doc.getByText(cut), `в документе заказчика нет «${cut}»`).toHaveCount(0)
   }
   await expect(page.getByText(new RegExp(`Отслеживание статуса: \\S+/tasks/${taskId}`)), 'ссылка на заявку в чате').toBeVisible()
