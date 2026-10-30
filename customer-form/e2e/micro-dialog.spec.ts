@@ -60,27 +60,21 @@ test('микродиалог: вложение → вопросы → согла
   await expect(doc.locator('#tipText'), 'совет на экране ожидания').not.toBeEmpty()
   await page.screenshot({ path: 'test-results/bft-fast-waiting.png' })
 
-  // Документ сам сменяет экран ожидания: «Первичные требования» (rev18) — со слов + Кортекс.
-  await expect(doc.getByText(`Первичные требования · заявка #${taskId}`), 'документ в правой панели').toBeVisible({ timeout: 30_000 })
-  for (const block of ['Что хотите и зачем', 'Как примете работу', 'Требования с ваших слов', 'Работа принята, если', 'Открытые вопросы']) {
-    await expect(doc.getByText(block).first(), `блок «${block}»`).toBeVisible()
+  // Документ сам сменяет экран ожидания: базовый bft-fast (rev20), без надстроек.
+  await expect(doc.getByRole('heading', { name: new RegExp(`\\[БФТ\\] zayavka-${taskId}`) }), 'документ в правой панели').toBeVisible({ timeout: 30_000 })
+  for (const head of ['How to demo', 'Критичные требования (скелет на цитатах)']) {
+    await expect(doc.getByRole('heading', { name: head }), `раздел «${head}»`).toBeVisible()
   }
-  await expect(doc.getByText('Почта Outlook').first(), 'как примет — согласованный сценарий').toBeVisible()
-  await expect(doc.getByText('Система сама формирует CSV к 9:00 и присылает его').first(), 'требование со слов').toBeVisible()
-  await expect(doc.getByRole('heading', { name: /Где проверять/ }), 'контуры проверки — Кортекс').toBeVisible()
-  await expect(doc.getByText(/из памяти организации/).first(), 'Кортекс помечен').toBeVisible()
-  for (const cut of ['How to demo', 'S (Specific)', 'Общая информация', 'Всё ок — отгружай']) {
+  await expect(doc.getByText(/Почта Outlook/).first(), 'How to demo — согласованный сценарий').toBeVisible()
+  // Требования и персоны — таблицы документа.
+  await expect(doc.getByRole('columnheader', { name: 'TOBE (после)' }), 'требования таблицей').toBeVisible()
+  await expect(doc.getByRole('cell', { name: 'Система сама формирует CSV к 9:00 и присылает его' }).first(), 'требование со слов').toBeVisible()
+  await expect(doc.getByRole('columnheader', { name: 'ФИО' }), 'персоны таблицей').toBeVisible()
+  for (const cut of ['Где проверять', 'Раскадровка по шагам', 'Полный БФТ — в проработке', 'Всё ок — отгружай']) {
     await expect(doc.getByText(cut), `в документе заказчика нет «${cut}»`).toHaveCount(0)
   }
   await expect(page.getByText(new RegExp(`Отслеживание статуса: \\S+/tasks/${taskId}`)), 'ссылка на заявку в чате').toBeVisible()
   await page.screenshot({ path: 'test-results/bft-fast-panel.png' })
-
-  // Полная версия для команды — канонический bft-fast навыка.
-  const full = await doc.getByRole('link', { name: 'документ bft-fast' }).getAttribute('href')
-  const fullPage = await page.context().newPage()
-  await fullPage.goto(new URL(full ?? '', CUSTOMER_URL).toString())
-  await expect(fullPage.getByRole('heading', { name: new RegExp(`\\[БФТ\\] zayavka-${taskId}`) }), 'полная версия для PO').toBeVisible()
-  await fullPage.close()
 
   // «Добавить требования» → фраза в поле ввода → заказчик досказывает → новая версия.
   await doc.getByRole('button', { name: 'Добавить требования' }).click()
@@ -90,11 +84,11 @@ test('микродиалог: вложение → вопросы → согла
   await page.keyboard.press('End')
   await page.keyboard.type('в письме видна дата отчёта')
   await page.keyboard.press('Enter')
-  await expect(doc.getByText('В письме видна дата отчёта'), 'документ пересобран с новым требованием').toBeVisible({ timeout: 30_000 })
+  await expect(doc.getByText('В письме видна дата отчёта').first(), 'документ пересобран с новым требованием').toBeVisible({ timeout: 30_000 })
 
   // «Да, согласен» → отметка на странице и сообщение в чате.
-  await doc.getByRole('button', { name: 'Да, согласен' }).click()
-  await expect(doc.getByRole('button', { name: /Согласовано/ }), 'согласовано на странице').toBeVisible({ timeout: 10_000 })
+  await doc.locator('#csYes').click()
+  await expect(doc.locator('#csYes'), 'согласовано на странице').toHaveText(/Согласовано/, { timeout: 10_000 })
   await expect(page.getByText('Да, согласен с документом БФТ').first(), 'согласование в чате').toBeVisible({ timeout: 10_000 })
 
   // Задача: постановка по разделам, сводка в комментарии, вложение + контекст.

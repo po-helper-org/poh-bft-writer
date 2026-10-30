@@ -25,8 +25,7 @@ import { sharedDemos } from './demo.js'
 import { demoPageHtml } from './demo-page.js'
 import type { AgentLike, BlockLike } from './tool.js'
 import { approveFast, FAST_ROOT, fastFiles, fastPagePath, fastProgress, fastSlug, fastState, stillBuilding } from './bft-fast.js'
-import { primaryPage, waitingPage } from './fast-page.js'
-import type { PrimaryDoc } from './primary.js'
+import { customerFastPage, waitingPage } from './fast-page.js'
 
 export const name = 'customer-form'
 
@@ -268,14 +267,12 @@ export function apply(ctx: HarnessContext): void {
             { status: 404, headers: { 'content-type': 'text/html; charset=utf-8' } })
         }
         const headers = { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }
-        // Полная версия для команды — канонический bft-fast навыка (он же в заявке).
-        const doc = await readFile(files.primary, 'utf8').then((s) => JSON.parse(s) as PrimaryDoc).catch(() => undefined)
-        if (new URL(request.url).searchParams.has('full') || !doc) return new Response(html, { headers })
-        // Заказчику — «Первичные требования» (rev18): со слов, плюс Кортекс.
+        // ?full=1 — канонический bft-fast навыка как есть (он же в заявке).
+        if (new URL(request.url).searchParams.has('full')) return new Response(html, { headers })
+        // Заказчику (rev20) — тот же документ со слоем согласования.
         const state = await fastState(files)
-        return new Response(primaryPage(doc, {
-          sessionId, taskId: ticket!.taskId, approveUrl: '/api/customer-form.bftFastApprove',
-          fullUrl: `${fastPagePath(sessionId)}&full=1`,
+        return new Response(customerFastPage(html, {
+          sessionId, slug, approveUrl: '/api/customer-form.bftFastApprove',
           ...(state?.approvedAt ? { approvedAt: state.approvedAt } : {}),
         }), { headers })
       },
