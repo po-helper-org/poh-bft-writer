@@ -3,12 +3,20 @@
  *
  *  - customerFastPage — документ bft-fast как есть: bft-html-export.py навыка,
  *    та же страница уходит PO в заявку (rev20 — возврат к базовому шаблону).
- *    Слой заказчика минимальный: «Да, согласен» и «Добавить требования» под
- *    заголовком, «Скопировать промт» → «Отправить замечания в чат», открытое
- *    поле /bft-deep (работа PO) скрыто.
+ *    Слой заказчика (rev21):
+ *     - «Да, согласен» и «Добавить требования» под заголовком,
+ *       «Скопировать промт» → «Отправить замечания в чат»;
+ *     - How to demo — путь приёмки (Mermaid) и таблица «Где · Делаю · Вижу ·
+ *       Проверяю»: чек-лист приёмки разложен по шагам;
+ *     - вместо «Общей информации» — «Чьи зоны затрагивает и к кому
+ *       обращаться»: кого назвал заказчик и кого знает Кортекс;
+ *     - «Источники» и открытое поле /bft-deep (работа PO) скрыты.
  *  - waitingPage — пока документ собирается: ход сборки по этапам.
  */
 import type { FastProgress } from './bft-fast.js'
+import type { CortexBrief } from './cortex.js'
+import type { AcceptanceDemo } from './demo.js'
+import { userFlowMermaid } from './demo-page.js'
 
 export interface CustomerLayer {
   sessionId: string
@@ -16,6 +24,12 @@ export interface CustomerLayer {
   approveUrl: string
   /** Согласование этой же версии документа, если было. */
   approvedAt?: string
+  /** Согласованный сценарий приёмки и его чек-лист — How to demo схемой и таблицей. */
+  demo?: AcceptanceDemo
+  checklist?: string[]
+  /** Кого назвал заказчик и что знает Кортекс — раздел зон и контактов. */
+  people?: { name: string; role?: string; about?: string }[]
+  brief?: CortexBrief
 }
 
 const esc = (s: unknown) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!))
@@ -36,7 +50,66 @@ const STYLE = `<style id="customer-layer-style">
 .cs-add{ background:var(--bg); color:var(--fg); }
 /* Согласование — кнопкой под заголовком, плавающая кнопка экспорта не дублирует её. */
 #shipBtn{ display:none !important; }
+/* How to demo */
+.hd-flow{ margin:.4rem 0 1rem; }
+.hd-flow svg{ display:block; margin:0 auto; }
+.hd-table td.n{ width:1.6rem; text-align:center; font-family:"Courier New",monospace; }
+.hd-table td.where{ font-weight:600; }
+ul.hd-check{ list-style:none; padding-left:0; margin:0; }
+ul.hd-check li{ margin:.15rem 0; }
+ul.hd-check li::before{ content:"☐"; margin-right:.4rem; }
+.zone-from{ font-size:.8rem; color:var(--muted); white-space:nowrap; }
 </style>`
+
+/** Значимые основы слов: «застраховать» и «страховка» сходятся по «страх». */
+function stems(text: string): Set<string> {
+  return new Set((text.toLowerCase().match(/[a-zа-яё0-9]{4,}/g) ?? []).map((w) => w.slice(0, 5)))
+}
+
+/** Чек-лист приёмки по шагам: пункт — к шагу, с которым у него больше общих слов. */
+function checksByStep(demo: AcceptanceDemo, checklist: string[]): string[][] {
+  const steps = demo.steps.map((s) => stems(`${s.screen} ${s.action} ${s.expect}`))
+  const out = demo.steps.map(() => [] as string[])
+  for (const item of checklist) {
+    const words = stems(item)
+    let best = steps.length - 1, score = 0
+    steps.forEach((st, i) => {
+      const n = [...words].filter((w) => st.has(w)).length
+      if (n > score) { best = i; score = n }
+    })
+    out[best]!.push(item)
+  }
+  return out
+}
+
+// Эмодзи в подписях Mermaid под шрифтом документа меряются неверно — подпись обрезается.
+function howToDemoHtml(demo: AcceptanceDemo, checklist: string[]): string {
+  const checks = checksByStep(demo, checklist)
+  const rows = demo.steps.map((s, i) => `<tr><td class="n">${i + 1}</td><td class="where">${esc(s.screen)}</td><td>${esc(s.action)}</td><td>${esc(s.expect)}</td><td>${checks[i]!.length ? `<ul class="hd-check">${checks[i]!.map((c) => `<li>${esc(c)}</li>`).join('')}</ul>` : ''}</td></tr>`).join('')
+  return `<div class="hd" id="customer-howtodemo">
+<div class="hd-flow"><pre class="mermaid">${esc(userFlowMermaid(demo).replace('🧑 ', '').replace('✔ ', ''))}</pre></div>
+<div class="table-wrap"><table class="hd-table"><thead><tr><th>№</th><th>Где</th><th>Делаю</th><th>Вижу</th><th>Проверяю</th></tr></thead><tbody>${rows}</tbody></table></div>
+</div>`
+}
+
+/** Первое предложение описания узла: служебные хвосты («Профиль памяти: …») не нужны заказчику. */
+const firstSentence = (text: string) => (/^.+?[.!?](?=\s|$)/.exec(text.trim())?.[0] ?? text.trim())
+
+/** Чьи зоны затрагивает запрос и к кому по каким вопросам: со слов заказчика и из Кортекса. */
+function zonesHtml(people: NonNullable<CustomerLayer['people']>, brief: CortexBrief | undefined): string {
+  const zonesOf = (name: string) => (brief?.domains ?? []).filter((d) => d.owner === name).flatMap((d) => d.zones)
+  const rows = [
+    ...people.filter((p) => p.name?.trim()).map((p) => [p.name, p.role ?? '', p.about ?? '', 'назвали вы']),
+    ...(brief?.people ?? []).map((p) => {
+      const zones = [...new Set([...p.zones, ...zonesOf(p.name)])]
+      return [p.name, [p.role, zones.length ? `зоны: ${zones.join(', ')}` : ''].filter(Boolean).join('; '), p.contact_for.join(', ') || firstSentence(p.summary), `память организации${brief!.vault.demo ? ' · демо' : ''}`]
+    }),
+  ]
+  const body = rows.length
+    ? `<div class="table-wrap"><table><thead><tr><th>Кто</th><th>Роль и зона</th><th>По каким вопросам</th><th>Откуда</th></tr></thead><tbody>${rows.map(([who, zone, about, from]) => `<tr><td>${esc(who)}</td><td>${esc(zone)}</td><td>${esc(about)}</td><td class="zone-from">${esc(from)}</td></tr>`).join('')}</tbody></table></div>`
+    : '<p>Владельцев зон по этому запросу пока не знаем — уточнит команда.</p>'
+  return `<h3 id="sec-zones">Чьи зоны затрагивает и к кому обращаться</h3>\n${body}\n`
+}
 
 const ACTIONS = `<div class="cs-actions" id="customer-actions">
   <button type="button" class="cs-yes" id="csYes">Да, согласен</button>
@@ -158,6 +231,23 @@ export function customerFastPage(html: string, layer: CustomerLayer): string {
   let page = html
   const h1 = /<h1[^>]*>[\s\S]*?<\/h1>/.exec(page)
   if (h1) page = page.slice(0, h1.index + h1[0].length) + ACTIONS + page.slice(h1.index + h1[0].length)
+  // How to demo: список шагов (первый <ol> после заголовка) → схема и таблица.
+  const howTo = /<h3[^>]*>How to demo<\/h3>\s*/.exec(page)
+  if (howTo && layer.demo?.steps.length) {
+    const from = howTo.index + howTo[0].length
+    const end = page.startsWith('<ol>', from) ? page.indexOf('</ol>', from) : -1
+    if (end > 0) page = page.slice(0, from) + howToDemoHtml(layer.demo, layer.checklist ?? []) + page.slice(end + '</ol>'.length)
+  }
+  // «Общая информация» (поля для PO) → зоны и контакты; до следующего раздела.
+  const info = /<h3[^>]*>Общая информация<\/h3>/.exec(page)
+  if (info) {
+    const next = page.indexOf('<h2', info.index)
+    page = page.slice(0, info.index) + zonesHtml(layer.people ?? [], layer.brief) + (next < 0 ? '' : page.slice(next))
+  }
+  // «Источники» убираем, цитату — из сноски прямо в ячейку требования.
+  const sources = /<h2[^>]*>Источники<\/h2>\s*<ol class="src-notes">[\s\S]*?<\/ol>/.exec(page)
+  if (sources) page = page.slice(0, sources.index) + page.slice(sources.index + sources[0].length)
+  page = page.replace(/<a class="src-ref"[^>]*?title="([^"]*)"[^>]*>[^<]*<\/a>/g, '$1')
   const at = page.lastIndexOf('</body>')
   const layerHtml = STYLE + script(layer)
   return at < 0 ? page + layerHtml : page.slice(0, at) + layerHtml + page.slice(at)

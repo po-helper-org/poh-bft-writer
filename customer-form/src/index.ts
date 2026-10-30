@@ -26,6 +26,7 @@ import { demoPageHtml } from './demo-page.js'
 import type { AgentLike, BlockLike } from './tool.js'
 import { approveFast, FAST_ROOT, fastFiles, fastPagePath, fastProgress, fastSlug, fastState, stillBuilding } from './bft-fast.js'
 import { customerFastPage, waitingPage } from './fast-page.js'
+import type { PrimaryDoc } from './primary.js'
 
 export const name = 'customer-form'
 
@@ -269,11 +270,15 @@ export function apply(ctx: HarnessContext): void {
         const headers = { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }
         // ?full=1 — канонический bft-fast навыка как есть (он же в заявке).
         if (new URL(request.url).searchParams.has('full')) return new Response(html, { headers })
-        // Заказчику (rev20) — тот же документ со слоем согласования.
+        // Заказчику (rev21) — тот же документ: How to demo таблицей, зоны и контакты, без полей для PO.
         const state = await fastState(files)
+        const doc = await readFile(files.primary, 'utf8').then((s) => JSON.parse(s) as PrimaryDoc).catch(() => undefined)
+        const demo = sharedDemos().get(sessionId)?.demo
         return new Response(customerFastPage(html, {
           sessionId, slug, approveUrl: '/api/customer-form.bftFastApprove',
           ...(state?.approvedAt ? { approvedAt: state.approvedAt } : {}),
+          ...(demo ? { demo } : {}),
+          ...(doc ? { checklist: doc.checklist, people: doc.args.people ?? [], ...(doc.brief ? { brief: doc.brief } : {}) } : {}),
         }), { headers })
       },
     }), 'customer-form: /api/customer-form.bftFast')

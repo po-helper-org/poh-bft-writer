@@ -60,17 +60,23 @@ test('микродиалог: вложение → вопросы → согла
   await expect(doc.locator('#tipText'), 'совет на экране ожидания').not.toBeEmpty()
   await page.screenshot({ path: 'test-results/bft-fast-waiting.png' })
 
-  // Документ сам сменяет экран ожидания: базовый bft-fast (rev20), без надстроек.
+  // Документ сам сменяет экран ожидания: базовый bft-fast со слоем заказчика (rev21).
   await expect(doc.getByRole('heading', { name: new RegExp(`\\[БФТ\\] zayavka-${taskId}`) }), 'документ в правой панели').toBeVisible({ timeout: 30_000 })
   for (const head of ['How to demo', 'Критичные требования (скелет на цитатах)']) {
     await expect(doc.getByRole('heading', { name: head }), `раздел «${head}»`).toBeVisible()
   }
-  await expect(doc.getByText(/Почта Outlook/).first(), 'How to demo — согласованный сценарий').toBeVisible()
+  // How to demo — путь приёмки и таблица «Где · Делаю · Вижу · Проверяю» (rev21).
+  const howTo = doc.locator('#customer-howtodemo')
+  await expect(howTo.locator('.hd-flow'), 'путь приёмки схемой').toBeVisible()
+  await expect(howTo.getByRole('columnheader', { name: 'Проверяю' }), 'шаги таблицей').toBeVisible()
+  await expect(howTo.getByRole('cell', { name: 'Почта Outlook' }).first(), 'согласованный сценарий').toBeVisible()
+  await expect(howTo.locator('ul.hd-check li').first(), 'чек-лист разложен по шагам').toBeVisible()
+  await expect(doc.getByRole('heading', { name: 'Чьи зоны затрагивает и к кому обращаться' }), 'зоны и контакты').toBeVisible()
   // Требования и персоны — таблицы документа.
   await expect(doc.getByRole('columnheader', { name: 'TOBE (после)' }), 'требования таблицей').toBeVisible()
   await expect(doc.getByRole('cell', { name: 'Система сама формирует CSV к 9:00 и присылает его' }).first(), 'требование со слов').toBeVisible()
   await expect(doc.getByRole('columnheader', { name: 'ФИО' }), 'персоны таблицей').toBeVisible()
-  for (const cut of ['Где проверять', 'Раскадровка по шагам', 'Полный БФТ — в проработке', 'Всё ок — отгружай']) {
+  for (const cut of ['Где проверять', 'Раскадровка по шагам', 'Работа принята, если', 'Общая информация', 'Источники', 'Полный БФТ — в проработке', 'Всё ок — отгружай']) {
     await expect(doc.getByText(cut), `в документе заказчика нет «${cut}»`).toHaveCount(0)
   }
   await expect(page.getByText(new RegExp(`Отслеживание статуса: \\S+/tasks/${taskId}`)), 'ссылка на заявку в чате').toBeVisible()
