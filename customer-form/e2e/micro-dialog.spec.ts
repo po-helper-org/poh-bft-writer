@@ -57,6 +57,7 @@ test('микродиалог: вложение → вопросы → согла
   await expect(page.getByText(/ИТОГ по заявке/), 'ИТОГ больше не собирается').toHaveCount(0)
   const doc = page.frameLocator('iframe[data-customer-bft]')
   await expect(doc.getByRole('heading', { name: 'Уже готовлю БФТ-документ' }), 'экран ожидания справа').toBeVisible({ timeout: 15_000 })
+  await expect(doc.locator('#tipText'), 'совет на экране ожидания').not.toBeEmpty()
   await page.screenshot({ path: 'test-results/bft-fast-waiting.png' })
 
   // Документ сам сменяет экран ожидания: «Первичные требования» (rev18) — со слов + Кортекс.

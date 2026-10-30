@@ -93,14 +93,20 @@ function nextTurn(messages) {
   if (last?.role === 'tool') {
     const call = messages.flatMap((m) => m.tool_calls ?? []).find((c) => c.id === last.tool_call_id)
     // «Согласую» на сценарии — полное согласие (rev16): «уже готовлю» пишет портал, модель сразу сдаёт заявку.
+    // «#порядок» (tracker-recovery): как Haiku вживую — сначала сборка, потом сдача заявки.
+    const reversed = messages.some((m) => m.role === 'user' && text(m).includes('#порядок'))
+    const called = (name) => messages.some((m) => (m.tool_calls ?? []).some((c) => c.function.name === name))
     if (call?.function.name === 'confirm_acceptance_demo' && text(last).includes('нажал кнопку «Согласую»')) {
+      return reversed ? { tool: { name: 'create_bft_fast', args: FAST }, delay: 2000 } : { tool: { name: 'submit_customer_request', args: INTAKE } }
+    }
+    if (call?.function.name === 'create_bft_fast' && reversed && !called('submit_customer_request')) {
       return { tool: { name: 'submit_customer_request', args: INTAKE } }
     }
     // Раскладка требований у настоящей модели идёт минуту-две: пауза, чтобы был виден экран ожидания.
-    if (call?.function.name === 'submit_customer_request') {
+    if (call?.function.name === 'submit_customer_request' && !called('create_bft_fast')) {
       return { tool: { name: 'create_bft_fast', args: FAST }, delay: 4000 }
     }
-    if (call?.function.name === 'create_bft_fast') {
+    if (call?.function.name === 'create_bft_fast' || call?.function.name === 'submit_customer_request') {
       const submitted = messages.find((m) => m.role === 'tool' && /tasks\/\d+/.test(text(m)))
       const url = /https?:\/\/\S+\/tasks\/\d+/.exec(submitted ? text(submitted) : '')?.[0] ?? ''
       const page = /https?:\/\/\S+\/api\/customer-form\.bftFast\?session=\S+/.exec(text(last))?.[0] ?? ''

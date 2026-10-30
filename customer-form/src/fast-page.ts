@@ -178,6 +178,25 @@ ${blocks}
 </script></body></html>`
 }
 
+/** Советы на экране ожидания: [рубрика, текст] — коротко, на 5–7 секунд чтения. */
+const TIPS: [string, string][] = [
+  ['Требования', 'Опишите, как вы будете проверять результат, — и половина требований запишется сама.'],
+  ['Требования', 'Хорошее требование проверяется ответом «да» или «нет». «Удобно» и «быстро» — нет, «за 2 клика» и «до 3 секунд» — да.'],
+  ['Требования', 'Не входит в задачу — тоже требование. Скажите это вслух сейчас, чтобы не спорить на приёмке.'],
+  ['Требования', 'Один пример из жизни («клиент Иванов вчера…») объясняет задачу лучше страницы абстракций.'],
+  ['Требования', 'Назовите, кто будет пользоваться результатом. Требования «для всех» обычно не устраивают никого.'],
+  ['Приёмка', 'Договоритесь о приёмке до начала работ: сценарий проверки, который вы согласовали, — ваш договор с командой.'],
+  ['Приёмка', 'Проверяйте на тестовом стенде с настоящими сценариями, а не на демо «по слайдам».'],
+  ['Команда', 'Одна задача — один владелец. Если ответственных двое, решение не принимает никто.'],
+  ['Команда', 'Приходите к команде с проблемой, а не с готовым решением: исполнители часто знают путь короче.'],
+  ['Команда', 'Короткий созвон на 15 минут экономит неделю переписки. Итоги — одним сообщением в задачу.'],
+  ['Команда', 'Спросите команду «что может помешать?» до старта — риски дешевле всего на бумаге.'],
+  ['Команда', 'Срок называет тот, кто делает. Срок, спущенный сверху, — это пожелание, а не план.'],
+  ['Приоритеты', 'Если всё срочно — ничего не срочно. Выберите одну главную вещь на эту итерацию.'],
+  ['Приоритеты', 'Маленький результат через две недели ценнее большого через квартал: он даёт обратную связь.'],
+  ['Коммуникация', 'Фиксируйте договорённости письменно — в задаче, а не в личной переписке: их увидят все, кто подключится позже.'],
+]
+
 const STAGES: { key: FastProgress['stage']; title: string; note: string }[] = [
   { key: 'approved', title: 'Сценарий приёмки согласован', note: 'Ваше «Согласую» — основа документа' },
   { key: 'submitted', title: 'Заявка передана в беклог', note: 'Постановка и полный контекст — в трекере' },
@@ -203,15 +222,18 @@ body{ margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 Georgia,"Ti
 .kicker{ font:.7rem/1.3 "Courier New",monospace; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); }
 h1{ font-size:1.5rem; line-height:1.25; margin:.4rem 0 .3rem; }
 .lead{ color:#444; margin:0 0 1.6rem; }
-.doc{ position:relative; height:132px; border:1.5px solid var(--fg); padding:16px 18px; overflow:hidden; margin-bottom:1.6rem; }
-.doc i{ display:block; height:8px; background:#ece9e3; margin:0 0 10px; transform-origin:left; animation:write 2.8s ease-in-out infinite; }
-.doc i:nth-child(1){ width:62%; height:12px; background:#d9d5cc; animation-delay:0s; }
-.doc i:nth-child(2){ width:88%; animation-delay:.25s; }
-.doc i:nth-child(3){ width:76%; animation-delay:.5s; }
-.doc i:nth-child(4){ width:92%; animation-delay:.75s; }
-.doc i:nth-child(5){ width:54%; animation-delay:1s; }
-.doc .pen{ position:absolute; right:16px; bottom:14px; font:.7rem "Courier New",monospace; color:var(--muted); }
-@keyframes write{ 0%{ transform:scaleX(.05); opacity:.4 } 45%,70%{ transform:scaleX(1); opacity:1 } 100%{ transform:scaleX(1); opacity:.35 } }
+.tip{ position:relative; min-height:150px; border:1.5px solid var(--fg); padding:16px 18px 30px; margin-bottom:1.6rem; overflow:hidden; }
+.tip-kind{ font:.68rem/1.3 "Courier New",monospace; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); margin:0 0 .5rem; }
+.tip-text{ font-size:1.08rem; line-height:1.45; margin:0; }
+.tip-body{ transition:opacity .45s ease, transform .45s ease; }
+.tip-body.out{ opacity:0; transform:translateY(8px); }
+.tip-nav{ position:absolute; right:12px; bottom:8px; display:flex; gap:4px; }
+.tip-nav button{ font:.8rem "Courier New",monospace; border:0; background:none; color:var(--muted); cursor:pointer; padding:2px 6px; }
+.tip-nav button:hover{ color:var(--fg); }
+.tip-count{ position:absolute; left:18px; bottom:10px; font:.68rem "Courier New",monospace; color:var(--muted); }
+.tip-timer{ position:absolute; left:0; bottom:0; height:2px; background:var(--fg); width:0; }
+.tip-timer.run{ animation:tiptimer 7s linear forwards; }
+@keyframes tiptimer{ from{ width:0 } to{ width:100% } }
 .bar{ height:4px; background:var(--line); margin:0 0 .4rem; overflow:hidden; }
 .bar b{ display:block; height:100%; width:0; background:var(--fg); transition:width 1s linear; }
 .time{ font:.75rem "Courier New",monospace; color:var(--muted); display:flex; justify-content:space-between; margin-bottom:1.5rem; }
@@ -228,13 +250,18 @@ li.now .dot{ border-color:var(--fg); animation:pulse 1.2s ease-in-out infinite; 
 li.now small{ color:#555; }
 @keyframes pulse{ 0%,100%{ box-shadow:0 0 0 0 rgba(17,17,17,.35) } 50%{ box-shadow:0 0 0 6px rgba(17,17,17,0) } }
 .foot{ margin-top:1.4rem; font-size:.85rem; color:#555; }
-@media (prefers-reduced-motion:reduce){ .doc i, li.now .dot{ animation:none; } }
+@media (prefers-reduced-motion:reduce){ .tip-body{ transition:none; } .tip-timer.run, li.now .dot{ animation:none; } }
 </style></head><body>
 <div class="wrap" data-waiting="${esc(sessionId)}">
   <div class="kicker">Документ на проверку</div>
   <h1>Уже готовлю БФТ-документ</h1>
   <p class="lead">Буквально 3 минуты. Документ откроется здесь сам — ничего обновлять не нужно.</p>
-  <div class="doc" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><span class="pen">bft-fast</span></div>
+  <div class="tip" id="tip" aria-live="polite">
+    <div class="tip-body" id="tipBody"><p class="tip-kind" id="tipKind"></p><p class="tip-text" id="tipText"></p></div>
+    <span class="tip-count" id="tipCount"></span>
+    <div class="tip-nav"><button type="button" id="tipPrev" aria-label="Предыдущий совет">←</button><button type="button" id="tipNext" aria-label="Следующий совет">→</button></div>
+    <i class="tip-timer" id="tipTimer"></i>
+  </div>
   <div class="bar"><b id="bar"></b></div>
   <div class="time"><span id="elapsed">0:00</span><span>обычно до 3 минут</span></div>
   <ol id="stages">${stages}</ol>
@@ -266,6 +293,26 @@ li.now small{ color:#555; }
       .then(function(v){ paint(v.stage); if(v.stage === "ready" || v.stage === "none") location.reload(); })
       .catch(function(){});
   }
+  // Пока ждём — короткие советы: требования и работа с командой. Начинаем со случайного.
+  var TIPS = ${JSON.stringify(TIPS).replace(/</g, '\\u003c')};
+  var at = Math.floor(Math.random() * TIPS.length), timer;
+  function show(step){
+    var body = document.getElementById("tipBody");
+    body.classList.add("out");
+    setTimeout(function(){
+      at = (at + step + TIPS.length) % TIPS.length;
+      document.getElementById("tipKind").textContent = TIPS[at][0];
+      document.getElementById("tipText").textContent = TIPS[at][1];
+      document.getElementById("tipCount").textContent = (at + 1) + " / " + TIPS.length;
+      body.classList.remove("out");
+      var bar = document.getElementById("tipTimer");
+      bar.classList.remove("run"); void bar.offsetWidth; bar.classList.add("run");
+    }, step === 0 ? 0 : 450);
+    clearTimeout(timer); timer = setTimeout(function(){ show(1); }, 7000);
+  }
+  document.getElementById("tipNext").addEventListener("click", function(){ show(1); });
+  document.getElementById("tipPrev").addEventListener("click", function(){ show(-1); });
+  show(0);
   paint(CFG.stage); tick();
   setInterval(tick, 1000);
   setInterval(poll, 2000);

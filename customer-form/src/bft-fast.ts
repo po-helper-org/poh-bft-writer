@@ -10,7 +10,7 @@
  */
 import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 export interface FastPersona { name: string; role?: string; influence?: string }
@@ -54,21 +54,40 @@ export const fastPageUrl = (sessionId: string) => portalUrl(fastPagePath(session
  */
 export type FastStage = 'approved' | 'submitted' | 'building' | 'ready'
 export interface FastProgress { stage: FastStage; startedAt: string }
+const STAGE_ORDER: readonly FastStage[] = ['approved', 'submitted', 'building', 'ready']
 
 class ProgressRegistry {
   private readonly items = new Map<string, FastProgress>()
   start(sessionId: string): void {
     this.items.set(sessionId, { stage: 'approved', startedAt: new Date().toISOString() })
   }
-  /** Следующий этап; пересборка по замечаниям начинает отсчёт заново. */
+  /**
+   * Этап только вперёд. Модель может вызвать сдачу заявки после сборки или
+   * параллельно с ней (живой прогон: «submitted» после «ready» — экран ожидания
+   * висел над готовым документом). Назад этап не откатывается; после «ready»
+   * отсчёт заново начинает только новая сборка (пересборка по замечаниям).
+   */
   stage(sessionId: string, stage: FastStage): void {
     const current = this.items.get(sessionId)
+    if (current?.stage === 'ready' && stage !== 'building') return
+    if (current && current.stage !== 'ready' && STAGE_ORDER.indexOf(stage) < STAGE_ORDER.indexOf(current.stage)) return
     const fresh = !current || current.stage === 'ready'
     this.items.set(sessionId, { stage, startedAt: fresh ? new Date().toISOString() : current.startedAt })
   }
   get(sessionId: string): FastProgress | undefined {
     return this.items.get(sessionId)
   }
+}
+
+/**
+ * Идёт ли сборка на самом деле: этап не «ready» и документ не собран после
+ * начала ожидания. Страховка от любого рассинхрона этапов — готовый документ
+ * всегда сменяет экран ожидания.
+ */
+export async function stillBuilding(progress: FastProgress | undefined, files: FastFiles): Promise<boolean> {
+  if (!progress || progress.stage === 'ready') return false
+  const built = await stat(files.primary).then((s) => s.mtimeMs, () => 0)
+  return built < Date.parse(progress.startedAt)
 }
 
 let progress: ProgressRegistry | undefined

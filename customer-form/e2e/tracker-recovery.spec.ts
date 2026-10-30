@@ -79,6 +79,15 @@ test('токен трекера истёк — узел входит занов�
   expect(task.files, 'документ БФТ в задаче').toContain(`zayavka-${taskId}-fast.html`)
 })
 
+test('модель сдала заявку после сборки документа — экран ожидания всё равно сменяется документом', async ({ page }) => {
+  const unique = Date.now().toString(36)
+  await walkToApproval(page, `#порядок ${unique}: нужна утренняя выгрузка отчётов в CSV. Заказчик E2E Тестов, e2e@test.local`)
+  await expectDocument(page)
+  // Сдача после «ready» не возвращает экран ожидания (живой прогон: висел над готовым документом).
+  await page.waitForTimeout(3_000)
+  await expect(page.frameLocator('iframe[data-customer-bft]').getByRole('heading', { name: 'Уже готовлю БФТ-документ' }), 'экран ожидания не вернулся').toHaveCount(0)
+})
+
 test('трекер не ответил на первое сообщение — сдача сама заводит заявку и собирает документ', async ({ page, request }) => {
   const unique = Date.now().toString(36)
   const marker = `Сбой-${unique}`

@@ -24,7 +24,7 @@ import { VoiceContext } from './voice.js'
 import { sharedDemos } from './demo.js'
 import { demoPageHtml } from './demo-page.js'
 import type { AgentLike, BlockLike } from './tool.js'
-import { approveFast, FAST_ROOT, fastFiles, fastPagePath, fastProgress, fastSlug, fastState } from './bft-fast.js'
+import { approveFast, FAST_ROOT, fastFiles, fastPagePath, fastProgress, fastSlug, fastState, stillBuilding } from './bft-fast.js'
 import { primaryPage, waitingPage } from './fast-page.js'
 import type { PrimaryDoc } from './primary.js'
 
@@ -254,14 +254,14 @@ export function apply(ctx: HarnessContext): void {
       requestBody: 'buffered',
       fetch: async (request: Request) => {
         const sessionId = new URL(request.url).searchParams.get('session') ?? ''
-        // Идёт сборка (rev16) — экран ожидания; он сам перезагрузится в документ.
-        const progress = fastProgress.get(sessionId)
-        if (progress && progress.stage !== 'ready') {
-          return new Response(waitingPage(sessionId, progress, '/api/customer-form.bftFastStatus'), { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } })
-        }
         const ticket = sessionId ? await backlog.find(sessionId).catch(() => undefined) : undefined
         const slug = ticket ? fastSlug(ticket.taskId) : ''
         const files = fastFiles(FAST_ROOT, slug)
+        // Идёт сборка (rev16) — экран ожидания; он сам перезагрузится в документ.
+        const progress = fastProgress.get(sessionId)
+        if (progress && await stillBuilding(progress, files)) {
+          return new Response(waitingPage(sessionId, progress, '/api/customer-form.bftFastStatus'), { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } })
+        }
         const html = ticket ? await readFile(files.html, 'utf8').catch(() => undefined) : undefined
         if (!html) {
           return new Response('<!doctype html><meta charset="utf-8"><p style="font:14px sans-serif;color:#888;padding:16px">Быстрая версия БФТ ещё не собрана.</p>',
@@ -303,8 +303,11 @@ export function apply(ctx: HarnessContext): void {
       methods: ['GET'],
       requestBody: 'buffered',
       fetch: async (request: Request) => {
-        const progress = fastProgress.get(new URL(request.url).searchParams.get('session') ?? '')
-        return Response.json({ stage: progress?.stage ?? 'none', startedAt: progress?.startedAt ?? null }, { headers: { 'cache-control': 'no-store' } })
+        const sessionId = new URL(request.url).searchParams.get('session') ?? ''
+        const progress = fastProgress.get(sessionId)
+        const ticket = progress ? await backlog.find(sessionId).catch(() => undefined) : undefined
+        const building = ticket ? await stillBuilding(progress, fastFiles(FAST_ROOT, fastSlug(ticket.taskId))) : !!progress && progress.stage !== 'ready'
+        return Response.json({ stage: building ? progress!.stage : progress ? 'ready' : 'none', startedAt: progress?.startedAt ?? null }, { headers: { 'cache-control': 'no-store' } })
       },
     }), 'customer-form: /api/customer-form.bftFastStatus')
 
@@ -372,8 +375,7 @@ export function apply(ctx: HarnessContext): void {
         const ticket = sessionId ? await backlog.find(sessionId).catch(() => undefined) : undefined
         const record = sharedDemos().get(sessionId)
         const fast = ticket ? await fastState(fastFiles(FAST_ROOT, fastSlug(ticket.taskId))) : undefined
-        const progress = fastProgress.get(sessionId)
-        const building = !!progress && progress.stage !== 'ready'
+        const building = ticket ? await stillBuilding(fastProgress.get(sessionId), fastFiles(FAST_ROOT, fastSlug(ticket.taskId))) : false
         const value = {
           ticket: ticket ? { taskId: ticket.taskId, url: ticket.url, demoApprovedAt: ticket.demoApprovedAt } : null,
           files: sessionId ? materials.list(sessionId) : [],
