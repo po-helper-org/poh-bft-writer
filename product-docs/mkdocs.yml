@@ -1,0 +1,10 @@
+site_name: Система БФТ
+
+site_lang: ru
+
+nav:
+  - Как оставить заявку на разбор инициативы: index.md
+
+markdown_extensions:
+  - admonition
+  - attr_list

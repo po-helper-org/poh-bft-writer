@@ -1,0 +1,22 @@
+{
+  "default_server_config": {
+    "m.homeserver": {
+      "base_url": "http://127.0.0.1:8008",
+      "server_name": "bft.local"
+    },
+    "m.identity_server": {
+      "base_url": "https://vector.im"
+    }
+  },
+  "brand": "БФТ",
+  "default_country_code": "RU",
+  "disable_custom_urls": false,
+  "disable_guests": true,
+  "default_theme": "light",
+  "room_directory": {
+    "servers": ["bft.local"]
+  },
+  "setting_defaults": {
+    "UIFeature.registration": false
+  }
+}

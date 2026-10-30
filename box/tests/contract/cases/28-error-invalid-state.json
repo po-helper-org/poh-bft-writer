@@ -1,0 +1,7 @@
+{
+  "schema_version": "1.0.0",
+  "error": {
+    "code": "invalid_state",
+    "message": "resume допустим только из paused."
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "schema_version": "1.0.0",
+  "initiative_id": "ini-0001",
+  "action": "reopen",
+  "reason": "Бухгалтерия просит добавить возвраты",
+  "idempotency_key": "t_demo01:ctl:2"
+}

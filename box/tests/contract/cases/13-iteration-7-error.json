@@ -1,0 +1,21 @@
+{
+  "schema_version": "1.0.0",
+  "initiative_id": "ini-0001",
+  "iteration_id": "it-0007",
+  "number": 7,
+  "status": "error",
+  "state": "needs_po",
+  "trigger": "all_outcomes",
+  "created_at": "2026-10-23T10:00:00Z",
+  "goal": "Выгрузка заказов в CSV для бухгалтерии",
+  "team": "team-a",
+  "external_refs": {
+    "root_card": "t_demo01",
+    "room": "!demo:example.org"
+  },
+  "error": {
+    "code": "model_failed",
+    "message": "Модель не ответила после 3 попыток. Указания итерации 6 в силе; повтор — submit(iterate: true).",
+    "retry_after_seconds": 300
+  }
+}

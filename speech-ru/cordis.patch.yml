@@ -1,0 +1,17 @@
+# speech-ru (ADR-0008): русская речь для голосового ввода dsh. Бандл ставится
+# в профиль ПОСЛЕ @deepseek-ai/dsh-experimental-voice-input-bundle: выбирает
+# свой провайдер по умолчанию и выключает SenseVoice (русского он не знает).
+# Ключ Requesty — из окружения (apiKeyEnv), в конфигурации секретов нет.
+- insert:
+    - id: speech-ru
+      name: speech-ru
+      config:
+        mode: cloud-first
+        model: openai/gpt-4o-mini-transcribe
+        apiKeyEnv: REQUESTY_API_KEY
+- id: speech-to-text
+  config:
+    defaultProvider: ru-speech
+    language: ru
+- id: speech-to-text-sensevoice
+  disabled: true

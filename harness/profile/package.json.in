@@ -1,0 +1,24 @@
+{
+  "name": "dsh-profile-web",
+  "private": true,
+  "dependencies": {
+    "@deepseek-ai/dsh": "__DSH_VERSION__",
+    "@deepseek-ai/dsh-base": "__DSH_VERSION__",
+    "@deepseek-ai/dsh-web-app": "__DSH_VERSION__",
+    "@deepseek-ai/dsh-llm-pi-ai": "__DSH_VERSION__",
+    "@deepseek-ai/dsh-skill-filesystem": "__DSH_VERSION__",
+    "@deepseek-ai/dsh-tool-skill": "__DSH_VERSION__",
+    "poh-bft-plugin": "file:plugin",
+    "customer-form": "file:customer-form"
+  },
+  "dsh": {
+    "profile": {
+      "bundles": [
+        "@deepseek-ai/dsh-base",
+        "@deepseek-ai/dsh-web-app",
+        "poh-bft-plugin"
+      ],
+      "patchReload": "live"
+    }
+  }
+}

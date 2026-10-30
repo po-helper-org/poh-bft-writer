@@ -1,0 +1,291 @@
+# Автономная система БФТ: docker compose up -d — и работает (ADR-0002).
+# Полоса А (Т2): 5 сервисов. Трекер добавит Т10, Matrix/Element — Т11.
+# Контексты сборки — корень репозитория: образам нужны plugin/, skills/, box/.
+name: poh-bft-system
+
+x-box: &box
+  build:
+    context: ../box
+  image: poh-bft-box:local
+  restart: unless-stopped
+  environment: &box-env
+    DATABASE_URL: postgresql://${POSTGRES_USER:-box}:${POSTGRES_PASSWORD:?задайте POSTGRES_PASSWORD в .env (генерирует start.sh)}@postgres:5432/box
+    TEMPORAL_ADDRESS: temporal:7233
+    LLM_BASE_URL: ${LLM_BASE_URL:-https://api.z.ai/api/paas/v4}
+    LLM_API_KEY: ${LLM_API_KEY:-${ZAI_API_KEY:-}}   # demo-профиль: start.sh ставит demo
+    LLM_MODEL: ${LLM_MODEL:-glm-4.7}
+    BOX_TOKENS: ${BOX_TOKENS:?задайте BOX_TOKENS в .env (генерирует start.sh)}
+    BOX_ADMINS: ui
+    TRACKER_HOOK_TOKEN: ${TRACKER_HOOK_TOKEN:-}   # приём вебхуков Трекера (Т10)
+    # Шлюз Matrix (Т11, ADR-0006): коробка пишет и слушает комнаты инициатив.
+    MATRIX_URL: ${MATRIX_URL:-http://matrix:8008}
+    MATRIX_SERVER_NAME: ${MATRIX_SERVER_NAME:-bft.local}
+    MATRIX_AGENT_USER: ${MATRIX_AGENT_USER:-bft-box}
+    MATRIX_AGENT_TOKEN: ${MATRIX_AGENT_TOKEN:-}
+    # Мосты Т12: Трекер (задачи указаний) и демо-заказчик Matrix.
+    TRACKER_URL: ${TRACKER_URL:-http://tracker:3456/api/v1}
+    TRACKER_USER: ${TRACKER_USER:-${TRACKER_ADMIN_USER:-bft-admin}}
+    TRACKER_PASSWORD: ${TRACKER_ADMIN_PASSWORD:-}
+    MATRIX_DEMO_CUSTOMER: ${MATRIX_DEMO_CUSTOMER:-customer-demo}
+    TEMPORAL_UI_URL: http://127.0.0.1:8233
+  depends_on:
+    temporal: {condition: service_healthy}
+    postgres: {condition: service_healthy}
+  mem_limit: 256m
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-box}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?задайте POSTGRES_PASSWORD в .env}
+      POSTGRES_DB: box
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # База Трекера создаётся при инициализации тома (Т10, ADR-0004).
+      - ./tracker/initdb/01-vikunja.sql:/docker-entrypoint-initdb.d/01-vikunja.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-box} -d box"]
+      interval: 5s
+      retries: 20
+    mem_limit: 256m
+
+  temporal:
+    image: temporalio/auto-setup:1.27.2
+    restart: unless-stopped
+    depends_on:
+      postgres: {condition: service_healthy}
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-box}
+      POSTGRES_PWD: ${POSTGRES_PASSWORD}
+      POSTGRES_SEEDS: postgres
+    healthcheck:
+      test: ["CMD-SHELL", "tctl --address temporal:7233 cluster health | grep -q SERVING"]
+      interval: 10s
+      retries: 30
+      start_period: 30s
+    mem_limit: 640m
+
+  box-worker:
+    <<: *box
+    command: ["python", "-m", "bftbox.worker"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9101/metrics')"]
+      interval: 10s
+      retries: 30
+      start_period: 15s
+    mem_limit: 256m
+
+  box-mcp:
+    <<: *box
+    # Публикация ТОЛЬКО на localhost хоста (не «наружу» в сеть): smoke-e2e и
+    # диагностика с машины владельца; в LAN порт не слышен (ADR-0001 сохранён).
+    ports:
+      - "127.0.0.1:8700:8700"
+    # Порт наружу НЕ публикуем: единственный вызыватель — плагин внутри сети
+    # (ADR-0001 rev 2). Healthcheck — тот же, что у коробки.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8700/health')"]
+      interval: 10s
+      retries: 10
+    mem_limit: 256m
+
+  harness-web:
+    build:
+      context: ..
+      dockerfile: harness/harness-web/Dockerfile
+    image: poh-harness-web:local
+    restart: unless-stopped
+    environment:
+      # Провайдер z.ai (GLM): ключ из .env — онбординг допишет (US-8).
+      ZAI_API_KEY: ${ZAI_API_KEY:-}
+      # Коробка (Т8): адрес внутри compose-сети + ui-токен из BOX_TOKENS —
+      # их дописывает start.sh (парсинг ui:…).
+      BFT_BOX_URL: ${BFT_BOX_URL:-http://box-mcp:8700}
+      BFT_BOX_UI_TOKEN: ${BFT_BOX_UI_TOKEN:-}
+      # Публичная форма ссылки с токеном: dsh печатает её в лог (Т3: start.sh
+      # достаёт и открывает).
+      PUBLIC_URL: ${PUBLIC_URL:-http://127.0.0.1:3080}
+      DSH_PORT: "3080"
+      DSH_TRUSTED_HOSTS: ${HARNESS_TRUSTED_HOSTS:-harness-web.poh-bft-system.orb.local}
+    ports:
+      - "${HARNESS_BIND:-127.0.0.1}:3081:3080"   # PO-харнесс на 3081 (ADR-0007): 3080 — портал заказчика
+    volumes:
+      - dshdata:/data            # DSH_HOME: сессии, настройки, профиль
+      - workspace:/workspace     # артефакты БФТ (docsPath плагина)
+    depends_on:
+      box-mcp: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3080/').then(r=>process.exit(0)).catch(()=>process.exit(1))\""]
+      interval: 10s
+      retries: 30
+      start_period: 20s
+    mem_limit: 1536m
+
+  temporal-ui:
+    image: temporalio/ui:2.36.1
+    profiles: [debug]
+    restart: unless-stopped
+    depends_on: [temporal]
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+    ports: ["${BOX_BIND:-127.0.0.1}:8233:8080"]
+    mem_limit: 128m
+
+  customer-web:   # ADR-0007: портал заказчика — dsh-экземпляр только с customer-form
+    image: poh-harness-web:local
+    restart: unless-stopped
+    environment:
+      DSH_PROFILE: customer
+      DSH_PORT: "3080"
+      # Доп. имена портала для /api-fence dsh (через пробел); по умолчанию — домен OrbStack.
+      DSH_TRUSTED_HOSTS: ${PORTAL_TRUSTED_HOSTS:-customer-web.poh-bft-system.orb.local}
+      TRACKER_URL: http://tracker:3456/api/v1
+      TRACKER_PUBLIC_URL: ${TRACKER_PUBLIC_URL:-http://127.0.0.1:3456}
+      # Адрес портала в ссылках чата (страница быстрой версии БФТ, rev14).
+      PORTAL_PUBLIC_URL: ${PORTAL_PUBLIC_URL:-http://127.0.0.1:3080}
+      TRACKER_USER: ${TRACKER_USER:-${TRACKER_ADMIN_USER:-bft-admin}}
+      TRACKER_PASSWORD: ${TRACKER_ADMIN_PASSWORD:-}
+      ZAI_API_KEY: ${ZAI_API_KEY:-}
+      # Requesty: при заданном ключе — модель портала по умолчанию (customer.patch.yml).
+      REQUESTY_API_KEY: ${REQUESTY_API_KEY:-}
+      PORTAL_PROVIDER: ${PORTAL_PROVIDER:-}
+      PORTAL_MODEL: ${PORTAL_MODEL:-}
+      # Разбор материалов заказчика: голос (m4a…) → текст, документы → Markdown.
+      INGEST_URL: http://context-ingest:8090
+      # Кортекс (ADR-0011): bft-fast дораскрывает запрос — контуры проверки и зоны влияния.
+      CORTEX_URL: http://cortex:8095
+    depends_on:
+      context-ingest: { condition: service_healthy }
+    ports:
+      - "${PORTAL_BIND:-127.0.0.1}:3080:3080"
+    volumes:
+      - customerdata:/data
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3080/').then(r=>process.exit(0)).catch(()=>process.exit(1))\""]
+      interval: 10s
+      retries: 30
+      start_period: 15s
+    mem_limit: 1g
+
+  cortex:   # ADR-0011: Кортекс — память организации (poh-cortex) только на чтение: кто, процессы, зоны влияния, IT-ландшафт
+    build:
+      context: ./cortex
+    image: poh-cortex:local
+    restart: unless-stopped
+    volumes:
+      # Память организации — клон своего poh-cortex; не задана — демо-память образа.
+      - ${CORTEX_VAULT:-./cortex/no-vault}:/vault:ro
+    mem_limit: 256m
+
+  context-ingest:   # ADR-0007 rev8: MarkItDown + GigaAM v3 (CPU), без ключей и без доступа к трекеру
+    build:
+      context: ./context-ingest
+    image: poh-context-ingest:local
+    restart: unless-stopped
+    environment:
+      INGEST_ASR_THREADS: ${INGEST_ASR_THREADS:-4}
+    mem_limit: 2g
+
+  tracker-init:   # правим владельца тома файлов под uid 1000 (vikunja в образе без каталога)
+    image: alpine:3.20
+    restart: "no"
+    command: ["sh", "-c", "chown -R 1000:0 /data && echo ok"]
+    volumes: [trackerfiles:/data]
+
+  tracker:   # Т10, ADR-0004: Vikunja — задачи 4 типов, сотрудники, вебхук в Коробку
+    image: vikunja/vikunja:2.7.1
+    restart: unless-stopped
+    environment:
+      VIKUNJA_SERVICE_PUBLICURL: ${TRACKER_PUBLICURL:-http://127.0.0.1:3456}
+      VIKUNJA_SERVICE_SECRET: ${TRACKER_JWT_SECRET:?задайте TRACKER_JWT_SECRET в .env (генерирует start.sh)}
+      VIKUNJA_SERVICE_ENABLEREGISTRATION: "true"
+      # Вебхук идёт в Коробку по приватной compose-сети: SSRF-защита Vikunja
+      # по умолчанию запрещает nonroutable-адреса — разрешаем сознательно
+      # (контур замкнут внутри стека, наружу вебхуки не уходят).
+      VIKUNJA_WEBHOOKS_ENABLED: "true"
+      VIKUNJA_WEBHOOKS_ALLOWNONROUTABLEIPS: "true"
+      VIKUNJA_SERVICE_TIMEZONE: Europe/Moscow
+      VIKUNJA_DATABASE_TYPE: postgres
+      VIKUNJA_DATABASE_HOST: postgres:5432
+      VIKUNJA_DATABASE_DATABASE: vikunja
+      VIKUNJA_DATABASE_USER: ${POSTGRES_USER:-box}
+      VIKUNJA_DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - trackerfiles:/app/vikunja/files   # uid 1000 не может mkdir в слое образа
+    ports:
+      - "${TRACKER_BIND:-0.0.0.0}:3456:3456"   # сотрудникам в LAN (ADR-0004); dsh остаётся 127.0.0.1
+    depends_on:
+      postgres: {condition: service_healthy}
+      tracker-init: {condition: service_completed_successfully}
+    healthcheck:
+      # В образе vikunja нет ни wget, ни curl: встроенная проверка API.
+      test: ["CMD", "/app/vikunja/vikunja", "healthcheck"]
+      interval: 10s
+      retries: 30
+      start_period: 15s
+    mem_limit: 384m
+
+  matrix-init:   # Т11: генерация homeserver.yaml на чистом томе + закрытие федерации
+    image: matrixdotorg/synapse:latest
+    restart: "no"
+    entrypoint: [""]
+    environment:
+      SYNAPSE_SERVER_NAME: ${MATRIX_SERVER_NAME:-bft.local}
+      SYNAPSE_REPORT_STATS: "no"
+    command:
+      - sh
+      - -c
+      - |
+        if [ ! -f /data/homeserver.yaml ]; then
+          python /start.py generate
+          # Секрет регистрации synapse генерирует сам (start.sh извлекает его
+          # из конфига для сида). Сюда дописываем только закрытие контура.
+          printf '\n# БФТ: закрытый контур (ADR-0006)\nfederation_domain_whitelist: []\nenable_registration: false\n' >> /data/homeserver.yaml
+          echo "конфиг сгенерирован, федерация закрыта"
+        else
+          echo "конфиг уже есть"
+        fi
+    volumes: [matrixdata:/data]
+
+  matrix:   # homeserver Synapse: комнаты #bft-<slug>, клиентский API :8008 в LAN
+    image: matrixdotorg/synapse:latest
+    restart: unless-stopped
+    depends_on:
+      matrix-init: {condition: service_completed_successfully}
+    volumes: [matrixdata:/data]
+    ports:
+      - "${MATRIX_BIND:-0.0.0.0}:8008:8008"   # заказчикам в LAN (ADR-0006); федерация :8448 не публикуем
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:8008/health || wget -q -O /dev/null http://127.0.0.1:8008/health"]
+      interval: 10s
+      retries: 30
+      start_period: 20s
+    mem_limit: 512m
+
+  element:   # веб-клиент заказчика из коробки; свой клиент совместим (US-36/37)
+    image: vectorim/element-web:v1.12.32
+    restart: unless-stopped
+    volumes:
+      - ./matrix/element-config.json:/app/config.json:ro
+    ports:
+      - "${ELEMENT_BIND:-0.0.0.0}:8090:80"
+    mem_limit: 64m
+
+  llm-demo:
+    <<: *box
+    profiles: [demo]
+    command: ["python", "-m", "bftbox.demo_llm"]
+    depends_on: {}
+    mem_limit: 64m
+
+volumes:
+  pgdata:
+  dshdata:
+  workspace:
+  trackerfiles:
+  matrixdata:
+  customerdata:

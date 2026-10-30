@@ -1,0 +1,282 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:poh-bft-box:protocol:1.0.0",
+  "title": "Протокол коробки БФТ 1.0.0",
+  "description": "Сообщения MCP-сервера коробки и исполнителя. Решения: «Жизненный цикл инициативы БФТ v1» (#345), «Протокол коробки» (#352), «Контракт итерации» (#363). Каждое сообщение — один из $defs; какой — пишет вызов: start → StartRequest/Ack, submit → SubmitRequest/Ack, get → Iteration, status → Status, control → ControlRequest/Ack, list → InitiativeList, любой отказ — Error.",
+  "$defs": {
+    "SchemaVersion": {
+      "description": "semver протокола. Мажорная другая — Error bad_schema_version; старшая минорная — совместимый ответ.",
+      "type": "string",
+      "pattern": "^1\\.[0-9]+\\.[0-9]+$"
+    },
+    "Id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "Timestamp": {"type": "string", "format": "date-time"},
+    "IdempotencyKey": {
+      "description": "Ключ исполнителя (например, id корня + номер попытки). Тот же ключ и то же тело — тот же ответ; тот же ключ и другое тело — Error idempotency_mismatch.",
+      "type": "string", "minLength": 1, "maxLength": 200
+    },
+    "ExternalRefs": {
+      "description": "Ссылки исполнителя (карточка-корень, ключ Jira, комната). Коробка их не читает и возвращает в каждой итерации как есть.",
+      "type": "object",
+      "additionalProperties": {"type": "string"}
+    },
+    "File": {
+      "type": "object",
+      "required": ["name", "media_type"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "media_type": {"type": "string"},
+        "text": {"description": "Текст и markdown — прямо.", "type": "string"},
+        "base64": {"description": "Бинарное — base64; вместе с остальными файлами вызова не больше лимита (по умолчанию 10 МБ).", "type": "string"}
+      },
+      "oneOf": [{"required": ["text"]}, {"required": ["base64"]}],
+      "additionalProperties": false
+    },
+    "InitiativeState": {
+      "description": "Цель → Бриф → На утверждении плана → Проработка → На приёмке → Принята; боковые: Пауза, Нужен PO, Отменена (#345).",
+      "enum": ["goal", "brief", "plan_approval", "working", "acceptance", "accepted", "paused", "needs_po", "cancelled"]
+    },
+    "IterationStatus": {"enum": ["preparing", "ready", "error"]},
+    "Trigger": {
+      "description": "Почему началась итерация: старт, все исходы собраны, исполнитель попросил (iterate), истёк срок указания, решение PO вне итерации (control).",
+      "enum": ["start", "all_outcomes", "requested", "deadline", "control"]
+    },
+    "Check": {
+      "description": "Проверка качества и её состояние на этой итерации — строка светофора.",
+      "type": "object",
+      "required": ["id", "title", "status", "evidence"],
+      "properties": {
+        "id": {"$ref": "#/$defs/Id"},
+        "title": {"type": "string"},
+        "status": {"enum": ["red", "yellow", "green"]},
+        "evidence": {"description": "Доказательство: цитата, раздел документа, исход указания. Без доказательства зелёной проверки нет.", "type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
+    "Document": {
+      "type": "object",
+      "required": ["kind", "title", "content"],
+      "properties": {
+        "kind": {"description": "bft — документ БФТ по шаблону команды; raci — матрица исполнения в формате /bft-matrix (poh-bft-writer, проверка — гейт 23); blueprint — BluePrint-карта «было → стало по шагам»; epic — эпик Jira со связью с БФТ.", "enum": ["bft", "raci", "blueprint", "epic"]},
+        "title": {"type": "string"},
+        "format": {"const": "markdown", "default": "markdown"},
+        "content": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    "Package": {
+      "type": "object",
+      "required": ["version", "documents"],
+      "properties": {
+        "version": {"type": "integer", "minimum": 1},
+        "documents": {"type": "array", "items": {"$ref": "#/$defs/Document"}}
+      },
+      "additionalProperties": false
+    },
+    "Directive": {
+      "description": "Указание исполнителю. id стабилен между итерациями: исполнитель вешает на него подзадачу и возвращает исход по нему.",
+      "type": "object",
+      "required": ["id", "kind", "to", "text", "closes", "expected", "due", "state"],
+      "properties": {
+        "id": {"$ref": "#/$defs/Id"},
+        "kind": {
+          "description": "ask — спросить человека; collect — собрать факт из системы; approve_plan / approve_plan_change / accept_package / decide — решение PO; clarify_team — уточнить команду.",
+          "enum": ["ask", "collect", "approve_plan", "approve_plan_change", "accept_package", "decide", "clarify_team"]
+        },
+        "to": {
+          "type": "object",
+          "required": ["role", "po_can_answer"],
+          "properties": {
+            "role": {"description": "po — сам владелец; addressee — человек из утверждённого плана; executor — сам исполнитель (собрать из систем).", "enum": ["po", "addressee", "executor"]},
+            "person": {"description": "Кто именно (роль в организации или имя из плана).", "type": "string"},
+            "po_can_answer": {"description": "Вопрос, на который может ответить сам PO, — людям не нести.", "type": "boolean"}
+          },
+          "additionalProperties": false
+        },
+        "group": {"description": "Указания с одной группой — одним обращением к одному адресату.", "$ref": "#/$defs/Id"},
+        "text": {"type": "string", "minLength": 1},
+        "closes": {"description": "Какие проверки качества закрывает.", "type": "array", "items": {"$ref": "#/$defs/Id"}},
+        "blocks": {"description": "Что не сдвинется, если не закрыть.", "type": "string"},
+        "expected": {"enum": ["fact", "decision", "document"]},
+        "due": {"$ref": "#/$defs/Timestamp"},
+        "state": {"description": "open — ждёт исхода; overdue — срок истёк; suspended — инициатива на паузе.", "enum": ["open", "overdue", "suspended"]},
+        "attempt": {"description": "Номер попытки по этому пробелу (напоминание после просрочки — 2).", "type": "integer", "minimum": 1}
+      },
+      "additionalProperties": false
+    },
+    "Iteration": {
+      "description": "Файл итерации — то, что отдаёт get(iteration_id). Пока status=preparing, есть только шапка: без package, checks и directives.",
+      "type": "object",
+      "required": ["schema_version", "initiative_id", "iteration_id", "number", "status", "state", "trigger", "created_at", "external_refs"],
+      "properties": {
+        "schema_version": {"$ref": "#/$defs/SchemaVersion"},
+        "initiative_id": {"$ref": "#/$defs/Id"},
+        "iteration_id": {"$ref": "#/$defs/Id"},
+        "number": {"type": "integer", "minimum": 1},
+        "status": {"$ref": "#/$defs/IterationStatus"},
+        "state": {"$ref": "#/$defs/InitiativeState"},
+        "trigger": {"$ref": "#/$defs/Trigger"},
+        "created_at": {"$ref": "#/$defs/Timestamp"},
+        "goal": {"type": "string"},
+        "team": {"type": ["string", "null"]},
+        "external_refs": {"$ref": "#/$defs/ExternalRefs"},
+        "summary": {"description": "Коротко, что изменилось и чего ждём, — для PO.", "type": "string"},
+        "package": {"$ref": "#/$defs/Package"},
+        "checks": {"type": "array", "items": {"$ref": "#/$defs/Check"}},
+        "directives": {"type": "array", "items": {"$ref": "#/$defs/Directive"}},
+        "error": {"$ref": "#/$defs/ErrorBody"}
+      },
+      "allOf": [
+        {"if": {"properties": {"status": {"const": "ready"}}},
+         "then": {"required": ["summary", "package", "checks", "directives"], "not": {"required": ["error"]}}},
+        {"if": {"properties": {"status": {"const": "preparing"}}},
+         "then": {"not": {"anyOf": [{"required": ["package"]}, {"required": ["checks"]}, {"required": ["directives"]}]}}},
+        {"if": {"properties": {"status": {"const": "error"}}},
+         "then": {"required": ["error"], "not": {"anyOf": [{"required": ["package"]}, {"required": ["directives"]}]}}},
+        {"if": {"properties": {"state": {"const": "acceptance"}}},
+         "then": {"properties": {"checks": {"items": {"properties": {"status": {"const": "green"}}}}}}}
+      ],
+      "additionalProperties": false
+    },
+    "StartRequest": {
+      "type": "object",
+      "required": ["schema_version", "goal", "idempotency_key"],
+      "properties": {
+        "schema_version": {"$ref": "#/$defs/SchemaVersion"},
+        "goal": {"type": "string", "minLength": 1},
+        "brief": {"type": "string"},
+        "files": {"type": "array", "items": {"$ref": "#/$defs/File"}},
+        "team": {"description": "Нет команды — первое указание clarify_team.", "type": "string"},
+        "external_refs": {"$ref": "#/$defs/ExternalRefs"},
+        "idempotency_key": {"$ref": "#/$defs/IdempotencyKey"}
+      },
+      "additionalProperties": false
+    },
+    "Outcome": {
+      "type": "object",
+      "required": ["directive_id", "result"],
+      "properties": {
+        "directive_id": {"$ref": "#/$defs/Id"},
+        "result": {"enum": ["answer", "not_received", "declined", "unavailable"]},
+        "by_role": {"description": "Кто дал исход; решения PO — только с by_role=po (в v1 коробка верит исполнителю).", "enum": ["po", "addressee", "executor"]},
+        "content": {"description": "Текст ответа; для not_received/declined/unavailable — пояснение.", "type": "string"},
+        "files": {"type": "array", "items": {"$ref": "#/$defs/File"}}
+      },
+      "if": {"properties": {"result": {"const": "answer"}}},
+      "then": {"required": ["content"]},
+      "additionalProperties": false
+    },
+    "SubmitRequest": {
+      "type": "object",
+      "required": ["schema_version", "initiative_id", "base_iteration", "outcomes", "idempotency_key"],
+      "properties": {
+        "schema_version": {"$ref": "#/$defs/SchemaVersion"},
+        "initiative_id": {"$ref": "#/$defs/Id"},
+        "base_iteration": {"description": "На какую итерацию отвечаем; не последняя — Error conflict.", "$ref": "#/$defs/Id"},
+        "outcomes": {"type": "array", "items": {"$ref": "#/$defs/Outcome"}},
+        "inputs": {"description": "Свободные вводные вне указаний.", "type": "string"},
+        "files": {"type": "array", "items": {"$ref": "#/$defs/File"}},
+        "iterate": {"description": "Пересчитать сейчас, не дожидаясь всех исходов.", "type": "boolean", "default": false},
+        "idempotency_key": {"$ref": "#/$defs/IdempotencyKey"}
+      },
+      "additionalProperties": false
+    },
+    "ControlRequest": {
+      "description": "Решение PO вне итерации. reopen — из cancelled и из accepted («Доработка», версия пакета +1).",
+      "type": "object",
+      "required": ["schema_version", "initiative_id", "action", "idempotency_key"],
+      "properties": {
+        "schema_version": {"$ref": "#/$defs/SchemaVersion"},
+        "initiative_id": {"$ref": "#/$defs/Id"},
+        "action": {"enum": ["pause", "resume", "cancel", "reopen"]},
+        "reason": {"type": "string"},
+        "idempotency_key": {"$ref": "#/$defs/IdempotencyKey"}
+      },
+      "additionalProperties": false
+    },
+    "Ack": {
+      "description": "Ответ start/submit/control: какую итерацию ждать. accepted=false у submit — исходы приняты и копятся, новой итерации пока нет (iteration_id — текущая).",
+      "type": "object",
+      "required": ["schema_version", "initiative_id", "iteration_id", "status", "state"],
+      "properties": {
+        "schema_version": {"$ref": "#/$defs/SchemaVersion"},
+        "initiative_id": {"$ref": "#/$defs/Id"},
+        "iteration_id": {"$ref": "#/$defs/Id"},
+        "status": {"$ref": "#/$defs/IterationStatus"},
+        "state": {"$ref": "#/$defs/InitiativeState"},
+        "new_iteration": {"type": "boolean"},
+        "pending_outcomes": {"description": "Сколько указаний текущей итерации ещё без исхода.", "type": "integer", "minimum": 0}
+      },
+      "additionalProperties": false
+    },
+    "Status": {
+      "description": "status(initiative_id) — дёшево, без модели.",
+      "type": "object",
+      "required": ["schema_version", "initiative_id", "state", "latest"],
+      "properties": {
+        "schema_version": {"$ref": "#/$defs/SchemaVersion"},
+        "initiative_id": {"$ref": "#/$defs/Id"},
+        "state": {"$ref": "#/$defs/InitiativeState"},
+        "latest": {
+          "type": "object",
+          "required": ["iteration_id", "number", "status"],
+          "properties": {
+            "iteration_id": {"$ref": "#/$defs/Id"},
+            "number": {"type": "integer", "minimum": 1},
+            "status": {"$ref": "#/$defs/IterationStatus"}
+          },
+          "additionalProperties": false
+        },
+        "next_deadline": {"description": "Ближайший срок указания — исполнителю, чтобы не опрашивать зря.", "$ref": "#/$defs/Timestamp"}
+      },
+      "additionalProperties": false
+    },
+    "InitiativeList": {
+      "type": "object",
+      "required": ["schema_version", "initiatives"],
+      "properties": {
+        "schema_version": {"$ref": "#/$defs/SchemaVersion"},
+        "initiatives": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["initiative_id", "goal", "state", "latest_iteration_id"],
+            "properties": {
+              "initiative_id": {"$ref": "#/$defs/Id"},
+              "goal": {"type": "string"},
+              "state": {"$ref": "#/$defs/InitiativeState"},
+              "latest_iteration_id": {"$ref": "#/$defs/Id"},
+              "external_refs": {"$ref": "#/$defs/ExternalRefs"}
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "ErrorBody": {
+      "type": "object",
+      "required": ["code", "message"],
+      "properties": {
+        "code": {
+          "description": "conflict — base_iteration не последняя; not_ready — последняя итерация ещё готовится; idempotency_mismatch — ключ уже был с другим телом; bad_schema_version — другая мажорная версия; model_failed — модель не ответила после повторов; unknown_initiative; forbidden — чужая инициатива или токен; invalid_state — действие не к этому состоянию; validation — тело не по схеме.",
+          "enum": ["conflict", "not_ready", "idempotency_mismatch", "bad_schema_version", "model_failed", "unknown_initiative", "forbidden", "invalid_state", "validation"]
+        },
+        "message": {"type": "string"},
+        "latest_iteration_id": {"$ref": "#/$defs/Id"},
+        "supported_schema_versions": {"type": "array", "items": {"type": "string"}},
+        "retry_after_seconds": {"type": "integer", "minimum": 0}
+      },
+      "additionalProperties": false
+    },
+    "Error": {
+      "type": "object",
+      "required": ["schema_version", "error"],
+      "properties": {
+        "schema_version": {"$ref": "#/$defs/SchemaVersion"},
+        "error": {"$ref": "#/$defs/ErrorBody"}
+      },
+      "additionalProperties": false
+    }
+  }
+}

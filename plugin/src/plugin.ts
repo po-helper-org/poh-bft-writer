@@ -8,10 +8,18 @@
  * коду харнесса, а не додумана.
  */
 import z from '@deepseek-ai/schemastery'
+import { existsSync as fsExistsSync, readFileSync } from 'node:fs'
+import * as fs from 'node:fs/promises'
+import { dirname, join } from 'node:path'
 import { BftReader } from './bft-reader.js'
 import { CATALOG_GUARD_ORDER, CATALOG_GUARD_SECTION, catalogGuardText, isStale } from './catalog-guard.js'
 import { BFT_CHANNEL, BFT_ENDPOINTS, dispatch, type RpcResult } from './channel.js'
 import { bftFetchRoute, type BftFetchRoute } from './api-route.js'
+import { OnboardingService } from './onboarding-host.js'
+import { MAX_UPLOAD_BYTES, sanitizeFilename, uploadDir } from './intake.js'
+import { BoxClient } from './box-client.js'
+import { fastDocPath } from './intake-fast.js'
+import type { IntakeService } from './channel.js'
 import { toBftConfig, type PluginConfig } from './plugin-config.js'
 import { BFT_SETTINGS_NS, DEFAULT_SYNC_PROMPT, type BftSettings } from './settings.js'
 
@@ -130,6 +138,35 @@ export const Config: z<PluginConfig & BftSettings> = z.object({
  */
 export function apply(ctx: HarnessContext, config: PluginConfig): void {
   const reader = new BftReader(toBftConfig(config, process.env))
+  // Интейк → Коробка (Т8): адрес и ui-токен из окружения; в compose их задаёт
+  // start.sh (BFT_BOX_URL внутри сети, BFT_BOX_UI_TOKEN из BOX_TOKENS).
+  const boxClient = new BoxClient({
+    baseUrl: process.env.BFT_BOX_URL ?? '',
+    token: process.env.BFT_BOX_UI_TOKEN ?? '',
+    fetch: (url, init) => fetch(url, init as RequestInit),
+  })
+  const intake: IntakeService = {
+    doc: async (slug) => {
+      try {
+        // readDocument ждёт путь от корня воркспейса (проверка «внутри docsRoot»),
+        // а fastDocPath — от docsPath: приставляем каталог документов.
+        return await reader.readDocument(`${config.docsPath}/${fastDocPath(slug)}`)
+      } catch {
+        return null
+      }
+    },
+    start: (input) => boxClient.start(input),
+    board: () => boxClient.board(),
+    submitOutcome: (input) => boxClient.submitOutcome(input),
+  }
+  // Онбординг: DSH_HOME из окружения харнесса (в контейнере — /data), порты —
+  // те же инъекции fs, что у читателя; fetch — глобальный (node 18+).
+  const onboarding = new OnboardingService({
+    home: process.env.DSH_HOME ?? '',
+    fs: { readTextFile: (p) => fs.readFile(p, 'utf8'), writeTextFile: (p, t) => fs.writeFile(p, t, 'utf8') },
+    env: process.env,
+    fetch: (url, init) => fetch(url, init as RequestInit),
+  })
   // Выгрузка раздела или остановка харнесса гасит живые ходы Claude Code: дочерний
   // `claude -p` иначе переживёт узел и продолжит править документы, а раздел после
   // перезапуска будет считать сессию прерванной и разрешит второй ход по тому же файлу.
@@ -140,17 +177,45 @@ export function apply(ctx: HarnessContext, config: PluginConfig): void {
     // Ядро 0.1.7+: маршрут на каждую подкоманду, см. src/api-route.ts.
     const register = connection.fetch?.register
     if (typeof register === 'function') {
-      const handler = (endpoint: string, payload: unknown) => dispatch(reader, endpoint, payload)
+      const handler = (endpoint: string, payload: unknown) => dispatch(reader, endpoint, payload, onboarding, intake)
       for (const endpoint of BFT_ENDPOINTS) {
         scoped.effect(() => register(bftFetchRoute(endpoint, handler)), `poh-bft-plugin: /api/bft.${endpoint}`)
       }
+      // Интейк, выгрузка вложений (Т7): бинарное тело, не JSON-конверт — файл
+      // с встречи в base64 раздувался бы в полтора раза. Заголовки несут имя и
+      // слаг; кладём в workspace/bft/uploads/<ts>-<slug>/ (контракт скилла: путь).
+      scoped.effect(() => register({
+        path: '/api/bft.intakeUpload',
+        methods: ['POST'],
+        requestBody: 'buffered',
+        fetch: async (request: Request) => {
+          const cfg = toBftConfig(config, process.env)
+          const dir = uploadDir(request.headers.get('x-bft-slug') ?? 'intake')
+          // Имя приходит percent-encoded (HTTP-заголовки ASCII): браузерный клиент
+          // кодирует; decodeURIComponent с защитой от чужого мусора.
+          const rawName = request.headers.get('x-bft-filename') ?? ''
+          let decodedName = rawName
+          try { decodedName = decodeURIComponent(rawName) } catch { /* оставляем как есть */ }
+          const filename = sanitizeFilename(decodedName)
+          if (!filename) return Response.json({ error: 'Пустое имя файла' }, { status: 400 })
+          const body = Buffer.from(await request.arrayBuffer())
+          if (body.byteLength === 0) return Response.json({ error: 'Пустой файл' }, { status: 400 })
+          if (body.byteLength > MAX_UPLOAD_BYTES) {
+            return Response.json({ error: `Файл больше ${Math.round(MAX_UPLOAD_BYTES / 1024 / 1024)} МБ` }, { status: 413 })
+          }
+          const target = join(cfg.workspaceRoot ?? process.cwd(), dir, filename)
+          await fs.mkdir(dirname(target), { recursive: true })
+          await fs.writeFile(target, body)
+          return Response.json({ path: dir + '/' + filename, bytes: body.byteLength })
+        },
+      }), 'poh-bft-plugin: /api/bft.intakeUpload')
       return
     }
     // Ядро 0.1.2: собственный канал /bft.
     scoped.effect(
       () => connection.rpc.handle(
         BFT_CHANNEL,
-        (endpoint, payload) => dispatch(reader, endpoint, payload),
+        (endpoint, payload) => dispatch(reader, endpoint, payload, onboarding, intake),
         { authority: 'loopback' },
       ),
       'poh-bft-plugin: канал /bft',
