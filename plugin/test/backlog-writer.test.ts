@@ -38,7 +38,7 @@ test('стадия по артефактам выше — доска подни�
 })
 
 test('после отгрузки доска получает ссылки на эпик JIRA и страницу Confluence; уже записанные не дублируются', () => {
-  const jira = 'https://jira.example.com/browse/ACME-1610'
+  const jira = 'https://jira.example.com/browse/PROJ-106'
   const wiki = 'https://confluence.example.com/pages/viewpage.action?pageId=123'
   const edits = planBacklogEdits([
     row({ id: 'PO-1', board: { stage: 'DEEP-REVIEW', refs: ['bft/documentation/a/a.html'] }, artifactStage: 'DEEP-DONE', html: 'bft/documentation/a/a.html', epic: jira, confluence: wiki }),

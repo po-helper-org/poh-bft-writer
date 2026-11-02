@@ -6,7 +6,7 @@ const deepDoc = (opts: { stage?: string; pageId?: string; jira?: string } = {}) 
   `---\npageId: ${opts.pageId ?? 'pending'}\njira: "${opts.jira ?? '[СОЗДАТЬ эпик]'}"\n` +
   `epic_slug: epic\nstage: ${opts.stage ?? 'deep'}\n---\n\n# [БФТ] epic: Название\n`
 
-const READY = { stage: 'deep', pageId: '1000000001', jira: 'ACME-1409' }
+const READY = { stage: 'deep', pageId: '1000000001', jira: 'PROJ-123' }
 
 test('пустой каталог эпика — To Do, и сказано, чего нет', () => {
   assert.deepEqual(stageFromArtifacts('epic', { entries: [] }),

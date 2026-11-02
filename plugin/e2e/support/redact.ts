@@ -41,7 +41,7 @@ export interface LocalRedactions {
 const rule = (pattern: string, replacement: string, flags = 'gu'): RedactionRule => ({ pattern, flags, replacement })
 
 /**
- * Граница слова для кириллицы. `\b` в JS считает словом только ASCII, и `\bМТС\b` не
+ * Граница слова для кириллицы. `\b` в JS считает словом только ASCII, и `\bООО\b` не
  * совпал бы вовсе — поэтому границы заданы явно через unicode-классы (флаг `u`).
  */
 const NOT_LETTER_BEFORE = String.raw`(?<![\p{L}\p{N}])`
