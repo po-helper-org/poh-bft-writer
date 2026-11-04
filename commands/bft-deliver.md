@@ -158,10 +158,10 @@ PO: подтверди «ок» (или поправь параметры) → �
 
 Если скрипт недоступен/нет времени на map — делай вручную по тем же правилам:
 - **`storage`** — макросы как XHTML (надёжно для Jira-макроса).
-  - Jira: `[JIRA ACME-1610](…)` → `<ac:structured-macro ac:name="jira"><ac:parameter ac:name="key">ACME-1610</ac:parameter></ac:structured-macro>`
+  - Jira: `[JIRA PROJ-106](…)` → `<ac:structured-macro ac:name="jira"><ac:parameter ac:name="key">PROJ-106</ac:parameter></ac:structured-macro>`
   - Confluence-страница: → `<ac:link><ri:page ri:content-title="<Заголовок>"/></ac:link>` (или макрос `include`/`excerpt-include` для превью содержимого).
 - **`wiki`** — легче совмещать макросы с таблицами/текстом:
-  - Jira: `{jira:key=ACME-1610}` · Confluence: `[<Заголовок страницы>]` или `{include:<Space>:<Заголовок>}`.
+  - Jira: `{jira:key=PROJ-106}` · Confluence: `[<Заголовок страницы>]` или `{include:<Space>:<Заголовок>}`.
 
 HTML-разметки в ячейках таблиц нет и при публикации не появляется (ЗМ-021): ячейка — одна короткая формулировка. Списком её не верстать ни тегами `<ul><li>`, ни глифом `•` — если содержимое просится в список, формулировка слишком длинная.
 
