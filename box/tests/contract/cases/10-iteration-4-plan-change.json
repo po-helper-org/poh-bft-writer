@@ -1,0 +1,153 @@
+{
+  "schema_version": "1.0.0",
+  "initiative_id": "ini-0001",
+  "iteration_id": "it-0004",
+  "number": 4,
+  "status": "ready",
+  "state": "working",
+  "trigger": "all_outcomes",
+  "created_at": "2026-10-21T09:00:00Z",
+  "goal": "Выгрузка заказов в CSV для бухгалтерии",
+  "team": "team-a",
+  "external_refs": {
+    "root_card": "t_demo01",
+    "room": "!demo:example.org"
+  },
+  "summary": "Нужен новый адресат — главный бухгалтер. Его нет в плане: сначала утверждение PO.",
+  "package": {
+    "version": 2,
+    "documents": [
+      {
+        "kind": "bft",
+        "title": "БФТ: выгрузка заказов в CSV",
+        "format": "markdown",
+        "content": "# БФТ: Выгрузка заказов в CSV\n\n## Проблема\nБухгалтер вручную копирует заказы в таблицу раз в неделю.\n\n## Открытые вопросы\n- Какие поля нужны в файле? [УТОЧНИТЬ]\n"
+      },
+      {
+        "kind": "raci",
+        "title": "Матрица ответственности",
+        "format": "markdown",
+        "content": "| Работа | R | A | C | I |\n|---|---|---|---|---|\n| Требования | Аналитик | PO | Бухгалтерия | Разработка |\n"
+      },
+      {
+        "kind": "blueprint",
+        "title": "BluePrint-карта",
+        "format": "markdown",
+        "content": "| Слой | Шаг |\n|---|---|\n| Путь клиента | Бухгалтер выбирает период |\n| Фронт | Кнопка «Экспорт в CSV» |\n"
+      },
+      {
+        "kind": "epic",
+        "title": "Эпик",
+        "format": "markdown",
+        "content": "Тема: Выгрузка заказов в CSV. Ссылка на БФТ — после публикации исполнителем."
+      }
+    ]
+  },
+  "checks": [
+    {
+      "id": "G01",
+      "title": "Нет утверждений без якоря",
+      "status": "yellow",
+      "evidence": "Поля — со слов руководителя группы расчётов (dir-005)."
+    },
+    {
+      "id": "G04",
+      "title": "Границы заданы",
+      "status": "yellow",
+      "evidence": "Границы из брифа."
+    },
+    {
+      "id": "G05",
+      "title": "НФТ измеримы",
+      "status": "red",
+      "evidence": "Нет данных — см. указания этой итерации."
+    },
+    {
+      "id": "G06",
+      "title": "Есть негативные сценарии",
+      "status": "red",
+      "evidence": "Нет данных — см. указания этой итерации."
+    },
+    {
+      "id": "G07",
+      "title": "Открытые вопросы собраны",
+      "status": "red",
+      "evidence": "Нет данных — см. указания этой итерации."
+    },
+    {
+      "id": "G09",
+      "title": "Изменение в UJM описано",
+      "status": "red",
+      "evidence": "Нет данных — см. указания этой итерации."
+    },
+    {
+      "id": "P-RACI",
+      "title": "Матрица ответственности заполнена",
+      "status": "red",
+      "evidence": "Нет данных — см. указания этой итерации."
+    },
+    {
+      "id": "P-EPIC",
+      "title": "Эпик связан с БФТ",
+      "status": "red",
+      "evidence": "Нет данных — см. указания этой итерации."
+    },
+    {
+      "id": "P-BP",
+      "title": "BluePrint-карта инициативы есть",
+      "status": "red",
+      "evidence": "Нет данных — см. указания этой итерации."
+    }
+  ],
+  "directives": [
+    {
+      "id": "dir-009",
+      "kind": "approve_plan_change",
+      "to": {
+        "role": "po",
+        "po_can_answer": true
+      },
+      "text": "Добавить адресата: главный бухгалтер — вопрос о периоде выгрузки.",
+      "closes": [
+        "G04"
+      ],
+      "expected": "decision",
+      "due": "2026-10-22T09:00:00Z",
+      "state": "open",
+      "blocks": "Вопрос о периоде (dir-006) стоит."
+    },
+    {
+      "id": "dir-007",
+      "kind": "ask",
+      "to": {
+        "role": "addressee",
+        "po_can_answer": false,
+        "person": "Аналитик данных"
+      },
+      "text": "Сколько заказов в неделю максимум?",
+      "closes": [
+        "G05"
+      ],
+      "expected": "fact",
+      "due": "2026-10-31T09:00:00Z",
+      "state": "open",
+      "attempt": 2
+    },
+    {
+      "id": "dir-008",
+      "kind": "decide",
+      "to": {
+        "role": "po",
+        "po_can_answer": true
+      },
+      "text": "Отменённые заказы включать в выгрузку?",
+      "closes": [
+        "G06"
+      ],
+      "expected": "decision",
+      "due": "2026-10-22T09:00:00Z",
+      "state": "open",
+      "attempt": 2
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "schema_version": "1.0.0",
+  "initiative_id": "ini-0001",
+  "base_iteration": "it-0002",
+  "idempotency_key": "t_demo01:3",
+  "outcomes": [
+    {
+      "directive_id": "dir-004",
+      "result": "answer",
+      "by_role": "po",
+      "content": "Утверждаю."
+    }
+  ]
+}

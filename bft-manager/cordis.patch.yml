@@ -1,0 +1,5 @@
+# bft-manager (ADR-0009): «Управление БФТ» для PO. Конфигурации нет — адрес и
+# учётка трекера приходят окружением контейнера (TRACKER_*), как у customer-form.
+- insert:
+    - id: bft-manager
+      name: bft-manager

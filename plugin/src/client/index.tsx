@@ -55,6 +55,7 @@ import type { DetailChatChannel } from './DetailPage.js'
 import { createHarnessChat, type HarnessSessionsLike } from './harness-chat.js'
 import { ru, type BftLocaleKey } from './locales.js'
 import { RequirementsPanel, type RequirementsPanelInjected } from './Panel.js'
+import { Onboarding, type OnboardingCall } from './Onboarding.js'
 import { panelClassNames as css, panelStyleText } from './Panel.styles.js'
 import { SettingsCard, SettingsPage } from './SettingsCard.js'
 import type { LiveSession } from './session-view.js'
@@ -207,6 +208,40 @@ export function apply(ctx: ClientContext): void {
     poll: (runId, since, signal) => connection.rpc.call(CHANNEL, 'chatPoll', { runId, since }, signal),
     stop: runId => connection.rpc.call(CHANNEL, 'chatStop', { runId }),
   }
+  /**
+   * Прогон fast интейка (Т8): новая сессия в текущем воркспейсе, ход — команда
+   * скилла (intake-fast.ts), ожидание idle по снапшоту сессии (тот же сигнал,
+   * что в MiniChat-паттерне: running -> false). Сессия расходная: после хода
+   * отпускается (ADR-0001: сессии не живут дольше указания).
+   */
+  const runFastSession = async (
+    command: string,
+    onStatus: (phase: 'starting' | 'running' | 'idle', message?: string) => void,
+  ): Promise<void> => {
+    const sessions = ctx.get('sessions') as unknown as HarnessSessionsLike | undefined
+    if (!sessions) throw new Error('Служба сессий недоступна: fast-прогон невозможен')
+    onStatus('starting', 'Создаю сессию…')
+    const sessionId = await sessions.create({})
+    const ref = sessions.retain(sessionId, { source: 'bft-intake' })
+    const binding = await ref.ready
+    onStatus('running', 'Агент собирает fast-документ…')
+    const prompted = await binding.session.prompt([{ type: 'text', text: command }], 'queue')
+    if (!prompted.ok) {
+      ref.release()
+      throw new Error(prompted.error?.message ?? 'Сессия не приняла ход')
+    }
+    await new Promise<void>((resolve) => {
+      const snap = binding.session.getSnapshot() as { running?: boolean } | undefined
+      if (!snap?.running) { resolve(); return }
+      const unsub = binding.session.subscribe(() => {
+        const cur = binding.session.getSnapshot() as { running?: boolean } | undefined
+        if (!cur?.running) { unsub(); resolve() }
+      })
+    })
+    ref.release()
+    onStatus('idle')
+  }
+
   // Тот же чат через агента харнесса — где Claude Code на узле выключен (`claudeBin: off`)
   // или невозможен. Сессия — своя на требование, в рабочем пространстве чатов (см.
   // harness-chat.ts); текст хода — тот же черновик узла (`handoff`), что уходил в композер.
@@ -506,6 +541,20 @@ export function apply(ctx: ClientContext): void {
   ctx.slots.inject('shell.overlay', () => ctx.slots.register(
     {
       name: 'shell.overlay',
+      id: 'bft-onboarding',
+      locale: NS,
+      // Онбординг не привязан к панели: собственный вход в слой оверлеев,
+      // решает сам по RPC-стейту (done → не рендерит ничего).
+      inject: (): { call: OnboardingCall } => ({
+        call: (endpoint, payload) => connection.rpc.call('/bft', endpoint, payload ?? {}),
+      }),
+    },
+    Onboarding,
+  ))
+
+  ctx.slots.inject('shell.overlay', () => ctx.slots.register(
+    {
+      name: 'shell.overlay',
       id: 'bft-requirements',
       locale: NS,
       store: panelStore,
@@ -524,6 +573,8 @@ export function apply(ctx: ClientContext): void {
         openSession,
         getSettings,
         subscribeSettings,
+        call: (endpoint: string, payload?: unknown) => connection.rpc.call('/bft', endpoint, payload ?? {}),
+        runFast: runFastSession,
       }),
     },
     RequirementsPanel,
