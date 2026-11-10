@@ -5,6 +5,7 @@
 #   ./set-key.sh                       # спросит ключ с вводом (не печатается)
 #   ./set-key.sh --from-pi             # взять ключ из ~/.pi/agent/auth.json
 #   ./set-key.sh --check-only <ключ|--from-pi>   # только проверить, не менять
+#   ./set-key.sh --coding [ключ]       # ключ GLM Coding Plan → портал заказчика на GLM-5
 #
 # Что делает: проверяет форму → живой запрос к Z.AI (каталог моделей, без
 # траты токенов) → пишет ZAI_API_KEY в .env → снимает demo-переопределения
@@ -15,10 +16,12 @@ cd "$(dirname "$0")"
 
 KEY=""
 CHECK_ONLY=0
+CODING=0
 for arg in "$@"; do
   case "$arg" in
     --from-pi) ;;   # обрабатывается ниже (после разбора всех флагов)
     --check-only) CHECK_ONLY=1 ;;
+    --coding) CODING=1 ;;
     -*) echo "неизвестный флаг: $arg" >&2; exit 2 ;;
     *) KEY="$arg" ;;
   esac
@@ -56,8 +59,11 @@ fi
 echo "✓ форма ключа: ${KEY%%.*}.${KEY#*.}" | sed 's/\.[0-9a-f]*$/.<секрет>/'
 
 # ── 2. Живая проверка: каталог моделей (токены не тратятся) ──────────────────
+# Coding Plan — свой эндпоинт: ключ подписки платный API не принимает.
+API="https://api.z.ai/api/paas/v4"
+[ "$CODING" = "1" ] && API="https://api.z.ai/api/coding/paas/v4"
 CODE="$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 \
-  -H "Authorization: Bearer $KEY" https://api.z.ai/api/paas/v4/models || echo 000)"
+  -H "Authorization: Bearer $KEY" "$API/models" || echo 000)"
 case "$CODE" in
   200) echo "✓ Z.AI принял ключ (каталог моделей отвечает)" ;;
   401|403) echo "✗ Z.AI отклонил ключ ($CODE): проверьте значение в консоли Z.AI"; exit 1 ;;
@@ -65,6 +71,19 @@ case "$CODE" in
   *) echo "⚠ Z.AI ответил $CODE: сохраняю, проверьте ключ позже" ;;
 esac
 [ "$CHECK_ONLY" = "1" ] && { echo "(--check-only: ничего не меняю)"; exit 0; }
+
+# ── --coding: только портал заказчика (провайдер zai-coding, GLM-5) ──────────
+if [ "$CODING" = "1" ]; then
+  [ -f .env ] || cp .env.example .env
+  if grep -q '^ZAI_CODING_API_KEY=' .env; then sed -i.bak "s|^ZAI_CODING_API_KEY=.*|ZAI_CODING_API_KEY=${KEY}|" .env && rm -f .env.bak
+  else printf 'ZAI_CODING_API_KEY=%s\n' "$KEY" >> .env; fi
+  echo "✓ ZAI_CODING_API_KEY записан в harness/.env"
+  export PATH="$HOME/.orbstack/bin:$PATH"
+  docker compose up -d --force-recreate customer-web >/dev/null 2>&1
+  echo "✓ Портал заказчика пересоздан: модель — GLM-5 (Z.AI Coding Plan)"
+  grep -q '^PORTAL_PROVIDER=' .env && echo "⚠ в .env задан PORTAL_PROVIDER — он важнее ключа; уберите строку, чтобы портал ушёл на GLM-5"
+  exit 0
+fi
 
 # ── 3. .env: ключ + снятие demo-остатков ─────────────────────────────────────
 [ -f .env ] || cp .env.example .env

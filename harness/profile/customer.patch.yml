@@ -7,6 +7,21 @@
         providers:
           zai:
             apiKeyEnv: ZAI_API_KEY
+          # Z.AI GLM Coding Plan — отдельный эндпоинт и ключ подписки (не
+          # платный API). Ключ — ZAI_CODING_API_KEY в harness/.env
+          # (./set-key.sh --coding).
+          zai-coding:
+            displayName: Z.AI Coding Plan
+            api: openai-completions
+            baseURL: https://api.z.ai/api/coding/paas/v4
+            apiKeyEnv: ZAI_CODING_API_KEY
+            models:
+              - id: glm-5
+                name: GLM-5
+                contextWindow: 200000
+                # GLM-5 — только текст: фото документов читает OCR
+                # context-ingest (ADR-0008), в модель они уходят текстом.
+                input: [text]
           # Requesty — OpenAI-совместимый роутер; быстрая модель микродиалога,
           # пока квота z.ai исчерпана. Ключ — REQUESTY_API_KEY в harness/.env.
           requesty:
@@ -48,14 +63,15 @@
           - id: customer-form-tool
             name: 'customer-form/tool'
 
-# Модель портала по умолчанию: Requesty/Claude Haiku 5.5, если задан
-# REQUESTY_API_KEY, иначе zai/glm-5-turbo; PORTAL_PROVIDER/PORTAL_MODEL — явный
+# Модель портала по умолчанию: Z.AI Coding Plan/GLM-5, если задан
+# ZAI_CODING_API_KEY; иначе Requesty/Claude Haiku 5.5, если задан
+# REQUESTY_API_KEY; иначе zai/glm-5-turbo. PORTAL_PROVIDER/PORTAL_MODEL — явный
 # выбор. Без этого узла каталог берёт deepseek-official без ключа → «Отправить»
 # выключена.
 - id: agent-default-model
   config:
-    provider: !!js "process.env.PORTAL_PROVIDER || (process.env.REQUESTY_API_KEY ? 'requesty' : 'zai')"
-    model: !!js "process.env.PORTAL_MODEL || (process.env.REQUESTY_API_KEY ? 'anthropic/claude-haiku-5-5' : 'glm-5-turbo')"
+    provider: !!js "process.env.PORTAL_PROVIDER || (process.env.ZAI_CODING_API_KEY ? 'zai-coding' : process.env.REQUESTY_API_KEY ? 'requesty' : 'zai')"
+    model: !!js "process.env.PORTAL_MODEL || (process.env.ZAI_CODING_API_KEY ? 'glm-5' : process.env.REQUESTY_API_KEY ? 'anthropic/claude-haiku-5-5' : 'glm-5-turbo')"
 
 # Заказчику не показываем «Internal Testing Notice» dsh: версия уведомления
 # считается подтверждённой (так её записывает сам dsh по кнопке Continue).

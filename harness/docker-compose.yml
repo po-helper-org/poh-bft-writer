@@ -150,7 +150,8 @@ services:
       TRACKER_USER: ${TRACKER_USER:-${TRACKER_ADMIN_USER:-bft-admin}}
       TRACKER_PASSWORD: ${TRACKER_ADMIN_PASSWORD:-}
       ZAI_API_KEY: ${ZAI_API_KEY:-}
-      # Requesty: при заданном ключе — модель портала по умолчанию (customer.patch.yml).
+      # Z.AI Coding Plan (GLM-5), затем Requesty: первый заданный ключ — модель портала по умолчанию (customer.patch.yml).
+      ZAI_CODING_API_KEY: ${ZAI_CODING_API_KEY:-}
       REQUESTY_API_KEY: ${REQUESTY_API_KEY:-}
       PORTAL_PROVIDER: ${PORTAL_PROVIDER:-}
       PORTAL_MODEL: ${PORTAL_MODEL:-}
