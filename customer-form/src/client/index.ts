@@ -38,7 +38,7 @@ const HIDE_SIDEBAR_CSS = `
 /**
  * Русский языковой пакет экрана заказчика — штатный механизм dsh-client-locale
  * (addLanguage + register), не свой UI. Язык по умолчанию выбирает профиль
- * (locale.preference: ru); всё, чего здесь нет, берётся из en.
+ * (locale.preference: ru-RU); всё, чего здесь нет, берётся из штатного ru ядра.
  * Заголовок героя — инструкция HowToDemo п.2 «Введите свои мысли».
  */
 const RU_CONVERSATION: Record<string, string> = {
@@ -130,6 +130,9 @@ interface SidebarRightTabsLike {
   register(definition: { id: string; kind: string; patterns: string[]; priority: string; canOpen?: (address: string) => boolean; title: () => string }): () => void
 }
 
+/** Язык портала: штатный русский ядра + тексты экрана заказчика поверх. */
+const PORTAL_LOCALE = 'ru-RU'
+
 interface LocaleLike {
   addLanguage(language: { id: string; label: string; fallback: string }): () => void
   register(namespace: string, locale: string, dictionary: Record<string, string>): () => void
@@ -144,10 +147,12 @@ export function apply(ctx: ClientContext): void {
 
   // 2) Русский язык интерфейса (штатный языковой пакет dsh).
   const locale = ctx.get('locale') as LocaleLike
-  ctx.effect(() => locale.addLanguage({ id: 'ru', label: 'Русский', fallback: 'en' }), 'customer-form: язык ru')
+  // Ядро 0.2 само несёт русский (`ru`), а словарь на пару «пространство имён + язык» один:
+  // тексты портала — вариантом `ru-RU` с откатом на штатный `ru` (профиль: preference ru-RU).
+  ctx.effect(() => locale.addLanguage({ id: PORTAL_LOCALE, label: 'Русский', fallback: 'ru' }), `customer-form: язык ${PORTAL_LOCALE}`)
   const dictionaries = { conversation: RU_CONVERSATION, question: RU_QUESTION, plan: RU_PLAN, chat: RU_CHAT, common: RU_COMMON }
   for (const [namespace, dictionary] of Object.entries(dictionaries)) {
-    ctx.effect(() => locale.register(namespace, 'ru', dictionary), `customer-form: словарь ru/${namespace}`)
+    ctx.effect(() => locale.register(namespace, PORTAL_LOCALE, dictionary), `customer-form: словарь ${PORTAL_LOCALE}/${namespace}`)
   }
 
   // 3) RPC к узлу customer-form; сессия, которую открыл портал.

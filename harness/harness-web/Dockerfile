@@ -29,7 +29,7 @@ COPY speech-ru/test ./speech-ru/test
 RUN cd speech-ru && npm install --no-audit --no-fund && npm test
 
 FROM node:22-bookworm-slim AS profile
-ARG DSH_VERSION=0.1.7-rc.2
+ARG DSH_VERSION=0.2.2-rc.1
 WORKDIR /seed
 COPY harness/profile/package.json.in ./package.json.in
 COPY --from=plugins /src/plugin ./plugin
@@ -69,8 +69,10 @@ WORKDIR /app
 COPY --from=profile /seed/node_modules ./node_modules
 # Открытый доступ (без кода/токена, rev5): isAuthenticated всегда true.
 # Контур безопасности — публикация портов только на 127.0.0.1/LAN хоста.
-RUN grep -q 'isAuthenticated(request) {' /app/node_modules/@deepseek-ai/dsh-client-connection/lib/index.js \
- && sed -i 's|isAuthenticated(request) {|isAuthenticated(request) { return true;|' /app/node_modules/@deepseek-ai/dsh-client-connection/lib/index.js \
+# Ядро 0.2: сигнатура isAuthenticated(request, secure = false) — шаблон ловит любую.
+RUN grep -qE 'isAuthenticated\(request[^)]*\) \{' /app/node_modules/@deepseek-ai/dsh-client-connection/lib/index.js \
+ && sed -i -E 's/(isAuthenticated\(request[^)]*\) \{)/\1 return true;/' /app/node_modules/@deepseek-ai/dsh-client-connection/lib/index.js \
+ && grep -qE 'isAuthenticated\(request[^)]*\) \{ return true;' /app/node_modules/@deepseek-ai/dsh-client-connection/lib/index.js \
  && echo "no-auth: patched"
 COPY --from=profile /seed/package.json ./profile.json
 COPY --from=profile /seed/customer.json ./customer-profile.json

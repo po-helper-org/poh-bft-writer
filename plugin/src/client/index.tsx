@@ -20,11 +20,10 @@ import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 // Type-only: даёт декларацию `ctx.locale` в `Context`.
 import type {} from '@deepseek-ai/dsh-client-locale/client'
-// Type-only: даёт декларацию `ctx.settingsScope` в `Context` и тип SettingsScope. Служба
-// не в export const inject ниже — раздел без настроек работает на умолчаниях (см. apply).
-import type { SettingsScope } from '@deepseek-ai/dsh-client-ui-settings/client'
-// Type-only: даёт слияние SlotMap с записью 'settings.plugin.item' — слотом карточки настроек.
-import type {} from '@deepseek-ai/dsh-client-ui-settings-plugins/client'
+// Type-only: даёт декларацию `ctx.configForms` в `Context`, слот 'settings.plugins.tab' и тип
+// ConfigForm. Служба не в export const inject ниже — раздел без настроек работает на
+// умолчаниях (см. apply).
+import type { ConfigForm } from '@deepseek-ai/dsh-client-ui-settings/client'
 // Type-only: даёт декларацию `ctx.sessions` в `Context` + ISessions (цепочка запуска чата,
 // docs/client-wiring.md §1.2-1.3). Не в export const inject ниже — служба ленивая (см. openChatWithDraft).
 import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
@@ -57,7 +56,7 @@ import { ru, type BftLocaleKey } from './locales.js'
 import { RequirementsPanel, type RequirementsPanelInjected } from './Panel.js'
 import { Onboarding, type OnboardingCall } from './Onboarding.js'
 import { panelClassNames as css, panelStyleText } from './Panel.styles.js'
-import { SettingsCard, SettingsPage } from './SettingsCard.js'
+import { SettingsPage } from './SettingsCard.js'
 import type { LiveSession } from './session-view.js'
 import { SettingsCardController } from './settings-card.js'
 
@@ -69,9 +68,9 @@ const NS = 'bft.requirements'
 
 /**
  * Идентификатор сессии — тип из контракта службы, а не импорт из `@deepseek-ai/dsh-session`:
- * этого пакета нет среди зависимостей плагина, а `ISessions['open']` его форму уже несёт.
+ * этого пакета нет среди зависимостей плагина, а `ISessions['scope']` его форму уже несёт.
  */
-type SessionId = Parameters<ISessions['open']>[0]
+type SessionId = Parameters<ISessions['scope']>[0]
 
 /**
  * Имя канала RPC-узла (`src/channel.ts`, `BFT_CHANNEL`). Продублировано строкой, а не
@@ -298,21 +297,13 @@ export function apply(ctx: ClientContext): void {
   }
 
   /**
-   * Открыть сессию в чате харнесса. Ядро 0.1.2 — `sessions.open`, в 0.1.7 его нет:
-   * навигация ушла в `uiWorkspace.openSession`.
+   * Открыть сессию в чате харнесса: навигация — `uiWorkspace.openSession` (с ядра 0.1.7;
+   * `sessions.open` ядра 0.1.2 убран).
    */
   const navigateToSession = (sessionId: string): void => {
-    const sessions = ctx.get('sessions') as unknown as { open?: (id: SessionId) => void } | undefined
-    if (typeof sessions?.open === 'function') {
-      sessions.open(sessionId as SessionId)
-      return
-    }
-    const uiWorkspace = ctx.get('uiWorkspace') as unknown as { openSession?: (id: string) => void } | undefined
-    if (typeof uiWorkspace?.openSession === 'function') {
-      uiWorkspace.openSession(sessionId)
-      return
-    }
-    throw new Error('poh-bft-plugin: harness has neither sessions.open nor uiWorkspace.openSession')
+    const uiWorkspace = ctx.get('uiWorkspace') as unknown as { openSession?: (id: SessionId) => void } | undefined
+    if (typeof uiWorkspace?.openSession !== 'function') throw new Error('poh-bft-plugin: harness has no uiWorkspace.openSession')
+    uiWorkspace.openSession(sessionId as SessionId)
   }
 
   // Цепочка «Обновить»/«Работать в чате» (docs/client-wiring.md, §1.3 и «Выводы для
@@ -439,7 +430,7 @@ export function apply(ctx: ClientContext): void {
   // на умолчаниях — ровно так, как работал до появления карточки. Поэтому скоуп берётся
   // отложенной инъекцией, а до её срабатывания (и вообще навсегда, если службы нет)
   // getSettings() отдаёт умолчания.
-  let settingsScope: SettingsScope<BftSettings> | undefined
+  let settingsScope: ConfigForm<BftSettings> | undefined
   const settingsListeners = new Set<() => void>()
   const notifySettings = () => { for (const listener of settingsListeners) listener() }
 
@@ -463,10 +454,7 @@ export function apply(ctx: ClientContext): void {
     return () => { settingsListeners.delete(listener) }
   }
 
-  // Скоуп настроек и карточка — общие для обоих ядер: форма ядра 0.1.7 (`configForms.get`)
-  // отдаёт тот же снимок value/base/user/status/writable и тот же mutate(ops), что и
-  // `settingsScope.bind` ядра 0.1.2, поэтому SettingsCardController не различает их.
-  const attachSettings = (scoped: ClientContext, scope: SettingsScope<BftSettings>): void => {
+  const attachSettings = (scoped: ClientContext, scope: ConfigForm<BftSettings>): void => {
     scoped.effect(() => {
       settingsScope = scope
       // Панель уже смонтирована и подписана: до этой строки она читала умолчания.
@@ -480,38 +468,16 @@ export function apply(ctx: ClientContext): void {
     }, 'poh-bft-plugin: настройки раздела')
   }
 
-  // Ядро 0.1.2: пространство имён `bft`, карточка в слоте `settings.plugin.item`.
-  ctx.inject(['settingsScope'], (scoped: ClientContext) => {
-    if (typeof scoped.settingsScope?.bind !== 'function') return
-    const scope = scoped.settingsScope.bind<BftSettings>({ namespace: BFT_SETTINGS_NS })
+  // Ядро 0.2: форма записи `bft-requirements` (`configForms.get`) и вкладка «Требования» в
+  // «Настройках → Плагины» (слот `settings.plugins.tab`) — пока хост отдаёт эту запись.
+  ctx.inject(['configForms'], (scoped: ClientContext) => {
+    const scope = scoped.configForms.get<BftSettings>(BFT_ENTRY_ID)
     attachSettings(scoped, scope)
     const card = new SettingsCardController(scope)
-    scoped.slots.inject('settings.plugin.item', () => scoped.slots.register(
-      { name: 'settings.plugin.item', key: BFT_SETTINGS_NS, locale: NS, inject: () => card.inject() },
-      SettingsCard,
-    ))
-  })
-
-  // Ядро 0.1.7: volatile-поля Config записи `bft-requirements`, страница в «Настройках →
-  // Плагины» (слот `plugins.item`) — пока хост отдаёт эту запись. Типы слота и службы —
-  // структурные: devDependencies пакета на 0.1.2, где их ещё нет.
-  ctx.inject(['configForms'] as never, (scoped: ClientContext) => {
-    const forms = (scoped as unknown as { get(name: string): unknown }).get('configForms') as {
-      get(entryId: string): unknown
-      whileServed(namespaces: readonly string[], register: () => () => void): () => void
-    } | undefined
-    if (forms === undefined || typeof forms.get !== 'function') return
-    const scope = forms.get(BFT_ENTRY_ID) as SettingsScope<BftSettings>
-    attachSettings(scoped, scope)
-    const card = new SettingsCardController(scope)
-    const t = (scoped as unknown as { locale: { bind(ns: string): (key: string) => string } }).locale.bind(NS)
-    const slots = scoped.slots as unknown as {
-      inject(name: string, register: () => () => void): () => void
-      register(options: Record<string, unknown>, component: unknown): () => void
-    }
-    scoped.effect(() => forms.whileServed([BFT_ENTRY_ID], () => slots.inject('plugins.item', () => slots.register(
+    const t = scoped.locale.bind(NS)
+    scoped.effect(() => scoped.configForms.whileServed([BFT_ENTRY_ID], () => scoped.slots.inject('settings.plugins.tab', () => scoped.slots.register(
       {
-        name: 'plugins.item',
+        name: 'settings.plugins.tab',
         id: BFT_ENTRY_ID,
         order: 50,
         label: () => t('settingsTitle'),
@@ -594,12 +560,8 @@ export function apply(ctx: ClientContext): void {
 function resolveWorkspaceId(sessions: ISessions, workspaces: IWorkspaces): WorkspaceId | undefined {
   const sessionList = sessions.list.getSnapshot()
   const workspaceList = workspaces.list.getSnapshot()
-  const current = sessionList.current
-  const currentWorkspaceId = current === undefined
-    ? undefined
-    : workspaceList.items.find(item => item.sessionIds.includes(current))?.workspaceId
-  if (currentWorkspaceId !== undefined) return currentWorkspaceId
-
+  // Ядро 0.2 не отдаёт текущую сессию в снимке списка (`SessionListState.current` убран):
+  // берём рабочее пространство с самой свежей активностью — у открытого чата она и есть.
   let recent: WorkspaceId | undefined
   let recentTime = Number.NEGATIVE_INFINITY
   for (const item of workspaceList.items) {

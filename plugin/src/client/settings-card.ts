@@ -6,12 +6,12 @@
  * с проверкой ревизии, и посимвольная отправка ссылки означала бы десяток отклонённых записей
  * на одно осмысленное изменение.
  *
- * Своей копии значений здесь нет: единственный источник — снимок `SettingsScope`, черновик
+ * Своей копии значений здесь нет: единственный источник — снимок `ConfigForm`, черновик
  * лежит поверх него. Поэтому правка из другой поверхности видна сразу, а несохранённые правки
  * PO при этом не пропадают.
  */
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
-import type { SettingsScope } from '@deepseek-ai/dsh-client-ui-settings/client'
+import type { ConfigForm } from '@deepseek-ai/dsh-client-ui-settings/client'
 import { DEFAULT_SETTINGS, normalizeUrl, resolveSettings, type BftSettings } from '../settings.js'
 
 /** Поля карточки в порядке показа. */
@@ -92,7 +92,7 @@ export class SettingsCardController {
   private published: string
 
   /** @param scope - привязанный скоуп пространства имён `bft`. */
-  constructor(private readonly scope: SettingsScope<BftSettings>) {
+  constructor(private readonly scope: ConfigForm<BftSettings>) {
     const initial = this.projection()
     this.published = JSON.stringify(initial)
     this.store = createSnapshotStore<BftSettingsCardState>(initial)

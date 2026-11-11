@@ -78,13 +78,13 @@
 - id: ui-settings-general
   name: '@deepseek-ai/dsh-client-ui-settings-general'
   config:
-    welcomeNoticeVersion: 2026-08-13.1
+    welcomeNoticeVersion: 2026-09-28.1
 
-# Интерфейс заказчика — по-русски: языковой пакет регистрирует customer-form
-# (клиент), здесь только выбор языка по умолчанию.
+# Интерфейс заказчика — по-русски: штатный ru ядра и поверх него вариант ru-RU
+# с текстами портала (регистрирует клиент customer-form); здесь — выбор языка.
 - id: locale
   config:
-    preference: ru
+    preference: ru-RU
 
 # Чат заказчика — не агент-кодер: единственный пресет — customer (выше).
 # Пресеты кодера выключены — у каждого свои bash/fs/субагенты, и любой
