@@ -114,7 +114,11 @@ test('микродиалог: вложение → вопросы → согла
     const res = await request.get(`${CUSTOMER_URL}/api/customer-form.bftDownload?session=${encodeURIComponent(sessionId)}&doc=deep&format=${format}`)
     expect(res.status(), `скачать .${format}`).toBe(200)
     expect(res.headers()['content-type'], `тип .${format}`).toContain(type)
-    expect((await res.body()).length, `.${format} не пустой`).toBeGreaterThan(1000)
+    const body = await res.body()
+    expect(body.length, `.${format} не пустой`).toBeGreaterThan(1000)
+    // Схема сценария приёмки: в Word — картинкой (PlantUML в образе), в .md — исходником.
+    if (format === 'docx') expect(body.includes('word/media/'), 'схема PlantUML картинкой в .docx').toBe(true)
+    if (format === 'md') expect(body.toString('utf8'), 'PlantUML исходником в .md').toContain('```plantuml')
   }
 
   // Задача: постановка по разделам, сводка в комментарии, вложение + контекст.

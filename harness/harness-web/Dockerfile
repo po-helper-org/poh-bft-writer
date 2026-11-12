@@ -63,8 +63,9 @@ ENV NODE_ENV=production DSH_HOME=/data
 # python3: линтер и страница ревью быстрой версии БФТ портала (bft-lint.py,
 # bft-html-export.py — только стандартная библиотека).
 # pandoc + weasyprint: выгрузка документа БФТ в .docx и .pdf (ADR-0012);
-# fonts-dejavu — кириллица в PDF.
-RUN apt-get update && apt-get install -y --no-install-recommends socat python3 pandoc weasyprint fonts-dejavu-core \
+# fonts-dejavu — кириллица в PDF. plantuml (Debian, с JRE) — схема сценария приёмки
+# картинкой в .pdf/.docx; рендер локальный, текст требований наружу не уходит.
+RUN apt-get update && apt-get install -y --no-install-recommends socat python3 pandoc weasyprint fonts-dejavu-core plantuml \
  && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 # dsh-CLI из профиля: один пин на весь набор @deepseek-ai/dsh-* (ADR-0002).
