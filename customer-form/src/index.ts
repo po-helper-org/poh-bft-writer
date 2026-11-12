@@ -29,6 +29,7 @@ import { customerDeepPage, customerFastPage, deepFailedPage, requestsPage, waiti
 import { buildDeep, deepFiles, readDeepState, type DeepRoute, type DeepState, type LlmLike } from './bft-deep.js'
 import { EXPORT_TYPES, exportDocument, type ExportFormat } from './export.js'
 import type { PrimaryDoc } from './primary.js'
+import { ADMIN_ONLY_ENDPOINTS, ADMIN_PAGE, ADMIN_STATUS, adminOnlyResponse, adminPage, isAdmin } from './admin.js'
 
 export const name = 'customer-form'
 
@@ -127,6 +128,12 @@ interface ConnectionLike {
     handle: (channel: string, handler: (endpoint: string, payload: unknown) => Promise<unknown>) => unknown
   }
   fetch?: { register: (route: { path: string; methods: string[]; requestBody: 'buffered'; fetch(request: Request): Promise<Response> }) => () => void }
+}
+
+/** Внутренности HostConnectionService dsh 0.2, нужные для передачи вызова шлюзу. */
+interface GatewayInternals {
+  interceptors?: Map<string, { fetchHandler: { fetch(request: Request, peer: unknown): Promise<Response> } }>
+  browserPeer?: unknown
 }
 
 export function apply(ctx: HarnessContext): void {
@@ -243,6 +250,40 @@ export function apply(ctx: HarnessContext): void {
     const connection = scoped.get('connection') as ConnectionLike
     const register = connection.fetch?.register
     if (typeof register !== 'function') return
+
+    // Администратор портала (ADR-0012): вход за паролем и защита записи настроек.
+    scoped.effect(() => register({
+      path: ADMIN_PAGE,
+      methods: ['GET', 'POST'],
+      requestBody: 'buffered',
+      fetch: adminPage,
+    }), 'customer-form: администратор')
+    scoped.effect(() => register({
+      path: ADMIN_STATUS,
+      methods: ['GET'],
+      requestBody: 'buffered',
+      fetch: async (request: Request) => Response.json({ admin: isAdmin(request), configured: !!process.env.ADMIN_PASSWORD?.trim() }, { headers: { 'cache-control': 'no-store' } }),
+    }), 'customer-form: статус администратора')
+    // Точный маршрут проверяется раньше перехватчика шлюза /api: администратора
+    // передаём шлюзу как есть, остальным — отказ «только администратор».
+    const gateway = connection as unknown as GatewayInternals
+    for (const endpoint of ADMIN_ONLY_ENDPOINTS) {
+      scoped.effect(() => register({
+        path: `/api/${endpoint}`,
+        methods: ['POST'],
+        requestBody: 'buffered',
+        fetch: async (request: Request) => {
+          if (!isAdmin(request)) return adminOnlyResponse(request, endpoint)
+          const forward = gateway.interceptors?.get('/api')?.fetchHandler
+          const peer = gateway.browserPeer
+          if (!forward || !peer) {
+            console.error('[customer-form] шлюз /api недоступен для передачи', endpoint)
+            return new Response('gateway unavailable', { status: 503 })
+          }
+          return forward.fetch(request, peer)
+        },
+      }), `customer-form: только администратор ${endpoint}`)
+    }
     scoped.effect(() => register({
       path: '/api/customer-form.workspacePath',
       methods: ['POST'],

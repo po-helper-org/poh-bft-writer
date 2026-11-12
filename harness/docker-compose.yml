@@ -161,6 +161,8 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       ZAI_CODING_API_KEY: ${ZAI_CODING_API_KEY:-}
       REQUESTY_API_KEY: ${REQUESTY_API_KEY:-}
+      # Вход администратора портала — штатные «Настройки» dsh (ADR-0012).
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       PORTAL_PROVIDER: ${PORTAL_PROVIDER:-}
       PORTAL_MODEL: ${PORTAL_MODEL:-}
       # Разбор материалов заказчика: голос (m4a…) → текст, документы → Markdown.

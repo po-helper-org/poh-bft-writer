@@ -40,10 +40,12 @@ wait_portal
 
 # Пароль трекера — для проверки задачи в Vikunja (в вывод не попадает).
 TRACKER_PASSWORD="$(grep -E '^TRACKER_ADMIN_PASSWORD=' .env | cut -d= -f2- || true)"
+# Пароль администратора портала — для admin-settings.spec (в вывод не попадает).
+ADMIN_PASSWORD="$(grep -E '^ADMIN_PASSWORD=' .env | cut -d= -f2- || true)"
 PW_VERSION="$(sed -n 's/.*"version": "\(.*\)".*/\1/p' ../customer-form/node_modules/@playwright/test/package.json)"
 status=0
 docker run --rm --network host --ipc host \
-  -e TRACKER_PASSWORD="$TRACKER_PASSWORD" -e LLM_DOUBLE=1 -e CI=1 \
+  -e TRACKER_PASSWORD="$TRACKER_PASSWORD" -e ADMIN_PASSWORD="$ADMIN_PASSWORD" -e LLM_DOUBLE=1 -e CI=1 \
   -v "$PWD/../customer-form:/work" -w /work \
   "mcr.microsoft.com/playwright:v${PW_VERSION}-noble" \
   npx playwright test "$@" || status=$?

@@ -56,6 +56,12 @@ if ! grep -q '^TRACKER_HOOK_TOKEN=..' .env; then
   set_kv TRACKER_HOOK_TOKEN "$(gen)"
   echo "✓ TRACKER_HOOK_TOKEN сгенерирован (вебхук Трекер → Коробка)"
 fi
+# Администратор портала (ADR-0012): вход в штатные «Настройки» dsh — ключи
+# провайдеров и плагины (страница /api/customer-form.admin).
+if ! grep -q '^ADMIN_PASSWORD=..' .env; then
+  set_kv ADMIN_PASSWORD "$(gen)"
+  echo "✓ ADMIN_PASSWORD сгенерирован (вход администратора портала)"
+fi
 # Команда PO/аналитиков в Трекере (ADR-0009): общий стартовый пароль учёток.
 if ! grep -q '^TRACKER_TEAM_PASSWORD=..' .env; then
   set_kv TRACKER_TEAM_PASSWORD "$(gen)"
@@ -92,6 +98,8 @@ fi
 echo "$URL" > .last-url
 echo "✓ Система поднята. Портал заказчика:"
 echo "    $URL"
+echo "  Администратор (ключи, модели, плагины): $URL/api/customer-form.admin"
+echo "    пароль — ADMIN_PASSWORD в harness/.env"
 
 # Сид Трекера (Т10): админ/проект/лейблы/вебхук; ошибки — предупреждением,
 # не гробят подъём (трекер оживёт на повторном start.sh).

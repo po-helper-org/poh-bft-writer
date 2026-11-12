@@ -20,6 +20,10 @@ import {
   type SessionInfo,
 } from './panels.js'
 
+/** Вход и статус администратора портала (узел customer-form, admin.ts). */
+const ADMIN_PAGE = '/api/customer-form.admin'
+const ADMIN_STATUS = '/api/customer-form.adminStatus'
+
 // Имена СЛУЖБ cordis, не пакетов (грабля «pending» — см. ADR-0007 rev3).
 export const inject = ['slots', 'connection', 'uiWorkspace', 'workspaces', 'sessions', 'locale']
 
@@ -144,6 +148,37 @@ export function apply(ctx: ClientContext): void {
   style.setAttribute('data-plugin', 'customer-form')
   style.textContent = HIDE_SIDEBAR_CSS
   document.head.appendChild(style)
+  ctx.effect(() => () => style.remove(), 'customer-form: стили портала')
+
+  // 1а) Администратор портала (ADR-0012): ему — интерфейс dsh целиком, со
+  //     штатными «Настройками» (ключи, плагины). Заказчику сайдбар скрыт, а
+  //     горячая клавиша настроек (⌥⌘, / Ctrl+Alt+,) не срабатывает; запись
+  //     настроек без входа узел всё равно отклонит.
+  const blockSettingsKey = (event: KeyboardEvent) => {
+    if (event.code === 'Comma' && event.altKey && (event.metaKey || event.ctrlKey)) {
+      event.preventDefault()
+      event.stopImmediatePropagation()
+    }
+  }
+  window.addEventListener('keydown', blockSettingsKey, true)
+  ctx.effect(() => () => window.removeEventListener('keydown', blockSettingsKey, true), 'customer-form: клавиша настроек')
+  void fetch(ADMIN_STATUS, { credentials: 'same-origin', cache: 'no-store' })
+    .then((res) => (res.ok ? res.json() as Promise<{ admin?: boolean }> : undefined))
+    .then((status) => {
+      if (!status?.admin) return
+      window.removeEventListener('keydown', blockSettingsKey, true)
+      style.textContent = ''
+      document.documentElement.dataset.portalRole = 'admin'
+      const badge = document.createElement('a')
+      badge.href = ADMIN_PAGE
+      badge.textContent = 'Администратор'
+      badge.setAttribute('data-portal-admin', '')
+      badge.title = 'Вы вошли администратором портала — выйти или открыть страницу входа'
+      badge.style.cssText = 'position:fixed;right:12px;bottom:10px;z-index:50;font:12px/1 system-ui,sans-serif;padding:5px 9px;border-radius:999px;border:1px solid currentColor;opacity:.6;color:inherit;text-decoration:none'
+      document.body.appendChild(badge)
+      ctx.effect(() => () => badge.remove(), 'customer-form: значок администратора')
+    })
+    .catch(() => { /* портал без статуса — режим заказчика */ })
 
   // 2) Русский язык интерфейса (штатный языковой пакет dsh).
   const locale = ctx.get('locale') as LocaleLike
