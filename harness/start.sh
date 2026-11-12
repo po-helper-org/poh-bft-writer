@@ -1,18 +1,21 @@
 #!/usr/bin/env bash
-# Подъём автономной системы БФТ «под ключ» (Т3): секреты → compose up →
-# ссылка с токеном dsh из логов → браузер.
+# Подъём системы БФТ «под ключ»: секреты → compose up → портал заказчика.
+# Минимальный контур (ADR-0012): портал, трекер, разбор материалов, Кортекс.
 #
-#   ./start.sh                # обычный подъём (нужен ZAI_API_KEY в .env или онбординг)
-#   ./start.sh --demo         # профиль demo: LLM-двойник без ключа
-#   ./start.sh --debug        # + temporal-ui :8233
+#   ./start.sh                # обычный подъём (ключ модели — ./set-key.sh --anthropic|--coding)
+#   ./start.sh --legacy       # + коробка, Matrix/Element, harness-web (прежний контур)
+#   ./start.sh --demo         # профиль demo: LLM-двойник без ключа (коробка)
+#   ./start.sh --debug        # + temporal-ui :8233 (коробка)
 #   ./start.sh --no-open      # не открывать браузер
 set -euo pipefail
 cd "$(dirname "$0")"
 
 PROFILE_ARGS=()
 NO_OPEN=0
+LEGACY=0
 for arg in "$@"; do
   case "$arg" in
+    --legacy) PROFILE_ARGS+=(--profile legacy); LEGACY=1 ;;
     --demo)  PROFILE_ARGS+=(--profile demo) ;;
     --debug) PROFILE_ARGS+=(--profile debug) ;;
     --no-open) NO_OPEN=1 ;;
@@ -71,24 +74,23 @@ fi
 echo "▸ Поднимаю систему…"
 docker compose ${PROFILE_ARGS[@]+"${PROFILE_ARGS[@]}"} up -d --build
 
-# ── 3. Ждём health и достаём ссылку с токеном ─────────────────────────────────
+# ── 3. Ждём health портала ───────────────────────────────────────────────────
 echo "▸ Жду здоровья сервисов…"
+URL="${PORTAL_PUBLIC_URL:-http://127.0.0.1:3080}"
 for i in $(seq 1 90); do
   ST="$(docker compose ${PROFILE_ARGS[@]+"${PROFILE_ARGS[@]}"} ps --format '{{.Name}} {{.Health}}' 2>/dev/null)"
   UNHEALTHY="$(echo "$ST" | grep -cv '(healthy)$' || true)"
-  URL="$(docker compose logs harness-web 2>/dev/null | grep -oE 'https?://[^ "?]+\?token=[A-Za-z0-9._%-]+' | tail -1 | sed -E 's|https?://[^/]+|http://127.0.0.1:3081|' || true)"
-  [ -n "$URL" ] && [ "$UNHEALTHY" = "0" ] && break
+  [ "$UNHEALTHY" = "0" ] && break
   sleep 2
 done
-
-if [ -z "$URL" ]; then
-  echo "✗ Ссылка с токеном не появилась за 3 минуты. Смотрите:" >&2
-  echo "    docker compose logs harness-web" >&2
+if [ "$UNHEALTHY" != "0" ]; then
+  echo "✗ Сервисы не поднялись за 3 минуты:" >&2
+  echo "$ST" | grep -v '(healthy)$' >&2
   exit 1
 fi
 
 echo "$URL" > .last-url
-echo "✓ Система поднята:"
+echo "✓ Система поднята. Портал заказчика:"
 echo "    $URL"
 
 # Сид Трекера (Т10): админ/проект/лейблы/вебхук; ошибки — предупреждением,
@@ -99,6 +101,8 @@ if command -v python3 >/dev/null; then
     && echo "    Трекер: http://127.0.0.1:3456 (админ: ${TRACKER_ADMIN_USER:-bft-admin})" \
     || echo "⚠ Сид Трекера не прошёл: повторите ./start.sh или tracker/seed.py вручную"
 
+  # Шлюз (Т11) — только в прежнем контуре (--legacy).
+  if [ "$LEGACY" = "1" ]; then
   # Шлюз (Т11): ждём health Synapse (миграции с чистого тома идут минуты),
   # извлекаем сгенерированный секрет регистрации, затем сид агента/заказчика.
   for i in $(seq 1 60); do
@@ -117,6 +121,8 @@ if command -v python3 >/dev/null; then
   else
     echo "⚠ Сид Шлюза не прошёл: повторите ./start.sh или matrix/seed.py вручную"
   fi
+  fi
 fi
-grep -q '^ZAI_API_KEY=..' .env || echo "⚠  Ключа Z.AI нет: fast-прогон не заработает, пока не пройдёте онбординг (US-5–8)."
+grep -qE '^(ANTHROPIC_API_KEY|ZAI_CODING_API_KEY|REQUESTY_API_KEY|ZAI_API_KEY)=..' .env \
+  || echo "⚠  Ключа модели нет: портал не ответит, пока не задан ключ (./set-key.sh --anthropic)."
 if [ "$NO_OPEN" = "0" ] && command -v open >/dev/null; then open "$URL"; fi

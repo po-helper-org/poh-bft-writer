@@ -1,4 +1,7 @@
 # Автономная система БФТ: docker compose up -d — и работает (ADR-0002).
+# Минимальный контур (ADR-0012): портал, трекер (+postgres), разбор материалов,
+# Кортекс. Коробка, Matrix и harness-web — профиль legacy:
+#   docker compose --profile legacy up -d
 # Полоса А (Т2): 5 сервисов. Трекер добавит Т10, Matrix/Element — Т11.
 # Контексты сборки — корень репозитория: образам нужны plugin/, skills/, box/.
 name: poh-bft-system
@@ -52,6 +55,7 @@ services:
     mem_limit: 256m
 
   temporal:
+    profiles: [legacy]   # минимальный контур (ADR-0012): вне запуска по умолчанию
     image: temporalio/auto-setup:1.27.2
     restart: unless-stopped
     depends_on:
@@ -70,6 +74,7 @@ services:
     mem_limit: 640m
 
   box-worker:
+    profiles: [legacy]   # минимальный контур (ADR-0012): вне запуска по умолчанию
     <<: *box
     command: ["python", "-m", "bftbox.worker"]
     healthcheck:
@@ -80,6 +85,7 @@ services:
     mem_limit: 256m
 
   box-mcp:
+    profiles: [legacy]   # минимальный контур (ADR-0012): вне запуска по умолчанию
     <<: *box
     # Публикация ТОЛЬКО на localhost хоста (не «наружу» в сеть): smoke-e2e и
     # диагностика с машины владельца; в LAN порт не слышен (ADR-0001 сохранён).
@@ -94,6 +100,7 @@ services:
     mem_limit: 256m
 
   harness-web:
+    profiles: [legacy]   # минимальный контур (ADR-0012): вне запуска по умолчанию
     build:
       context: ..
       dockerfile: harness/harness-web/Dockerfile
@@ -232,6 +239,7 @@ services:
     mem_limit: 384m
 
   matrix-init:   # Т11: генерация homeserver.yaml на чистом томе + закрытие федерации
+    profiles: [legacy]   # минимальный контур (ADR-0012): вне запуска по умолчанию
     image: matrixdotorg/synapse:latest
     restart: "no"
     entrypoint: [""]
@@ -254,6 +262,7 @@ services:
     volumes: [matrixdata:/data]
 
   matrix:   # homeserver Synapse: комнаты #bft-<slug>, клиентский API :8008 в LAN
+    profiles: [legacy]   # минимальный контур (ADR-0012): вне запуска по умолчанию
     image: matrixdotorg/synapse:latest
     restart: unless-stopped
     depends_on:
@@ -269,6 +278,7 @@ services:
     mem_limit: 512m
 
   element:   # веб-клиент заказчика из коробки; свой клиент совместим (US-36/37)
+    profiles: [legacy]   # минимальный контур (ADR-0012): вне запуска по умолчанию
     image: vectorim/element-web:v1.12.32
     restart: unless-stopped
     volumes:
