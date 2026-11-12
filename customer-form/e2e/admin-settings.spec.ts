@@ -32,6 +32,9 @@ test('заказчик: сайдбара и «Настроек» нет, зап�
   await page.keyboard.press('Meta+Alt+Comma')
   await expect(page.getByRole('dialog').filter({ hasText: 'Модели' })).toHaveCount(0)
 
+  const models = await request.post(`${PORTAL}/api/customer-form.portalModels`, { data: { chat: null } })
+  expect(models.status(), 'модели портала без входа не меняются').toBe(403)
+
   for (const method of ['credentials/set', 'settings/mutate', 'pluginManager/setPluginEnabled', 'terminal/create']) {
     const body = await rpc(request, method, {})
     expect(body.result.ok, method).toBe(false)
@@ -51,6 +54,9 @@ test('администратор: вход по паролю, штатные «�
   await expect(page).toHaveURL(`${PORTAL}/`)
   await expect(page.locator('[data-portal-admin]')).toBeVisible()
 
+  // Портал на старте готовит раздел заявок и закрывает открытые окна — ждём готовности.
+  await expect(page.getByRole('textbox', { name: /Опишите инициативу/ })).toBeVisible()
+  await page.waitForTimeout(1500)
   // Штатные «Настройки» dsh: «Ещё» внизу сайдбара → «Настройки» → «Модели».
   await page.getByRole('button', { name: 'Меню аккаунта' }).click()
   await page.getByText('Настройки', { exact: true }).first().click()
@@ -60,6 +66,28 @@ test('администратор: вход по паролю, штатные «�
   await expect(settings.getByText('Введите ключи API', { exact: false })).toBeVisible()
   await expect(settings.getByRole('button', { name: /^Редактировать / }).first()).toBeVisible()
   await expect(settings.getByText('Встроенные плагины', { exact: true })).toBeVisible()
+
+  // «Настройки → Портал»: модель полного БФТ выбирается, сохраняется в узле и сбрасывается.
+  type Models = { chatChoice: unknown; deep: { provider: string; model: string } | null }
+  const readModels = () => page.evaluate(async () => (await fetch('/api/customer-form.portalModels')).json()) as Promise<Models>
+  const chatBefore = (await readModels()).chatChoice
+  await settings.getByText('Портал', { exact: true }).click()
+  const deepSelect = settings.getByLabel('Модель полного БФТ')
+  await expect(deepSelect).toBeVisible()
+  const option = await deepSelect.locator('option').nth(1).getAttribute('value')
+  expect(option, 'в списке есть модели провайдеров с ключом').toBeTruthy()
+  await deepSelect.selectOption(option!)
+  await settings.getByRole('button', { name: 'Сохранить' }).click()
+  await expect(settings.getByRole('status')).toContainText('Сохранено')
+  const saved = await readModels()
+  expect(saved.deep && `${saved.deep.provider}\u0000${saved.deep.model}`).toBe(option)
+  expect(saved.chatChoice, 'модель полного БФТ не трогает выбор модели чата').toEqual(chatBefore)
+  await deepSelect.selectOption('')
+  await settings.getByRole('button', { name: 'Сохранить' }).click()
+  await expect(settings.getByRole('status')).toContainText('Сохранено')
+  const reset = await readModels()
+  expect(reset.deep).toBeNull()
+  expect(reset.chatChoice).toEqual(chatBefore)
 
   // Вызов записи с кукой администратора доходит до шлюза (а не до отказа портала).
   const body = await page.evaluate(async () => {

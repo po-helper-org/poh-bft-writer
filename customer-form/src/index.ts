@@ -29,6 +29,7 @@ import { customerDeepPage, customerFastPage, deepFailedPage, requestsPage, waiti
 import { buildDeep, deepFiles, readDeepState, type DeepRoute, type DeepState, type LlmLike } from './bft-deep.js'
 import { EXPORT_TYPES, exportDocument, type ExportFormat } from './export.js'
 import type { PrimaryDoc } from './primary.js'
+import { mergePortalModels, MODELS_ROUTE, readPortalModels, sameRoute, writePortalModels, type ModelRoute, type PortalModels } from './models.js'
 import { ADMIN_ONLY_ENDPOINTS, ADMIN_PAGE, ADMIN_STATUS, adminOnlyResponse, adminPage, isAdmin } from './admin.js'
 
 export const name = 'customer-form'
@@ -130,6 +131,23 @@ interface ConnectionLike {
   fetch?: { register: (route: { path: string; methods: string[]; requestBody: 'buffered'; fetch(request: Request): Promise<Response> }) => () => void }
 }
 
+/** Служба модели dsh по умолчанию (dsh-agent-default-model). */
+interface DefaultModelLike {
+  currentSelection(): ModelRoute
+  saveSelection(next: ModelRoute): Promise<void>
+}
+
+/**
+ * Модель чата по профилю — то же правило, что в customer.patch.yml
+ * (agent-default-model): PORTAL_PROVIDER/MODEL, иначе первый ключ окружения.
+ */
+function profileDefaultModel(): ModelRoute {
+  const env = process.env
+  const provider = env.PORTAL_PROVIDER || (env.ANTHROPIC_API_KEY ? 'anthropic' : env.ZAI_CODING_API_KEY ? 'zai-coding' : env.REQUESTY_API_KEY ? 'requesty' : 'zai')
+  const model = env.PORTAL_MODEL || (env.ANTHROPIC_API_KEY ? 'claude-haiku-5-5' : env.ZAI_CODING_API_KEY ? 'glm-5' : env.REQUESTY_API_KEY ? 'anthropic/claude-haiku-5-5' : 'glm-5-turbo')
+  return { provider, model }
+}
+
 /** Внутренности HostConnectionService dsh 0.2, нужные для передачи вызова шлюзу. */
 interface GatewayInternals {
   interceptors?: Map<string, { fetchHandler: { fetch(request: Request, peer: unknown): Promise<Response> } }>
@@ -146,22 +164,35 @@ export function apply(ctx: HarnessContext): void {
   const materials = sharedMaterials()
   const voice = new VoiceContext(materials)
 
-  // bft-deep (ADR-0012): модель портала — та же, что у чата (ctx.llm и модель
-  // по умолчанию); PORTAL_DEEP_PROVIDER/PORTAL_DEEP_MODEL — явный выбор.
+  // Модели портала (ADR-0012, models.ts): выбор администратора в «Настройках →
+  // Портал» хранится в томе. Чат — модель dsh по умолчанию; полный БФТ —
+  // PORTAL_DEEP_PROVIDER/MODEL → выбор администратора → модель чата.
+  let portalModels: PortalModels = {}
+  const modelsLoaded = readPortalModels().then((stored) => { portalModels = stored })
+  let defaults: DefaultModelLike | undefined
   let deepRuntime: { llm: LlmLike; route(): DeepRoute } | undefined
+  /** Модель чата dsh по умолчанию → `target` (выбор администратора или профиль). */
+  const applyChatModel = async (target: ModelRoute): Promise<void> => {
+    if (!defaults || sameRoute(defaults.currentSelection(), target)) return
+    await defaults.saveSelection({ provider: target.provider, model: target.model })
+  }
   ctx.inject(['llm', 'agentDefaultModel'], (scoped: HarnessContext) => {
     const llm = scoped.get('llm') as LlmLike
-    const defaults = scoped.get('agentDefaultModel') as { currentSelection(): DeepRoute }
+    const service = scoped.get('agentDefaultModel') as DefaultModelLike
     scoped.effect(() => {
+      defaults = service
       deepRuntime = {
         llm,
         route: () => {
-          const selection = defaults.currentSelection()
-          return { provider: process.env.PORTAL_DEEP_PROVIDER || selection.provider, model: process.env.PORTAL_DEEP_MODEL || selection.model }
+          const fallback = portalModels.deep ?? service.currentSelection()
+          return { provider: process.env.PORTAL_DEEP_PROVIDER || fallback.provider, model: process.env.PORTAL_DEEP_MODEL || fallback.model }
         },
       }
-      return () => { deepRuntime = undefined }
-    }, 'customer-form: модель bft-deep')
+      // Пересборка засевает профиль заново — выбор администратора возвращаем при старте.
+      void modelsLoaded.then(() => (portalModels.chat ? applyChatModel(portalModels.chat) : undefined))
+        .catch((e) => console.error('[customer-form] модель чата не применилась:', e))
+      return () => { defaults = undefined; deepRuntime = undefined }
+    }, 'customer-form: модели портала')
   })
   const deepRunning = new Set<string>()
   /** Собрать полный БФТ в фоне; повторный вызов во время сборки ничего не делает. */
@@ -250,6 +281,53 @@ export function apply(ctx: HarnessContext): void {
     const connection = scoped.get('connection') as ConnectionLike
     const register = connection.fetch?.register
     if (typeof register !== 'function') return
+
+    // Модели портала (ADR-0012): раздел «Портал» в «Настройках». Читать может
+    // любой (раздел видит только администратор), менять — только администратор.
+    scoped.effect(() => register({
+      path: MODELS_ROUTE,
+      methods: ['GET', 'POST'],
+      requestBody: 'buffered',
+      fetch: async (request: Request) => {
+        await modelsLoaded
+        if (request.method === 'POST') {
+          if (!isAdmin(request)) return Response.json({ error: 'Только администратор портала' }, { status: 403 })
+          let body: unknown
+          try { body = await request.json() } catch { return Response.json({ error: 'тело не JSON' }, { status: 400 }) }
+          const before = portalModels.chat
+          portalModels = mergePortalModels(portalModels, body)
+          await writePortalModels(portalModels)
+          try {
+            // Модель чата трогаем, только если её выбор изменился: сброс — назад к профилю.
+            if (!sameRoute(before, portalModels.chat) && (before || portalModels.chat)) {
+              await applyChatModel(portalModels.chat ?? profileDefaultModel())
+            }
+          } catch (e) {
+            console.error('[customer-form] модель чата не сохранилась:', e)
+            // Не применилась — выбор не запоминаем, иначе он «включится» при следующем старте.
+            portalModels = before ? { ...portalModels, chat: before } : (({ chat: _drop, ...rest }) => rest)(portalModels)
+            await writePortalModels(portalModels)
+            const message = e instanceof Error ? e.message : String(e)
+            const reason = /overridden by a home patch or command-line overlay/.test(message)
+              ? 'модель чата задана оверлеем /data/override.patch.yml — уберите его или поменяйте модель там'
+              : message
+            return Response.json({ error: `Модель чата не применилась: ${reason}` }, { status: 409 })
+          }
+        }
+        const chat = defaults?.currentSelection()
+        const deepEnv = process.env.PORTAL_DEEP_PROVIDER && process.env.PORTAL_DEEP_MODEL
+          ? { provider: process.env.PORTAL_DEEP_PROVIDER, model: process.env.PORTAL_DEEP_MODEL } : undefined
+        return Response.json({
+          // chat — модель, которая работает сейчас (её может задать и оверлей);
+          // chatChoice — выбор администратора (null — по профилю).
+          chat: chat ? { provider: chat.provider, model: chat.model } : null,
+          chatChoice: portalModels.chat ?? null,
+          profile: profileDefaultModel(),
+          deep: portalModels.deep ?? null,
+          deepEnv: deepEnv ?? null,
+        }, { headers: { 'cache-control': 'no-store' } })
+      },
+    }), 'customer-form: модели портала')
 
     // Администратор портала (ADR-0012): вход за паролем и защита записи настроек.
     scoped.effect(() => register({

@@ -70,7 +70,8 @@
 # Модель портала по умолчанию — первый заданный ключ: Anthropic/Claude Haiku 5.5
 # (ANTHROPIC_API_KEY), Z.AI Coding Plan/GLM-5 (ZAI_CODING_API_KEY),
 # Requesty/Claude Haiku 5.5 (REQUESTY_API_KEY), иначе zai/glm-5-turbo.
-# PORTAL_PROVIDER/PORTAL_MODEL — явный выбор. Без этого узла каталог берёт deepseek-official без ключа → «Отправить»
+# PORTAL_PROVIDER/PORTAL_MODEL — явный выбор. Выбор администратора в «Настройках →
+# Портал» важнее: узел customer-form применяет его при старте (ADR-0012). Без этого узла каталог берёт deepseek-official без ключа → «Отправить»
 # выключена.
 - id: agent-default-model
   config:

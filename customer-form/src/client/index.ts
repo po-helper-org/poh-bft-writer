@@ -13,6 +13,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { ComponentType } from 'react'
 import { StreamingMic } from './mic.js'
+import { PortalSettings } from './settings.js'
 import { RecentRequests, rememberSession, type MyRequests } from './recent.js'
 import {
   ACCEPTANCE_PREFIX, ACCEPTANCE_TAB, AcceptanceTab, AcceptanceTitle, BFT_PREFIX, BFT_TAB, BftTab, BftTitle, BftWatcher, bftWatch, bumpBft,
@@ -177,6 +178,14 @@ export function apply(ctx: ClientContext): void {
       badge.style.cssText = 'position:fixed;right:12px;bottom:10px;z-index:50;font:12px/1 system-ui,sans-serif;padding:5px 9px;border-radius:999px;border:1px solid currentColor;opacity:.6;color:inherit;text-decoration:none'
       document.body.appendChild(badge)
       ctx.effect(() => () => badge.remove(), 'customer-form: значок администратора')
+      // «Настройки → Портал»: модели чата и полного БФТ (только администратору).
+      const rpc = ctx.get('connection') as unknown as HostRpcLike
+      const call = (endpoint: string, payload: unknown) => rpc.rpc.call('/api', endpoint, payload)
+      const sectionSlots = ctx.get('slots') as SlotsLike
+      sectionSlots.inject('settings.section', () => sectionSlots.register(
+        { name: 'settings.section', id: 'customer-form-portal', order: 15, label: () => 'Портал', inject: () => ({ call }) },
+        PortalSettings as ComponentType<never>,
+      ))
     })
     .catch(() => { /* портал без статуса — режим заказчика */ })
 
