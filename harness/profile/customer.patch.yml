@@ -7,6 +7,10 @@
         providers:
           zai:
             apiKeyEnv: ZAI_API_KEY
+          # Anthropic — встроенный провайдер ядра (каталог моделей Claude уже в
+          # pi-ai). Ключ — ANTHROPIC_API_KEY в harness/.env (./set-key.sh --anthropic).
+          anthropic:
+            apiKeyEnv: ANTHROPIC_API_KEY
           # Z.AI GLM Coding Plan — отдельный эндпоинт и ключ подписки (не
           # платный API). Ключ — ZAI_CODING_API_KEY в harness/.env
           # (./set-key.sh --coding).
@@ -63,15 +67,15 @@
           - id: customer-form-tool
             name: 'customer-form/tool'
 
-# Модель портала по умолчанию: Z.AI Coding Plan/GLM-5, если задан
-# ZAI_CODING_API_KEY; иначе Requesty/Claude Haiku 5.5, если задан
-# REQUESTY_API_KEY; иначе zai/glm-5-turbo. PORTAL_PROVIDER/PORTAL_MODEL — явный
-# выбор. Без этого узла каталог берёт deepseek-official без ключа → «Отправить»
+# Модель портала по умолчанию — первый заданный ключ: Anthropic/Claude Haiku 5.5
+# (ANTHROPIC_API_KEY), Z.AI Coding Plan/GLM-5 (ZAI_CODING_API_KEY),
+# Requesty/Claude Haiku 5.5 (REQUESTY_API_KEY), иначе zai/glm-5-turbo.
+# PORTAL_PROVIDER/PORTAL_MODEL — явный выбор. Без этого узла каталог берёт deepseek-official без ключа → «Отправить»
 # выключена.
 - id: agent-default-model
   config:
-    provider: !!js "process.env.PORTAL_PROVIDER || (process.env.ZAI_CODING_API_KEY ? 'zai-coding' : process.env.REQUESTY_API_KEY ? 'requesty' : 'zai')"
-    model: !!js "process.env.PORTAL_MODEL || (process.env.ZAI_CODING_API_KEY ? 'glm-5' : process.env.REQUESTY_API_KEY ? 'anthropic/claude-haiku-5-5' : 'glm-5-turbo')"
+    provider: !!js "process.env.PORTAL_PROVIDER || (process.env.ANTHROPIC_API_KEY ? 'anthropic' : process.env.ZAI_CODING_API_KEY ? 'zai-coding' : process.env.REQUESTY_API_KEY ? 'requesty' : 'zai')"
+    model: !!js "process.env.PORTAL_MODEL || (process.env.ANTHROPIC_API_KEY ? 'claude-haiku-5-5' : process.env.ZAI_CODING_API_KEY ? 'glm-5' : process.env.REQUESTY_API_KEY ? 'anthropic/claude-haiku-5-5' : 'glm-5-turbo')"
 
 # Заказчику не показываем «Internal Testing Notice» dsh: версия уведомления
 # считается подтверждённой (так её записывает сам dsh по кнопке Continue).

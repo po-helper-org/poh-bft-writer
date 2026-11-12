@@ -6,6 +6,7 @@
 #   ./set-key.sh --from-pi             # взять ключ из ~/.pi/agent/auth.json
 #   ./set-key.sh --check-only <ключ|--from-pi>   # только проверить, не менять
 #   ./set-key.sh --coding [ключ]       # ключ GLM Coding Plan → портал заказчика на GLM-5
+#   ./set-key.sh --anthropic [ключ]    # ключ Anthropic API → портал заказчика на Claude Haiku 5.5
 #
 # Что делает: проверяет форму → живой запрос к Z.AI (каталог моделей, без
 # траты токенов) → пишет ZAI_API_KEY в .env → снимает demo-переопределения
@@ -17,11 +18,13 @@ cd "$(dirname "$0")"
 KEY=""
 CHECK_ONLY=0
 CODING=0
+ANTHROPIC=0
 for arg in "$@"; do
   case "$arg" in
     --from-pi) ;;   # обрабатывается ниже (после разбора всех флагов)
     --check-only) CHECK_ONLY=1 ;;
     --coding) CODING=1 ;;
+    --anthropic) ANTHROPIC=1 ;;
     -*) echo "неизвестный флаг: $arg" >&2; exit 2 ;;
     *) KEY="$arg" ;;
   esac
@@ -38,7 +41,8 @@ for arg in "$@"; do
   fi
 done
 if [ -z "$KEY" ]; then
-  printf 'Вставьте ключ Z.AI (ввод не печатается): '
+  [ "$ANTHROPIC" = "1" ] && printf 'Вставьте ключ Anthropic API (ввод не печатается): ' \
+    || printf 'Вставьте ключ Z.AI (ввод не печатается): '
   read -rs KEY </dev/tty 2>/dev/null || read -r KEY
   echo
 fi
@@ -48,6 +52,32 @@ if [ -z "$KEY" ]; then
   echo
 fi
 KEY="$(printf '%s' "$KEY" | tr -d '[:space:]')"
+
+# ── --anthropic: ключ Anthropic API только для портала заказчика ─────────────
+if [ "$ANTHROPIC" = "1" ]; then
+  printf '%s' "$KEY" | grep -qE '^sk-ant-[A-Za-z0-9_-]{20,}$' \
+    || { echo "✗ Не похоже на ключ Anthropic API (ожидается sk-ant-…): https://platform.claude.com/settings/keys"; exit 1; }
+  echo "✓ форма ключа: ${KEY:0:10}….<секрет>"
+  # Список моделей — без траты токенов.
+  CODE="$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 \
+    -H "x-api-key: $KEY" -H 'anthropic-version: 2023-06-01' https://api.anthropic.com/v1/models || echo 000)"
+  case "$CODE" in
+    200) echo "✓ Anthropic принял ключ (список моделей отвечает)" ;;
+    401|403) echo "✗ Anthropic отклонил ключ ($CODE)"; exit 1 ;;
+    000) echo "⚠ Anthropic недоступен (сеть/прокси): сохраняю без проверки" ;;
+    *) echo "⚠ Anthropic ответил $CODE: сохраняю, проверьте ключ позже" ;;
+  esac
+  [ "$CHECK_ONLY" = "1" ] && { echo "(--check-only: ничего не меняю)"; exit 0; }
+  [ -f .env ] || cp .env.example .env
+  if grep -q '^ANTHROPIC_API_KEY=' .env; then sed -i.bak "s|^ANTHROPIC_API_KEY=.*|ANTHROPIC_API_KEY=${KEY}|" .env && rm -f .env.bak
+  else printf 'ANTHROPIC_API_KEY=%s\n' "$KEY" >> .env; fi
+  echo "✓ ANTHROPIC_API_KEY записан в harness/.env"
+  export PATH="$HOME/.orbstack/bin:$PATH"
+  docker compose up -d --force-recreate customer-web >/dev/null 2>&1
+  echo "✓ Портал заказчика пересоздан: модель — Claude Haiku 5.5 (Anthropic)"
+  grep -q '^PORTAL_PROVIDER=' .env && echo "⚠ в .env задан PORTAL_PROVIDER — он важнее ключа; уберите строку, чтобы портал ушёл на Anthropic"
+  exit 0
+fi
 
 # ── 1. Форма ключа: id.secret, две hex-части (та же валидация, что в UI) ───────
 # Реальные ключи Z.AI: id.secret из букв-цифр СМЕШАННОГО регистра (не только hex).
