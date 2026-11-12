@@ -271,6 +271,11 @@ export class Backlog {
     return items.filter((item): item is RequestSummary => !!item).sort((a, b) => b.created.localeCompare(a.created) || b.taskId - a.taskId)
   }
 
+  /** Все сессии портала, по которым заведена заявка (страница «Все заявки», ADR-0012). */
+  async sessionIds(): Promise<string[]> {
+    return Object.keys(await this.tickets)
+  }
+
   /** Доска со всеми обращениями: вид «Запросы» проекта БФТ (или сам проект). */
   async boardUrl(): Promise<string> {
     const pid = await this.projectId()

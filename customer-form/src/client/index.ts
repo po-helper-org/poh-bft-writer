@@ -15,7 +15,7 @@ import type { ComponentType } from 'react'
 import { StreamingMic } from './mic.js'
 import { RecentRequests, rememberSession, type MyRequests } from './recent.js'
 import {
-  ACCEPTANCE_PREFIX, ACCEPTANCE_TAB, AcceptanceTab, AcceptanceTitle, BFT_PREFIX, BFT_TAB, BftTab, BftTitle, BftWatcher, bftWatch,
+  ACCEPTANCE_PREFIX, ACCEPTANCE_TAB, AcceptanceTab, AcceptanceTitle, BFT_PREFIX, BFT_TAB, BftTab, BftTitle, BftWatcher, bftWatch, bumpBft,
   bridges, InfoView, InputBridge, lastSessionId, sessionOfAddress, sessionOfBftAddress,
   type SessionInfo,
 } from './panels.js'
@@ -104,8 +104,8 @@ const RU_CHAT: Record<string, string> = {
   'message.stepProcess.questions': 'Ждём ваших ответов',
   'message.stepProcess.done.questions': 'Вопросы заданы',
   'message.turnProcess.worked': 'Готово',
-  'message.turnProcess.deepDivingFor': 'Изучаю {duration}',
-  'message.turnProcess.took': 'Заняло {duration}',
+  // Ядро 0.2: «took» — префикс, длительность дописывает само (не шаблон {duration}).
+  'message.turnProcess.took': 'Заняло ',
   'message.turnProcess.failed': 'Не получилось',
   'chat.deepDiving': 'Изучаю…',
   'message.turnError': 'Ассистент не ответил',
@@ -201,7 +201,9 @@ export function apply(ctx: ClientContext): void {
   }
   const openBft = (sessionId: string) => {
     const right = ctx.get('sidebarRight') as { openResource(address: string): void } | undefined
-    right?.openResource(`${BFT_PREFIX}${encodeURIComponent(sessionId)}/${Date.now()}`)
+    // Адрес постоянный — открытая вкладка раскрывается, а не дублируется; новую версию даёт bumpBft.
+    bumpBft(sessionId)
+    right?.openResource(`${BFT_PREFIX}${encodeURIComponent(sessionId)}`)
   }
   bftWatch.loadInfo = loadInfo
   bftWatch.openBft = openBft

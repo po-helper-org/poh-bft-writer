@@ -14,7 +14,7 @@
  *    версия документа открывается сама, страница отправляет замечания и
  *    согласование сообщением в чат.
  */
-import { useEffect, useState, type ReactElement } from 'react'
+import { useEffect, useState, type ReactElement, useSyncExternalStore } from 'react'
 
 export const ACCEPTANCE_TAB = 'customer-form/acceptance'
 export const ACCEPTANCE_PREFIX = 'dsh-resource://customer-acceptance/'
@@ -69,12 +69,30 @@ export function sessionOfBftAddress(address: string): string | undefined {
   return m ? decodeURIComponent(m[1]) : undefined
 }
 
-/** Правая панель: быстрая версия БФТ со слоем заказчика (rev15). */
+/**
+ * Версия документа в панели: адрес вкладки постоянный (dsh раскрывает уже
+ * открытую вкладку, а не плодит новые), перезагрузку даёт номер версии.
+ */
+const bftVersions = new Map<string, number>()
+const bftListeners = new Set<() => void>()
+export function bumpBft(sessionId: string): void {
+  bftVersions.set(sessionId, (bftVersions.get(sessionId) ?? 0) + 1)
+  for (const listener of bftListeners) listener()
+}
+function useBftVersion(sessionId: string): number {
+  return useSyncExternalStore(
+    (listener) => { bftListeners.add(listener); return () => { bftListeners.delete(listener) } },
+    () => bftVersions.get(sessionId) ?? 0,
+  )
+}
+
+/** Правая панель: документ БФТ — первичные требования, затем полный БФТ (rev15, ADR-0012). */
 export function BftTab({ useTabInfo }: { useTabInfo: () => TabInfo }): ReactElement {
   const address = useTabInfo().tab.navigation.address
-  const sessionId = sessionOfBftAddress(address)
+  const sessionId = sessionOfBftAddress(address) ?? ''
+  const version = useBftVersion(sessionId)
   if (!sessionId) return <div style={{ padding: 16, opacity: 0.7 }}>Документ не найден.</div>
-  const src = `/api/customer-form.bftFast?session=${encodeURIComponent(sessionId)}&v=${encodeURIComponent(address)}`
+  const src = `/api/customer-form.bftFast?session=${encodeURIComponent(sessionId)}&v=${version}`
   return (
     <iframe
       key={src}
@@ -108,7 +126,9 @@ export function BftWatcher({ sessionId }: { sessionId?: string }): null {
       void bftWatch.loadInfo?.(sessionId).then((info) => {
         if (!alive || !info) return
         const fast = info.bftFast
-        const key = fast ? (fast.building ? 'building' : fast.rev) : null
+        const deep = info.bftDeep
+        // Полный БФТ (ADR-0012) идёт после первичных требований: его этапы — тоже смена состояния.
+        const key = deep ? `deep:${deep.stage}:${deep.startedAt}` : fast ? (fast.building ? 'building' : fast.rev) : null
         // Сборку показываем и при первом опросе: заказчик только что нажал «Согласую».
         const opened = key === 'building' ? seen !== 'building' : seen !== undefined && !!key && key !== seen
         if (opened) bftWatch.openBft?.(sessionId)
@@ -137,6 +157,8 @@ export interface SessionInfo {
   demo: { rev: number; title: string; approved: boolean } | null
   /** Быстрая версия БФТ, если документ собран (rev14): версия — хэш, согласование — этой версии. */
   bftFast?: { url: string; rev: string | null; approvedAt: string | null; building: boolean } | null
+  /** Полный БФТ (bft-deep в портале, ADR-0012) — после согласования первичных требований. */
+  bftDeep?: { stage: 'building' | 'ready' | 'failed'; startedAt: string; finishedAt: string | null } | null
 }
 
 interface InfoProps {
@@ -186,6 +208,23 @@ export function InfoView({ sessionId, loadInfo, openAcceptance, openBft }: InfoP
               <button type="button" data-bft-fast onClick={() => openBft(sessionId)} style={{ marginLeft: 10, cursor: 'pointer', borderRadius: 8, padding: '2px 10px', border: '1px solid rgba(127,127,127,.4)', background: 'transparent', color: 'inherit' }}>Открыть</button>
             </div>
           : <div style={{ marginTop: 4 }}>Соберётся в чате после подтверждения заявки.</div>}
+      </div>
+      <div style={card} data-bft-deep-card>
+        <div style={muted}>Полный БФТ</div>
+        {info?.bftDeep
+          ? <div style={{ marginTop: 4 }}>
+              {info.bftDeep.stage === 'building' ? 'собирается…' : info.bftDeep.stage === 'failed' ? 'не собран — откройте, чтобы собрать заново' : 'готов'}
+              <button type="button" onClick={() => openBft(sessionId)} style={{ marginLeft: 10, cursor: 'pointer', borderRadius: 8, padding: '2px 10px', border: '1px solid rgba(127,127,127,.4)', background: 'transparent', color: 'inherit' }}>Открыть</button>
+              {info.bftDeep.stage === 'ready' && (
+                <div style={{ marginTop: 6 }}>
+                  Скачать:{' '}
+                  {(['docx', 'pdf', 'md'] as const).map((format) => (
+                    <a key={format} href={`/api/customer-form.bftDownload?session=${encodeURIComponent(sessionId)}&doc=deep&format=${format}`} download style={{ color: 'inherit', fontWeight: 600, marginRight: 12 }}>.{format}</a>
+                  ))}
+                </div>
+              )}
+            </div>
+          : <div style={{ marginTop: 4 }}>Соберётся после «Да, согласен» на первичных требованиях.</div>}
       </div>
       <div style={card}>
         <div style={muted}>Материалы диалога ({info?.files.length ?? 0})</div>

@@ -24,11 +24,16 @@ import { VoiceContext } from './voice.js'
 import { sharedDemos } from './demo.js'
 import { demoPageHtml } from './demo-page.js'
 import type { AgentLike, BlockLike } from './tool.js'
-import { approveFast, FAST_ROOT, fastFiles, fastPagePath, fastProgress, fastSlug, fastState, stillBuilding } from './bft-fast.js'
-import { customerFastPage, waitingPage } from './fast-page.js'
+import { approveFast, FAST_ROOT, fastFiles, fastPagePath, fastProgress, fastSlug, fastState, SKILLS_PATH, stillBuilding } from './bft-fast.js'
+import { customerDeepPage, customerFastPage, deepFailedPage, requestsPage, waitingPage, type RequestRow } from './fast-page.js'
+import { buildDeep, deepFiles, readDeepState, type DeepRoute, type DeepState, type LlmLike } from './bft-deep.js'
+import { EXPORT_TYPES, exportDocument, type ExportFormat } from './export.js'
 import type { PrimaryDoc } from './primary.js'
 
 export const name = 'customer-form'
+
+/** Страница «Все заявки» портала (ADR-0012, шаг 7). */
+const REQUESTS_PAGE = '/api/customer-form.requests'
 
 interface SystemPromptLike {
   section(section: { name: string; order: number; text: string | (() => string) }): () => void
@@ -113,7 +118,7 @@ export const CUSTOMER_PROMPT = `Ты — ассистент приёма ини�
 - create_bft_fast — первичные требования со слов заказчика: ты стенографист, ничего не придумываешь и не дораскрываешь. Заполни только сказанное им и его материалами: что хочет и зачем, требования (каждое — одна фраза с типом и дословной цитатой: «Заказчик: «…»», «Материалы [S1]: «…»» или «Сценарий приёмки (согласован): «…»»), что не входит, кого он назвал и по каким вопросам, открытые вопросы. Единственное, что ты дораскрываешь, — achievable: из его ответа «Каким вы видите решение» (дословно в vision) составь краткий план реализации — какие команды участвуют, какие согласования нужны, что проработать, какие специалисты нужны (PO, SA, BA, BE, FE, DevOps). Не ответил — заполни план по сути запроса, vision не пиши. Как он примет работу, где проверять и чьи зоны затрагивает запрос, инструмент добавит сам — из согласованного сценария и Кортекса (памяти организации). Если инструмент вернул ошибки — исправь поля и вызови снова.
 - Когда документ собран: одной репликой — ссылка на документ из результата create_bft_fast (он уже открыт справа), ссылка на отслеживание заявки, открытые вопросы списком и: «Если всё верно — нажмите „Да, согласен“. Если что-то пропущено — „Добавить требования“ или просто надиктуйте сюда голосом, что и где добавить».
 - Правки документа после сборки: заказчик пишет или надиктовывает, что поменять, или присылает «Замечания к документу БФТ:» со страницы документа, — исправь поля и снова вызови create_bft_fast (submit_customer_request повторно не вызывай).
-- Сообщение «✅ Да, согласен с документом БФТ.» отправляет кнопка «Да, согласен» на странице документа — согласование уже записано в заявку. Поблагодари одной фразой и скажи, что PO возьмёт документ в проработку; инструменты не вызывай.
+- Сообщение «✅ Да, согласен с документом БФТ.» отправляет кнопка «Да, согласен» на странице документа — согласование уже записано в заявку, и портал сам начал собирать полный БФТ по корпоративному канону. Поблагодари одной фразой и скажи: полный БФТ собирается справа, обычно 3–6 минут, его можно будет скачать в Word, PDF и Markdown; инструменты не вызывай.
 - Сообщения «📌 …» (заявка зарегистрирована, сценарий согласован) добавляет портал, а не заказчик: на них не отвечай; номер заявки упомяни в итоговой сводке.
 - Не обещай сроков и бюджета — это решает PO. Не уходи в технические детали реализации.`
 
@@ -133,6 +138,46 @@ export function apply(ctx: HarnessContext): void {
   const backlog = sharedBacklog()
   const materials = sharedMaterials()
   const voice = new VoiceContext(materials)
+
+  // bft-deep (ADR-0012): модель портала — та же, что у чата (ctx.llm и модель
+  // по умолчанию); PORTAL_DEEP_PROVIDER/PORTAL_DEEP_MODEL — явный выбор.
+  let deepRuntime: { llm: LlmLike; route(): DeepRoute } | undefined
+  ctx.inject(['llm', 'agentDefaultModel'], (scoped: HarnessContext) => {
+    const llm = scoped.get('llm') as LlmLike
+    const defaults = scoped.get('agentDefaultModel') as { currentSelection(): DeepRoute }
+    scoped.effect(() => {
+      deepRuntime = {
+        llm,
+        route: () => {
+          const selection = defaults.currentSelection()
+          return { provider: process.env.PORTAL_DEEP_PROVIDER || selection.provider, model: process.env.PORTAL_DEEP_MODEL || selection.model }
+        },
+      }
+      return () => { deepRuntime = undefined }
+    }, 'customer-form: модель bft-deep')
+  })
+  const deepRunning = new Set<string>()
+  /** Собрать полный БФТ в фоне; повторный вызов во время сборки ничего не делает. */
+  const startDeep = (ticket: Ticket): boolean => {
+    const slug = fastSlug(ticket.taskId)
+    if (deepRunning.has(slug)) return true
+    if (!deepRuntime) {
+      console.error('[customer-form] bft-deep: модель портала недоступна (ctx.llm)')
+      return false
+    }
+    const runtime = deepRuntime
+    const fast = fastFiles(FAST_ROOT, slug)
+    deepRunning.add(slug)
+    void (async () => {
+      const context = await readFile(fast.contextMap, 'utf8').catch(() => '')
+      const state = await buildDeep({
+        llm: runtime.llm, route: runtime.route(), skillsPath: SKILLS_PATH, fast, slug, taskUrl: ticket.url,
+        context: context ? `Карта контекста (память организации — указатель, не фактбаза):\n${context}` : '',
+      })
+      await reportDeep(backlog, ticket, slug, deepFiles(fast, slug), state)
+    })().catch((e) => console.error('[customer-form] bft-deep упал:', e)).finally(() => deepRunning.delete(slug))
+    return true
+  }
 
 
 
@@ -269,7 +314,19 @@ export function apply(ctx: HarnessContext): void {
         }
         const headers = { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }
         // ?full=1 — канонический bft-fast навыка как есть (он же в заявке).
-        if (new URL(request.url).searchParams.has('full')) return new Response(html, { headers })
+        const params = new URL(request.url).searchParams
+        if (params.has('full')) return new Response(html, { headers })
+        // Первичные требования согласованы — та же вкладка показывает полный БФТ (ADR-0012);
+        // ?view=fast — вернуться к первичным требованиям.
+        const fastApproved = (await fastState(files))?.approvedAt
+        const deep = fastApproved ? await readDeepState(deepFiles(files, slug)) : undefined
+        if (deep && params.get('view') !== 'fast') {
+          const fastUrl = `${fastPagePath(sessionId)}&view=fast`
+          if (deep.stage === 'building') return new Response(waitingPage(sessionId, { stage: 'building', startedAt: deep.startedAt }, '/api/customer-form.bftDeepStatus', 'deep'), { headers })
+          if (deep.stage === 'failed') return new Response(deepFailedPage(sessionId, deep.error ?? 'неизвестная ошибка', '/api/customer-form.bftDeepRetry', fastUrl), { headers })
+          const deepHtml = await readFile(deepFiles(files, slug).html, 'utf8').catch(() => undefined)
+          if (deepHtml) return new Response(customerDeepPage(deepHtml, sessionId, fastUrl), { headers })
+        }
         // Заказчику (rev21) — тот же документ: How to demo таблицей, зоны и контакты, без полей для PO.
         const state = await fastState(files)
         const doc = await readFile(files.primary, 'utf8').then((s) => JSON.parse(s) as PrimaryDoc).catch(() => undefined)
@@ -298,6 +355,80 @@ export function apply(ctx: HarnessContext): void {
         return Response.json({ ok: true })
       },
     }), 'customer-form: /api/customer-form.e2e')
+
+    // Все заявки (ADR-0012, шаг 7): статус заявки и документов, ссылки на документ и выгрузку.
+    scoped.effect(() => register({
+      path: REQUESTS_PAGE,
+      methods: ['GET'],
+      requestBody: 'buffered',
+      fetch: async () => {
+        const items = await backlog.overview(await backlog.sessionIds()).catch((e) => {
+          console.error('[customer-form] все заявки не загрузились:', e)
+          return undefined
+        })
+        const rows = await Promise.all((items ?? []).map(async (item): Promise<RequestRow> => {
+          const slug = fastSlug(item.taskId)
+          const files = fastFiles(FAST_ROOT, slug)
+          const fast = await fastState(files)
+          const deep = fast?.approvedAt ? await readDeepState(deepFiles(files, slug)) : undefined
+          return { ...item, ...(fast ? { fast: fast.approvedAt ? 'approved' as const : 'review' as const } : {}), ...(deep ? { deep: deep.stage } : {}) }
+        }))
+        return new Response(requestsPage(rows, items === undefined), { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } })
+      },
+    }), 'customer-form: все заявки')
+
+    // Полный БФТ: ход сборки для экрана ожидания и «Собрать заново» (ADR-0012).
+    scoped.effect(() => register({
+      path: '/api/customer-form.bftDeepStatus',
+      methods: ['GET'],
+      requestBody: 'buffered',
+      fetch: async (request: Request) => {
+        const sessionId = new URL(request.url).searchParams.get('session') ?? ''
+        const ticket = sessionId ? await backlog.find(sessionId).catch(() => undefined) : undefined
+        const state = ticket ? await readDeepState(deepFiles(fastFiles(FAST_ROOT, fastSlug(ticket.taskId)), fastSlug(ticket.taskId))) : undefined
+        return Response.json({ stage: state?.stage ?? 'none', startedAt: state?.startedAt ?? null }, { headers: { 'cache-control': 'no-store' } })
+      },
+    }), 'customer-form: /api/customer-form.bftDeepStatus')
+    scoped.effect(() => register({
+      path: '/api/customer-form.bftDeepRetry',
+      methods: ['POST'],
+      requestBody: 'buffered',
+      fetch: async (request: Request) => {
+        const body = (await request.json().catch(() => ({}))) as { sessionId?: unknown }
+        const sessionId = typeof body.sessionId === 'string' ? body.sessionId : ''
+        const ticket = sessionId ? await backlog.find(sessionId).catch(() => undefined) : undefined
+        if (!ticket) return Response.json({ error: 'заявка не найдена' }, { status: 404 })
+        if (!(await fastState(fastFiles(FAST_ROOT, fastSlug(ticket.taskId))))?.approvedAt) return Response.json({ error: 'первичные требования не согласованы' }, { status: 409 })
+        return startDeep(ticket) ? Response.json({ ok: true }) : Response.json({ error: 'модель портала недоступна' }, { status: 503 })
+      },
+    }), 'customer-form: /api/customer-form.bftDeepRetry')
+
+    // Скачать документ БФТ: doc=fast|deep, format=md|docx|pdf (ADR-0012, шаг 5).
+    scoped.effect(() => register({
+      path: '/api/customer-form.bftDownload',
+      methods: ['GET'],
+      requestBody: 'buffered',
+      fetch: async (request: Request) => {
+        const params = new URL(request.url).searchParams
+        const sessionId = params.get('session') ?? ''
+        const doc = params.get('doc') === 'deep' ? 'deep' : 'fast'
+        const format = (['md', 'docx', 'pdf'] as const).find((f) => f === params.get('format')) as ExportFormat | undefined
+        const ticket = sessionId ? await backlog.find(sessionId).catch(() => undefined) : undefined
+        if (!ticket || !format) return new Response('документ не найден', { status: 404 })
+        const slug = fastSlug(ticket.taskId)
+        const files = fastFiles(FAST_ROOT, slug)
+        const md = doc === 'deep' ? deepFiles(files, slug).md : files.md
+        if (doc === 'deep' && (await readDeepState(deepFiles(files, slug)))?.stage !== 'ready') return new Response('полный БФТ ещё не собран', { status: 404 })
+        try {
+          const path = await exportDocument(md, format)
+          const name = `${doc === 'deep' ? slug : `${slug}-fast`}.${format}`
+          return new Response(await readFile(path), { headers: { 'content-type': EXPORT_TYPES[format], 'content-disposition': `attachment; filename="${name}"`, 'cache-control': 'no-store' } })
+        } catch (e) {
+          console.error('[customer-form] выгрузка БФТ:', e)
+          return new Response(`не удалось собрать ${format}: ${(e as Error).message}`, { status: 500 })
+        }
+      },
+    }), 'customer-form: /api/customer-form.bftDownload')
 
     // Ход сборки для экрана ожидания: опрос раз в 2 с.
     scoped.effect(() => register({
@@ -329,7 +460,10 @@ export function apply(ctx: HarnessContext): void {
         try {
           const before = await fastState(files)
           const state = await approveFast(files)
-          if (!before?.approvedAt) void reportFastApproval(backlog, ticket, slug, files.html, state.approvedAt!)
+          if (!before?.approvedAt) {
+            void reportFastApproval(backlog, ticket, slug, files.html, state.approvedAt!)
+            startDeep(ticket)
+          }
           return Response.json({ approvedAt: state.approvedAt })
         } catch (e) {
           return Response.json({ error: (e as Error).message }, { status: 409 })
@@ -352,8 +486,9 @@ export function apply(ctx: HarnessContext): void {
           if (Array.isArray(body.payload?.sessionIds)) sessionIds = body.payload.sessionIds.filter((id): id is string => typeof id === 'string').slice(0, 200)
         } catch { /* пустое тело */ }
         try {
-          const [items, boardUrl] = await Promise.all([backlog.overview(sessionIds), backlog.boardUrl()])
-          return Response.json({ type: 'server-response', rpcId, result: { ok: true, value: { items, boardUrl } } })
+          // «Смотреть все заявки» — страница портала (ADR-0012): доска трекера заказчику без входа не видна.
+          const items = await backlog.overview(sessionIds)
+          return Response.json({ type: 'server-response', rpcId, result: { ok: true, value: { items, boardUrl: REQUESTS_PAGE } } })
         } catch (e) {
           console.error('[customer-form] обращения не загрузились:', e)
           return Response.json({ type: 'server-response', rpcId, result: { ok: false, error: (e as Error).message } })
@@ -378,6 +513,7 @@ export function apply(ctx: HarnessContext): void {
         const record = sharedDemos().get(sessionId)
         const fast = ticket ? await fastState(fastFiles(FAST_ROOT, fastSlug(ticket.taskId))) : undefined
         const building = ticket ? await stillBuilding(fastProgress.get(sessionId), fastFiles(FAST_ROOT, fastSlug(ticket.taskId))) : false
+        const deep = ticket && fast?.approvedAt ? await readDeepState(deepFiles(fastFiles(FAST_ROOT, fastSlug(ticket.taskId)), fastSlug(ticket.taskId))) : undefined
         const value = {
           ticket: ticket ? { taskId: ticket.taskId, url: ticket.url, demoApprovedAt: ticket.demoApprovedAt } : null,
           files: sessionId ? materials.list(sessionId) : [],
@@ -385,6 +521,7 @@ export function apply(ctx: HarnessContext): void {
           bftFast: building
             ? { url: fastPagePath(sessionId), rev: null, approvedAt: null, building: true }
             : fast ? { url: fastPagePath(sessionId), rev: fast.rev, approvedAt: fast.approvedAt ?? null, building: false } : null,
+          bftDeep: deep ? { stage: deep.stage, startedAt: deep.startedAt, finishedAt: deep.finishedAt ?? null } : null,
         }
         return Response.json({ type: 'server-response', rpcId, result: { ok: true, value } })
       },
@@ -399,6 +536,21 @@ async function reportFastApproval(backlog: Backlog, ticket: Ticket, slug: string
     await backlog.attach(ticket, `${slug}-fast-soglasovan.html`, await readFile(htmlPath))
   } catch (e) {
     console.error('[customer-form] согласование БФТ не ушло в задачу:', e)
+  }
+}
+
+/** Полный БФТ — в заявку: документ и страница ревью, или причина сбоя. */
+async function reportDeep(backlog: Backlog, ticket: Ticket, slug: string, files: { md: string; html: string }, state: DeepState): Promise<void> {
+  try {
+    if (state.stage !== 'ready') {
+      await backlog.comment(ticket, `<p><strong>⚠ Полный БФТ не собран</strong> — ${moscowTime(state.finishedAt ?? state.startedAt)}</p><p>${(state.error ?? '').slice(0, 500).replace(/[<>&]/g, '')}</p>`)
+      return
+    }
+    await backlog.comment(ticket, `<p><strong>📄 Полный БФТ собран</strong> (bft-deep в портале) — ${moscowTime(state.finishedAt ?? state.startedAt)}</p><p>Документ и страница ревью — во вложении ${slug}.md и ${slug}.html.</p>`)
+    await backlog.attach(ticket, `${slug}.md`, await readFile(files.md))
+    await backlog.attach(ticket, `${slug}.html`, await readFile(files.html))
+  } catch (e) {
+    console.error('[customer-form] полный БФТ не ушёл в задачу:', e)
   }
 }
 

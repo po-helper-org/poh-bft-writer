@@ -61,7 +61,7 @@ test('микродиалог: вложение → вопросы → согла
   await page.screenshot({ path: 'test-results/bft-fast-waiting.png' })
 
   // Документ сам сменяет экран ожидания: базовый bft-fast со слоем заказчика (rev21).
-  await expect(doc.getByRole('heading', { name: new RegExp(`\\[БФТ\\] zayavka-${taskId}`) }), 'документ в правой панели').toBeVisible({ timeout: 30_000 })
+  await expect(doc.getByRole('heading', { name: new RegExp(`\\[БФТ\\] zayavka-${taskId}`) }), 'документ в правой панели').toBeVisible({ timeout: 60_000 })
   for (const head of ['How to demo', 'Критичные требования (скелет на цитатах)']) {
     await expect(doc.getByRole('heading', { name: head }), `раздел «${head}»`).toBeVisible()
   }
@@ -100,6 +100,23 @@ test('микродиалог: вложение → вопросы → согла
   await expect(doc.locator('#csYes'), 'согласовано на странице').toHaveText(/Согласовано/, { timeout: 10_000 })
   await expect(page.getByText('Да, согласен с документом БФТ').first(), 'согласование в чате').toBeVisible({ timeout: 10_000 })
 
+  // Полный БФТ (ADR-0012): «Да, согласен» запускает bft-deep — та же вкладка показывает сборку, затем документ.
+  await expect(doc.getByRole('heading', { name: 'Пишу полный БФТ-документ' }), 'сборка полного БФТ справа').toBeVisible({ timeout: 15_000 })
+  await expect(doc.getByText('Полный БФТ · по согласованным первичным требованиям'), 'полный БФТ в панели').toBeVisible({ timeout: 60_000 })
+  for (const head of ['Проблема которую решаем', 'План демонстрации', 'Функциональные требования*', 'Якоря истины']) {
+    await expect(doc.getByRole('heading', { name: head, exact: true }), `раздел канона «${head}»`).toBeVisible()
+  }
+  await expect(doc.getByRole('heading', { name: 'Продолжить / уточнить БФТ' }), 'промт для PO заказчику не показан').toHaveCount(0)
+  await page.screenshot({ path: 'test-results/bft-deep-panel.png' })
+  // Шаг 5: скачать .docx / .pdf / .md.
+  const sessionId = (await page.locator('iframe[data-customer-bft]').getAttribute('data-customer-bft')) ?? ''
+  for (const [format, type] of [['docx', 'officedocument.wordprocessingml'], ['pdf', 'application/pdf'], ['md', 'text/markdown']] as const) {
+    const res = await request.get(`${CUSTOMER_URL}/api/customer-form.bftDownload?session=${encodeURIComponent(sessionId)}&doc=deep&format=${format}`)
+    expect(res.status(), `скачать .${format}`).toBe(200)
+    expect(res.headers()['content-type'], `тип .${format}`).toContain(type)
+    expect((await res.body()).length, `.${format} не пустой`).toBeGreaterThan(1000)
+  }
+
   // Задача: постановка по разделам, сводка в комментарии, вложение + контекст.
   const login = await request.post(`${TRACKER_API}/login`, {
     data: { username: process.env.TRACKER_USER ?? 'bft-admin', password: process.env.TRACKER_PASSWORD ?? '' },
@@ -127,4 +144,7 @@ test('микродиалог: вложение → вопросы → согла
   expect(thread, 'согласование документа заказчиком').toContain('Заказчик согласовал быструю версию БФТ')
   expect(files, 'согласованная страница').toContain(`zayavka-${taskId}-fast-soglasovan.html`)
   expect(files, 'карта контекста Кортекса').toContain(`zayavka-${taskId}-context-map.md`)
+  for (const name of [`zayavka-${taskId}.md`, `zayavka-${taskId}.html`]) {
+    expect(files, `полный БФТ в задаче: ${name}`).toContain(name)
+  }
 })

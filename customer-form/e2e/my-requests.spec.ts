@@ -52,7 +52,13 @@ test('под формой — мои обращения: клик открыва
   expect(kept, 'пустые старые сессии вычищены').not.toContain('session-empty-')
 
   const all = recent.getByRole('link', { name: /Смотреть все обращения/ })
-  await expect(all).toHaveAttribute('href', /\/projects\/\d+\/\d+$/)
+  // «Все заявки» — страница портала (ADR-0012): заявка видна в общем списке.
+  await expect(all).toHaveAttribute('href', '/api/customer-form.requests')
+  const board = await page.context().newPage()
+  await board.goto(new URL('/api/customer-form.requests', page.url()).toString())
+  await expect(board.getByRole('heading', { name: 'Все заявки' })).toBeVisible()
+  await expect(board.locator('tr[data-request]').first(), 'заявки в общем списке').toBeVisible()
+  await board.close()
   await expect(all).toHaveAttribute('target', '_blank')
 
   // Клик — чат по этой инициативе, список пропадает вместе со стартовым экраном.

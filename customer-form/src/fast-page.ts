@@ -13,7 +13,6 @@
  *     - «Источники» и открытое поле /bft-deep (работа PO) скрыты.
  *  - waitingPage — пока документ собирается: ход сборки по этапам.
  */
-import type { FastProgress } from './bft-fast.js'
 import type { CortexBrief } from './cortex.js'
 import type { AcceptanceDemo } from './demo.js'
 import { userFlowMermaid } from './demo-page.js'
@@ -47,6 +46,10 @@ const STYLE = `<style id="customer-layer-style">
 .cs-yes{ background:var(--fg); color:var(--bg); }
 .cs-yes[disabled]{ background:#2f6b2a; border-color:#2f6b2a; cursor:default; }
 .cs-add{ background:var(--bg); color:var(--fg); }
+/* Скачать документ (ADR-0012) */
+.cs-download{ display:flex; flex-wrap:wrap; gap:.4rem .9rem; align-items:baseline; margin:-.8rem 0 1.6rem; font-size:.9rem; }
+.cs-download span{ color:var(--muted); }
+.cs-download a{ color:inherit; font-weight:600; }
 /* Согласование — кнопкой под заголовком, плавающая кнопка экспорта не дублирует её. */
 #shipBtn{ display:none !important; }
 /* How to demo */
@@ -200,11 +203,121 @@ function script(layer: CustomerLayer): string {
 </script>`
 }
 
+/** Ссылки «Скачать» документа: .docx, .pdf, .md (ADR-0012, шаг 5). */
+export function downloadLinks(sessionId: string, doc: 'fast' | 'deep'): string {
+  const href = (format: string) => `/api/customer-form.bftDownload?session=${encodeURIComponent(sessionId)}&doc=${doc}&format=${format}`
+  return `<div class="cs-download" id="customer-download-${doc}"><span>Скачать:</span><a href="${esc(href('docx'))}" download>Word (.docx)</a><a href="${esc(href('pdf'))}" download>PDF</a><a href="${esc(href('md'))}" download>Markdown (.md)</a></div>`
+}
+
+const DEEP_STYLE = `<style id="customer-deep-style">
+#promptOut, #shipBtn, #shipHint{ display:none !important; }
+@media (max-width:1100px){ .layout{ padding-top:5.5rem; padding-left:3rem; padding-right:1.25rem; } }
+.cs-kicker{ font:.7rem/1.3 "Courier New",monospace; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:0 0 .3rem; }
+.cs-download{ display:flex; flex-wrap:wrap; gap:.4rem .9rem; align-items:baseline; margin:0 0 1.6rem; font-size:.95rem; }
+.cs-download span{ color:var(--muted); }
+.cs-download a{ color:inherit; font-weight:600; }
+</style>`
+
+/**
+ * Полный БФТ (bft-deep) заказчику: страница экспорта навыка, сверху — «Скачать»
+ * и ссылка на первичные требования; промт «Продолжить / уточнить» (работа PO)
+ * скрыт.
+ */
+export function customerDeepPage(html: string, sessionId: string, fastUrl: string): string {
+  let page = html
+  const h1 = /<h1[^>]*>[\s\S]*?<\/h1>/.exec(page)
+  const top = `<p class="cs-kicker">Полный БФТ · по согласованным первичным требованиям · <a href="${esc(fastUrl)}">первичные требования</a></p>`
+  if (h1) page = page.slice(0, h1.index) + top + h1[0] + downloadLinks(sessionId, 'deep') + page.slice(h1.index + h1[0].length)
+  // Как у первичных требований (rev21): без «Общей информации» и «Источников», цитата — в ячейке.
+  const info = /<h3[^>]*>Общая информация<\/h3>/.exec(page)
+  if (info) {
+    const next = page.indexOf('<h2', info.index)
+    page = page.slice(0, info.index) + (next < 0 ? '' : page.slice(next))
+  }
+  const sources = /<h2[^>]*>Источники<\/h2>\s*<ol class="src-notes">[\s\S]*?<\/ol>/.exec(page)
+  if (sources) page = page.slice(0, sources.index) + page.slice(sources.index + sources[0].length)
+  page = page.replace(/<a class="src-ref"[^>]*?title="([^"]*)"[^>]*>[^<]*<\/a>/g, '$1')
+  const hide = `<script id="customer-deep">(function(){document.querySelectorAll("details.fold > summary h2, h2").forEach(function(h){if(h.textContent.indexOf("Продолжить / уточнить БФТ")<0)return;if(h.id)document.querySelectorAll('a[href="#'+h.id+'"]').forEach(function(a){(a.closest("li")||a).remove();});var box=h.closest("details.fold")||h;var n=box.nextElementSibling;box.remove();if(box===h){while(n&&!/^H[12]$/.test(n.tagName)){var x=n.nextElementSibling;n.remove();n=x;}}});})();</script>`
+  const at = page.lastIndexOf('</body>')
+  return at < 0 ? page + DEEP_STYLE + hide : page.slice(0, at) + DEEP_STYLE + hide + page.slice(at)
+}
+
+/** Строка страницы «Все заявки»: заявка трекера и состояние документов. */
+export interface RequestRow {
+  sessionId: string
+  taskId: number
+  url: string
+  title: string
+  created: string
+  status?: string
+  /** Первичные требования: на проверке у заказчика или согласованы. */
+  fast?: 'review' | 'approved'
+  /** Полный БФТ: собирается, готов, не собран. */
+  deep?: 'building' | 'ready' | 'failed'
+}
+
+/** Все заявки портала (ADR-0012, шаг 7): кто, что, на каком шаге, документ и выгрузка. */
+export function requestsPage(rows: RequestRow[], failed: boolean): string {
+  const docOf = (row: RequestRow): string => {
+    const page = `/api/customer-form.bftFast?session=${encodeURIComponent(row.sessionId)}`
+    const dl = (format: string) => `/api/customer-form.bftDownload?session=${encodeURIComponent(row.sessionId)}&doc=deep&format=${format}`
+    const open = (label: string) => `<a href="${esc(page)}" target="_blank" rel="noreferrer">${label}</a>`
+    if (row.deep === 'ready') return `${open('Полный БФТ')}<span class="dl"><a href="${esc(dl('docx'))}">.docx</a><a href="${esc(dl('pdf'))}">.pdf</a><a href="${esc(dl('md'))}">.md</a></span>`
+    if (row.deep === 'building') return `${open('Полный БФТ')} <span class="muted">собирается…</span>`
+    if (row.deep === 'failed') return `${open('Полный БФТ')} <span class="warn">не собран</span>`
+    if (row.fast) return `${open('Первичные требования')} <span class="muted">${row.fast === 'approved' ? 'согласованы' : 'на проверке'}</span>`
+    return '<span class="muted">в диалоге</span>'
+  }
+  const when = (iso: string) => { try { return new Date(iso).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' }) } catch { return '' } }
+  const body = rows.length
+    ? `<table><thead><tr><th>№</th><th>Заявка</th><th>Статус</th><th>Документ</th><th>Создана</th></tr></thead><tbody>${rows.map((row) => `<tr data-request="${row.taskId}"><td class="n"><a href="${esc(row.url)}" target="_blank" rel="noreferrer">#${row.taskId}</a></td><td>${esc(row.title)}</td><td>${row.status ? `<span class="pill">${esc(row.status)}</span>` : ''}</td><td>${docOf(row)}</td><td class="muted">${esc(when(row.created))}</td></tr>`).join('')}</tbody></table>`
+    : `<p class="muted">${failed ? 'Трекер не ответил — обновите страницу через минуту.' : 'Заявок пока нет.'}</p>`
+  return `<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Все заявки</title>
+<style>
+:root{ --fg:#111; --muted:#777; --line:#e4e1da; --bg:#fff; }
+@media (prefers-color-scheme:dark){ :root{ --fg:#eee; --muted:#999; --line:#333; --bg:#151515; } }
+body{ margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 Georgia,"Times New Roman",serif; }
+.wrap{ max-width:1000px; margin:0 auto; padding:2rem 16px 4rem; }
+.kicker{ font:.7rem/1.3 "Courier New",monospace; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); }
+h1{ font-size:1.6rem; margin:.3rem 0 1.2rem; }
+.scroll{ overflow-x:auto; }
+table{ border-collapse:collapse; width:100%; min-width:640px; }
+th, td{ text-align:left; vertical-align:top; padding:.55rem .6rem; border-bottom:1px solid var(--line); }
+th{ font:.7rem "Courier New",monospace; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); }
+td.n{ white-space:nowrap; font-variant-numeric:tabular-nums; }
+a{ color:inherit; }
+.muted{ color:var(--muted); font-size:.9rem; }
+.warn{ color:#b45309; font-size:.9rem; }
+.pill{ font-size:.8rem; border:1px solid var(--line); border-radius:999px; padding:1px 8px; white-space:nowrap; }
+.dl{ display:inline-flex; gap:.5rem; margin-left:.6rem; font-size:.85rem; }
+</style></head><body><div class="wrap" data-requests>
+<div class="kicker">Портал заказчика</div><h1>Все заявки</h1>
+<div class="scroll">${body}</div>
+</div></body></html>`
+}
+
+/** Сборка полного БФТ не удалась: причина и «Собрать заново». */
+export function deepFailedPage(sessionId: string, error: string, retryUrl: string, fastUrl: string): string {
+  const cfg = JSON.stringify({ sessionId, retryUrl }).replace(/</g, '\\u003c')
+  return `<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Полный БФТ не собран</title>
+<style>body{margin:0;font:15px/1.5 Georgia,serif;color:#111;background:#fff}.wrap{max-width:560px;margin:0 auto;padding:2.2rem 1.4rem}
+.kicker{font:.7rem/1.3 "Courier New",monospace;text-transform:uppercase;letter-spacing:.08em;color:#777}h1{font-size:1.4rem;margin:.4rem 0 .6rem}
+pre{white-space:pre-wrap;background:#f6f6f6;padding:10px;font:12px/1.4 "Courier New",monospace;max-height:220px;overflow:auto}
+button{font:inherit;padding:.5rem 1rem;border:1.5px solid #111;background:#111;color:#fff;cursor:pointer}a{color:inherit}</style></head><body>
+<div class="wrap" data-deep-failed="${esc(sessionId)}"><div class="kicker">Полный БФТ</div><h1>Не получилось собрать полный документ</h1>
+<p>Первичные требования согласованы и сохранены в заявке — <a href="${esc(fastUrl)}">открыть их</a>. Полный БФТ можно собрать заново.</p>
+<pre>${esc(error)}</pre><p><button type="button" id="retry">Собрать заново</button></p></div>
+<script>(function(){var CFG=${cfg};document.getElementById("retry").addEventListener("click",function(){this.disabled=true;fetch(CFG.retryUrl,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({sessionId:CFG.sessionId})}).then(function(){location.reload();});});})();</script>
+</body></html>`
+}
+
 /** Страница экспорта + слой заказчика: кнопки под заголовком, стиль и скрипт перед </body>. */
 export function customerFastPage(html: string, layer: CustomerLayer): string {
   let page = html
   const h1 = /<h1[^>]*>[\s\S]*?<\/h1>/.exec(page)
-  if (h1) page = page.slice(0, h1.index + h1[0].length) + ACTIONS + page.slice(h1.index + h1[0].length)
+  if (h1) page = page.slice(0, h1.index + h1[0].length) + ACTIONS + downloadLinks(layer.sessionId, 'fast') + page.slice(h1.index + h1[0].length)
   // How to demo: список шагов (первый <ol> после заголовка) → схема и таблица.
   const howTo = /<h3[^>]*>How to demo<\/h3>\s*/.exec(page)
   if (howTo && layer.demo?.steps.length) {
@@ -250,23 +363,36 @@ const TIPS: [string, string][] = [
   ['Коммуникация', 'Фиксируйте договорённости письменно — в задаче, а не в личной переписке: их увидят все, кто подключится позже.'],
 ]
 
-const STAGES: { key: FastProgress['stage']; title: string; note: string }[] = [
+const STAGES: { key: string; title: string; note: string }[] = [
   { key: 'approved', title: 'Сценарий приёмки согласован', note: 'Ваше «Согласую» — основа документа' },
   { key: 'submitted', title: 'Заявка передана в беклог', note: 'Постановка и полный контекст — в трекере' },
   { key: 'building', title: 'Раскладываю требования', note: 'Что и где получите, как проверите, к кому обращаться' },
   { key: 'ready', title: 'Сверяю с памятью организации', note: 'Кортекс: где проверять и чьи зоны затрагивает; шаблон bft-fast' },
 ]
 
+/** Полный БФТ (ADR-0012): этапы сборки deep. */
+const DEEP_STAGES: { key: string; title: string; note: string }[] = [
+  { key: 'approved', title: 'Первичные требования согласованы', note: 'Ваше «Да, согласен» — основа полного документа' },
+  { key: 'building', title: 'Пишу полный БФТ по корпоративному канону', note: 'Проблема и UJM, план демонстрации, требования БТ · ПТ · ИТ · ФТ · НФТ, зависимости, риски' },
+  { key: 'ready', title: 'Проверяю по шаблону', note: 'Линтер шаблона, страница документа и выгрузка .docx / .pdf' },
+]
+
+const WAITING = {
+  fast: { stages: STAGES, title: 'Уже готовлю БФТ-документ', lead: 'Буквально 3 минуты. Документ откроется здесь сам — ничего обновлять не нужно.', usual: 'обычно до 3 минут', tau: 70, late: 240 },
+  deep: { stages: DEEP_STAGES, title: 'Пишу полный БФТ-документ', lead: 'Обычно 3–6 минут. Документ откроется здесь сам — ничего обновлять не нужно, можно закрыть вкладку и вернуться.', usual: 'обычно до 6 минут', tau: 140, late: 480 },
+} as const
+
 /**
- * Пока модель раскладывает требования: этапы, таймер «из ~3 минут» и полоса,
- * которая плавно ползёт к концу. Страница опрашивает статус и сама
- * превращается в документ, когда он готов.
+ * Пока модель пишет документ: этапы, таймер и полоса, которая плавно ползёт
+ * к концу. Страница опрашивает статус и сама превращается в документ, когда
+ * он готов. `kind` — быстрая версия (bft-fast) или полный БФТ (bft-deep).
  */
-export function waitingPage(sessionId: string, progress: FastProgress, statusUrl: string): string {
-  const cfg = JSON.stringify({ sessionId, statusUrl, startedAt: progress.startedAt, stage: progress.stage }).replace(/</g, '\\u003c')
-  const stages = STAGES.map((s, i) => `<li data-stage="${s.key}" data-i="${i}"><span class="dot"></span><div><b>${esc(s.title)}</b><small>${esc(s.note)}</small></div></li>`).join('')
+export function waitingPage(sessionId: string, progress: { stage: string; startedAt: string }, statusUrl: string, kind: 'fast' | 'deep' = 'fast'): string {
+  const view = WAITING[kind]
+  const cfg = JSON.stringify({ sessionId, statusUrl, startedAt: progress.startedAt, stage: progress.stage, order: view.stages.map((s) => s.key), tau: view.tau, late: view.late }).replace(/</g, '\\u003c')
+  const stages = view.stages.map((s, i) => `<li data-stage="${s.key}" data-i="${i}"><span class="dot"></span><div><b>${esc(s.title)}</b><small>${esc(s.note)}</small></div></li>`).join('')
   return `<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Готовлю БФТ-документ</title>
+<title>${esc(view.title)}</title>
 <style>
 :root{ --fg:#111; --muted:#777; --line:#e4e1da; --ok:#2f6b2a; --bg:#fff; }
 *{ box-sizing:border-box; }
@@ -307,8 +433,8 @@ li.now small{ color:#555; }
 </style></head><body>
 <div class="wrap" data-waiting="${esc(sessionId)}">
   <div class="kicker">Документ на проверку</div>
-  <h1>Уже готовлю БФТ-документ</h1>
-  <p class="lead">Буквально 3 минуты. Документ откроется здесь сам — ничего обновлять не нужно.</p>
+  <h1>${esc(view.title)}</h1>
+  <p class="lead">${esc(view.lead)}</p>
   <div class="tip" id="tip" aria-live="polite">
     <div class="tip-body" id="tipBody"><p class="tip-kind" id="tipKind"></p><p class="tip-text" id="tipText"></p></div>
     <span class="tip-count" id="tipCount"></span>
@@ -316,14 +442,14 @@ li.now small{ color:#555; }
     <i class="tip-timer" id="tipTimer"></i>
   </div>
   <div class="bar"><b id="bar"></b></div>
-  <div class="time"><span id="elapsed">0:00</span><span>обычно до 3 минут</span></div>
+  <div class="time"><span id="elapsed">0:00</span><span>${esc(view.usual)}</span></div>
   <ol id="stages">${stages}</ol>
   <p class="foot" id="foot">Пока ждёте: вспомните, кого ещё стоит указать контактом и что вы обязательно проверите при приёмке, — добавите одним сообщением после.</p>
 </div>
 <script>
 (function(){
   var CFG = ${cfg};
-  var ORDER = ["approved", "submitted", "building", "ready"];
+  var ORDER = CFG.order;
   function paint(stage){
     var at = ORDER.indexOf(stage);
     document.querySelectorAll("#stages li").forEach(function(li){
@@ -336,14 +462,14 @@ li.now small{ color:#555; }
     var s = Math.max(0, Math.round((Date.now() - started) / 1000));
     document.getElementById("elapsed").textContent = Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
     // К концу трёх минут полоса подходит к 95% и дальше почти не движется.
-    document.getElementById("bar").style.width = (95 * (1 - Math.exp(-s / 70))).toFixed(1) + "%";
+    document.getElementById("bar").style.width = (95 * (1 - Math.exp(-s / CFG.tau))).toFixed(1) + "%";
     // Дольше обычного — скорее всего ассистент ждёт ответа в чате.
-    if(s > 240) document.getElementById("foot").textContent = "Дольше обычного. Загляните в чат слева: возможно, ассистент задал вопрос — ответьте, и сборка продолжится.";
+    if(s > CFG.late) document.getElementById("foot").textContent = "Дольше обычного. Загляните в чат слева: возможно, ассистент задал вопрос — ответьте, и сборка продолжится.";
   }
   function poll(){
     fetch(CFG.statusUrl + "?session=" + encodeURIComponent(CFG.sessionId), { cache: "no-store" })
       .then(function(r){ return r.json(); })
-      .then(function(v){ paint(v.stage); if(v.stage === "ready" || v.stage === "none") location.reload(); })
+      .then(function(v){ paint(v.stage); if(v.stage === "ready" || v.stage === "none" || v.stage === "failed") location.reload(); })
       .catch(function(){});
   }
   // Пока ждём — короткие советы: требования и работа с командой. Начинаем со случайного.
