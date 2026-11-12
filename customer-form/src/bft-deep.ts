@@ -74,6 +74,9 @@ export function cleanCanon(text: string): string {
   if (start >= 0) body = body.slice(start)
   const tail = body.indexOf(CONTINUE_HEAD)
   if (tail >= 0) body = body.slice(0, tail)
+  // Правило RULES «открытые вопросы в документ не пиши» модель нарушает хвостом
+  // «**Открытые вопросы (в чат, не в документ):**» — вопросы и так стоят [УТОЧНИТЬ] в ячейках.
+  body = body.replace(/\n(?:---\s*\n\s*)?\*\*Открытые вопросы[^\n]*\n[\s\S]*$/, '\n')
   return body.trim()
 }
 

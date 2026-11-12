@@ -1,6 +1,6 @@
 /**
- * Выгрузка документа БФТ (ADR-0012, шаг 5): .md как есть, .docx и .pdf для
- * заказчика — pandoc (docx, html) и WeasyPrint (html → pdf).
+ * Выгрузка документа БФТ (ADR-0012, шаг 5) для заказчика: .md — текст без
+ * служебного, .docx — pandoc, .pdf — pandoc (html) и WeasyPrint (html → pdf).
  *
  * В .docx и .pdf не попадают служебные блоки для PO: открытое поле
  * «⏳ Полный БФТ — в проработке» (bft-fast) и «Продолжить / уточнить БФТ»
@@ -62,13 +62,14 @@ const mtime = (path: string) => stat(path).then((s) => s.mtimeMs, () => 0)
  * первом запросе и после изменения документа.
  */
 export async function exportDocument(mdPath: string, format: ExportFormat): Promise<string> {
-  if (format === 'md') return mdPath
   const dir = dirname(mdPath)
   const base = basename(mdPath, '.md')
-  const out = join(dir, `${base}.export.${format}`)
-  if (await mtime(out) >= await mtime(mdPath)) return out
+  // .md заказчику — тот же текст, что в .docx и .pdf: без frontmatter и служебных блоков PO.
   const source = join(dir, `${base}.customer.md`)
+  const out = format === 'md' ? source : join(dir, `${base}.export.${format}`)
+  if (await mtime(out) >= await mtime(mdPath)) return out
   await writeFile(source, customerMarkdown(await readFile(mdPath, 'utf8')), 'utf8')
+  if (format === 'md') return source
   const from = ['-f', 'gfm']
   if (format === 'docx') {
     await run('pandoc', [...from, '-o', out, source], dir)
