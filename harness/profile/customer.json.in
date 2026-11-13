@@ -9,11 +9,12 @@
     "customer-form": "file:customer-form",
     "speech-ru": "file:speech-ru",
     "bft-manager": "file:bft-manager",
+    "data-sources": "file:data-sources",
     "@deepseek-ai/dsh-experimental-voice-input-bundle": "__DSH_VERSION__"
   },
   "dsh": {
     "profile": {
-      "bundles": ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-llm-pi-ai", "@deepseek-ai/dsh-web-app", "@deepseek-ai/dsh-experimental-voice-input-bundle", "speech-ru", "customer-form", "bft-manager"],
+      "bundles": ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-llm-pi-ai", "@deepseek-ai/dsh-web-app", "@deepseek-ai/dsh-experimental-voice-input-bundle", "speech-ru", "customer-form", "bft-manager", "data-sources"],
       "patchReload": "live"
     }
   }

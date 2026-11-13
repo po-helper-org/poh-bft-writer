@@ -35,6 +35,15 @@ test('заказчик: сайдбара и «Настроек» нет, зап�
   const models = await request.post(`${PORTAL}/api/customer-form.portalModels`, { data: { chat: null } })
   expect(models.status(), 'модели портала без входа не меняются').toBe(403)
 
+  // Источники данных: статус без секретов, подключение и поиск — только администратору.
+  const sources = await (await request.get(`${PORTAL}/api/data-sources.status`)).json()
+  expect(sources.admin).toBe(false)
+  expect(JSON.stringify(sources)).not.toMatch(/token|secret/i)
+  expect((await request.post(`${PORTAL}/api/data-sources.search`, { data: { query: 'отпуск' } })).status()).toBe(403)
+  expect((await request.post(`${PORTAL}/api/data-sources.disconnect`, { data: { source: 'po-hq' } })).status()).toBe(403)
+  const connect = await request.get(`${PORTAL}/api/data-sources.connect?source=po-hq`, { maxRedirects: 0 })
+  expect(connect.status(), 'вход в источник без администратора не начинается').toBe(400)
+
   for (const method of ['credentials/set', 'settings/mutate', 'pluginManager/setPluginEnabled', 'terminal/create']) {
     const body = await rpc(request, method, {})
     expect(body.result.ok, method).toBe(false)
@@ -88,6 +97,17 @@ test('администратор: вход по паролю, штатные «�
   const reset = await readModels()
   expect(reset.deep).toBeNull()
   expect(reset.chatChoice).toEqual(chatBefore)
+
+  // «Настройки → Источники данных» (плагин data-sources): источник штаба PO и вход в него.
+  await settings.getByText('Источники данных', { exact: true }).click()
+  const source = settings.locator('[data-source="po-hq"]')
+  await expect(source).toContainText('MTS PO штаб')
+  await expect(source).toContainText('только чтение: confluence_search, confluence_get_page, jira_search, jira_get_issue')
+  const sourceStatus = await page.evaluate(async () => (await fetch('/api/data-sources.status')).json()) as { admin: boolean; sources: { connected: boolean }[] }
+  expect(sourceStatus.admin).toBe(true)
+  if (!sourceStatus.sources[0]!.connected) {
+    await expect(source.getByRole('link', { name: 'Подключить' })).toHaveAttribute('href', '/api/data-sources.connect?source=po-hq')
+  }
 
   // Вызов записи с кукой администратора доходит до шлюза (а не до отказа портала).
   const body = await page.evaluate(async () => {

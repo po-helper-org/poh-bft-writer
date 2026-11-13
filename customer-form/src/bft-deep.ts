@@ -117,6 +117,7 @@ const RULES = `Ты — аналитик, который доводит перв
 ## Якоря истины
 
 Правила:
+- Корпоративные источники (Jira/Confluence) в контексте — указатель с якорями [CF-n]/[JR-n]: факт из находки бери, только если она явно про предмет этой заявки, и указывай якорь и ссылку (в «Зависимостях», «Рисках», «Якорях истины» — системы, команды, связанные эпики). В «Якорях истины» такая строка — «Confluence/Jira: <название> (<ссылка>)», ранг R2. Совпадение слов — не повод; нерелевантные находки пропускай.
 - Источник фактов — только документ bft-fast и контекст заявки ниже. Факт без источника — \`[УТОЧНИТЬ у {кого}]\` в ячейке, не выдумывай. Цифр, систем, сроков и метрик, которых нет в источнике, не добавляй.
 - ID из «Критичных требований» bft-fast сохраняй (БТ-1 там = БТ-1 здесь), строки разверни в типизированные таблицы. Новые ID — только следующими номерами.
 - «План демонстрации»: подраздел «### Акторы» — таблица с колонкой «Актор»; подраздел «### Сценарий приёмки (happy path + alt)» — непустой блок \`\`\`plantuml с веткой alt (что видит заказчик, если что-то пошло не так). Сценарий — по How to demo из шапки.
@@ -139,9 +140,27 @@ export function deepPrompt(golden: string, fastMd: string, context: string, lint
   return { system, user: parts.filter(Boolean).join('\n\n') }
 }
 
+const QUERIES_PROMPT = `Ты помогаешь найти в корпоративных Jira и Confluence материалы, связанные с заявкой: эпики, задачи, страницы требований и интеграций.
+Дай от 3 до 5 поисковых запросов по-русски, каждый 1–4 слова: предмет заявки, названия систем, процессов и интеграций, которые в ней названы. Без общих слов («портал», «требования», «задача») по отдельности.
+Ответ — только JSON-массив строк, без пояснений. Пример: ["заявление на отпуск", "КЭДО отпуск", "1С:ЗУП интеграция отпуск"]`
+
+/** Поисковые запросы по заявке для источников данных; модель не ответила — название заявки. */
+export async function searchQueries(llm: LlmLike, route: DeepRoute, fastMd: string, signal: AbortSignal): Promise<string[]> {
+  const title = fastMd.match(/^# \[БФТ\][^:]*:\s*(.+)$/m)?.[1]?.trim()
+  try {
+    const text = await generate(llm, route, { system: QUERIES_PROMPT, user: fastMd.split(BORDER)[0]!.slice(0, 12_000) }, signal, 400)
+    const parsed = JSON.parse(text.match(/\[[\s\S]*\]/)?.[0] ?? '[]') as unknown
+    const queries = Array.isArray(parsed) ? parsed.filter((q): q is string => typeof q === 'string' && q.trim().length > 1).map((q) => q.trim()).slice(0, 5) : []
+    if (queries.length) return queries
+  } catch (e) {
+    console.error('[customer-form] запросы к источникам не составились:', e)
+  }
+  return title ? [title] : []
+}
+
 /** Один вызов модели: текст ответа целиком. */
-export async function generate(llm: LlmLike, route: DeepRoute, prompt: { system: string; user: string }, signal: AbortSignal): Promise<string> {
-  const call = await llm.prepareCall({ ...route, maxTokens: 32_000 }, signal)
+export async function generate(llm: LlmLike, route: DeepRoute, prompt: { system: string; user: string }, signal: AbortSignal, maxTokens = 32_000): Promise<string> {
+  const call = await llm.prepareCall({ ...route, maxTokens }, signal)
   let text = ''
   for await (const chunk of call.stream({
     ...call.config,

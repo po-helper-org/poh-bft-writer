@@ -17,7 +17,8 @@
 
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { mkdir, readFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import { Backlog, moscowTime, sharedBacklog, type Ticket } from './host.js'
 import { sharedMaterials, type Material, type Materials, type WebLike } from './materials.js'
 import { VoiceContext } from './voice.js'
@@ -26,7 +27,7 @@ import { demoPageHtml } from './demo-page.js'
 import type { AgentLike, BlockLike } from './tool.js'
 import { approveFast, FAST_ROOT, fastFiles, fastPagePath, fastProgress, fastSlug, fastState, SKILLS_PATH, stillBuilding } from './bft-fast.js'
 import { customerDeepPage, customerFastPage, deepFailedPage, requestsPage, waitingPage, type RequestRow } from './fast-page.js'
-import { buildDeep, deepFiles, readDeepState, type DeepRoute, type DeepState, type LlmLike } from './bft-deep.js'
+import { buildDeep, searchQueries, deepFiles, readDeepState, type DeepRoute, type DeepState, type LlmLike } from './bft-deep.js'
 import { EXPORT_TYPES, exportDocument, type ExportFormat } from './export.js'
 import type { PrimaryDoc } from './primary.js'
 import { mergePortalModels, MODELS_ROUTE, readPortalModels, sameRoute, writePortalModels, type ModelRoute, type PortalModels } from './models.js'
@@ -131,6 +132,12 @@ interface ConnectionLike {
   fetch?: { register: (route: { path: string; methods: string[]; requestBody: 'buffered'; fetch(request: Request): Promise<Response> }) => () => void }
 }
 
+/** Служба плагина data-sources (Jira/Confluence через MCP штаба PO). */
+interface DataSourcesLike {
+  available(): Promise<boolean>
+  recon(queries: string[], options?: { top?: number; read?: number; deadlineMs?: number }): Promise<{ markdown: string; findings: unknown[]; queries: string[]; errors: string[]; source: string } | undefined>
+}
+
 /** Служба модели dsh по умолчанию (dsh-agent-default-model). */
 interface DefaultModelLike {
   currentSelection(): ModelRoute
@@ -194,6 +201,35 @@ export function apply(ctx: HarnessContext): void {
       return () => { defaults = undefined; deepRuntime = undefined }
     }, 'customer-form: модели портала')
   })
+  // Источники данных (плагин data-sources): Jira/Confluence перед полным БФТ.
+  // Плагина нет или источник не подключён — полный БФТ собирается как раньше.
+  let dataSources: DataSourcesLike | undefined
+  ctx.inject(['dataSources'], (scoped: HarnessContext) => {
+    const service = scoped.get('dataSources') as DataSourcesLike
+    scoped.effect(() => {
+      dataSources = service
+      return () => { dataSources = undefined }
+    }, 'customer-form: источники данных')
+  })
+  /** Разведка по Jira/Confluence: карта находок рядом с документом; не вышло — пусто. */
+  const sourcesMap = async (fastMdPath: string, mapPath: string, runtime: { llm: LlmLike; route(): DeepRoute }): Promise<string> => {
+    const sources = dataSources
+    if (!sources || !(await sources.available().catch(() => false))) return ''
+    try {
+      const fastMd = await readFile(fastMdPath, 'utf8')
+      const queries = await searchQueries(runtime.llm, runtime.route(), fastMd, AbortSignal.timeout(60_000))
+      if (!queries.length) return ''
+      const recon = await sources.recon(queries, { top: 10, read: 4, deadlineMs: 90_000 })
+      if (!recon) return ''
+      if (recon.errors.length) console.error('[customer-form] источники данных ответили с ошибками:', recon.errors.slice(0, 5))
+      await writeFile(mapPath, recon.markdown, 'utf8')
+      console.error(`[customer-form] источники данных: ${recon.source}, запросы ${JSON.stringify(recon.queries)}, находок ${recon.findings.length}`)
+      return recon.markdown
+    } catch (e) {
+      console.error('[customer-form] разведка по источникам данных не удалась:', e)
+      return ''
+    }
+  }
   const deepRunning = new Set<string>()
   /** Собрать полный БФТ в фоне; повторный вызов во время сборки ничего не делает. */
   const startDeep = (ticket: Ticket): boolean => {
@@ -208,11 +244,16 @@ export function apply(ctx: HarnessContext): void {
     deepRunning.add(slug)
     void (async () => {
       const context = await readFile(fast.contextMap, 'utf8').catch(() => '')
+      const sourcesPath = join(fast.dir, 'sources.md')
+      const sources = await sourcesMap(fast.md, sourcesPath, runtime)
       const state = await buildDeep({
         llm: runtime.llm, route: runtime.route(), skillsPath: SKILLS_PATH, fast, slug, taskUrl: ticket.url,
-        context: context ? `Карта контекста (память организации — указатель, не фактбаза):\n${context}` : '',
+        context: [
+          context ? `Карта контекста (память организации — указатель, не фактбаза):\n${context}` : '',
+          sources ? `Корпоративные источники (Jira/Confluence — указатель с якорями, не фактбаза):\n${sources}` : '',
+        ].filter(Boolean).join('\n\n'),
       })
-      await reportDeep(backlog, ticket, slug, deepFiles(fast, slug), state)
+      await reportDeep(backlog, ticket, slug, deepFiles(fast, slug), state, sources ? sourcesPath : undefined)
     })().catch((e) => console.error('[customer-form] bft-deep упал:', e)).finally(() => deepRunning.delete(slug))
     return true
   }
@@ -659,7 +700,7 @@ async function reportFastApproval(backlog: Backlog, ticket: Ticket, slug: string
 }
 
 /** Полный БФТ — в заявку: документ и страница ревью, или причина сбоя. */
-async function reportDeep(backlog: Backlog, ticket: Ticket, slug: string, files: { md: string; html: string }, state: DeepState): Promise<void> {
+async function reportDeep(backlog: Backlog, ticket: Ticket, slug: string, files: { md: string; html: string }, state: DeepState, sourcesPath?: string): Promise<void> {
   try {
     if (state.stage !== 'ready') {
       await backlog.comment(ticket, `<p><strong>⚠ Полный БФТ не собран</strong> — ${moscowTime(state.finishedAt ?? state.startedAt)}</p><p>${(state.error ?? '').slice(0, 500).replace(/[<>&]/g, '')}</p>`)
@@ -668,6 +709,8 @@ async function reportDeep(backlog: Backlog, ticket: Ticket, slug: string, files:
     await backlog.comment(ticket, `<p><strong>📄 Полный БФТ собран</strong> (bft-deep в портале) — ${moscowTime(state.finishedAt ?? state.startedAt)}</p><p>Документ и страница ревью — во вложении ${slug}.md и ${slug}.html.</p>`)
     await backlog.attach(ticket, `${slug}.md`, await readFile(files.md))
     await backlog.attach(ticket, `${slug}.html`, await readFile(files.html))
+    // Карта находок Jira/Confluence — PO видит, на что опирался полный БФТ.
+    if (sourcesPath) await backlog.attach(ticket, `${slug}-istochniki.md`, await readFile(sourcesPath))
   } catch (e) {
     console.error('[customer-form] полный БФТ не ушёл в задачу:', e)
   }

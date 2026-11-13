@@ -173,6 +173,9 @@ services:
       context-ingest: { condition: service_healthy }
     ports:
       - "${PORTAL_BIND:-127.0.0.1}:3080:3080"
+      # Возврат из окна входа источников данных (data-sources, OAuth): сервер
+      # штаба PO пускает только http://<loopback>:<порт>/callback. Только 127.0.0.1.
+      - "127.0.0.1:3081:3081"
     volumes:
       - customerdata:/data
     healthcheck:

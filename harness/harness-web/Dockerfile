@@ -22,6 +22,11 @@ COPY bft-manager/package.json bft-manager/tsconfig*.json bft-manager/tsdown.conf
 COPY bft-manager/src ./bft-manager/src
 COPY bft-manager/test ./bft-manager/test
 RUN cd bft-manager && npm install --no-audit --no-fund && npm run build && npm test
+# data-sources: Jira/Confluence через MCP штаба PO (OAuth, только чтение)
+COPY data-sources/package.json data-sources/tsconfig*.json data-sources/tsdown.config.ts data-sources/cordis.patch.yml ./data-sources/
+COPY data-sources/src ./data-sources/src
+COPY data-sources/test ./data-sources/test
+RUN cd data-sources && npm install --no-audit --no-fund && npm run build && npm test
 # speech-ru (ADR-0008): распознавание русской речи для голосового ввода
 COPY speech-ru/package.json speech-ru/tsconfig.json speech-ru/cordis.patch.yml ./speech-ru/
 COPY speech-ru/src ./speech-ru/src
@@ -36,6 +41,7 @@ COPY --from=plugins /src/plugin ./plugin
 COPY --from=plugins /src/customer-form ./customer-form
 COPY --from=plugins /src/speech-ru ./speech-ru
 COPY --from=plugins /src/bft-manager ./bft-manager
+COPY --from=plugins /src/data-sources ./data-sources
 # npm для file:-зависимостей ставит СИМЛИНК (node_modules/poh-bft-plugin -> ../plugin).
 # Заменяем его на реальную копию и удаляем источник: бандл живёт в node_modules
 # самодостаточно (files-пакета хватает: lib + cordis.patch.yml).
@@ -43,15 +49,17 @@ COPY harness/profile/customer.json.in ./customer.json.in
 RUN sed "s/__DSH_VERSION__/${DSH_VERSION}/g" package.json.in > package.json \
  && sed "s/__DSH_VERSION__/${DSH_VERSION}/g" customer.json.in > customer.json \
  && npm install --omit=dev --no-audit --no-fund \
- && rm -rf node_modules/poh-bft-plugin node_modules/customer-form node_modules/speech-ru node_modules/bft-manager \
+ && rm -rf node_modules/poh-bft-plugin node_modules/customer-form node_modules/speech-ru node_modules/bft-manager node_modules/data-sources \
  && cp -R plugin node_modules/poh-bft-plugin \
  && cp -R customer-form node_modules/customer-form \
  && cp -R speech-ru node_modules/speech-ru \
  && cp -R bft-manager node_modules/bft-manager \
+ && cp -R data-sources node_modules/data-sources \
  && node -e "const p=require('./node_modules/poh-bft-plugin/package.json'); if(!p.exports || !p.exports['./client']) process.exit(1)" \
  && node -e "const c=require('./node_modules/customer-form/package.json'); if(!c.exports || !c.exports['./client']) process.exit(1)" \
  && node -e "const b=require('./node_modules/bft-manager/package.json'); if(!b.exports || !b.exports['./client']) process.exit(1)" \
- && rm -rf plugin customer-form speech-ru bft-manager node_modules/poh-bft-plugin/node_modules node_modules/customer-form/node_modules node_modules/speech-ru/node_modules node_modules/bft-manager/node_modules \
+ && node -e "const d=require('./node_modules/data-sources/package.json'); if(!d.exports || !d.exports['./client']) process.exit(1)" \
+ && rm -rf plugin customer-form speech-ru bft-manager data-sources node_modules/poh-bft-plugin/node_modules node_modules/customer-form/node_modules node_modules/speech-ru/node_modules node_modules/bft-manager/node_modules node_modules/data-sources/node_modules \
  && npm cache clean --force
 
 FROM node:22-bookworm-slim AS runtime

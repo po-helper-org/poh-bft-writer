@@ -1,0 +1,14 @@
+# data-sources: корпоративные источники данных портала БФТ (Jira, Confluence).
+# Каждый источник — удалённый MCP с OAuth; подключает администратор в
+# «Настройках → Источники данных», токены — в томе /data/data-sources.
+# Портал зовёт только инструменты чтения (белый список в src/sources.ts).
+- insert:
+    - id: data-sources
+      name: data-sources
+      config:
+        sources:
+          # MCP штаба агентов PO: Jira и Confluence МТС.
+          - id: po-hq
+            name: MTS PO штаб
+            url: https://harness.aleksishmanov.ru/mcp
+            scope: staff
