@@ -1,0 +1,8 @@
+{
+  "schema_version": "1.0.0",
+  "error": {
+    "code": "conflict",
+    "message": "base_iteration it-0008 — не последняя.",
+    "latest_iteration_id": "it-0009"
+  }
+}

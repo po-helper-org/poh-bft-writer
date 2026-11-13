@@ -1,0 +1,174 @@
+# Профиль заказчика (ADR-0007 rev4): zai-провайдер из окружения, остальное —
+# стандартный web-app. Секретов здесь нет: ключ живёт в ZAI_API_KEY контейнера.
+- insert:
+    - id: llm-pi-ai
+      name: '@deepseek-ai/dsh-llm-pi-ai'
+      config:
+        providers:
+          zai:
+            apiKeyEnv: ZAI_API_KEY
+          # Anthropic — встроенный провайдер ядра (каталог моделей Claude уже в
+          # pi-ai). Ключ — ANTHROPIC_API_KEY в harness/.env (./set-key.sh --anthropic).
+          anthropic:
+            apiKeyEnv: ANTHROPIC_API_KEY
+          # Z.AI GLM Coding Plan — отдельный эндпоинт и ключ подписки (не
+          # платный API). Ключ — ZAI_CODING_API_KEY в harness/.env
+          # (./set-key.sh --coding).
+          zai-coding:
+            displayName: Z.AI Coding Plan
+            api: openai-completions
+            baseURL: https://api.z.ai/api/coding/paas/v4
+            apiKeyEnv: ZAI_CODING_API_KEY
+            models:
+              - id: glm-5
+                name: GLM-5
+                contextWindow: 200000
+                # GLM-5 — только текст: фото документов читает OCR
+                # context-ingest (ADR-0008), в модель они уходят текстом.
+                input: [text]
+          # Requesty — OpenAI-совместимый роутер; быстрая модель микродиалога,
+          # пока квота z.ai исчерпана. Ключ — REQUESTY_API_KEY в harness/.env.
+          requesty:
+            displayName: Requesty
+            api: openai-completions
+            baseURL: https://router.requesty.ai/v1
+            apiKeyEnv: REQUESTY_API_KEY
+            models:
+              - id: anthropic/claude-haiku-5-5
+                name: Claude Haiku 5.5
+                contextWindow: 200000
+                # Фото документов заказчик прикладывает картинкой: без image
+                # dsh выключает «Отправить». Текст фото дополнительно читает
+                # OCR context-ingest (ADR-0008).
+                input: [text, image]
+    # Пресет агента заказчика: агент dsh видит только инструменты своего
+    # пресета (изолированная группа), глобальные узлы ему не видны.
+    - id: preset-customer
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: customer
+        order: 0
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: Ты — ассистент приёма инициатив «Система БФТ». Отвечай по-русски.
+              includeRuntimeContext: false
+          # Уточняющие вопросы — штатной формой dsh (HowToDemo п.8).
+          - id: tool-ask-user
+            name: '@deepseek-ai/dsh-tool-ask-user'
+          # Проверка ссылок заказчика; поиск выключен — ему нужен ключ DeepSeek.
+          - id: tool-web
+            name: '@deepseek-ai/dsh-tool-web'
+            config:
+              search: false
+              fetch: true
+          # Сдача постановки в заявку (HowToDemo п.9–10).
+          - id: customer-form-tool
+            name: 'customer-form/tool'
+
+# Модель портала по умолчанию — первый заданный ключ: Anthropic/Claude Haiku 5.5
+# (ANTHROPIC_API_KEY), Z.AI Coding Plan/GLM-5 (ZAI_CODING_API_KEY),
+# Requesty/Claude Haiku 5.5 (REQUESTY_API_KEY), иначе zai/glm-5-turbo.
+# PORTAL_PROVIDER/PORTAL_MODEL — явный выбор. Выбор администратора в «Настройках →
+# Портал» важнее: узел customer-form применяет его при старте (ADR-0012). Без этого узла каталог берёт deepseek-official без ключа → «Отправить»
+# выключена.
+- id: agent-default-model
+  config:
+    provider: !!js "process.env.PORTAL_PROVIDER || (process.env.ANTHROPIC_API_KEY ? 'anthropic' : process.env.ZAI_CODING_API_KEY ? 'zai-coding' : process.env.REQUESTY_API_KEY ? 'requesty' : 'zai')"
+    model: !!js "process.env.PORTAL_MODEL || (process.env.ANTHROPIC_API_KEY ? 'claude-haiku-5-5' : process.env.ZAI_CODING_API_KEY ? 'glm-5' : process.env.REQUESTY_API_KEY ? 'anthropic/claude-haiku-5-5' : 'glm-5-turbo')"
+
+# Заказчику не показываем «Internal Testing Notice» dsh: версия уведомления
+# считается подтверждённой (так её записывает сам dsh по кнопке Continue).
+- id: ui-settings-general
+  name: '@deepseek-ai/dsh-client-ui-settings-general'
+  config:
+    welcomeNoticeVersion: 2026-09-28.1
+
+# Интерфейс заказчика — по-русски: штатный ru ядра и поверх него вариант ru-RU
+# с текстами портала (регистрирует клиент customer-form); здесь — выбор языка.
+- id: locale
+  config:
+    preference: ru-RU
+
+# Чат заказчика — не агент-кодер: единственный пресет — customer (выше).
+# Пресеты кодера выключены — у каждого свои bash/fs/субагенты, и любой
+# посетитель портала попросил бы модель выполнить команду или прочитать
+# /proc/self/environ контейнера (ZAI_API_KEY, пароль трекера).
+- id: agent-preset-registry
+  config:
+    default: customer
+- id: preset-standard
+  disabled: true
+- id: preset-ptc
+  disabled: true
+- id: preset-minimal
+  disabled: true
+- id: preset-cordis
+  disabled: true
+# Глобальные инструменты тоже выключены (вне пресетов их не должно быть).
+- id: tool-bash
+  disabled: true
+- id: tool-jobs
+  disabled: true
+- id: tool-fs
+  disabled: true
+- id: tool-fs-search
+  disabled: true
+- id: tool-skill
+  disabled: true
+- id: tool-subagent
+  disabled: true
+- id: tool-subagent-fork
+  disabled: true
+- id: tool-subagent-control
+  disabled: true
+- id: tool-subagent-list-agents
+  disabled: true
+- id: tool-workflow
+  disabled: true
+- id: workflow-ptc
+  disabled: true
+- id: tool-todo
+  disabled: true
+- id: tool-goal
+  disabled: true
+
+# Интерфейс кодера заказчику не нужен: выбор пресета, режима доступа и модели,
+# команды Goal/Plan/Compact/Feedback/Export в меню «+», фоновые задачи,
+# субагенты, навыки. Выбор каталога выключен — через него посетитель ходил бы
+# по файловой системе контейнера (workspace плагин создаёт по пути сам).
+- id: command-goal
+  disabled: true
+- id: plan-mode
+  disabled: true
+- id: command-feedback
+  disabled: true
+- id: command-compact
+  disabled: true
+- id: session-log-download
+  disabled: true
+- id: directory-picker
+  disabled: true
+- id: ui-goal
+  disabled: true
+- id: ui-agent-preset
+  disabled: true
+- id: ui-permission
+  disabled: true
+- id: ui-model-selection
+  disabled: true
+- id: ui-schedule
+  disabled: true
+- id: ui-jobs
+  disabled: true
+- id: ui-subagent
+  disabled: true
+- id: ui-skill
+  disabled: true
+- id: ui-workflow-run
+  disabled: true
+# Потоковый микрофон customer-form (ADR-0008 rev4) вместо штатной кнопки
+# голосового ввода: та отправляет запись целиком после «Стоп».
+- id: ui-voice-input
+  disabled: true

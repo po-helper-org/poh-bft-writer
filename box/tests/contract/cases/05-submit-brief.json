@@ -1,0 +1,26 @@
+{
+  "schema_version": "1.0.0",
+  "initiative_id": "ini-0001",
+  "base_iteration": "it-0001",
+  "idempotency_key": "t_demo01:2",
+  "outcomes": [
+    {
+      "directive_id": "dir-001",
+      "result": "answer",
+      "by_role": "po",
+      "content": "team-a"
+    },
+    {
+      "directive_id": "dir-002",
+      "result": "not_received",
+      "by_role": "executor",
+      "content": "Эпика нет."
+    },
+    {
+      "directive_id": "dir-003",
+      "result": "answer",
+      "by_role": "po",
+      "content": "Руководитель группы расчётов."
+    }
+  ]
+}

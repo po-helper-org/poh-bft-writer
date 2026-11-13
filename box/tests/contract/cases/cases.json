@@ -1,0 +1,142 @@
+[
+  {
+    "file": "01-start-request.json",
+    "def": "StartRequest",
+    "about": "start: только цель и бриф, команды нет"
+  },
+  {
+    "file": "02-start-ack.json",
+    "def": "Ack",
+    "about": "ответ start: итерация 1 готовится; повтор с тем же ключом даёт этот же ответ"
+  },
+  {
+    "file": "03-iteration-1-preparing.json",
+    "def": "Iteration",
+    "about": "get, пока итерация готовится: только шапка"
+  },
+  {
+    "file": "04-iteration-1-brief.json",
+    "def": "Iteration",
+    "about": "итерация 1 «Бриф»: нет команды — первое указание clarify_team; часть вопросов может закрыть сам PO"
+  },
+  {
+    "file": "05-submit-brief.json",
+    "def": "SubmitRequest",
+    "about": "submit: исходы по всем указаниям — новая итерация"
+  },
+  {
+    "file": "06-iteration-2-plan-approval.json",
+    "def": "Iteration",
+    "about": "итерация 2: утвердить план — указание к PO"
+  },
+  {
+    "file": "07-submit-plan-approved.json",
+    "def": "SubmitRequest",
+    "about": "PO утвердил план"
+  },
+  {
+    "file": "08-iteration-3-working.json",
+    "def": "Iteration",
+    "about": "итерация 3: группа вопросов одному адресату (grp-accounting), вопрос «может ответить сам PO»"
+  },
+  {
+    "file": "09-submit-mixed-outcomes.json",
+    "def": "SubmitRequest",
+    "about": "исходы всех видов: ответ, отказ, недоступен, не получено"
+  },
+  {
+    "file": "10-iteration-4-plan-change.json",
+    "def": "Iteration",
+    "about": "итерация 4: адресат вне плана — не указание ему, а approve_plan_change к PO; повторы с attempt=2"
+  },
+  {
+    "file": "11-iteration-5-deadline.json",
+    "def": "Iteration",
+    "about": "истёк срок указания — новая итерация без iterate (trigger=deadline)"
+  },
+  {
+    "file": "12-iteration-6-needs-po.json",
+    "def": "Iteration",
+    "about": "«Нужен PO»: застрявшая проверка"
+  },
+  {
+    "file": "13-iteration-7-error.json",
+    "def": "Iteration",
+    "about": "сбой модели: итерация N+1 со статусом error"
+  },
+  {
+    "file": "14-iteration-8-acceptance.json",
+    "def": "Iteration",
+    "about": "«На приёмке»: светофор зелёный, указание accept_package к PO"
+  },
+  {
+    "file": "15-control-pause.json",
+    "def": "ControlRequest",
+    "about": "control pause"
+  },
+  {
+    "file": "16-control-pause-ack.json",
+    "def": "Ack",
+    "about": "ответ на pause: новых указаний нет, выданные — suspended; истёкший срок итерацию не порождает"
+  },
+  {
+    "file": "17-control-resume-ack.json",
+    "def": "Ack",
+    "about": "ответ на resume: состояние до паузы"
+  },
+  {
+    "file": "18-control-cancel-ack.json",
+    "def": "Ack",
+    "about": "ответ на cancel: пакет и история сохраняются"
+  },
+  {
+    "file": "19-control-reopen-after-accepted.json",
+    "def": "ControlRequest",
+    "about": "reopen принятой инициативы — «Доработка»"
+  },
+  {
+    "file": "20-iteration-9-rework.json",
+    "def": "Iteration",
+    "about": "итерация после reopen из accepted: тот же id инициативы, версия пакета +1"
+  },
+  {
+    "file": "21-status.json",
+    "def": "Status",
+    "about": "status: дёшево, без модели"
+  },
+  {
+    "file": "22-list.json",
+    "def": "InitiativeList",
+    "about": "list: инициативы этого исполнителя"
+  },
+  {
+    "file": "23-submit-ack-accumulating.json",
+    "def": "Ack",
+    "about": "submit без iterate и не по всем указаниям: исходы копятся, новой итерации нет"
+  },
+  {
+    "file": "24-error-conflict.json",
+    "def": "Error",
+    "about": "submit на устаревшую base_iteration"
+  },
+  {
+    "file": "25-error-not-ready.json",
+    "def": "Error",
+    "about": "submit, пока последняя итерация готовится (решение #363)"
+  },
+  {
+    "file": "26-error-idempotency-mismatch.json",
+    "def": "Error",
+    "about": "тот же ключ, другое тело"
+  },
+  {
+    "file": "27-error-bad-schema-version.json",
+    "def": "Error",
+    "about": "другая мажорная версия"
+  },
+  {
+    "file": "28-error-invalid-state.json",
+    "def": "Error",
+    "about": "control не к этому состоянию"
+  }
+]

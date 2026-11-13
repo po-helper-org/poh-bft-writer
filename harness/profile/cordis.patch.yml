@@ -1,0 +1,39 @@
+# Слой патчей профиля web автономной системы БФТ (ADR-0001, ADR-0004, ADR-0006).
+# Профиль = 6 плагинов (components.md §Инвентарь). MCP-мост НЕ подключаем:
+# шов Коробки — HTTP, единственный вызыватель — плагин (ADR-0001 rev 2).
+
+# ── Провайдер Z.AI (GLM): ключ из окружения, не в git ──────────────────────────
+# Тот же роут, что в poh-harness: каталог pi-ai (api.z.ai): glm-5-turbo для
+# fast, glm-4.7+ для агентных сессий.
+- id: llm-pi-ai
+  name: '@deepseek-ai/dsh-llm-pi-ai'
+  config:
+    providers:
+      zai:
+        apiKeyEnv: ZAI_API_KEY
+
+# ── Скиллы как нативный skill-root ────────────────────────────────────────────
+# Оба узла обязательны: в профиле web оба выключены по умолчанию, а без
+# tool-skill мёртв customSkillDirs (грабля из poh-harness, README профиля).
+- id: skill-filesystem
+  name: '@deepseek-ai/dsh-skill-filesystem'
+  disabled: false
+  config:
+    customSkillDirs:
+      - /opt/bft-skills
+- id: tool-skill
+  name: '@deepseek-ai/dsh-tool-skill'
+  disabled: false
+
+# ── Раздел «Управление требованиями» (poh-bft-plugin) ─────────────────────────
+# workspaceRoot — том контейнера; скиллы плагин находит через customSkillDirs
+# выше (пути в черновиках handoff отсчитываются от сессии в bft/).
+# claudeBin: off — внешний Claude Code CLI в контейнере нет; черновик уходит в
+# композер харнесса (README плагина).
+- id: bft-requirements
+  config:
+    workspaceRoot: /workspace
+    docsPath: bft/documentation
+    indexPath: bft/index
+    entireRequired: false
+    claudeBin: 'off'

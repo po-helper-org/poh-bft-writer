@@ -39,6 +39,8 @@ import type { BftSettings } from '../settings.js'
 import type { BftStage } from '../model.js'
 import type { TransitionRequest } from '../board-transition.js'
 import type { OkrHandoff } from '../okr-handoff.js'
+import { Intake } from './Intake.js'
+import { DirectivesSection } from './DirectivesSection.js'
 import { queueGroups, searchTasks, type BftGroup } from '../queue.js'
 // Type-only: PanelStoreHandle описывает форму стора, реальный хэндл создаётся в apply()
 // (src/client/index.tsx) и сюда не импортируется — только тип, значение не пересекает границу.
@@ -117,6 +119,10 @@ export interface RequirementsPanelInjected {
    */
   getSettings(): BftSettings
   subscribeSettings(listener: () => void): () => void
+  /** RPC-обёртка для самодостаточных вьюх (интейк): подкоманды того же канала. */
+  call(endpoint: string, payload?: unknown): Promise<RpcResult<unknown>>
+  /** Прогон fast-команды в расходной сессии харнесса (Т8). */
+  runFast(command: string, onStatus: (phase: 'starting' | 'running' | 'idle', message?: string) => void): Promise<void>
 }
 
 export type RequirementsPanelProps =
@@ -153,6 +159,7 @@ type DetailBackRoute = { view: 'preview'; id: string } | { view: 'board' }
  */
 type PanelRoute =
   | { view: 'list' }
+  | { view: 'intake' }
   | { view: 'preview'; id: string }
   | { view: 'detail'; id: string; back: DetailBackRoute; doc?: DocumentRole }
   | { view: 'board' }
@@ -202,6 +209,8 @@ export function RequirementsPanel({
   openSession,
   getSettings,
   subscribeSettings,
+  call,
+  runFast,
   t,
 }: RequirementsPanelProps) {
   const isOpen = useStore(state => state.open)
@@ -219,7 +228,7 @@ export function RequirementsPanel({
   })
   const [collapsed, setCollapsed] = useState<ReadonlySet<BftStage>>(() => new Set())
   const [query, setQuery] = useState('')
-  const [route, setRoute] = useState<PanelRoute>({ view: 'list' })
+  const [route, setRoute] = useState<PanelRoute>({ view: 'intake' })
   const [panelWidth, setPanelWidth] = useState(readPanelWidth)
   const settings = useSyncExternalStore(subscribeSettings, getSettings)
   const controllerRef = useRef<AbortController | null>(null)
@@ -323,6 +332,15 @@ export function RequirementsPanel({
   const isSearching = state.phase === 'ready' && query.trim().length > 0
   const noSearchResults = isSearching && filteredGroups.length === 0
 
+  // Интейк — дефолтная вьюха панели (US-9): первым делом форма ввода, список —
+  // шаг назад. Компонент самодостаточен (RPC-обёртка приходит пропсом),
+  // ничего из списка ему не нужно.
+  if (route.view === 'intake') {
+    return (
+      <Intake call={call} runFast={runFast} onBack={() => setRoute({ view: 'list' })} />
+    )
+  }
+
   // Детальная страница (Task 3) — не .bft-panel: свой полноэкранный корень поверх всего
   // приложения (см. .${css.detailPage} в Panel.styles.ts), тот же приём соседней панели
   // Cordis, что описан в DetailPage.tsx, а не второй слой оверлеев. «Назад» возвращает туда,
@@ -382,6 +400,7 @@ export function RequirementsPanel({
   if (route.view === 'board') {
     return (
       <Board
+        call={call}
         t={t}
         listRequirements={listRequirements}
         getTask={getTask}
@@ -444,6 +463,16 @@ export function RequirementsPanel({
       <div className={css.header}>
         <h2>{t('panelTitle')}</h2>
         {badgeCount !== undefined && <span className={css.badge}>{badgeCount}</span>}
+        {/* Интейк — главная точка входа сценария (US-9); внешняя форма — второй способ. */}
+        <button
+          type="button"
+          className={css.iconButton}
+          aria-label="Новая инициатива"
+          title="Новая инициатива: ввести требование"
+          onClick={() => { setRoute({ view: 'intake' }) }}
+        >
+          ✎
+        </button>
         {/* «+» слева от «обновить»: это единственная кнопка шапки, которая добавляет, а не
             читает. Без ссылки на форму она не исчезает, а гаснет с подсказкой: пропавшая
             кнопка выглядит как поломка, погасшая объясняет, чего не хватает. */}
@@ -502,7 +531,8 @@ export function RequirementsPanel({
             onSelect={(id) => { setRoute({ view: 'preview', id }) }}
             sessionInfo={sessionInfo}
             t={t}
-          />
+          
+          call={call}/>
         )}
       </div>
       {/* Кнопка «Статус проработки» (Task 4) — футер панели, вне скроллящегося .body, всегда
@@ -622,17 +652,20 @@ function SearchField({ value, onChange, placeholder, clearLabel }: {
   )
 }
 
-function GroupList({ groups, collapsed, onToggle, onSelect, sessionInfo, t }: {
+function GroupList({ groups, collapsed, onToggle, onSelect, call, sessionInfo, t }: {
   groups: BftGroup[]
   collapsed: ReadonlySet<BftStage>
   onToggle: (stage: BftStage) => void
   /** Клик по строке требования — переключает панель в режим превью (Task 2, см. Preview.tsx). */
   onSelect: (id: string) => void
+  /** RPC-обёртка для секции указаний (Т13). */
+  call: (endpoint: string, payload?: unknown) => Promise<RpcResult<unknown>>
   sessionInfo: (sessionId: string) => LiveSession | null | undefined
   t: (key: BftLocaleKey) => string
 }) {
   return (
     <>
+      <DirectivesSection call={call} />
       {groups.map((group) => {
         const isCollapsed = collapsed.has(group.stage)
         const tone = { '--tone': STAGE_TONE[group.stage] } as CSSProperties

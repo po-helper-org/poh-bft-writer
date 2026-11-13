@@ -1,0 +1,11 @@
+{
+  "schema_version": "1.0.0",
+  "initiative_id": "ini-0001",
+  "state": "working",
+  "latest": {
+    "iteration_id": "it-0009",
+    "number": 9,
+    "status": "ready"
+  },
+  "next_deadline": "2026-11-03T09:00:00Z"
+}

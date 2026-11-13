@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Моя первая БФТ · Гайд PO: от запроса заказчика до validated</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --paper:#fff; --ink:#1a2233; --muted:#5b6572; --line:#dfe3e9;
+    --accent:#0f62fe; --accent-soft:#e8f0fe; --ok:#047857; --ok-soft:#e2f5ee;
+    --warn:#b45309; --warn-soft:#fdf1e0; --bad:#b91c1c; --bad-soft:#fdeaea;
+    --mono:'SF Mono',ui-monospace,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:15px/1.65 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;}
+  .wrap{max-width:880px;margin:0 auto;padding:32px 24px 90px}
+  header.top{border-bottom:3px solid var(--ink);padding-bottom:16px;margin-bottom:26px}
+  h1{font-size:26px;margin:0 0 6px;letter-spacing:-.02em}
+  .sub{color:var(--muted);font-size:14px}
+  h2{font-size:19px;margin:40px 0 12px;letter-spacing:-.01em}
+  h2 .n{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;
+    border-radius:50%;background:var(--accent);color:#fff;font-size:14px;margin-right:10px;vertical-align:-4px}
+  h3{font-size:15.5px;margin:20px 0 8px}
+  p{margin:8px 0}
+  .card{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:16px 20px;margin:14px 0}
+  .grid{display:grid;gap:12px;grid-template-columns:1fr 1fr}
+  @media(max-width:700px){.grid{grid-template-columns:1fr}}
+  code,.mono{font-family:var(--mono);font-size:12.5px;background:#eef1f5;padding:1px 6px;border-radius:5px}
+  pre{font-family:var(--mono);font-size:12.5px;line-height:1.6;background:#0f172a;color:#dbe4f3;
+      border-radius:10px;padding:14px 16px;overflow:auto;margin:10px 0}
+  pre .c{color:#7c8aa5}
+  table{width:100%;border-collapse:collapse;background:var(--paper);border:1px solid var(--line);
+    border-radius:10px;overflow:hidden;font-size:13.5px;margin:10px 0}
+  th{background:#eef1f5;text-align:left;padding:8px 12px;font-size:12.5px}
+  td{padding:8px 12px;border-top:1px solid var(--line);vertical-align:top}
+  .tag{display:inline-block;font-size:11px;font-weight:800;padding:2px 9px;border-radius:5px;letter-spacing:.03em}
+  .t-ok{background:var(--ok-soft);color:var(--ok)} .t-warn{background:var(--warn-soft);color:var(--warn)}
+  .t-bad{background:var(--bad-soft);color:var(--bad)} .t-info{background:var(--accent-soft);color:var(--accent)}
+  .callout{border-left:4px solid var(--accent);background:var(--accent-soft);border-radius:0 10px 10px 0;
+    padding:12px 16px;margin:14px 0;font-size:14px}
+  .callout.ok{border-color:var(--ok);background:var(--ok-soft)}
+  .callout.warn{border-color:var(--warn);background:var(--warn-soft)}
+  .callout.bad{border-color:var(--bad);background:var(--bad-soft)}
+  .timeline{list-style:none;padding:0;margin:12px 0}
+  .timeline li{position:relative;padding:0 0 14px 34px}
+  .timeline li::before{content:'';position:absolute;left:9px;top:6px;width:10px;height:10px;
+    border-radius:50%;background:var(--accent)}
+  .timeline li::after{content:'';position:absolute;left:13.5px;top:18px;bottom:-2px;width:1.5px;background:var(--line)}
+  .timeline li:last-child::after{display:none}
+  .timeline b{display:block;font-size:14px}
+  .timeline span{color:var(--muted);font-size:13px}
+  .kbd{font-family:var(--mono);font-size:12px;border:1px solid var(--line);border-bottom-width:2px;
+    border-radius:5px;padding:1px 7px;background:#fff}
+  .quote{border-left:3px solid var(--line);padding:2px 0 2px 14px;color:var(--ink);font-size:14px;margin:10px 0;white-space:pre-wrap}
+  footer{margin-top:50px;padding-top:14px;border-top:1px solid var(--line);color:var(--muted);font-size:12.5px}
+  @media print{body{background:#fff}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="top">
+  <h1>Моя первая БФТ</h1>
+  <div class="sub">Гайд PO: от запроса заказчика — до validated-документа. Без терминов «снаружи»: всё, что нужно, — на этих экранах.</div>
+</header>
+
+<!-- ===================== ПРЕДУСЛОВИЯ ===================== -->
+<h2><span class="n">0</span>Перед началом — 2 минуты</h2>
+<div class="grid">
+  <div class="card">
+    <h3 style="margin-top:0">Система поднята?</h3>
+    <p class="mono" style="font-size:12px">cd harness && ./start.sh --demo --no-open</p>
+    <p style="font-size:13.5px;color:var(--muted)">Если уже поднимали — команда просто проверит и напечатает ссылку. Ваша текущая ссылка:</p>
+    <p class="mono" style="font-size:12px">cat harness/.last-url</p>
+  </div>
+  <div class="card">
+    <h3 style="margin-top:0">Ключ Z.AI стоит?</h3>
+    <p style="font-size:13.5px">Настоящий fast-прогон идёт на GLM. Проверить/поставить — одной командой:</p>
+    <p class="mono" style="font-size:12px">./set-key.sh --from-pi --check-only</p>
+    <p style="font-size:13px;color:var(--muted)">Если «принял» — всё готово. Нет ключа? Прогон пойдёт на демо-модели: конвейер тот же, тексты фиктивные.</p>
+  </div>
+</div>
+
+<div class="callout">
+  <b>Что вы получите в конце:</b> письмо в чат (пересылается заказчику как есть), два CSV (персоны + требования),
+  документ БФТ и HTML-страница ревью — плюс инициатива, доведённая системой до <code>validated</code>.
+</div>
+
+<!-- ===================== ШАГ 1 ===================== -->
+<h2><span class="n">1</span>Откройте систему</h2>
+<p>Перейдите по ссылке из <code>.last-url</code> — это харнесс с разделом <b>«Управление требованиями»</b>.
+Первый раз — покажется онбординг (5 шагов): на последнем вставьте ключ и нажмите <b>«Проверить»</b> → <b>«Готово»</b>.
+Онбординг запомнится в этом браузере и больше не появится. Уже проходили — сразу открывается <b>форма ввода</b>.</p>
+<p>Открыть раздел: кнопка <span class="kbd">✎ Управление требованиями</span> в подвале левой панели харнесса.</p>
+
+<!-- ===================== ШАГ 2 ===================== -->
+<h2><span class="n">2</span>Введите запрос заказчика</h2>
+<p>Перед вами строка ввода — сюда идёт всё, что дал заказчик:</p>
+<table>
+  <tr><th style="width:110px">Кнопка</th><th>Что принимает</th></tr>
+  <tr><td><span class="kbd">текст</span></td><td>переписка, Summary, звонок по памяти — свободной формой</td></tr>
+  <tr><td><span class="kbd">🎤</span></td><td>диктовка голосом (браузерная — быстро; локальная whisper — приватно)</td></tr>
+  <tr><td><span class="kbd">📎</span></td><td>файлы встречи, фото экранов, PDF, презентации</td></tr>
+  <tr><td><span class="kbd">ссылки</span></td><td>просто вставьте URL в текст — система сама соберёт их в «Источники»</td></tr>
+</table>
+
+<h3>Пример ввода (можете вставить свой по образцу)</h3>
+<div class="quote">Заказчик — сеть аптек «ФармаПлюс», контакт закупок ivanov@pharmaplus.ru.
+Хотят: выгрузку заказов в CSV для их BI, раз в сутки, все статусы кроме черновика.
+Техлид с их стороны — Петров (petrov@pharmaplus.ru), я — PO с нашей.
+Дэдлайн согласования границ — в пятницу. Материалы: https://confluence.corp.ru/x/AbCd
+и приложенный транскрипт звонка.</div>
+<div class="callout ok">
+  <b>Секрет хорошего прогона:</b> назовите <u>электронные адреса</u> (заказчик, PO, техлид) прямо в тексте —
+  система зафиксирует их в контакты верификации. Чего не знаете — не выдумывайте: оно станет открытым вопросом, так и задумано.
+</div>
+
+<!-- ===================== ШАГ 3 ===================== -->
+<h2><span class="n">3</span>Отправить → минута ожидания</h2>
+<ol class="timeline">
+  <li><b>⏳ «Агент собирает fast-документ…»</b><span>быстрая модель раскладывает вводные по формам методологии — до минуты</span></li>
+  <li><b>Карточка результата</b><span>скоринг: что понято · контакты (Заказчик/PO/Техлид с email) · источники · открытые вопросы</span></li>
+  <li><b>Красные пометки?</b><span>«Укажите контакт: Техлид (email)» — это не ошибка: допишите прямо в следующий прогон или закроете в верификации</span></li>
+</ol>
+
+<!-- ===================== ШАГ 4 ===================== -->
+<h2><span class="n">4</span>«Запустить проработку →»</h2>
+<p>Кнопка на карточке результата. Одно нажатие — и дальше система ведёт инициатива сама:</p>
+<pre><span class="c"># что произошло под капотом (вам не нужно):</span>
+инициатива зарегистрирована в конвейере   → стадия <b>запрос</b>
+модель собирает пакет БФТ по методологии  → стадия <b>сбор</b>
+указания людям расставлены по адресатам   → стадия <b>верификация</b></pre>
+<p>Дальше начинается ваша главная роль — отвечать, когда система спросит.</p>
+
+<!-- ===================== ШАГ 5 ===================== -->
+<h2><span class="n">5</span>Верификация: кто что делает</h2>
+<table>
+  <tr><th style="width:170px">Кто</th><th>Где отвечает</th><th style="width:210px">Как система узнаёт</th></tr>
+  <tr>
+    <td><b>Вы (PO)</b></td>
+    <td>Сайдбар «Управление требованиями» → секция <b>«Указания»</b> сверху: карточки решений («Волна 1: A или B?») → кнопка <b>«Ответить»</b> прямо в строке</td>
+    <td><span class="tag t-ok">мгновенно</span> ответ уходит в конвейер</td>
+  </tr>
+  <tr>
+    <td><b>Сотрудники</b></td>
+    <td>Трекер <code>http://ваш-хост:3456</code> — задачи «сборочная/верификационная» с пометкой инициативы; закрыли задачу — ответили</td>
+    <td><span class="tag t-ok">вебхук</span> закрытие задачи = исход</td>
+  </tr>
+  <tr>
+    <td><b>Заказчик</b></td>
+    <td>Element <code>http://ваш-хост:8090</code> — комната <code>#bft-…</code>: вопрос уже там, ответ пишется в чат</td>
+    <td><span class="tag t-ok">слушатель</span> ответ в чате = исход</td>
+  </tr>
+</table>
+<div class="callout warn">
+  <b>Молчание — не проблема:</b> у каждого указания срок. Прошёл — система напомнит сама (в трекер/комнату),
+  затянулось — эскалирует карточкой вам. Ничто не теряется и не висит вралом.
+</div>
+
+<!-- ===================== ШАГ 6 ===================== -->
+<h2><span class="n">6</span>Наблюдать: доска-конвейер</h2>
+<p>Сайдбар → внизу <b>«Доска запросов»</b> → переключатель <span class="kbd">Конвейер</span>:</p>
+<pre>ЗАПРОС  →  СБОР  →  ВЕРИФИКАЦИЯ  →  VALIDATED
+                └─ ваша инициатива · «ждём: po, заказчик»</pre>
+<p>Клик по карточке — панель процесса: светофор качества (сколько зелёных/жёлтых/красных проверок), чьи ответы ждём,
+ссылки: Temporal-процесс (для разбора сложных случаев), комната заказчика, задачи.</p>
+<p><b>Как читать светофор:</b> в приёмку ведёт только зелёный при утверждённом плане. Жёлтый — «недоказано», красный — чинится указаниями.</p>
+
+<!-- ===================== ШАГ 7 ===================== -->
+<h2><span class="n">7</span>Приёмка → VALIDATED</h2>
+<p>Все указания закрыты, светофор зелёный — приходит последнее указание <b>«принять пакет»</b>.
+Нажимаете «Ответить» («принимаю») — и:</p>
+<pre>инициатива → <b>validated</b> ✅   (границы исполнителей прописаны, договорённости зафиксированы,
+              открытые вопросы перечислены — контракт для следующего этапа готов)</pre>
+
+<!-- ===================== ШАГ 8 ===================== -->
+<h2><span class="n">8</span>Где забрать результат</h2>
+<table>
+  <tr><th>Артефакт</th><th>Где лежит</th></tr>
+  <tr><td>Письмо в чат (переслать заказчику)</td><td>сессия fast-прогона в харнессе + копия рядом с документом</td></tr>
+  <tr><td><code>personas.csv</code> / <code>requirements.csv</code></td><td rowspan="3"><code>harness/workspace/bft/documentation/&lt;слаг&gt;/</code><br><span style="color:var(--muted);font-size:12.5px">внутри контейнера: <code>docker compose exec harness-web ls /workspace/bft/documentation/</code></span></td></tr>
+  <tr><td>Документ БФТ <code>&lt;слаг&gt;-fast.md</code></td></tr>
+  <tr><td>HTML-страница ревью <code>&lt;слаг&gt;-fast.html</code></td></tr>
+</table>
+
+<!-- ===================== FAQ ===================== -->
+<h2 style="border-bottom:1px solid var(--line);padding-bottom:8px">Если что-то не так</h2>
+<div class="grid">
+  <div class="card"><h3 style="margin-top:0">Ссылка не открывается (401)</h3>
+    <p style="font-size:13.5px">Токен живёт до рестарта. Новый:</p>
+    <p class="mono" style="font-size:12px">docker compose logs harness-web | grep token</p></div>
+  <div class="card"><h3 style="margin-top:0">Fast завис на «⏳»</h3>
+    <p style="font-size:13.5px">Скорее всего нет ключа: <code>./set-key.sh --from-pi</code>, затем «Отправить» снова. Без ключа работает только демо-модель.</p></div>
+  <div class="card"><h3 style="margin-top:0">Указание не двигается</h3>
+    <p style="font-size:13.5px">Панель процесса на доске → «Temporal-процесс»: видно, на чьём ожидании стоим. Ждём не вас — пингуйте адресата; вас — отвечайте карточкой.</p></div>
+  <div class="card"><h3 style="margin-top:0">Хочу прогнать «на сухую»</h3>
+    <p style="font-size:13.5px">Демо-модель без ключа — весь конвейер до validated:</p>
+    <p class="mono" style="font-size:12px">python3 harness/smoke-e2e.py</p></div>
+</div>
+
+<footer>
+  Гайд PO · автономная система БФТ (poh-bft-writer/harness) · полный технический сценарий —
+  <code>harness/docs/HOWTODEMO.md</code>, карта системы — <code>harness/docs/components.md</code>. Октябрь 2026.
+</footer>
+
+</div>
+</body>
+</html>
