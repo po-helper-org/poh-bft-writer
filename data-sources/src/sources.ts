@@ -6,7 +6,7 @@
  */
 import { discover, dropConnection, exchange, loadConnection, newState, pkce, refresh, register, revoke, saveConnection, authorizeUrl, type Connection, type PendingAuth } from './oauth.js'
 import { McpHttpClient } from './mcp.js'
-import { confluenceFindings, findingsMarkdown, jiraFindings, jqlFor, merge, type Finding } from './findings.js'
+import { confluenceFindings, findingsMarkdown, jiraFindings, jqlFor, merge, rank, type Finding } from './findings.js'
 
 /** Инструменты штаба, которые порталу разрешено вызывать (только чтение). */
 export const READ_ONLY_TOOLS = ['confluence_search', 'confluence_get_page', 'jira_search', 'jira_get_issue'] as const
@@ -166,7 +166,8 @@ export class McpSource {
       const value = JSON.parse(await this.call('confluence_get_page', { page_id: finding.id, convert_to_markdown: true, include_metadata: false })) as unknown
       const page = (value && typeof value === 'object' && 'result' in value ? JSON.parse(String((value as { result: unknown }).result)) : value) as { content?: { value?: string }; metadata?: unknown } | string
       const text = typeof page === 'string' ? page : (page.content?.value ?? '')
-      finding.body = text.replace(/\n{3,}/g, '\n\n').trim().slice(0, 2500)
+      // Макрос Jira в Confluence оставляет «Jira<uuid>KEY-1» — убираем uuid, ключ остаётся.
+      finding.body = text.replace(/Jira[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}/g, ' ').replace(/\n{3,}/g, '\n\n').trim().slice(0, 2500)
     } else {
       const value = JSON.parse(await this.call('jira_get_issue', { issue_key: finding.id, fields: 'summary,status,description', comment_limit: 0, update_history: false })) as unknown
       const issue = (value && typeof value === 'object' && 'result' in value ? JSON.parse(String((value as { result: unknown }).result)) : value) as { description?: string }
@@ -176,7 +177,7 @@ export class McpSource {
 
   /**
    * Разведка для полного БФТ: запросы → Confluence и Jira → слить и
-   * ранжировать → дочитать лучшие → карта находок с якорями [CF-n]/[JR-n].
+   * ранжировать → дочитать лучшие → карта находок с готовыми markdown-ссылками.
    */
   async recon(queries: string[], options: { top?: number; read?: number; deadlineMs?: number } = {}): Promise<ReconResult> {
     const top = options.top ?? 10
@@ -191,7 +192,7 @@ export class McpSource {
       all.push(...findings)
       errors.push(...failed.map((e) => `«${query}» — ${e}`))
     }
-    const ranked = merge(all).slice(0, top)
+    const ranked = rank(all, unique, Math.ceil(top / 2))
     for (const finding of ranked.slice(0, read)) {
       if (Date.now() > deadline) break
       await this.readBody(finding).catch((e) => errors.push(`${finding.kind === 'jira' ? finding.id : finding.title}: ${e instanceof Error ? e.message : String(e)}`))

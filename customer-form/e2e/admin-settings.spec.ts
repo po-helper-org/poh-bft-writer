@@ -27,6 +27,9 @@ test('заказчик: сайдбара и «Настроек» нет, зап�
   expect(status.admin).toBe(false)
   await expect(page.getByRole('button', { name: 'Меню аккаунта' })).toBeHidden()
   await expect(page.locator('[data-portal-admin]')).toHaveCount(0)
+  // В левом углу у заказчика — одна кнопка «Меню», без штатной «Открыть боковую панель» под ней.
+  await expect(page.locator('.bm-trigger').getByRole('button', { name: 'Меню' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Открыть боковую панель' })).toBeHidden()
   // Горячая клавиша настроек заказчику не открывает панель.
   await page.keyboard.press('Control+Alt+Comma')
   await page.keyboard.press('Meta+Alt+Comma')
@@ -62,6 +65,14 @@ test('администратор: вход по паролю, штатные «�
   await page.getByRole('button', { name: 'Войти' }).click()
   await expect(page).toHaveURL(`${PORTAL}/`)
   await expect(page.locator('[data-portal-admin]')).toBeVisible()
+  // «Меню» портала не лежит поверх кнопок сайдбара dsh.
+  const menuBox = await page.locator('.bm-trigger').getByRole('button', { name: 'Меню' }).boundingBox()
+  for (const toggle of await page.getByRole('button', { name: /боковую панель/ }).all()) {
+    const box = await toggle.boundingBox()
+    if (!box || !menuBox || box.width === 0) continue
+    const overlap = box.x < menuBox.x + menuBox.width && menuBox.x < box.x + box.width && box.y < menuBox.y + menuBox.height && menuBox.y < box.y + box.height
+    expect(overlap, 'кнопки в углу не накладываются').toBe(false)
+  }
 
   // Портал на старте готовит раздел заявок и закрывает открытые окна — ждём готовности.
   await expect(page.getByRole('textbox', { name: /Опишите инициативу/ })).toBeVisible()

@@ -4,6 +4,8 @@
  */
 export const CSS = `
 .bm-trigger { position: fixed; top: 10px; left: 12px; z-index: 35; pointer-events: auto; }
+/* Администратор портала видит сайдбар dsh: его кнопка и логотип — в левом углу, «Меню» — справа. */
+html[data-portal-role="admin"] .bm-trigger { left: auto; right: 52px; }
 .bm-page {
   position: fixed; inset: 0; z-index: 40; display: flex; flex-direction: column;
   background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary);

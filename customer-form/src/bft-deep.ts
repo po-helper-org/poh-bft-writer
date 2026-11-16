@@ -32,7 +32,7 @@ export async function readDeepState(files: DeepFiles): Promise<DeepState | undef
   return readFile(files.state, 'utf8').then((s) => JSON.parse(s) as DeepState, () => undefined)
 }
 
-async function saveDeepState(files: DeepFiles, state: DeepState): Promise<void> {
+export async function saveDeepState(files: DeepFiles, state: DeepState): Promise<void> {
   await writeFile(files.state, JSON.stringify(state), 'utf8')
 }
 
@@ -68,15 +68,34 @@ export function deepHead(fastMd: string, today: string): string {
 }
 
 /** Канон из ответа модели: от «Проблемы которую решаем» до блока «Продолжить». */
-export function cleanCanon(text: string): string {
+/** Адреса Jira и Confluence из контекста (карта находок): ими заменяем примеры линтера. */
+export function linkBases(context: string): { jira?: string; confluence?: string; keys?: string[] } {
+  const jira = context.match(/(https?:\/\/[^\s()]+\/browse\/)[A-Z][A-Z0-9_]+-\d+/)?.[1]
+  const confluence = context.match(/(https?:\/\/[^\s()/]+)\/(?:pages|display|spaces)\//)?.[1]
+  // Ключи задач, которые есть в карте находок: только им канон даёт ссылку.
+  const keys = jira ? [...new Set(context.match(/\b[A-Z][A-Z0-9_]{1,15}-\d{1,7}\b/g) ?? [])] : []
+  return { ...(jira ? { jira } : {}), ...(confluence ? { confluence } : {}), ...(keys.length ? { keys } : {}) }
+}
+
+export function cleanCanon(text: string, bases: { jira?: string; confluence?: string; keys?: string[] } = {}): string {
   let body = text.replace(/^```(?:markdown|md)?\s*\n([\s\S]*?)\n```\s*$/m, '$1')
   const start = body.indexOf(CANON_HEAD)
   if (start >= 0) body = body.slice(start)
   const tail = body.indexOf(CONTINUE_HEAD)
   if (tail >= 0) body = body.slice(0, tail)
   // Правило RULES «открытые вопросы в документ не пиши» модель нарушает хвостом
-  // «**Открытые вопросы (в чат, не в документ):**» — вопросы и так стоят [УТОЧНИТЬ] в ячейках.
-  body = body.replace(/\n(?:---\s*\n\s*)?\*\*Открытые вопросы[^\n]*\n[\s\S]*$/, '\n')
+  // «**Открытые вопросы (в чат, не в документ):**» или разделом «## Открытые вопросы»
+  // — вопросы и так стоят [УТОЧНИТЬ] в ячейках.
+  body = body.replace(/\n(?:---\s*\n\s*)?(?:\*\*|#{2,4} )Открытые вопросы[^\n]*\n[\s\S]*$/, '\n')
+  // Подсказка линтера показывает ссылку на jira.example.com — модель её копирует.
+  if (bases.jira) body = body.replace(/https?:\/\/jira\.example\.com\/browse\//g, bases.jira)
+  if (bases.confluence) body = body.replace(/https?:\/\/confluence\.example\.com(?=\/)/g, bases.confluence)
+  // Голый ключ из карты находок → ссылка (bft-lint LN001). Ключ, которого в карте нет, не трогаем:
+  // выдуманному ключу правдоподобная ссылка не нужна — его поймает линтер.
+  if (bases.jira && bases.keys?.length) {
+    const known = new Set(bases.keys)
+    body = body.replace(/(^|[^\w[\/-])([A-Z][A-Z0-9_]{1,15}-\d{1,7})(?![\w\]-])/g, (match, lead: string, key: string) => (known.has(key) ? `${lead}[${key}](${bases.jira}${key})` : match))
+  }
   return body.trim()
 }
 
@@ -117,7 +136,7 @@ const RULES = `Ты — аналитик, который доводит перв
 ## Якоря истины
 
 Правила:
-- Корпоративные источники (Jira/Confluence) в контексте — указатель с якорями [CF-n]/[JR-n]: факт из находки бери, только если она явно про предмет этой заявки, и указывай якорь и ссылку (в «Зависимостях», «Рисках», «Якорях истины» — системы, команды, связанные эпики). В «Якорях истины» такая строка — «Confluence/Jira: <название> (<ссылка>)», ранг R2. Совпадение слов — не повод; нерелевантные находки пропускай.
+- Корпоративные источники (Jira/Confluence) в контексте — указатель: факт из находки бери, только если она явно про предмет этой заявки, и ставь рядом её «Ссылку для БФТ» дословно — markdown-ссылкой (в «Зависимостях», «Рисках», «Якорях истины» — системы, команды, связанные эпики и страницы). Ключи задач и адреса страниц без markdown-ссылки не пиши; адреса — только из контекста, домены example.com не используй. В «Якорях истины» такая строка — ранг R2. Совпадение слов — не повод; нерелевантные находки пропускай.
 - Источник фактов — только документ bft-fast и контекст заявки ниже. Факт без источника — \`[УТОЧНИТЬ у {кого}]\` в ячейке, не выдумывай. Цифр, систем, сроков и метрик, которых нет в источнике, не добавляй.
 - ID из «Критичных требований» bft-fast сохраняй (БТ-1 там = БТ-1 здесь), строки разверни в типизированные таблицы. Новые ID — только следующими номерами.
 - «План демонстрации»: подраздел «### Акторы» — таблица с колонкой «Актор»; подраздел «### Сценарий приёмки (happy path + alt)» — непустой блок \`\`\`plantuml с веткой alt (что видит заказчик, если что-то пошло не так). Сценарий — по How to demo из шапки.
@@ -142,7 +161,7 @@ export function deepPrompt(golden: string, fastMd: string, context: string, lint
 
 const QUERIES_PROMPT = `Ты помогаешь найти в корпоративных Jira и Confluence материалы, связанные с заявкой: эпики, задачи, страницы требований и интеграций.
 Дай от 3 до 5 поисковых запросов по-русски, каждый 1–4 слова: предмет заявки, названия систем, процессов и интеграций, которые в ней названы. Без общих слов («портал», «требования», «задача») по отдельности.
-Ответ — только JSON-массив строк, без пояснений. Пример: ["заявление на отпуск", "КЭДО отпуск", "1С:ЗУП интеграция отпуск"]`
+Ответ — только JSON-массив строк, без пояснений. Пример формы (другая заявка — слова бери из своей): ["возврат товара", "чек ОФД возврат", "CRM обращение возврат"]`
 
 /** Поисковые запросы по заявке для источников данных; модель не ответила — название заявки. */
 export async function searchQueries(llm: LlmLike, route: DeepRoute, fastMd: string, signal: AbortSignal): Promise<string[]> {
@@ -184,6 +203,8 @@ function python(script: string, args: string[]): Promise<{ code: number; out: st
 }
 
 export interface DeepInput {
+  /** Начало сборки, если портал отметил его раньше (разведка по источникам — до сборки). */
+  startedAt?: string
   llm: LlmLike
   route: DeepRoute
   skillsPath: string
@@ -204,7 +225,7 @@ const today = () => new Date().toLocaleDateString('ru-RU', { timeZone: 'Europe/M
  */
 export async function buildDeep(input: DeepInput): Promise<DeepState> {
   const files = deepFiles(input.fast, input.slug)
-  const startedAt = new Date().toISOString()
+  const startedAt = input.startedAt ?? new Date().toISOString()
   await saveDeepState(files, { stage: 'building', startedAt })
   const signal = AbortSignal.timeout(input.timeoutMs ?? 15 * 60_000)
   try {
@@ -216,7 +237,7 @@ export async function buildDeep(input: DeepInput): Promise<DeepState> {
     const max = input.attempts ?? 3
     let previous: { canon: string; errors: string } | undefined
     for (let attempt = 1; attempt <= max; attempt++) {
-      const canon = cleanCanon(await generate(input.llm, input.route, deepPrompt(golden, fastMd, input.context, previous), signal))
+      const canon = cleanCanon(await generate(input.llm, input.route, deepPrompt(golden, fastMd, input.context, previous), signal), linkBases(input.context))
       await writeFile(files.md, `${head}\n\n${canon}\n\n${tail}\n`, 'utf8')
       const lint = await python(lintScript, [files.md])
       if (lint.code === 0) {

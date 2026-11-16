@@ -27,7 +27,7 @@ import { demoPageHtml } from './demo-page.js'
 import type { AgentLike, BlockLike } from './tool.js'
 import { approveFast, FAST_ROOT, fastFiles, fastPagePath, fastProgress, fastSlug, fastState, SKILLS_PATH, stillBuilding } from './bft-fast.js'
 import { customerDeepPage, customerFastPage, deepFailedPage, requestsPage, waitingPage, type RequestRow } from './fast-page.js'
-import { buildDeep, searchQueries, deepFiles, readDeepState, type DeepRoute, type DeepState, type LlmLike } from './bft-deep.js'
+import { buildDeep, saveDeepState, searchQueries, deepFiles, readDeepState, type DeepRoute, type DeepState, type LlmLike } from './bft-deep.js'
 import { EXPORT_TYPES, exportDocument, type ExportFormat } from './export.js'
 import type { PrimaryDoc } from './primary.js'
 import { mergePortalModels, MODELS_ROUTE, readPortalModels, sameRoute, writePortalModels, type ModelRoute, type PortalModels } from './models.js'
@@ -214,6 +214,8 @@ export function apply(ctx: HarnessContext): void {
   /** Разведка по Jira/Confluence: карта находок рядом с документом; не вышло — пусто. */
   const sourcesMap = async (fastMdPath: string, mapPath: string, runtime: { llm: LlmLike; route(): DeepRoute }): Promise<string> => {
     const sources = dataSources
+    // E2E (флаг e2e-hooks ставит harness/e2e-customer.sh): тесты не ходят в настоящие Jira/Confluence.
+    if (existsSync(join(process.env.DSH_HOME ?? '/data', 'e2e-hooks'))) return ''
     if (!sources || !(await sources.available().catch(() => false))) return ''
     try {
       const fastMd = await readFile(fastMdPath, 'utf8')
@@ -243,14 +245,17 @@ export function apply(ctx: HarnessContext): void {
     const fast = fastFiles(FAST_ROOT, slug)
     deepRunning.add(slug)
     void (async () => {
+      // «Собирается» — сразу: разведка по источникам идёт до сборки, заказчик видит экран ожидания.
+      const startedAt = new Date().toISOString()
+      await saveDeepState(deepFiles(fast, slug), { stage: 'building', startedAt })
       const context = await readFile(fast.contextMap, 'utf8').catch(() => '')
       const sourcesPath = join(fast.dir, 'sources.md')
       const sources = await sourcesMap(fast.md, sourcesPath, runtime)
       const state = await buildDeep({
-        llm: runtime.llm, route: runtime.route(), skillsPath: SKILLS_PATH, fast, slug, taskUrl: ticket.url,
+        startedAt, llm: runtime.llm, route: runtime.route(), skillsPath: SKILLS_PATH, fast, slug, taskUrl: ticket.url,
         context: [
           context ? `Карта контекста (память организации — указатель, не фактбаза):\n${context}` : '',
-          sources ? `Корпоративные источники (Jira/Confluence — указатель с якорями, не фактбаза):\n${sources}` : '',
+          sources ? `Корпоративные источники (Jira/Confluence — указатель со ссылками, не фактбаза):\n${sources}` : '',
         ].filter(Boolean).join('\n\n'),
       })
       await reportDeep(backlog, ticket, slug, deepFiles(fast, slug), state, sources ? sourcesPath : undefined)

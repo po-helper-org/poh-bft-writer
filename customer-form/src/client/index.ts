@@ -36,6 +36,8 @@ export const inject = ['slots', 'connection', 'uiWorkspace', 'workspaces', 'sess
 const HIDE_SIDEBAR_CSS = `
 /* Портал заказчика: сайдбар скрыт — остаётся чистый стартовый экран dsh. */
 .pI_x6G_sidebarCol, .pI_x6G_handle { display: none !important; }
+/* Кнопка «Открыть боковую панель» центра лежит под «Меню» портала (bft-manager), а сайдбара у заказчика нет. */
+.pI_x6G_leadingSeat button[aria-label="Открыть боковую панель"], .pI_x6G_leadingSeat button[aria-label="Open sidebar"] { display: none !important; }
 .pI_x6G_centerCol { grid-column: 1 / 3 !important; }
 .pI_x6G_rightbarCol { grid-column: 3 !important; }
 `

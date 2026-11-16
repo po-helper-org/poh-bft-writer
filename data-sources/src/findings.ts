@@ -96,7 +96,7 @@ function typeWeight(finding: Finding): number {
   const type = (finding.type ?? '').toLowerCase()
   if (/эпик|epic|инициатив|бизнес|требован|feature|фича/.test(type)) return 3
   if (/истори|story|задача|task/.test(type)) return 2
-  if (/ошибка|bug|дефект|подзадач|sub-task|subtask/.test(type)) return 0
+  if (/ошибка|bug|дефект|подзадач|sub-task|subtask/.test(type)) return -1
   return 1
 }
 
@@ -116,19 +116,71 @@ export function merge(findings: Finding[]): Finding[] {
   return [...byKey.values()].sort((a, b) => (b.hits * 2 + typeWeight(b)) - (a.hits * 2 + typeWeight(a)) || (b.updated ?? '').localeCompare(a.updated ?? ''))
 }
 
+/** Инциденты и обращения поддержки — не про требования: в карту не берём. */
+const NOISE_TYPE = /инцидент|incident|\binc\b|remedy|обращени|service request/i
+
+/** Основы слов запросов: слова от 4 букв, обрезанные до 5 (грубая основа для русского). */
+export function stems(queries: string[]): string[] {
+  const words = queries.join(' ').toLowerCase().replace(/ё/g, 'е').split(/[^\p{L}\p{N}:]+/u).filter((word) => word.length >= 4)
+  return [...new Set(words.map((word) => word.slice(0, 5)))]
+}
+
+/** Сколько основ запросов встречается в тексте. */
+function matches(text: string, keys: string[]): number {
+  const haystack = text.toLowerCase().replace(/ё/g, 'е')
+  return keys.filter((key) => haystack.includes(key)).length
+}
+
+/**
+ * Ранжировать для карты: совпадения основ в названии весят втрое больше, чем в
+ * выдержке; повторные находки и тип (эпик > история > ошибка) — добавка.
+ * Без единого совпадения и инциденты — вон. Confluence и Jira — поровну:
+ * иначе эпики Jira вытесняют страницы требований.
+ */
+export function rank(findings: Finding[], queries: string[], perKind = 5): Finding[] {
+  const keys = stems(queries)
+  const scored = merge(findings).flatMap((finding) => {
+    if (NOISE_TYPE.test(finding.type ?? '')) return []
+    const title = matches(finding.title, keys)
+    const snippet = matches(finding.snippet, keys)
+    if (title + snippet === 0) return []
+    // Тип весит вдвое: эпик с одним словом запроса в названии выше бага с двумя.
+    return [{ finding, score: title * 3 + snippet + (finding.hits - 1) * 2 + typeWeight(finding) * 2 }]
+  }).sort((a, b) => b.score - a.score || (b.finding.updated ?? '').localeCompare(a.finding.updated ?? ''))
+  const pick = (kind: FindingKind) => scored.filter((item) => item.finding.kind === kind).slice(0, perKind)
+  return [...pick('confluence'), ...pick('jira')].sort((a, b) => b.score - a.score).map((item) => item.finding)
+}
+
 /** JQL полнотекстового поиска по фразе; кавычки и обратные слэши экранированы. */
 export function jqlFor(query: string): string {
   const phrase = query.replace(/[\\"]/g, ' ').replace(/\s+/g, ' ').trim()
   return `text ~ "${phrase}" ORDER BY updated DESC`
 }
 
-/** Якорь находки в карте: [CF-1], [JR-2] — на них ссылается БФТ. */
-export function anchors(findings: Finding[]): Map<Finding, string> {
-  const result = new Map<Finding, string>()
-  let cf = 0
-  let jr = 0
-  for (const finding of findings) result.set(finding, finding.kind === 'confluence' ? `CF-${++cf}` : `JR-${++jr}`)
-  return result
+/**
+ * Готовая ссылка на находку для БФТ — в форме, которую принимает bft-lint
+ * (ключ задачи и страница вики — только markdown-ссылкой, LN001/LN002).
+ */
+export function citation(finding: Finding): string {
+  const label = finding.kind === 'jira'
+    ? `Jira ${finding.id}`
+    : `Confluence: ${finding.title.replace(/[[\]|]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80)}`
+  return `[${label}](${finding.url})`
+}
+
+/** Адрес Jira для ссылок на ключи: из browse_url любой находки Jira. */
+export function jiraBrowseBase(findings: Finding[]): string | undefined {
+  for (const finding of findings) {
+    const match = finding.kind === 'jira' ? finding.url.match(/^(https?:\/\/[^\s]+\/browse\/)[A-Z][A-Z0-9_]+-\d+/) : null
+    if (match) return match[1]
+  }
+  return undefined
+}
+
+/** Голые ключи задач в тексте находки → markdown-ссылки (bft-lint LN001). */
+export function linkKeys(text: string, base: string | undefined): string {
+  if (!base) return text
+  return text.replace(/(^|[^\w[\/-])([A-Z][A-Z0-9_]{1,15}-\d{1,7})(?![\w\]-])/g, (_m, lead: string, key: string) => `${lead}[${key}](${base}${key})`)
 }
 
 /**
@@ -139,20 +191,21 @@ export function findingsMarkdown(findings: Finding[], meta: { source: string; qu
   if (findings.length === 0) {
     return `# Корпоративные источники\n\nИсточник: ${meta.source}. Запросы: ${meta.queries.map((q) => `«${q}»`).join(', ')}. Ничего не найдено.\n`
   }
-  const marks = anchors(findings)
+  const base = jiraBrowseBase(findings)
   const lines = [
     '# Корпоративные источники',
     '',
     `Источник: ${meta.source} · ${meta.at}. Запросы: ${meta.queries.map((q) => `«${q}»`).join(', ')}.`,
-    'Это указатель: факт из находки в БФТ — только со ссылкой на неё. Совпадение по словам ещё не значит, что находка про эту заявку.',
+    'Это указатель: факт из находки в БФТ — только со ссылкой на неё (строка «Ссылка для БФТ» — копировать как есть). Совпадение по словам ещё не значит, что находка про эту заявку.',
     '',
   ]
   for (const finding of findings) {
     const where = [finding.kind === 'confluence' ? 'Confluence' : 'Jira', finding.container, finding.type, finding.status, finding.updated?.slice(0, 10)].filter(Boolean).join(' · ')
-    lines.push(`## [${marks.get(finding)}] ${finding.title}`)
-    lines.push(`${where} — ${finding.url}`)
-    if (finding.body) lines.push('', finding.body)
-    else if (finding.snippet) lines.push('', `> ${finding.snippet}`)
+    lines.push(`## ${finding.kind === 'jira' ? `${finding.id} · ` : ''}${finding.title}`)
+    lines.push(`${where}`)
+    lines.push(`Ссылка для БФТ: ${citation(finding)}`)
+    if (finding.body) lines.push('', linkKeys(finding.body, base))
+    else if (finding.snippet) lines.push('', `> ${linkKeys(finding.snippet, base)}`)
     lines.push('')
   }
   return `${lines.join('\n').trimEnd()}\n`

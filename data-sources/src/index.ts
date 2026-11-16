@@ -125,10 +125,17 @@ export function apply(ctx: HarnessContext, config: Config = {}): void {
   const completeAuth = async (params: URLSearchParams): Promise<Response> => {
     const state = params.get('state') ?? ''
     const source = sources.find((candidate) => candidate.ownsState(state))
-    if (params.get('error')) return resultPage(false, 'Вход отменён', params.get('error_description') ?? params.get('error') ?? '')
-    if (!source) return resultPage(false, 'Вход устарел', 'Нажмите «Подключить» в настройках ещё раз.')
+    if (params.get('error')) {
+      console.error(`[data-sources] вход отменён сервером: ${params.get('error')} ${params.get('error_description') ?? ''}`)
+      return resultPage(false, 'Вход отменён', params.get('error_description') ?? params.get('error') ?? '')
+    }
+    if (!source) {
+      console.error('[data-sources] возврат из окна входа с неизвестным state — вход устарел (перезапуск портала или второе окно)')
+      return resultPage(false, 'Вход устарел', 'Нажмите «Подключить» в настройках ещё раз.')
+    }
     try {
       await source.completeAuth(state, params.get('code') ?? '')
+      console.error(`[data-sources] ${source.id}: подключён`)
       return resultPage(true, `«${source.name}» подключён`, 'Портал будет искать по Jira и Confluence перед сборкой полного БФТ.')
     } catch (e) {
       console.error(`[data-sources] ${source.id}: обмен кода не удался:`, e)
@@ -168,11 +175,15 @@ export function apply(ctx: HarnessContext, config: Config = {}): void {
     ))
 
     route(ROUTE.connect, ['GET'], async (request) => {
-      if (!isAdmin(request)) return resultPage(false, 'Нужен вход администратора', 'Источники данных подключает администратор портала.')
+      if (!isAdmin(request)) {
+        console.error('[data-sources] «Подключить» без входа администратора')
+        return resultPage(false, 'Нужен вход администратора', 'Источники данных подключает администратор портала.')
+      }
       const source = byId(new URL(request.url).searchParams.get('source'))
       if (!source) return resultPage(false, 'Источник не найден', 'Такого источника нет в настройках плагина.')
       try {
         const location = await source.beginAuth(CALLBACK_URL)
+        console.error(`[data-sources] ${source.id}: начат вход, возврат на ${CALLBACK_URL}`)
         return new Response(null, { status: 302, headers: { location, 'cache-control': 'no-store' } })
       } catch (e) {
         console.error(`[data-sources] ${source.id}: вход не начался:`, e)
