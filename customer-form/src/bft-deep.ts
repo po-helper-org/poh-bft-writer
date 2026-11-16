@@ -94,7 +94,9 @@ export function cleanCanon(text: string, bases: { jira?: string; confluence?: st
   // выдуманному ключу правдоподобная ссылка не нужна — его поймает линтер.
   if (bases.jira && bases.keys?.length) {
     const known = new Set(bases.keys)
-    body = body.replace(/(^|[^\w[\/-])([A-Z][A-Z0-9_]{1,15}-\d{1,7})(?![\w\]-])/g, (match, lead: string, key: string) => (known.has(key) ? `${lead}[${key}](${bases.jira}${key})` : match))
+    // Готовые markdown-ссылки пропускаем целиком: ключ в их подписи уже оформлен.
+    body = body.replace(/(\[[^\]\n]*\]\([^)\s]*\))|(^|[^\w[\/-])([A-Z][A-Z0-9_]{1,15}-\d{1,7})(?![\w\]-])/g,
+      (match, link: string | undefined, lead: string, key: string) => (link || !known.has(key) ? match : `${lead}[${key}](${bases.jira}${key})`))
   }
   return body.trim()
 }

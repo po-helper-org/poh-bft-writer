@@ -180,7 +180,9 @@ export function jiraBrowseBase(findings: Finding[]): string | undefined {
 /** Голые ключи задач в тексте находки → markdown-ссылки (bft-lint LN001). */
 export function linkKeys(text: string, base: string | undefined): string {
   if (!base) return text
-  return text.replace(/(^|[^\w[\/-])([A-Z][A-Z0-9_]{1,15}-\d{1,7})(?![\w\]-])/g, (_m, lead: string, key: string) => `${lead}[${key}](${base}${key})`)
+  // Готовые markdown-ссылки пропускаем целиком: ключ в их подписи уже оформлен.
+  return text.replace(/(\[[^\]\n]*\]\([^)\s]*\))|(^|[^\w[\/-])([A-Z][A-Z0-9_]{1,15}-\d{1,7})(?![\w\]-])/g,
+    (match, link: string | undefined, lead: string, key: string) => (link ? match : `${lead}[${key}](${base}${key})`))
 }
 
 /**

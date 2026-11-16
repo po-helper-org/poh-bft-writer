@@ -64,6 +64,7 @@ test('ключи задач в тексте находок — ссылками,
   assert.equal(base, 'https://jira.example/browse/')
   assert.equal(linkKeys('см. ELEMENT-3301 и [HREDF-1](u)', base), 'см. [ELEMENT-3301](https://jira.example/browse/ELEMENT-3301) и [HREDF-1](u)')
   assert.equal(linkKeys('ELEMENT-3301', undefined), 'ELEMENT-3301')
+  assert.equal(linkKeys('[Jira ELEMENT-3301](u) и HREDF-2', base), '[Jira ELEMENT-3301](u) и [HREDF-2](https://jira.example/browse/HREDF-2)')
 })
 
 test('JQL: кавычки в запросе не ломают выражение', () => {
