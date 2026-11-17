@@ -134,7 +134,9 @@ export class McpHttpClient {
     if (session) this.session = session
     const body = await response.text()
     if (!response.ok && response.status !== 202) {
-      throw new McpError(`MCP HTTP ${response.status}${body ? `: ${body.slice(0, 200)}` : ''}`, response.status)
+      // Страница ошибки прокси (nginx и т.п.) — HTML: в сообщение только её текст, коротко.
+      const text = body.replace(/<(script|style)[\s\S]*?<\/\1>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 160)
+      throw new McpError(`MCP HTTP ${response.status}${text ? `: ${text}` : ''}`, response.status)
     }
     void id
     return { status: response.status, contentType: response.headers.get('content-type') ?? '', body }

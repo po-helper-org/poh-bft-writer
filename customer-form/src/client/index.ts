@@ -177,9 +177,33 @@ export function apply(ctx: ClientContext): void {
       badge.textContent = 'Администратор'
       badge.setAttribute('data-portal-admin', '')
       badge.title = 'Вы вошли администратором портала — выйти или открыть страницу входа'
-      badge.style.cssText = 'position:fixed;right:12px;bottom:10px;z-index:50;font:12px/1 system-ui,sans-serif;padding:5px 9px;border-radius:999px;border:1px solid currentColor;opacity:.6;color:inherit;text-decoration:none'
+      badge.style.cssText = 'position:fixed;z-index:50;display:none;font:11px/1 system-ui,sans-serif;padding:4px 8px;border-radius:999px;border:1px solid currentColor;opacity:.6;color:inherit;text-decoration:none'
       document.body.appendChild(badge)
-      ctx.effect(() => () => badge.remove(), 'customer-form: значок администратора')
+      // Значок — в правой части строки «Ещё» внизу сайдбара: в правом нижнем углу
+      // он перекрывал кнопки «Дальше» и «Замечания». Сайдбар скрыт — значка нет.
+      let frame = 0
+      const place = () => {
+        frame = 0
+        const anchor = document.querySelector('button[aria-label="Меню аккаунта"]')?.getBoundingClientRect()
+        if (!anchor || anchor.right <= 0 || anchor.width === 0) { badge.style.display = 'none'; return }
+        badge.style.display = 'block'
+        badge.style.left = `${anchor.right - badge.offsetWidth - 8}px`
+        badge.style.top = `${anchor.top + (anchor.height - badge.offsetHeight) / 2}px`
+      }
+      const schedule = () => { frame ||= requestAnimationFrame(place) }
+      // Свои же правки стиля значка не считаем — иначе цикл на каждый кадр.
+      const observer = new MutationObserver((records) => { if (records.some((record) => record.target !== badge)) schedule() })
+      observer.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['class', 'style', 'data-collapsed'] })
+      window.addEventListener('resize', schedule)
+      document.addEventListener('transitionend', schedule, true)
+      schedule()
+      ctx.effect(() => () => {
+        observer.disconnect()
+        window.removeEventListener('resize', schedule)
+        document.removeEventListener('transitionend', schedule, true)
+        if (frame) cancelAnimationFrame(frame)
+        badge.remove()
+      }, 'customer-form: значок администратора')
       // «Настройки → Портал»: модели чата и полного БФТ (только администратору).
       const rpc = ctx.get('connection') as unknown as HostRpcLike
       const call = (endpoint: string, payload: unknown) => rpc.rpc.call('/api', endpoint, payload)

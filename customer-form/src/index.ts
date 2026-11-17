@@ -224,6 +224,13 @@ export function apply(ctx: HarnessContext): void {
       const recon = await sources.recon(queries, { top: 10, read: 4, deadlineMs: 90_000 })
       if (!recon) return ''
       if (recon.errors.length) console.error('[customer-form] источники данных ответили с ошибками:', recon.errors.slice(0, 5))
+      // Источник лёг целиком (ничего не нашлось, одни ошибки): прошлую карту находок не затираем —
+      // при «Собрать заново» документ собирается по ней, а не без источников.
+      if (recon.findings.length === 0 && recon.errors.length > 0) {
+        const previous = await readFile(mapPath, 'utf8').catch(() => '')
+        console.error(`[customer-form] источники данных: ${recon.source} недоступен${previous ? ' — беру прошлую карту находок' : ''}`)
+        return previous
+      }
       await writeFile(mapPath, recon.markdown, 'utf8')
       console.error(`[customer-form] источники данных: ${recon.source}, запросы ${JSON.stringify(recon.queries)}, находок ${recon.findings.length}`)
       return recon.markdown
