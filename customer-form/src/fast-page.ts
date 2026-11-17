@@ -17,6 +17,7 @@ import type { CortexBrief } from './cortex.js'
 import type { AcceptanceDemo } from './demo.js'
 import { userFlowMermaid } from './demo-page.js'
 import { FAVICON_TAG } from './links.js'
+import { questionsHtml, type OpenQuestion } from './questions.js'
 
 export interface CustomerLayer {
   sessionId: string
@@ -217,14 +218,19 @@ const DEEP_STYLE = `<style id="customer-deep-style">
 .cs-download{ display:flex; flex-wrap:wrap; gap:.4rem .9rem; align-items:baseline; margin:0 0 1.6rem; font-size:.95rem; }
 .cs-download span{ color:var(--muted); }
 .cs-download a{ color:inherit; font-weight:600; }
+.cs-questions{ border:1.5px solid var(--fg); padding:.2rem 1.1rem .8rem; margin:0 0 2rem; }
+.cs-questions h3{ margin:.9rem 0 .3rem; }
+.cs-questions ul{ margin:.2rem 0; }
+.cs-q-ref{ color:var(--muted); font-size:.9em; }
 </style>`
 
 /**
  * Полный БФТ (bft-deep) заказчику: страница экспорта навыка, сверху — «Скачать»
- * и ссылка на первичные требования; промт «Продолжить / уточнить» (работа PO)
- * скрыт.
+ * и ссылка на первичные требования; перед каноном — «Что нужно для
+ * согласования» (план C8, `questions` из deep.json; старый документ без списка
+ * — без блока); служебный блок «Продолжить / уточнить» скрыт.
  */
-export function customerDeepPage(html: string, sessionId: string, fastUrl: string): string {
+export function customerDeepPage(html: string, sessionId: string, fastUrl: string, questions?: readonly OpenQuestion[]): string {
   let page = html
   const h1 = /<h1[^>]*>[\s\S]*?<\/h1>/.exec(page)
   const top = `<p class="cs-kicker">Полный БФТ · по согласованным первичным требованиям · <a href="${esc(fastUrl)}">первичные требования</a></p>`
@@ -238,6 +244,15 @@ export function customerDeepPage(html: string, sessionId: string, fastUrl: strin
   const sources = /<h2[^>]*>Источники<\/h2>\s*<ol class="src-notes">[\s\S]*?<\/ol>/.exec(page)
   if (sources) page = page.slice(0, sources.index) + page.slice(sources.index + sources[0].length)
   page = page.replace(/<a class="src-ref"[^>]*?title="([^"]*)"[^>]*>[^<]*<\/a>/g, '$1')
+  if (questions) {
+    // После шапки — перед первым разделом канона; нет его — сразу под «Скачать».
+    const canon = /<h2[^>]*>\s*Проблема которую решаем/.exec(page)
+    const block = questionsHtml(questions)
+    const download = page.indexOf('id="customer-download-deep"')
+    const afterDownload = download < 0 ? -1 : page.indexOf('</div>', download) + '</div>'.length
+    if (canon) page = page.slice(0, canon.index) + block + page.slice(canon.index)
+    else if (afterDownload > 0) page = page.slice(0, afterDownload) + block + page.slice(afterDownload)
+  }
   const hide = `<script id="customer-deep">(function(){document.querySelectorAll("details.fold > summary h2, h2").forEach(function(h){if(h.textContent.indexOf("Продолжить / уточнить БФТ")<0)return;if(h.id)document.querySelectorAll('a[href="#'+h.id+'"]').forEach(function(a){(a.closest("li")||a).remove();});var box=h.closest("details.fold")||h;var n=box.nextElementSibling;box.remove();if(box===h){while(n&&!/^H[12]$/.test(n.tagName)){var x=n.nextElementSibling;n.remove();n=x;}}});})();</script>`
   const at = page.lastIndexOf('</body>')
   return at < 0 ? page + DEEP_STYLE + hide : page.slice(0, at) + DEEP_STYLE + hide + page.slice(at)

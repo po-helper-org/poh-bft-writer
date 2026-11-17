@@ -4,12 +4,15 @@
  *
  * В .docx и .pdf не попадают служебные блоки для PO: открытое поле
  * «⏳ Полный БФТ — в проработке» (bft-fast) и «Продолжить / уточнить БФТ»
- * (bft-deep) — это промты для Claude Code, заказчику они не нужны.
+ * (bft-deep) — служебные блоки для PO, заказчику они не нужны. Полному БФТ
+ * перед каноном добавляется «Что нужно для согласования» (план C8) — список
+ * вопросов из deep.json; в .md навыка его нет, bft-lint его не видит.
  * Готовые файлы кэшируются рядом с документом и пересобираются, когда .md новее.
  */
 import { execFile } from 'node:child_process'
 import { readFile, stat, writeFile } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
+import { questionsMarkdown, type OpenQuestion } from './questions.js'
 
 export type ExportFormat = 'md' | 'docx' | 'pdf'
 
@@ -21,8 +24,13 @@ export const EXPORT_TYPES: Record<ExportFormat, string> = {
 
 const SERVICE_HEADS = ['## ⏳ Полный БФТ — в проработке', '## Продолжить / уточнить БФТ']
 
-/** Документ без frontmatter и служебных блоков для PO — то, что читает заказчик. */
-export function customerMarkdown(markdown: string): string {
+const CANON_HEAD = '## Проблема которую решаем'
+
+/**
+ * Документ без frontmatter и служебных блоков для PO — то, что читает заказчик.
+ * `questions` (полный БФТ) — блок «Что нужно для согласования» перед каноном.
+ */
+export function customerMarkdown(markdown: string, questions?: readonly OpenQuestion[]): string {
   let body = markdown.replace(/^---\n[\s\S]*?\n---\n/, '')
   body = body.replace(/<!-- BFT-HEAD-END[^>]*-->\n?/g, '')
   // «Общая информация» — служебные поля для PO (rev21): заказчику не нужна.
@@ -30,6 +38,11 @@ export function customerMarkdown(markdown: string): string {
   for (const head of SERVICE_HEADS) {
     const at = body.indexOf(head)
     if (at >= 0) body = body.slice(0, at)
+  }
+  if (questions) {
+    const block = questionsMarkdown(questions)
+    const at = body.indexOf(`\n${CANON_HEAD}`)
+    body = at < 0 ? `${body.trimEnd()}\n\n${block}` : `${body.slice(0, at).trimEnd()}\n\n${block}\n${body.slice(at + 1)}`
   }
   return `${body.trimEnd()}\n`
 }
@@ -79,8 +92,8 @@ async function renderDiagrams(markdown: string, dir: string, base: string): Prom
   return out
 }
 
-/** Версия выгрузки: меняется — кэш .docx/.pdf собирается заново (v2 — схемы картинками). */
-const EXPORT_VERSION = 'v2'
+/** Версия выгрузки: меняется — кэш собирается заново (v2 — схемы картинками, v3 — «Что нужно для согласования»). */
+const EXPORT_VERSION = 'v3'
 
 const mtime = (path: string) => stat(path).then((s) => s.mtimeMs, () => 0)
 
@@ -88,14 +101,14 @@ const mtime = (path: string) => stat(path).then((s) => s.mtimeMs, () => 0)
  * Путь к файлу выгрузки документа `mdPath` в формате `format`; собирает при
  * первом запросе и после изменения документа.
  */
-export async function exportDocument(mdPath: string, format: ExportFormat): Promise<string> {
+export async function exportDocument(mdPath: string, format: ExportFormat, questions?: readonly OpenQuestion[]): Promise<string> {
   const dir = dirname(mdPath)
   const base = basename(mdPath, '.md')
   // .md заказчику — тот же текст, что в .docx и .pdf: без frontmatter и служебных блоков PO.
-  const source = join(dir, `${base}.customer.md`)
+  const source = join(dir, `${base}.customer-${EXPORT_VERSION}.md`)
   const out = format === 'md' ? source : join(dir, `${base}.export-${EXPORT_VERSION}.${format}`)
   if (await mtime(out) >= await mtime(mdPath)) return out
-  await writeFile(source, customerMarkdown(await readFile(mdPath, 'utf8')), 'utf8')
+  await writeFile(source, customerMarkdown(await readFile(mdPath, 'utf8'), questions), 'utf8')
   if (format === 'md') return source
   // Для .docx/.pdf — схемы картинками; .md остаётся с исходным PlantUML.
   const rendered = join(dir, `${base}.render.md`)

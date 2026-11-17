@@ -79,7 +79,8 @@ const FAST = {
     { kind: 'зачем', text: 'Отчёт готов к планёрке без ручной сборки', quote: `Заказчик: «${INTAKE.gap}»` },
     { kind: 'система', text: 'Система сама формирует CSV к 9:00 и присылает его', quote: `Заказчик: «${INTAKE.tobe}»` },
   ],
-  outOfScope: ['изменение отчёта в BI'],
+  // «Не входит» — только явно исключённое заказчиком, с его цитатой (primaryErrors, план C1).
+  outOfScope: [{ text: 'Изменение самого отчёта в BI', quote: 'Заказчик: «сам отчёт в BI не меняем»' }],
   people: [{ name: 'E2E Тестов', role: 'Заказчик' }],
   openQuestions: INTAKE.openQuestions,
   achievable: {

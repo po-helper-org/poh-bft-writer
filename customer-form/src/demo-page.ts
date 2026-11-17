@@ -132,8 +132,8 @@ ${steps}
     </ul>
   </section>
 ${unclear.length ? `
-  <section class="unclear" data-section="Не нашёл в материалах">
-    <h2>Не нашёл в материалах или есть противоречие</h2>
+  <section class="unclear" data-section="Мои допущения">
+    <h2>Мои допущения и чего нет в материалах — проверьте</h2>
     <ul>${unclear.map((u) => `<li>${esc(u)}</li>`).join('')}</ul>
   </section>` : ''}
 </main>

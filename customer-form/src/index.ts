@@ -17,19 +17,22 @@
 
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { Backlog, moscowTime, sharedBacklog, ticketRef, ticketRegistered, type Ticket } from './host.js'
+import { Backlog, moscowTime, sharedBacklog, ticketRegistered, type Ticket } from './host.js'
 import { sharedMaterials, type Material, type Materials, type WebLike } from './materials.js'
 import { VoiceContext } from './voice.js'
 import { sharedDemos } from './demo.js'
 import { demoPageHtml } from './demo-page.js'
 import type { AgentLike, BlockLike } from './tool.js'
-import { approveFast, FAST_ROOT, fastFiles, fastPagePath, fastProgress, fastSlug, fastState, SKILLS_PATH, stillBuilding } from './bft-fast.js'
+import { approveFast, FAST_ROOT, fastFiles, fastPagePath, fastProgress, fastSlug, fastState, isLoopbackUrl, publicPortalUrl, requestRef, SKILLS_PATH, stillBuilding, type FastFiles } from './bft-fast.js'
 import { customerDeepPage, customerFastPage, deepFailedPage, requestsPage, waitingPage, type RequestRow } from './fast-page.js'
-import { buildDeep, saveDeepState, searchQueries, deepFiles, readDeepState, type DeepRoute, type DeepState, type LlmLike } from './bft-deep.js'
+import { buildDeep, fixQueries, goldenCanon, saveDeepState, searchQueries, deepFiles, readDeepState, readIntake, reconSubject, sourcesForModel, triageFindings, type DeepRoute, type DeepState, type LlmLike, type ReconSubject, type SourcesStatus, type TriageItem, type TriageVerdict } from './bft-deep.js'
 import { EXPORT_TYPES, exportDocument, type ExportFormat } from './export.js'
-import type { PrimaryDoc } from './primary.js'
+import { buildFastFromPrimary, type PrimaryDoc } from './primary.js'
+import { qualityMetrics } from './quality-metrics.js'
+import { parseSources } from './canon-check.js'
+import { customerWordsContext } from './intake.js'
 import { mergePortalModels, MODELS_ROUTE, readPortalModels, sameRoute, writePortalModels, type ModelRoute, type PortalModels } from './models.js'
 import { ADMIN_ONLY_ENDPOINTS, ADMIN_PAGE, ADMIN_STATUS, adminOnlyResponse, adminPage, isAdmin } from './admin.js'
 import { siblingHref } from './links.js'
@@ -38,6 +41,10 @@ export const name = 'customer-form'
 
 /** Страница «Все заявки» портала (ADR-0012, шаг 7). */
 const REQUESTS_PAGE = '/api/customer-form.requests'
+/** Прогон качества на фикстурах (план качества, C0) — только администратор. */
+const QUALITY_RUN = '/api/customer-form.qualityRun'
+/** Фикстуры прогона качества: <DSH_HOME>/quality/<имя>/primary.json …, итог — в <имя>/out/. */
+const QUALITY_ROOT = join(process.env.DSH_HOME ?? '/data', 'quality')
 
 interface SystemPromptLike {
   section(section: { name: string; order: number; text: string | (() => string) }): () => void
@@ -96,16 +103,18 @@ export const CUSTOMER_PROMPT = `Ты — ассистент приёма ини�
 Твоя цель — за живой диалог собрать постановку, по которой PO и команда начнут работу без встреч:
 1) Кто заказчик: ФИО и email.
 2) Краткое название инициативы и суть: что нужно, одним-двумя предложениями (суть бери из слов заказчика и материалов).
-3) ASIS: как это работает сейчас.
+3) ASIS: как это работает сейчас — словами заказчика; не описал — не додумывай.
 4) GAP: почему текущее решение не устраивает.
 5) TOBE: как должно работать.
 6) HowToDemo: как заказчик будет принимать работу — где зайти, что нажать, что должен увидеть. Это заказчик согласует сам.
 7) Глоссарий: расшифруй все сокращения и аббревиатуры (спроси, если не знаешь).
+8) Эффект и рамки: что изменится и как поймём (сейчас → хотим), к какому сроку или событию и почему тогда, кто будет пользоваться (роли, примерно сколько). Спроси одним вопросом в форме по пробелам, только то, чего нет в словах и материалах; «не знаю» — допустимый ответ, не переспрашивай.
 
 Правила:
 - Пиши коротко и по-человечески, без канцелярита. Один ответ — 1–3 предложения плюс максимум 2–3 вопроса.
 - Спрашивай только о пробелах: не переспрашивай сказанное, а фиксируй («Записала: …»).
 - Сокращение без расшифровки — уточни расшифровку.
+- Границы: можно один необязательный вопрос «Что точно не делаем сейчас или можно отложить?». «Не входит» — только то, что заказчик явно исключил; нерешённое и «уточняется» — открытый вопрос, а не граница.
 - Первая форма вопросов — только «Укажите ваши ФИО и email» (если заказчик их ещё не назвал), «Краткое название инициативы» и необязательный «Каким вы видите решение этой проблемы?» — краткая заметка своими словами, без вариантов ответа; заказчик может его пропустить, не переспрашивай. Не спрашивай «Что нужно сделать…» — суть заказчик уже написал своими словами — и не спрашивай в первой форме «Как это работает сейчас и почему не устраивает» — это ты берёшь из материалов, а без материалов уточняешь следующим вопросом по пробелам.
 - Уточняющие вопросы задавай инструментом ask_user_question: 2–4 вопроса за раз, с вариантами ответа, где они уместны; расшифровку каждого непонятного сокращения — отдельным вопросом. Заказчик может ответить в форме или просто текстом — принимай оба.
 - Вложения и ссылки — это уже ответы, а не повод для допроса. Если в сообщении есть файлы (строки «[File …]») или ссылки — сразу, без вступления, вызови read_customer_materials: портал расшифрует голос и прочитает документы и страницы. Файловых инструментов у тебя нет, пути из «[File …]» не открывай. Дальше работай как аналитик на сверке:
@@ -115,14 +124,14 @@ export const CUSTOMER_PROMPT = `Ты — ассистент приёма ини�
   4) покажи черновик одной карточкой confirm_acceptance_demo: asis, gap, tobe со ссылками на источники, шаги, а в unclear — чего нет в материалах и где они противоречат.
   Цель — первичный разбор за 1–2 минуты времени заказчика. Если источник не разобран (error), скажи об этом и спроси главное из него одним вопросом.
   Если read_customer_materials ответил «Ещё разбираются» — длинную запись не жди: сразу задай первую форму (ФИО и email, краткое название), разбор идёт, пока заказчик отвечает. После ответов снова вызови read_customer_materials и продолжай по шагам 1–4.
-- HowToDemo без материалов: спроси «Как вы будете проверять результат? Где зайдёте, что нажмёте, что должны увидеть» — без вариантов ответа, только свободный текст: проверка — это последовательность шагов, а не выбор одного из них. По ответу сам составь 2–7 шагов (по одному экрану на шаг, результат — проверяемый) и вызови confirm_acceptance_demo: заказчик увидит раскадровку по экранам и согласует её кнопкой. Если просит правки — исправь и покажи снова.
+- HowToDemo без материалов: спроси «Как вы будете проверять результат? Где зайдёте, что нажмёте, что должны увидеть» — без вариантов ответа, только свободный текст: проверка — это последовательность шагов, а не выбор одного из них. По ответу сам составь 2–7 шагов (по одному экрану на шаг, результат — проверяемый; в шаге — то, что заказчик видит, а не передачи между системами) и вызови confirm_acceptance_demo; каждую деталь, которую добавил ты сам (статус, уведомление, надпись, шаг), запиши в unclear вопросом «Верно ли, что…?»: заказчик увидит раскадровку по экранам и согласует её кнопкой. Если просит правки — исправь и покажи снова.
 - «Согласую» на сценарии приёмки — это полное согласие заказчика с постановкой. Заказчик нажимает кнопку на карточке, поэтому в чате его «Согласую» сообщением не появится: результат confirm_acceptance_demo «Заказчик САМ нажал кнопку «Согласую»» и есть его подтверждение — не сомневайся в нём и не переспрашивай. ИТОГ не собирай и подтверждения больше не спрашивай. Ссылку на согласованный сценарий и «Уже готовлю БФТ-документ на проверку» портал показывает заказчику сам. Сразу, в этом же ходе и без реплик: submit_customer_request, затем create_bft_fast — без вопросов между ними. Чего не хватает или что противоречит (кто заказчик, расшифровки сокращений) — не спрашивай, а запиши в openQuestions обоих инструментов; в полях оставь то, что известно.
-- create_bft_fast — первичные требования со слов заказчика: ты стенографист, ничего не придумываешь и не дораскрываешь. Заполни только сказанное им и его материалами: что хочет и зачем, требования (каждое — одна фраза с типом и дословной цитатой: «Заказчик: «…»», «Материалы [S1]: «…»» или «Сценарий приёмки (согласован): «…»»), что не входит, кого он назвал и по каким вопросам, открытые вопросы. Единственное, что ты дораскрываешь, — achievable: из его ответа «Каким вы видите решение» (дословно в vision) составь краткий план реализации — какие команды участвуют, какие согласования нужны, что проработать, какие специалисты нужны (PO, SA, BA, BE, FE, DevOps). Не ответил — заполни план по сути запроса, vision не пиши. Как он примет работу, где проверять и чьи зоны затрагивает запрос, инструмент добавит сам — из согласованного сценария и Кортекса (памяти организации). Если инструмент вернул ошибки — исправь поля и вызови снова.
+- create_bft_fast — первичные требования со слов заказчика: ты стенографист, ничего не придумываешь и не дораскрываешь. Заполни только сказанное им и его материалами: что хочет и зачем, требования (каждое — одна фраза с типом и дословной цитатой: «Заказчик: «…»», «Материалы [S1]: «…»» или «Сценарий приёмки (согласован): «…»»), кого он назвал и по каким вопросам (about — зона влияния, email и телефон — в contact), открытые вопросы. Если заказчик описал, как сейчас, — дословный кусок его реплики в want.asis и в asis требований, к которым он относится; не описал — asis пусто. Если назвал — эффект (metric: сейчас → хотим), срок (deadline), кто будет пользоваться (actors), расшифровки (glossary). outOfScope — только явно исключённое им, с цитатой; обязательные условия и договорённости — в agreements; нерешённое — только в openQuestions. Ответ «Каким вы видите решение» — гипотеза реализации: дословно в achievable.vision. В requirements — результат, который заказчик назвал нужным пользователю или бизнесу; kind «система» — наблюдаемое поведение системы, а не механизм (кто кого вызывает, какой поток читает). Названная заказчиком обязательная интеграция или система остаётся требованием, сформулированным как результат (данные оказываются в системе X). Условие, которое ещё предстоит согласовать, — в approvals и openQuestions. Единственное, что ты дораскрываешь, — achievable: из его ответа «Каким вы видите решение» (дословно в vision) составь краткий план реализации — какие команды участвуют, какие согласования нужны, что проработать, какие специалисты нужны (PO, SA, BA, BE, FE, DevOps). Не ответил — заполни план по сути запроса, vision не пиши. Как он примет работу, где проверять и чьи зоны затрагивает запрос, инструмент добавит сам — из согласованного сценария и Кортекса (памяти организации). Если инструмент вернул ошибки — исправь поля и вызови снова.
 - Когда документ собран: одной репликой — ссылка на документ из результата create_bft_fast (он уже открыт справа), ссылка на отслеживание заявки, открытые вопросы списком и: «Если всё верно — нажмите „Да, согласен“. Если что-то пропущено — „Добавить требования“ или просто надиктуйте сюда голосом, что и где добавить».
 - Правки документа после сборки: заказчик пишет или надиктовывает, что поменять, или присылает «Замечания к документу БФТ:» со страницы документа, — исправь поля и снова вызови create_bft_fast (submit_customer_request повторно не вызывай).
 - Сообщение «✅ Да, согласен с документом БФТ.» отправляет кнопка «Да, согласен» на странице документа — согласование уже записано в заявку, и портал сам начал собирать полный БФТ по корпоративному канону. Поблагодари одной фразой и скажи: полный БФТ собирается справа, обычно от минуты до пяти, его можно будет скачать в Word, PDF и Markdown; инструменты не вызывай.
 - Сообщения «📌 …» (заявка зарегистрирована, сценарий согласован) добавляет портал, а не заказчик: на них не отвечай; номер заявки упомяни в итоговой сводке.
-- Не обещай сроков и бюджета — это решает PO. Не уходи в технические детали реализации.`
+- Сроки и бюджет не обещай — это решает PO, но желаемый срок заказчика спроси и запиши. Не уходи в технические детали реализации.`
 
 interface ConnectionLike {
   rpc: {
@@ -134,7 +143,15 @@ interface ConnectionLike {
 /** Служба плагина data-sources (Jira/Confluence через MCP штаба PO). */
 interface DataSourcesLike {
   available(): Promise<boolean>
-  recon(queries: string[], options?: { top?: number; read?: number; deadlineMs?: number }): Promise<{ markdown: string; findings: unknown[]; queries: string[]; errors: string[]; source: string } | undefined>
+  recon(queries: string[], options?: {
+    top?: number; read?: number; deadlineMs?: number
+    /** Предмет заявки: фильтр ранжирования, второй шаг, синонимы систем. */
+    subject?: ReconSubject
+    /** Детерминированное ядро запросов: по нему считаются очки ранга (порядок карты не зависит от модели). */
+    rankBy?: string[]
+    /** Триаж находок моделью портала (вердикт и факты с цитатами). */
+    triage?: (items: TriageItem[], signal: AbortSignal) => Promise<TriageVerdict[]>
+  }): Promise<{ markdown: string; findings: unknown[]; queries: string[]; errors: string[]; source: string; triaged?: boolean; ms?: number } | undefined>
 }
 
 /** Служба модели dsh по умолчанию (dsh-agent-default-model). */
@@ -160,7 +177,36 @@ interface GatewayInternals {
   browserPeer?: unknown
 }
 
+/** Имя источника из строки «Источник: X · дата» карты находок (findingsMarkdown data-sources). */
+function sourcesName(markdown: string): string {
+  return /^Источник:\s*([^·\n]+?)\s*(?:·|$)/m.exec(markdown)?.[1] ?? 'Jira/Confluence'
+}
+
+/**
+ * «заявка #N» для хвоста полного БФТ (план C8): ссылкой на страницу заявки в
+ * портале (PORTAL_PUBLIC_URL), не на трекер; адреса нет или он loopback —
+ * без ссылки, с предупреждением в журнале.
+ */
+function deepRequestRef(taskId: number, sessionId: string): string {
+  const url = publicPortalUrl(fastPagePath(sessionId))
+  if (!url) console.error(`[customer-form] PORTAL_PUBLIC_URL не задан или loopback — в полном БФТ заявки #${taskId} ссылки на портал не будет`)
+  return requestRef(`заявка #${taskId}`, url)
+}
+
+/** Публичные адреса, которые указывают на эту же машину: снаружи такие ссылки не откроются. */
+function warnLoopbackUrls(env: NodeJS.ProcessEnv = process.env): void {
+  const portal = (env.PORTAL_PUBLIC_URL ?? '').trim()
+  if (!portal || isLoopbackUrl(portal)) {
+    console.error(`[customer-form] ⚠ PORTAL_PUBLIC_URL ${portal ? `указывает на loopback (${portal})` : 'не задан'}: ссылки на страницу заявки в документы не попадут. Для публичного сервиса это обязательная настройка.`)
+  }
+  const tracker = env.TRACKER_PUBLIC_URL
+  if (tracker === undefined || (tracker.trim() && isLoopbackUrl(tracker.trim()))) {
+    console.error(`[customer-form] ⚠ TRACKER_PUBLIC_URL ${tracker === undefined ? 'не задан (по умолчанию 127.0.0.1)' : `указывает на loopback (${tracker.trim()})`}: ссылки на заявку в трекере снаружи не откроются. Трекер не публичный — задайте пустое значение.`)
+  }
+}
+
 export function apply(ctx: HarnessContext): void {
+  warnLoopbackUrls()
   // Абсолютный путь workspace заказчика: знает только узел (DSH_HOME).
   const workspacePath = `${process.env.DSH_HOME ?? '/data'}/Customer-requests`
   // workspaces.create требует существующий каталог (realpath): создаём заранее.
@@ -210,18 +256,27 @@ export function apply(ctx: HarnessContext): void {
       return () => { dataSources = undefined }
     }, 'customer-form: источники данных')
   })
-  /** Разведка по Jira/Confluence: карта находок рядом с документом; не вышло — пусто. */
-  const sourcesMap = async (fastMdPath: string, mapPath: string, runtime: { llm: LlmLike; route(): DeepRoute }): Promise<string> => {
+  /**
+   * Разведка по Jira/Confluence: карта находок рядом с документом и что она дала
+   * (план C8, строка status deep): fresh — свежая карта; previous — источник лёг,
+   * взята прошлая; none — опрошены, находок нет; unavailable — не подключены или сбой.
+   */
+  const sourcesMap = async (fastMdPath: string, mapPath: string, runtime: { llm: LlmLike; route(): DeepRoute }): Promise<{ markdown: string; status: SourcesStatus }> => {
+    const unavailable = { markdown: '', status: { mode: 'unavailable' as const, source: '', count: 0 } }
     const sources = dataSources
     // E2E (флаг e2e-hooks ставит harness/e2e-customer.sh): тесты не ходят в настоящие Jira/Confluence.
-    if (existsSync(join(process.env.DSH_HOME ?? '/data', 'e2e-hooks'))) return ''
-    if (!sources || !(await sources.available().catch(() => false))) return ''
+    if (existsSync(join(process.env.DSH_HOME ?? '/data', 'e2e-hooks'))) return unavailable
+    if (!sources || !(await sources.available().catch(() => false))) return unavailable
     try {
       const fastMd = await readFile(fastMdPath, 'utf8')
       const queries = await searchQueries(runtime.llm, runtime.route(), fastMd, AbortSignal.timeout(60_000))
-      if (!queries.length) return ''
-      const recon = await sources.recon(queries, { top: 10, read: 4, deadlineMs: 90_000 })
-      if (!recon) return ''
+      if (!queries.length) return unavailable
+      // Бюджет разведки с триажем — 80 с: вместе с запросами укладываемся в 90 с (метрика recon_ms).
+      const recon = await sources.recon(queries, {
+        top: 10, read: 7, deadlineMs: 80_000, subject: reconSubject(fastMd), rankBy: fixQueries([], reconSubject(fastMd)),
+        triage: (items, signal) => triageFindings(runtime.llm, runtime.route(), fastMd, items, AbortSignal.any([signal, AbortSignal.timeout(45_000)])),
+      })
+      if (!recon) return unavailable
       if (recon.errors.length) console.error('[customer-form] источники данных ответили с ошибками:', recon.errors.slice(0, 5))
       // Источник лёг целиком (ничего не нашлось, одни ошибки): прошлую карту находок не затираем —
       // при «Собрать заново» документ собирается по ней, а не без источников.
@@ -229,18 +284,59 @@ export function apply(ctx: HarnessContext): void {
         const previous = await readFile(mapPath, 'utf8').catch(() => '')
         console.error(`[customer-form] источники данных: ${recon.source} недоступен${previous ? ' — беру прошлую карту находок' : ''}`)
         return previous
+          ? { markdown: previous, status: { mode: 'previous', source: recon.source, count: parseSources(previous).length } }
+          : { markdown: '', status: { mode: 'unavailable', source: recon.source, count: 0 } }
       }
       await writeFile(mapPath, recon.markdown, 'utf8')
-      console.error(`[customer-form] источники данных: ${recon.source}, запросы ${JSON.stringify(recon.queries)}, находок ${recon.findings.length}`)
-      return recon.markdown
+      console.error(`[customer-form] источники данных: ${recon.source}, запросы ${JSON.stringify(recon.queries)}, находок ${recon.findings.length}${recon.triaged ? ', триаж прошёл' : ', без триажа'}${recon.ms !== undefined ? `, ${recon.ms} мс` : ''}`)
+      return { markdown: recon.markdown, status: { mode: recon.findings.length ? 'fresh' : 'none', source: recon.source, count: recon.findings.length } }
     } catch (e) {
       console.error('[customer-form] разведка по источникам данных не удалась:', e)
-      return ''
+      return unavailable
     }
+  }
+  type DeepRuntime = { llm: LlmLike; route(): DeepRoute }
+  /**
+   * Разведка и сборка полного БФТ по документу fast — общий путь заявки и
+   * прогона качества (qualityRun): тот же контекст модели, те же проверки.
+   * recon: live — разведка по Jira/Confluence; fixture — готовая карта находок.
+   */
+  const runDeep = async (fast: FastFiles, slug: string, request: string, runtime: DeepRuntime, startedAt: string,
+    recon: { mode: 'live' } | { mode: 'fixture'; markdown: string }) => {
+    const context = await readFile(fast.contextMap, 'utf8').catch(() => '')
+    const sourcesPath = join(fast.dir, 'sources.md')
+    const reconStart = Date.now()
+    let sources = ''
+    let sourcesStatus: SourcesStatus
+    if (recon.mode === 'live') {
+      const found = await sourcesMap(fast.md, sourcesPath, runtime)
+      sources = found.markdown
+      sourcesStatus = found.status
+    } else {
+      sources = recon.markdown
+      if (sources) await writeFile(sourcesPath, sources, 'utf8')
+      const count = parseSources(sources).length
+      sourcesStatus = sources ? { mode: count ? 'fresh' : 'none', source: sourcesName(sources), count } : { mode: 'unavailable', source: '', count: 0 }
+    }
+    const reconMs = recon.mode === 'live' ? Date.now() - reconStart : undefined
+    // Слова заказчика (план C1) — первым блоком: primary.json и intake.json рядом с документом;
+    // старая заявка без intake.json — только primary.json.
+    const primary = await readFile(fast.primary, 'utf8').then((t) => JSON.parse(t) as PrimaryDoc, () => undefined)
+    const words = customerWordsContext(primary, await readIntake(fast))
+    const state = await buildDeep({
+      startedAt, llm: runtime.llm, route: runtime.route(), skillsPath: SKILLS_PATH, fast, slug, request, sources: sourcesStatus,
+      context: [
+        words,
+        context ? `Карта контекста (память организации — указатель, не фактбаза):\n${context}` : '',
+        sources ? `Корпоративные источники (Jira/Confluence — указатель со ссылками, не фактбаза):\n${sourcesForModel(sources)}` : '',
+      ].filter(Boolean).join('\n\n'),
+      sourcesMd: sources, contextMd: context, ...(reconMs !== undefined ? { reconMs } : {}),
+    })
+    return { state, sources, sourcesPath, context, reconMs }
   }
   const deepRunning = new Set<string>()
   /** Собрать полный БФТ в фоне; повторный вызов во время сборки ничего не делает. */
-  const startDeep = (ticket: Ticket): boolean => {
+  const startDeep = (ticket: Ticket, sessionId: string): boolean => {
     const slug = fastSlug(ticket.taskId)
     if (deepRunning.has(slug)) return true
     if (!deepRuntime) {
@@ -254,19 +350,62 @@ export function apply(ctx: HarnessContext): void {
       // «Собирается» — сразу: разведка по источникам идёт до сборки, заказчик видит экран ожидания.
       const startedAt = new Date().toISOString()
       await saveDeepState(deepFiles(fast, slug), { stage: 'building', startedAt })
-      const context = await readFile(fast.contextMap, 'utf8').catch(() => '')
-      const sourcesPath = join(fast.dir, 'sources.md')
-      const sources = await sourcesMap(fast.md, sourcesPath, runtime)
-      const state = await buildDeep({
-        startedAt, llm: runtime.llm, route: runtime.route(), skillsPath: SKILLS_PATH, fast, slug, taskUrl: ticketRef(ticket),
-        context: [
-          context ? `Карта контекста (память организации — указатель, не фактбаза):\n${context}` : '',
-          sources ? `Корпоративные источники (Jira/Confluence — указатель со ссылками, не фактбаза):\n${sources}` : '',
-        ].filter(Boolean).join('\n\n'),
-      })
+      const { state, sources, sourcesPath } = await runDeep(fast, slug, deepRequestRef(ticket.taskId, sessionId), runtime, startedAt, { mode: 'live' })
       await reportDeep(backlog, ticket, slug, deepFiles(fast, slug), state, sources ? sourcesPath : undefined)
     })().catch((e) => console.error('[customer-form] bft-deep упал:', e)).finally(() => deepRunning.delete(slug))
     return true
+  }
+
+  /**
+   * Прогон качества (план качества, C0): фикстура <DSH_HOME>/quality/<name>/
+   * (primary.json, необязательно sources.md, context_map.md, intake.json) →
+   * fast из primary.json тем же кодом, что в чате → разведка (live) или карта
+   * находок фикстуры → полный БФТ настоящей моделью портала → out/: fast.md,
+   * sources.md, <name>.md, deep.json, metrics.json.
+   */
+  const qualityRunning = new Set<string>()
+  const qualityRun = async (name: string, recon: 'fixture' | 'live', runtime: DeepRuntime, date?: string) => {
+    const dir = join(QUALITY_ROOT, name)
+    const doc = JSON.parse(await readFile(join(dir, 'primary.json'), 'utf8')) as PrimaryDoc
+    const work = join(dir, 'work')
+    const out = join(dir, 'out')
+    await rm(work, { recursive: true, force: true })
+    await rm(out, { recursive: true, force: true })
+    console.error(`[customer-form] качество ${name}: сборка fast из primary.json`)
+    const built = await buildFastFromPrimary(doc, { slug: name, source: `фикстура качества ${name}`, ...(date ? { date } : {}) }, work)
+    if (!built.ok) throw new Error(`fast не собран: ${built.errors}`)
+    const fast = built.files
+    await writeFile(fast.primary, JSON.stringify(doc), 'utf8')
+    for (const file of ['context_map.md', 'intake.json', 'approval.json']) {
+      if (existsSync(join(dir, file))) await copyFile(join(dir, file), join(fast.dir, file))
+    }
+    const fixtureSources = recon === 'fixture' ? await readFile(join(dir, 'sources.md'), 'utf8').catch(() => '') : ''
+    console.error(`[customer-form] качество ${name}: разведка ${recon === 'live' ? 'по источникам' : 'из фикстуры'}, затем полный БФТ (${runtime.route().provider}/${runtime.route().model})`)
+    const startedAt = new Date().toISOString()
+    const { state, sources, context, reconMs } = await runDeep(fast, name, `фикстура качества ${name}`, runtime, startedAt,
+      recon === 'live' ? { mode: 'live' } : { mode: 'fixture', markdown: fixtureSources })
+    console.error(`[customer-form] качество ${name}: ${state.stage}, попыток ${state.attempts ?? '—'}${state.error ? ` — ${state.error.slice(0, 300)}` : ''}`)
+    const deep = deepFiles(fast, name)
+    const deepMd = await readFile(deep.md, 'utf8').catch(() => '')
+    const intake = await readIntake(fast)
+    const golden = await readFile(join(SKILLS_PATH, 'bft-deep-swarm/examples/golden_deep_document.md'), 'utf8').then(goldenCanon, () => undefined)
+    const report = qualityMetrics({
+      doc: deepMd, fastMd: await readFile(fast.md, 'utf8'), sourcesMd: sources, contextMd: context, primary: doc, ...(golden ? { golden } : {}),
+      ...(intake ? { intake } : {}), ...(state.quality ? { quality: state.quality } : {}), stage: state.stage, ...(reconMs !== undefined ? { reconMs } : {}),
+    })
+    const metrics = {
+      fixture: name, recon, route: runtime.route(), startedAt, finishedAt: state.finishedAt ?? null, stage: state.stage,
+      attempts: state.attempts ?? null, error: state.error ?? null, ...report,
+    }
+    await mkdir(out, { recursive: true })
+    await copyFile(fast.md, join(out, 'fast.md'))
+    await writeFile(join(out, 'sources.md'), sources, 'utf8')
+    if (deepMd) await writeFile(join(out, `${name}.md`), deepMd, 'utf8')
+    await copyFile(deep.state, join(out, 'deep.json')).catch(() => undefined)
+    await writeFile(join(out, 'primary.json'), JSON.stringify(doc), 'utf8')
+    await writeFile(join(out, 'metrics.json'), `${JSON.stringify(metrics, null, 2)}\n`, 'utf8')
+    console.error(`[customer-form] качество ${name}: готово → ${out}`)
+    return { fixture: name, stage: state.stage, attempts: state.attempts ?? null, out, metrics: report.metrics }
   }
 
 
@@ -496,7 +635,7 @@ export function apply(ctx: HarnessContext): void {
           if (deep.stage === 'building') return new Response(waitingPage(sessionId, { stage: 'building', startedAt: deep.startedAt }, siblingHref('/api/customer-form.bftDeepStatus'), 'deep'), { headers })
           if (deep.stage === 'failed') return new Response(deepFailedPage(sessionId, deep.error ?? 'неизвестная ошибка', siblingHref('/api/customer-form.bftDeepRetry'), fastUrl), { headers })
           const deepHtml = await readFile(deepFiles(files, slug).html, 'utf8').catch(() => undefined)
-          if (deepHtml) return new Response(customerDeepPage(deepHtml, sessionId, fastUrl), { headers })
+          if (deepHtml) return new Response(customerDeepPage(deepHtml, sessionId, fastUrl, deep.questions), { headers })
         }
         // Заказчику (rev21) — тот же документ: How to demo таблицей, зоны и контакты, без полей для PO.
         const state = await fastState(files)
@@ -510,6 +649,35 @@ export function apply(ctx: HarnessContext): void {
         }), { headers })
       },
     }), 'customer-form: /api/customer-form.bftFast')
+
+    // Прогон качества (план качества, C0): только администратор и только при заданном ADMIN_PASSWORD.
+    // Ответ синхронный — сборка идёт минуты; ход — в журнале контейнера.
+    scoped.effect(() => register({
+      path: QUALITY_RUN,
+      methods: ['POST'],
+      requestBody: 'buffered',
+      fetch: async (request: Request) => {
+        if (!process.env.ADMIN_PASSWORD?.trim() || !isAdmin(request)) return Response.json({ error: 'Только администратор портала' }, { status: 403 })
+        const body = (await request.json().catch(() => ({}))) as { fixture?: unknown; recon?: unknown; date?: unknown }
+        const name = typeof body.fixture === 'string' ? body.fixture : ''
+        if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(name)) return Response.json({ error: 'fixture — имя папки в quality/ (буквы, цифры, - и _)' }, { status: 400 })
+        const recon = body.recon === 'live' ? 'live' : body.recon === undefined || body.recon === 'fixture' ? 'fixture' : undefined
+        if (!recon) return Response.json({ error: 'recon — fixture или live' }, { status: 400 })
+        const date = typeof body.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.date) ? body.date : undefined
+        if (!existsSync(join(QUALITY_ROOT, name, 'primary.json'))) return Response.json({ error: `нет ${name}/primary.json в папке качества` }, { status: 404 })
+        if (!deepRuntime) return Response.json({ error: 'модель портала недоступна' }, { status: 503 })
+        if (qualityRunning.has(name)) return Response.json({ error: `прогон ${name} уже идёт` }, { status: 409 })
+        qualityRunning.add(name)
+        try {
+          return Response.json(await qualityRun(name, recon, deepRuntime, date), { headers: { 'cache-control': 'no-store' } })
+        } catch (e) {
+          console.error(`[customer-form] качество ${name}: сбой`, e)
+          return Response.json({ error: (e as Error).message.slice(0, 2000) }, { status: 500 })
+        } finally {
+          qualityRunning.delete(name)
+        }
+      },
+    }), 'customer-form: прогон качества')
 
     // E2E (rev17): сбои трекера по заказу — только при флаге <DSH_HOME>/e2e-hooks,
     // его ставит и снимает harness/e2e-customer.sh. В бою эндпоинт отвечает 404.
@@ -570,7 +738,7 @@ export function apply(ctx: HarnessContext): void {
         const ticket = sessionId ? await backlog.find(sessionId).catch(() => undefined) : undefined
         if (!ticket) return Response.json({ error: 'заявка не найдена' }, { status: 404 })
         if (!(await fastState(fastFiles(FAST_ROOT, fastSlug(ticket.taskId))))?.approvedAt) return Response.json({ error: 'первичные требования не согласованы' }, { status: 409 })
-        return startDeep(ticket) ? Response.json({ ok: true }) : Response.json({ error: 'модель портала недоступна' }, { status: 503 })
+        return startDeep(ticket, sessionId) ? Response.json({ ok: true }) : Response.json({ error: 'модель портала недоступна' }, { status: 503 })
       },
     }), 'customer-form: /api/customer-form.bftDeepRetry')
 
@@ -589,9 +757,10 @@ export function apply(ctx: HarnessContext): void {
         const slug = fastSlug(ticket.taskId)
         const files = fastFiles(FAST_ROOT, slug)
         const md = doc === 'deep' ? deepFiles(files, slug).md : files.md
-        if (doc === 'deep' && (await readDeepState(deepFiles(files, slug)))?.stage !== 'ready') return new Response('полный БФТ ещё не собран', { status: 404 })
+        const deepState = doc === 'deep' ? await readDeepState(deepFiles(files, slug)) : undefined
+        if (doc === 'deep' && deepState?.stage !== 'ready') return new Response('полный БФТ ещё не собран', { status: 404 })
         try {
-          const path = await exportDocument(md, format)
+          const path = await exportDocument(md, format, deepState?.questions)
           const name = `${doc === 'deep' ? slug : `${slug}-fast`}.${format}`
           return new Response(await readFile(path), { headers: { 'content-type': EXPORT_TYPES[format], 'content-disposition': `attachment; filename="${name}"`, 'cache-control': 'no-store' } })
         } catch (e) {
@@ -633,7 +802,7 @@ export function apply(ctx: HarnessContext): void {
           const state = await approveFast(files)
           if (!before?.approvedAt) {
             void reportFastApproval(backlog, ticket, slug, files.html, state.approvedAt!)
-            startDeep(ticket)
+            startDeep(ticket, sessionId)
           }
           return Response.json({ approvedAt: state.approvedAt })
         } catch (e) {

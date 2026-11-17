@@ -72,7 +72,8 @@ export interface Intake {
   customerName: string
   customerEmail: string
   summary: string
-  asis: string
+  /** Заказчик не описывал текущий процесс — пусто (план C1). */
+  asis?: string
   gap: string
   tobe: string
   howToDemo: string[]
@@ -100,7 +101,7 @@ export function intakeHtml(intake: Intake, taskId: number, demoApprovedAt?: stri
     `<h1>Запрос инициативы #${taskId}</h1>`,
     `<p><strong>Заказчик:</strong> ${esc(intake.customerName)} &lt;${esc(intake.customerEmail)}&gt;</p>`,
     '<h2>Суть</h2>', paragraphs(intake.summary),
-    '<h2>ASIS — как работает сейчас</h2>', paragraphs(intake.asis),
+    '<h2>ASIS — как работает сейчас</h2>', intake.asis?.trim() ? paragraphs(intake.asis) : '<p>— заказчик не описывал —</p>',
     '<h2>GAP — почему не устраивает</h2>', paragraphs(intake.gap),
     '<h2>TOBE — как должно работать</h2>', paragraphs(intake.tobe),
     `<h2>HowToDemo — сценарий приёмки${demoApprovedAt ? ` (согласован заказчиком ${moscowTime(demoApprovedAt)})` : ''}</h2>`, items('ol', intake.howToDemo.map(esc), '— уточнит PO —'),

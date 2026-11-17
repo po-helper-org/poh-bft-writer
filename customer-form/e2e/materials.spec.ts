@@ -51,7 +51,7 @@ test('материалы: m4a + docx → черновик по материал�
   // Черновик — страницей в правой панели (UserFlow + раскадровка, ADR-0007 rev10).
   const panel = page.frameLocator('iframe[data-customer-acceptance]')
   await expect(panel.getByRole('heading', { name: 'Как я понял задачу' }), 'раздел черновика в панели').toBeVisible({ timeout: 15_000 })
-  await expect(panel.getByRole('heading', { name: 'Не нашёл в материалах или есть противоречие' })).toBeVisible()
+  await expect(panel.getByRole('heading', { name: 'Мои допущения и чего нет в материалах — проверьте' })).toBeVisible()
   await page.screenshot({ path: 'test-results/materials-draft.png' })
   await page.getByRole('button', { name: 'Согласую' }).click()
 

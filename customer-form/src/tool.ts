@@ -9,9 +9,10 @@
  */
 import { randomUUID } from 'node:crypto'
 import { readFile, writeFile } from 'node:fs/promises'
-import { buildFast, FAST_ROOT, fastPageUrl, fastProgress, fastSlug, portalUrl, SKILLS_PATH } from './bft-fast.js'
-import { contextMapMarkdown, cortexBrief } from './cortex.js'
-import { cortexQuery, KINDS, SPECIALISTS, toFastInput, type PrimaryArgs, type PrimaryDoc } from './primary.js'
+import { FAST_ROOT, fastFiles, fastPagePath, fastPageUrl, fastProgress, fastSlug, portalUrl, publicPortalUrl } from './bft-fast.js'
+import { contextMapMarkdown, cortexBrief, relevantBrief } from './cortex.js'
+import { buildFastFromPrimary, cortexQuery, KINDS, primaryErrors, SPECIALISTS, type PrimaryArgs, type PrimaryDoc } from './primary.js'
+import { demoIntake, glossaryOf, mergeIntake } from './intake.js'
 import { demoSteps, doneList, repairDemo, sharedDemos, storyboardMarkdown, type AcceptanceDemo, type DemoRecord } from './demo.js'
 import { demoPageHtml } from './demo-page.js'
 import { moscowTime, sharedBacklog, ticketRegistered, type Backlog, type Intake, type Ticket } from './host.js'
@@ -116,10 +117,10 @@ function confirmDemoTool(ctx: ToolContext, backlog: Backlog) {
           properties: {
             screen: text('Экран или место, коротко: «Почта Outlook», «Отчёт в BI»'),
             action: text('Что заказчик делает на этом экране'),
-            expect: text('Что он должен увидеть — проверяемо: цифры, файл, статус'),
+            expect: text('Что заказчик видит на этом экране — проверяемо (цифры, файл, статус), из его слов или материалов. Передача данных между системами — не expect: её заказчик не видит'),
             device: optional('Где этот экран: браузер, письмо, уведомление или приложение'),
-            mock: text('Что заказчик увидит на этом экране — для картинки раскадровки, сверху вниз через «;»: заголовок: …; текст: …; оффер: …; кнопка: …; список: 3; поле: Сумма = 1 500 ₽; '
-              + 'отметка: Оплачено (галочка в шапке); успех: …; отказ: …; уведомление: от / заголовок / текст. 3–6 частей, только то, что заказчик увидит'),
+            mock: text('Что заказчик увидит на этом экране — для картинки раскадровки, сверху вниз через «;»: заголовок: …; текст: …; кнопка: …; список: 3; поле: … = …; '
+              + 'успех: …; отказ: …. 3–6 частей, только то, что заказчик увидит. Отметки, статусы и уведомления — только названные заказчиком или в материалах; своё допущение — вопросом в unclear'),
           },
         },
       },
@@ -130,7 +131,8 @@ function confirmDemoTool(ctx: ToolContext, backlog: Backlog) {
       tobe: optional('TOBE по материалам: как должно стать, со ссылками на источники'),
       unclear: {
         type: 'array', items: { type: 'string' },
-        description: 'Чего нет в материалах или где они противоречат друг другу — заказчик поправит в «Нужны правки»',
+        description: 'Чего нет в материалах или где они противоречат друг другу — заказчик поправит в «Нужны правки». '
+          + 'Сюда же — каждое добавленное тобой допущение (статус, уведомление, надпись, шаг), вопросом «Верно ли, что…?»',
       },
     },
     output: {
@@ -182,6 +184,8 @@ function confirmDemoTool(ctx: ToolContext, backlog: Backlog) {
       const ticket = await backlog.find(agent.session.id)
       const checklist = doneList(args)
       if (ticket) await backlog.approveDemo(agent.session.id, ticket, steps, checklist.join('; '), storyboard)
+      // Черновик и допущения сценария — в intake.json заявки (план C1): их читает полный БФТ.
+      if (ticket) await mergeIntake(fastFiles(FAST_ROOT, fastSlug(ticket.taskId)).dir, demoIntake(args)).catch((e) => console.error('[customer-form] intake.json (сценарий) не записан:', e))
       await attachAcceptancePage(backlog, agent.session.id, approved)
       // Дальше заказчик только ждёт документ (rev16): ссылку и «уже готовлю» пишет
       // портал сам — сразу, не дожидаясь модели; справа — ход сборки.
@@ -260,7 +264,7 @@ function submitTool(backlog: Backlog) {
       customerName: text('ФИО заказчика'),
       customerEmail: text('Email заказчика'),
       summary: text('Суть инициативы, 1–2 предложения'),
-      asis: text('ASIS: как работает сейчас'),
+      asis: optional('ASIS: как работает сейчас — со слов заказчика; если заказчик не описывал — пусто, не додумывай'),
       gap: text('GAP: почему текущее решение не устраивает'),
       tobe: text('TOBE: как должно работать'),
       howToDemo: strings('HowToDemo: шаги, согласованные заказчиком в confirm_acceptance_demo, по одному на элемент'),
@@ -280,6 +284,16 @@ function submitTool(backlog: Backlog) {
       if (!agent) throw new Error('нет сессии заказчика')
       const ticket = await ensureTicket(backlog, agent, [args.title, args.summary, `${args.customerName} ${args.customerEmail}`].join('\n'))
       await backlog.finalize(ticket, args, transcriptOf(agent, ticket, args))
+      // Данные приёма — рядом с документом (план C1): трекер их хранит, полный БФТ читает отсюда.
+      await mergeIntake(fastFiles(FAST_ROOT, fastSlug(ticket.taskId)).dir, {
+        ...(args.summary?.trim() ? { summary: args.summary.trim() } : {}),
+        ...(args.asis?.trim() ? { asis: args.asis.trim() } : {}),
+        ...(args.gap?.trim() ? { gap: args.gap.trim() } : {}),
+        ...(args.tobe?.trim() ? { tobe: args.tobe.trim() } : {}),
+        glossary: glossaryOf(args.glossary),
+        links: (args.links ?? []).filter((l) => l?.trim()),
+        openQuestions: (args.openQuestions ?? []).filter((q) => q?.trim()),
+      }).catch((e) => console.error('[customer-form] intake.json не записан:', e))
       fastProgress.stage(agent.session.id, 'submitted')
       return `Заявка #${ticket.taskId} обновлена: постановка, сводка и полный контекст сохранены.${ticket.url ? ` Отслеживание статуса: ${ticket.url}` : ''}`
     },
@@ -307,25 +321,58 @@ function fastTool(backlog: Backlog) {
           what: text('Что хочет получить — одна фраза'),
           why: optional('Зачем — проблема или выгода, если звучала'),
           quote: quote('Откуда это'),
+          asis: optional('Как сейчас — дословно, только если заказчик описал текущий процесс; не пересказ: кусок его реплики из quote или цитаты требования. Нет реплики — не заполняй'),
         },
       },
       requirements: {
-        type: 'array', required: true, description: 'Требования со слов: каждое — одна короткая фраза и цитата; чего не говорил — не добавляй',
+        type: 'array', required: true, description: 'Требования со слов: каждое — одна короткая фраза и цитата; чего не говорил — не добавляй. '
+          + 'Ответ «Каким вы видите решение» — гипотеза реализации: дословно в achievable.vision. В requirements — результат, который заказчик назвал нужным пользователю или бизнесу; kind «система» — наблюдаемое поведение системы, а не механизм (кто кого вызывает, какой поток читает). Названная заказчиком обязательная интеграция или система остаётся требованием, сформулированным как результат (данные оказываются в системе X). Условие, которое ещё предстоит согласовать, — в approvals и openQuestions.',
         items: {
           type: 'object', additionalProperties: false,
           properties: {
             kind: { type: 'string', required: true, enum: [...KINDS], description: 'зачем — ценность; пользователю — что хочет пользователь; на экране — что он видит; система — что делает система; качество — измеримое свойство, только если названо' },
             text: text('Требование — одна фраза'),
             quote: quote('Откуда требование'),
+            asis: optional('Как сейчас в этой точке — дословно, подстрока цитаты этого требования или want.quote; только если заказчик описал текущий процесс. Нет реплики — не заполняй'),
           },
         },
       },
-      outOfScope: { type: 'array', items: { type: 'string' }, description: 'Что не входит и договорённости — только сказанное' },
+      outOfScope: {
+        type: 'array', description: 'Только то, что заказчик явно исключил («это не делаем», «потом»). Нерешённое и «уточняется» — не сюда, а в openQuestions',
+        items: { type: 'object', additionalProperties: false, properties: { text: text('Что не входит — одна фраза'), quote: quote('Где заказчик это исключил') } },
+      },
+      agreements: {
+        type: 'array', description: 'Договорённости и обязательные условия со слов заказчика (обязательная система, согласование, ограничение) — не исключения и не открытые вопросы',
+        items: { type: 'object', additionalProperties: false, properties: { text: text('Договорённость — одна фраза'), quote: quote('Откуда') } },
+      },
       people: {
         type: 'array', description: 'Заказчик и люди, которых он назвал',
-        items: { type: 'object', additionalProperties: false, properties: { name: text('Имя'), role: optional('Роль — из сказанного'), about: optional('По каким вопросам к нему — из сказанного') } },
+        items: {
+          type: 'object', additionalProperties: false,
+          properties: {
+            name: text('Имя'), role: optional('Роль — из сказанного'),
+            about: optional('Зона влияния: по каким вопросам к нему — из сказанного; не контакты'),
+            contact: optional('Email или телефон, если назвал'),
+          },
+        },
       },
-      openQuestions: { type: 'array', items: { type: 'string' }, description: 'Настоящие пробелы задачи — уходят в чат и в заявку' },
+      openQuestions: { type: 'array', items: { type: 'string' }, description: 'Настоящие пробелы задачи, нерешённое и «уточняется» — уходят в чат и в заявку' },
+      glossary: {
+        type: 'array', description: 'Расшифровки сокращений и терминов — со слов заказчика или материалов',
+        items: { type: 'object', additionalProperties: false, properties: { term: text('Сокращение или термин'), meaning: text('Расшифровка') } },
+      },
+      metric: {
+        type: 'object', additionalProperties: false, description: 'Эффект, если заказчик его назвал: какой показатель и как изменится. Не назвал — не заполняй, не выдумывай',
+        properties: { now: optional('Сколько сейчас — его словами'), target: optional('Сколько хотим — его словами'), quote: quote('Откуда') },
+      },
+      deadline: {
+        type: 'object', additionalProperties: false, description: 'Желаемый срок или событие, если заказчик назвал. Не назвал — не заполняй',
+        properties: { when: text('К какому сроку или событию'), why: optional('Почему тогда — если сказал'), quote: quote('Откуда') },
+      },
+      actors: {
+        type: 'array', description: 'Кто будет пользоваться результатом — роли и примерно сколько, со слов заказчика (не стейкхолдеры из people)',
+        items: { type: 'object', additionalProperties: false, properties: { role: text('Роль пользователя'), count: optional('Примерно сколько — если сказал'), quote: quote('Откуда') } },
+      },
       achievable: {
         type: 'object', additionalProperties: false,
         description: 'SMART A — краткий план реализации из ответа заказчика «Каким вы видите решение»; здесь ты дораскрываешь, по 1–4 коротких пункта',
@@ -346,6 +393,8 @@ function fastTool(backlog: Backlog) {
       const agent = exec.agent
       if (!agent) throw new Error('нет сессии заказчика')
       const sessionId = agent.session.id
+      const invalid = primaryErrors(args)
+      if (invalid.length) throw new Error(`Исправь поля и вызови create_bft_fast снова:\n${invalid.join('\n')}`)
       const ticket = await ensureTicket(backlog, agent, args.title)
       const record = sharedDemos().get(sessionId)
       const howToDemo = record?.approvedAt ? demoSteps(record.demo) : []
@@ -354,12 +403,15 @@ function fastTool(backlog: Backlog) {
       fastProgress.stage(sessionId, 'building')
       // Шаблон — кодом из полей модели; Кортекс — параллельно, его не ждёт линтер.
       const [built, brief] = await Promise.all([
-        buildFast(toFastInput(args, checklist), { slug, howToDemo, source: ticket.url ? `заявка #${ticket.taskId} в трекере — ${ticket.url}` : `заявка #${ticket.taskId} в трекере`, skillsPath: SKILLS_PATH }, FAST_ROOT),
-        cortexBrief(cortexQuery(args, howToDemo)),
+        buildFastFromPrimary({ args, howToDemo, checklist }, { slug, source: requestSource(ticket.taskId, sessionId) }, FAST_ROOT),
+        // Только узлы по теме заявки: общие узлы памяти не попадают ни в fast, ни в карту контекста.
+        cortexBrief(cortexQuery(args, howToDemo)).then((b) => (b ? relevantBrief(b, cortexQuery(args, howToDemo)) : undefined)),
       ])
       if (!built.ok) throw new Error(`Документ не собран, исправь поля и вызови create_bft_fast снова:\n${built.errors}`)
       const doc: PrimaryDoc = { args, howToDemo, checklist, ...(record?.demo.where ? { where: record.demo.where } : {}), ...(brief ? { brief } : {}) }
       await writeFile(built.files.primary, JSON.stringify(doc), 'utf8')
+      // Допущения и черновик сценария — в intake.json и тогда, когда при «Согласую» заявки ещё не было.
+      if (record?.approvedAt) await mergeIntake(built.files.dir, demoIntake(record.demo)).catch((e) => console.error('[customer-form] intake.json (сценарий) не записан:', e))
       if (brief) await writeFile(built.files.contextMap, contextMapMarkdown(brief, slug), 'utf8')
       // Номер сборки — в имени вложения: PO видит, что пересобиралось. Счётчик — на диске, рестарт его не обнуляет.
       const counter = `${built.files.dir}/version`
@@ -377,6 +429,17 @@ function fastTool(backlog: Backlog) {
       ].join('\n')
     },
   }
+}
+
+/**
+ * «Источник Summary» открытого поля fast (план качества, C8): страница заявки
+ * в портале по PORTAL_PUBLIC_URL; адреса нет или он loopback — «заявка #N»
+ * без ссылки (ссылка на 127.0.0.1 или внутренний трекер у читателя не откроется).
+ */
+function requestSource(taskId: number, sessionId: string): string {
+  const page = publicPortalUrl(fastPagePath(sessionId))
+  if (!page) console.error(`[customer-form] PORTAL_PUBLIC_URL не задан или loopback — в документе заявки #${taskId} ссылки на портал не будет`)
+  return page ? `заявка #${taskId} — ${page}` : `заявка #${taskId}`
 }
 
 /** Документ, страница и csv — в заявку; комментарий — PO видит, что fast готов. Сбой трекера ответ не роняет. */

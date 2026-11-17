@@ -39,7 +39,8 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json && tsc -p tsconfig.client.json && tsdown",
-    "test": "tsc -p tsconfig.json --noEmit"
+    "test": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.json --outDir lib-test --declaration false && node --test test/*.test.mjs",
+    "quality-metrics": "node scripts/quality-metrics.mjs"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "~4.1.0",

@@ -6,7 +6,11 @@
  */
 import { discover, dropConnection, exchange, loadConnection, newState, pkce, refresh, register, revoke, saveConnection, authorizeUrl, type Connection, type PendingAuth } from './oauth.js'
 import { McpHttpClient } from './mcp.js'
-import { confluenceFindings, findingsMarkdown, jiraFindings, jqlFor, merge, rank, type Finding } from './findings.js'
+import {
+  applyTriage, childJqls, cleanBody, confluenceFindings, epicChildren, extractLeads, findingsMarkdown, jiraBrowseBase, jiraFindings, jiraIssueFinding,
+  jqlsFor, merge, rank, synonymsIn, titleOnSubject, triageItems, unwrap, contentTerms, type Finding, type Synonym, type TriageItem, type TriageVerdict,
+} from './findings.js'
+import { pool, withTimeout } from './pool.js'
 
 /** Инструменты штаба, которые порталу разрешено вызывать (только чтение). */
 export const READ_ONLY_TOOLS = ['confluence_search', 'confluence_get_page', 'jira_search', 'jira_get_issue'] as const
@@ -28,7 +32,37 @@ export interface ReconResult {
   markdown: string
   queries: string[]
   errors: string[]
+  /** Синонимы систем из тел находок (и дополнительный запрос по ним). */
+  synonyms: Synonym[]
+  /** Триаж прошёл (вердикты есть в находках и в карте). */
+  triaged: boolean
+  /** Сколько шла разведка. */
+  ms: number
 }
+
+/** Предмет заявки: название и имена систем — для фильтра ранжирования, второго шага и синонимов. */
+/** Предмет заявки; object — что заявка меняет (главное существительное названия), не платформа. */
+export interface ReconSubject { title: string; systems: string[]; object?: string }
+
+export interface ReconOptions {
+  /** Верхняя граница карты (по половине на Confluence и Jira). */
+  top?: number
+  /** Сколько тел дочитать всего: до 4 Confluence и до 3 Jira (по умолчанию 7). */
+  read?: number
+  deadlineMs?: number
+  subject?: ReconSubject
+  /**
+   * Запросы, по которым считаются очки ранга (раунд 6): детерминированное ядро
+   * (название, «объект + система»). Запросы модели расширяют выдачу, но порядок
+   * карты от них не зависит. Нет — очки по всем запросам.
+   */
+  rankBy?: string[]
+  /** Триаж находок (модель портала); сбой или таймаут — карта без вердиктов. */
+  triage?: (items: TriageItem[], signal: AbortSignal) => Promise<TriageVerdict[]>
+}
+
+/** Бюджеты тел: Confluence ≈4000, Jira ≈2000 символов; найденные вторым шагом — вдвое меньше. */
+const BODY_BUDGET = { confluence: 4000, jira: 2000 } as const
 
 const JIRA_FIELDS = 'summary,status,issuetype,project,updated,description'
 
@@ -144,8 +178,17 @@ export class McpSource {
     return confluenceFindings(await this.call('confluence_search', { query, limit }), query)
   }
 
-  async searchJira(query: string, limit = 5): Promise<Finding[]> {
-    return jiraFindings(await this.call('jira_search', { jql: jqlFor(query), limit, fields: JIRA_FIELDS }), query)
+  async searchJira(query: string, limit = 10): Promise<Finding[]> {
+    const settled = await Promise.allSettled(jqlsFor(query).map((jql) => this.jiraByJql(jql.jql, query, limit, jql.titleMatch)))
+    const ok = settled.flatMap((result) => (result.status === 'fulfilled' ? result.value : []))
+    const failed = settled.find((result): result is PromiseRejectedResult => result.status === 'rejected')
+    if (!ok.length && failed) throw failed.reason
+    return merge(ok)
+  }
+
+  private async jiraByJql(jql: string, query: string, limit: number, titleMatch: boolean): Promise<Finding[]> {
+    const found = jiraFindings(await this.call('jira_search', { jql, limit, fields: JIRA_FIELDS }), query)
+    return titleMatch ? found.map((finding) => ({ ...finding, titleMatch: true })) : found
   }
 
   /** Поиск по обоим: для проверки в «Настройках» и для агентов. */
@@ -160,44 +203,172 @@ export class McpSource {
     return { findings: merge(findings), errors }
   }
 
-  /** Дочитать находку: страницу Confluence или описание задачи Jira. */
-  private async readBody(finding: Finding): Promise<void> {
+  /** Сырой текст находки: страница Confluence или описание задачи Jira (у пустого эпика — его состав). */
+  private async rawBody(finding: Finding): Promise<string> {
     if (finding.kind === 'confluence') {
-      const value = JSON.parse(await this.call('confluence_get_page', { page_id: finding.id, convert_to_markdown: true, include_metadata: false })) as unknown
-      const page = (value && typeof value === 'object' && 'result' in value ? JSON.parse(String((value as { result: unknown }).result)) : value) as { content?: { value?: string }; metadata?: unknown } | string
-      const text = typeof page === 'string' ? page : (page.content?.value ?? '')
-      // Макрос Jira в Confluence оставляет «Jira<uuid>KEY-1» — убираем uuid, ключ остаётся.
-      finding.body = text.replace(/Jira[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}/g, ' ').replace(/\n{3,}/g, '\n\n').trim().slice(0, 2500)
-    } else {
-      const value = JSON.parse(await this.call('jira_get_issue', { issue_key: finding.id, fields: 'summary,status,description', comment_limit: 0, update_history: false })) as unknown
-      const issue = (value && typeof value === 'object' && 'result' in value ? JSON.parse(String((value as { result: unknown }).result)) : value) as { description?: string }
-      finding.body = (issue.description ?? '').replace(/\r/g, '').replace(/\n{3,}/g, '\n\n').trim().slice(0, 1200)
+      const page = this.parsePage(await this.call('confluence_get_page', { page_id: finding.id, convert_to_markdown: true, include_metadata: false }))
+      return page.text
+    }
+    const issue = unwrap(await this.call('jira_get_issue', { issue_key: finding.id, fields: 'summary,status,issuetype,description', comment_limit: 0, update_history: false })) as { description?: string; fields?: { description?: string } }
+    const description = (issue.description ?? issue.fields?.description ?? '').trim()
+    if (description) return description
+    if (!/эпик|epic|истори|story|инициатив|feature/i.test(finding.type ?? '')) return '(описание пустое)'
+    const children = await Promise.allSettled(childJqls(finding.id).map(async (jql) => jiraFindings(await this.call('jira_search', { jql, limit: 8, fields: 'summary,status,issuetype' }), '')))
+    return epicChildren(finding.id, children.flatMap((result) => (result.status === 'fulfilled' ? result.value : [])))
+  }
+
+  /** Ответ confluence_get_page: текст и (если есть) метаданные. */
+  private parsePage(text: string): { text: string; title?: string; url?: string; space?: string; spaceName?: string; updated?: string } {
+    const value = unwrap(text) as unknown
+    if (typeof value === 'string') return { text: value }
+    const page = value as { content?: { value?: string }; metadata?: Record<string, unknown>; title?: string; url?: string }
+    const meta = (page.metadata ?? page) as { title?: string; url?: string; space?: { key?: string; name?: string }; updated?: string; last_modified?: string; version?: { when?: string } }
+    return {
+      text: page.content?.value ?? '',
+      ...(meta.title ? { title: String(meta.title) } : {}),
+      ...(meta.url ? { url: String(meta.url) } : {}),
+      ...(meta.space?.key ? { space: meta.space.key } : {}),
+      ...(meta.space?.name ? { spaceName: meta.space.name } : {}),
+      ...((meta.updated ?? meta.last_modified ?? meta.version?.when) ? { updated: String(meta.updated ?? meta.last_modified ?? meta.version?.when) } : {}),
+    }
+  }
+
+  /** Второй шаг: загрузить находку по ключу или pageId из тела другой находки. */
+  private async fetchLead(lead: ReturnType<typeof extractLeads>[number], via: string, jiraBase: string | undefined): Promise<Finding | undefined> {
+    if (lead.kind === 'jira') {
+      const issue = unwrap(await this.call('jira_get_issue', { issue_key: lead.id, fields: JIRA_FIELDS, comment_limit: 0, update_history: false }))
+      const found = jiraIssueFinding(issue, undefined)
+      if (!found) return undefined
+      if (!found.url && jiraBase) found.url = `${jiraBase}${found.id}`
+      if (!found.url) return undefined
+      const description = (issue as { description?: string }).description ?? ''
+      return { ...found, via, ...(description.trim() ? { body: description } : {}) }
+    }
+    const page = this.parsePage(await this.call('confluence_get_page', { page_id: lead.id, convert_to_markdown: true, include_metadata: true }))
+    return {
+      kind: 'confluence', id: lead.id, title: page.title ?? lead.label, url: page.url ?? lead.url,
+      ...(page.space ? { container: page.space } : {}), ...(page.spaceName ? { containerName: page.spaceName } : {}),
+      type: 'page', ...(page.updated ? { updated: page.updated } : {}),
+      snippet: '', hits: 1, queries: [], via, ...(page.text.trim() ? { body: page.text } : {}),
     }
   }
 
   /**
-   * Разведка для полного БФТ: запросы → Confluence и Jira → слить и
-   * ранжировать → дочитать лучшие → карта находок с готовыми markdown-ссылками.
+   * Разведка для полного БФТ: запросы → Confluence и Jira (параллельно) →
+   * слить и ранжировать по предмету заявки → дочитать лучшие (до 4 Confluence
+   * и 2 Jira) → второй шаг по подписанным ссылкам из тел → синонимы систем →
+   * триаж моделью → карта находок с готовыми markdown-ссылками. Всё — в
+   * пределах дедлайна: новый вызов после него не начинается.
    */
-  async recon(queries: string[], options: { top?: number; read?: number; deadlineMs?: number } = {}): Promise<ReconResult> {
+  async recon(queries: string[], options: ReconOptions = {}): Promise<ReconResult> {
+    const startedAt = Date.now()
     const top = options.top ?? 10
-    const read = options.read ?? 4
-    const deadline = Date.now() + (options.deadlineMs ?? 90_000)
+    const readTotal = options.read ?? 7
+    const deadline = startedAt + (options.deadlineMs ?? 80_000)
+    const left = () => deadline - Date.now()
+    const at = new Date(startedAt).toISOString().slice(0, 16).replace('T', ' ')
+    const subjectTexts = options.subject ? [options.subject.title, ...options.subject.systems] : []
     const unique = [...new Set(queries.map((q) => q.trim()).filter(Boolean))].slice(0, 6)
     const errors: string[] = []
-    const all: Finding[] = []
-    for (const query of unique) {
-      if (Date.now() > deadline) { errors.push('время разведки вышло'); break }
-      const { findings, errors: failed } = await this.search(query, 5)
-      all.push(...findings)
-      errors.push(...failed.map((e) => `«${query}» — ${e}`))
+    const reason = (e: unknown) => (e instanceof Error ? e.message : String(e))
+
+    // 1. Поиск: по каждому запросу Confluence и два JQL — общий пул по 4.
+    const searchAll = async (list: string[]) => {
+      const tasks = list.flatMap((query) => [
+        // 10 страниц на запрос (раунд 4): свежие частные страницы с тем же словом вытесняли из первых пяти страницу процесса.
+        { label: `«${query}» — Confluence`, run: () => this.searchConfluence(query, 10) },
+        ...jqlsFor(query).map((jql) => ({ label: `«${query}» — Jira`, run: () => this.jiraByJql(jql.jql, query, 10, jql.titleMatch) })),
+      ])
+      const settled = await pool(tasks.map((task) => task.run), 4, deadline)
+      const found: Finding[] = []
+      settled.forEach((result, index) => {
+        if (!result) errors.push(`${tasks[index]!.label}: время разведки вышло`)
+        else if (result.status === 'fulfilled') found.push(...result.value)
+        else errors.push(`${tasks[index]!.label}: ${reason(result.reason)}`)
+      })
+      return found
     }
-    const ranked = rank(all, unique, Math.ceil(top / 2))
-    for (const finding of ranked.slice(0, read)) {
-      if (Date.now() > deadline) break
-      await this.readBody(finding).catch((e) => errors.push(`${finding.kind === 'jira' ? finding.id : finding.title}: ${e instanceof Error ? e.message : String(e)}`))
+    const all = await searchAll(unique)
+    const object = options.subject?.object
+    const core = [...new Set((options.rankBy ?? []).map((q) => q.trim()).filter(Boolean))]
+    const rankQueries = core.length ? core : unique
+    let ranked = rank(all, rankQueries, Math.ceil(top / 2), { subject: subjectTexts, ...(object ? { object } : {}) })
+
+    // 2. Тела: до 4 Confluence и 3 Jira выше порога, параллельно по 3; чистка — по порядку ранга
+    //    (повтор абзаца из уже выведенной находки вырезается).
+    const toRead = [
+      ...ranked.filter((f) => f.kind === 'confluence').slice(0, Math.min(4, readTotal)),
+      ...ranked.filter((f) => f.kind === 'jira').slice(0, Math.max(0, Math.min(3, readTotal - 4))),
+    ]
+    const raws = await pool(toRead.map((finding) => () => this.rawBody(finding)), 3, deadline)
+    const raw = new Map<Finding, string>()
+    raws.forEach((result, index) => {
+      const finding = toRead[index]!
+      if (result?.status === 'fulfilled') raw.set(finding, result.value)
+      else if (result) errors.push(`${finding.kind === 'jira' ? finding.id : finding.title}: ${reason(result.reason)}`)
+    })
+    const seen = new Set<string>()
+    for (const finding of ranked) {
+      const text = raw.get(finding)
+      if (text !== undefined) finding.body = cleanBody(text, BODY_BUDGET[finding.kind], seen)
     }
-    const markdown = findingsMarkdown(ranked, { source: this.name, queries: unique, at: new Date().toISOString().slice(0, 16).replace('T', ' ') })
-    return { findings: ranked, markdown, queries: unique, errors }
+
+    // 3. Второй шаг: из одного-двух тел про предмет заявки — не больше трёх загрузок.
+    const related: Finding[] = []
+    if (subjectTexts.length && left() > 10_000) {
+      const known = new Set(ranked.map((f) => `${f.kind}:${f.id}`))
+      // Родители — одно-два прочитанных тела про предмет заявки (в порядке ранга), где есть куда идти.
+      const parents = ranked.filter((f) => raw.has(f) && titleOnSubject(f, subjectTexts))
+        .map((parent) => ({ parent, leads: extractLeads(raw.get(parent)!, subjectTexts, known, 3) }))
+        .filter((item) => item.leads.length > 0).slice(0, 2)
+      const leads = parents.flatMap(({ parent, leads: list }) => list.map((lead) => ({ lead, parent })))
+      const picked = leads.filter((item, index) => leads.findIndex((other) => other.lead.kind === item.lead.kind && other.lead.id === item.lead.id) === index).slice(0, 3)
+      const base = jiraBrowseBase([...all, ...ranked])
+      const viaOf = (parent: Finding) => (parent.kind === 'jira' ? parent.id : parent.title.replace(/[[\]|]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60))
+      const fetched = await pool(picked.map(({ lead, parent }) => () => this.fetchLead(lead, viaOf(parent), base)), 3, Math.min(deadline, Date.now() + 20_000))
+      fetched.forEach((result, index) => {
+        if (result?.status === 'fulfilled' && result.value) related.push(result.value)
+        else if (result?.status === 'rejected') errors.push(`второй шаг ${picked[index]!.lead.id}: ${reason(result.reason)}`)
+      })
+      for (const finding of related) {
+        if (finding.body) finding.body = cleanBody(finding.body, BODY_BUDGET[finding.kind] / 2, seen)
+      }
+    }
+
+    // 4. Синонимы систем («Имя (Синоним)» в телах) — один дополнительный запрос, если есть время.
+    const synonyms = options.subject ? synonymsIn([...raw.values()], options.subject.systems) : []
+    const allQueries = [...unique]
+    if (synonyms.length && left() > 25_000) {
+      const { system, alias } = synonyms[0]!
+      const escaped = system.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      const withSystem = unique.find((q) => new RegExp(`(^|[^\\p{L}\\p{N}])${escaped}($|[^\\p{L}\\p{N}])`, 'iu').test(q))
+      const noun = contentTerms([options.subject!.title]).length ? options.subject!.title.split(/\s+/).find((word) => word.length >= 4 && contentTerms([word]).length > 0) : undefined
+      const extra = withSystem ? withSystem.replace(new RegExp(escaped, 'iu'), alias) : noun ? `${alias} ${noun}` : alias
+      if (!allQueries.includes(extra)) {
+        allQueries.push(extra)
+        const more = await searchAll([extra])
+        // Тела уже прочитанных находок сохраняются: merge берёт первую копию.
+        ranked = rank([...ranked, ...more], [...rankQueries, extra], Math.ceil(top / 2), { subject: [...subjectTexts, alias], ...(object ? { object } : {}) })
+      }
+    }
+
+    // 5. Триаж: вердикт о релевантности и факты с цитатами; сбой — карта без вердиктов.
+    let findings = [...ranked, ...related]
+    let triaged = false
+    if (options.triage && findings.length && left() > 8_000) {
+      const controller = new AbortController()
+      const budget = Math.min(left() - 2_000, 40_000)
+      try {
+        const verdicts = await withTimeout(options.triage(triageItems(findings), controller.signal), budget, 'триаж не уложился во время')
+        findings = applyTriage(findings, verdicts)
+        triaged = findings.some((f) => f.relevance)
+      } catch (e) {
+        controller.abort()
+        errors.push(`триаж: ${reason(e)}`)
+      }
+    }
+
+    const markdown = findingsMarkdown(findings, { source: this.name, queries: allQueries, at, synonyms })
+    return { findings, markdown, queries: allQueries, errors, synonyms, triaged, ms: Date.now() - startedAt }
   }
 }

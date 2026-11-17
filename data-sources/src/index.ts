@@ -11,7 +11,7 @@
  */
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import { createServer, type Server } from 'node:http'
-import { McpSource, type ReconResult, type SourceStatus } from './sources.js'
+import { McpSource, type ReconOptions, type ReconResult, type SourceStatus } from './sources.js'
 import type { Finding } from './findings.js'
 
 export const name = 'data-sources'
@@ -34,7 +34,7 @@ export interface DataSources {
   status(): Promise<SourceStatus[]>
   search(query: string, limit?: number): Promise<{ findings: Finding[]; errors: string[] }>
   /** Разведка по запросам в первом подключённом источнике; нет источника — undefined. */
-  recon(queries: string[], options?: { top?: number; read?: number; deadlineMs?: number }): Promise<(ReconResult & { source: string }) | undefined>
+  recon(queries: string[], options?: ReconOptions): Promise<(ReconResult & { source: string }) | undefined>
 }
 
 interface HarnessContext {

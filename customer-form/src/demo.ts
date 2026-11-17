@@ -94,7 +94,7 @@ export function storyboardMarkdown(demo: AcceptanceDemo): string {
     '## Работа принята, если',
     '',
     ...doneList(demo).map((item) => `- [ ] ${item}`),
-    ...(unclear.length ? ['', '## Не нашёл в материалах или есть противоречие', '', ...unclear.map((u) => `- ${u}`)] : []),
+    ...(unclear.length ? ['', '## Мои допущения и чего нет в материалах — проверьте', '', ...unclear.map((u) => `- ${u}`)] : []),
   ].join('\n')
 }
 

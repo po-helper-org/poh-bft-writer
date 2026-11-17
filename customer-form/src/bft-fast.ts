@@ -20,6 +20,8 @@ export interface FastRequirement { id: string; asis?: string; tobe: string; rela
 export interface FastInput {
   title: string
   smart: { s: string; m?: string; a?: string; r?: string; t?: string }
+  /** «Как сейчас» дословными словами заказчика (план C1) — строкой под SMART-таблицей. */
+  asis?: string
   boundaries: string[]
   documentation?: string[]
   personas: FastPersona[]
@@ -46,6 +48,41 @@ export const fastPagePath = (sessionId: string) => `/api/customer-form.bftFast?s
 /** Полный адрес для чата: относительную ссылку чат dsh показывает текстом, без перехода. */
 export const portalUrl = (path: string) => `${(process.env.PORTAL_PUBLIC_URL ?? 'http://127.0.0.1:3080').replace(/\/+$/, '')}${path}`
 export const fastPageUrl = (sessionId: string) => portalUrl(fastPagePath(sessionId))
+
+/** Адрес на этой же машине (127.0.0.0/8, localhost, [::1]): снаружи не открывается. */
+export function isLoopbackUrl(url: string): boolean {
+  try {
+    const host = new URL(url).hostname.toLowerCase()
+    return host === 'localhost' || host.endsWith('.localhost') || /^127(?:\.\d{1,3}){3}$/.test(host) || host === '[::1]' || host === '::1'
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Адрес страницы портала для документа (план качества, C8): только публичный
+ * PORTAL_PUBLIC_URL. Не задан или loopback — undefined: документ уходит в
+ * заявку и выгрузку, ссылка на 127.0.0.1 у читателя не откроется.
+ */
+export function publicPortalUrl(path: string): string | undefined {
+  const base = (process.env.PORTAL_PUBLIC_URL ?? '').trim().replace(/\/+$/, '')
+  return base && !isLoopbackUrl(base) ? `${base}${path}` : undefined
+}
+
+/** «заявка #N» в документе: ссылкой на страницу портала, если адрес публичный, иначе текстом. */
+export function requestRef(label: string, url: string | undefined): string {
+  return url ? `[${label}](${url})` : label
+}
+
+/** Дата документа — ISO (ГГГГ-ММ-ДД) по Москве; одна на fast и deep. */
+export const isoToday = (at: Date = new Date()) => at.toLocaleDateString('sv-SE', { timeZone: 'Europe/Moscow' })
+
+/**
+ * Папка навыков в промте Claude Code для PO (открытое поле fast). Не каталог
+ * образа портала (/opt/bft-skills): промт выполняют в сессии PO, где навыки
+ * стоят по штатному пути установки Claude Code.
+ */
+export const PO_SKILLS_PATH = '.claude/skills'
 
 /**
  * Ход сборки документа (rev16): от «Согласую» на сценарии до готовой страницы.
@@ -112,7 +149,7 @@ const relatedOf = (r: FastRequirement): string[] =>
 export function checkRequirements(input: FastInput): { rows: FastRequirement[]; errors: string[] } {
   const errors: string[] = []
   const rows = input.requirements ?? []
-  if (!rows.length) errors.push('Нет ни одного требования: нужна хотя бы одна строка БТ из слов заказчика.')
+  if (!rows.some((r) => /^БТ-/.test(r.id ?? ''))) errors.push('Нет строки БТ: нужна хотя бы одна строка «зачем» (ценность) из слов заказчика — или want.why.')
   const ids = new Set<string>()
   for (const r of rows) {
     if (!ID.test(r.id ?? '')) errors.push(`ID «${r.id}» не по форме ТИП-N (БТ-1, ПТ-2, ИТ-1, ФТ-1, НФТ-1).`)
@@ -136,16 +173,20 @@ export function openFieldPrompt(template: string, ctx: FastContext): string {
   const body = /## Шаблон промта[\s\S]*?```text\n([\s\S]*?)\n```/.exec(template)?.[1]
   if (!body) throw new Error('open_field.md: не найден шаблон промта')
   return body
-    .replaceAll('<skills_path>', ctx.skillsPath)
+    .replaceAll('<skills_path>', PO_SKILLS_PATH)
     .replace('- epic_slug: <epic_slug>', `- epic_slug: ${ctx.slug}`)
     .replace('<путь или URL источника>', ctx.source)
     .replace('<URL страницы | не опубликовано>', 'не опубликовано')
     .replace('<hash | [УТОЧНИТЬ]>', UNKNOWN)
+    // Промт выполняет PO в своей сессии Claude Code: вопросы — в её ответе.
+    // «В чат» в документе портала читается как «в чат портала», а туда они не уходят.
+    .replace(/(?:в\s+)?ответ[еом]*\s+в\s+чат/g, 'в ответе сессии')
+    .replace(/списком\s+в\s+чат/g, 'списком в ответе сессии')
 }
 
 export function fastDocument(input: FastInput, ctx: FastContext, prompt: string): string {
   const { rows } = checkRequirements(input)
-  const date = ctx.date ?? new Date().toISOString().slice(0, 10)
+  const date = ctx.date ?? isoToday()
   const title = cell(input.title, ctx.slug)
   const smart = input.smart ?? { s: '' }
   const personas = (input.personas ?? []).filter((p) => p.name?.trim())
@@ -177,6 +218,7 @@ export function fastDocument(input: FastInput, ctx: FastContext, prompt: string)
     `| R (Relevant) | ${cell(smart.r)} |`,
     `| T (Time-bound) | ${cell(smart.t)} |`,
     '',
+    ...(input.asis?.trim() ? [`ASIS (со слов заказчика): «${input.asis.replace(/\s+/g, ' ').trim().replace(/^«|»$/g, '')}»`, ''] : []),
     '### How to demo',
     '',
     ...ctx.howToDemo.map((step, i) => `${i + 1}. ${step.replace(/\s+/g, ' ').trim()}`),
