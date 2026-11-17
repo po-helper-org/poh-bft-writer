@@ -53,9 +53,11 @@ test('под формой — мои обращения: клик открыва
 
   const all = recent.getByRole('link', { name: /Смотреть все обращения/ })
   // «Все заявки» — страница портала (ADR-0012): заявка видна в общем списке.
-  await expect(all).toHaveAttribute('href', '/api/customer-form.requests')
+  // Портал бывает под префиксом (/bft/): ссылка — от адреса портала, а не от корня домена.
+  const boardUrl = `${CUSTOMER_URL.replace(/\/+$/, '')}/api/customer-form.requests`
+  await expect(all).toHaveAttribute('href', boardUrl)
   const board = await page.context().newPage()
-  await board.goto(new URL('/api/customer-form.requests', page.url()).toString())
+  await board.goto(boardUrl)
   await expect(board.getByRole('heading', { name: 'Все заявки' })).toBeVisible()
   await expect(board.locator('tr[data-request]').first(), 'заявки в общем списке').toBeVisible()
   await board.close()

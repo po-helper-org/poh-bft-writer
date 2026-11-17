@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # E2E портала заказчика (HowToDemo заказчика п.1–10).
 #   ./e2e-customer.sh        # из harness/, стек поднят
+#   PORTAL_URL=http://127.0.0.1:3090/bft ./e2e-customer.sh   # портал под префиксом
+#     (эмулятор прода: docker-compose.subpath.yml, без «/» на конце)
 #
 # Модель — двойник (customer-form/e2e/llm-double.mjs): путь заказчика проверяется
 # без внешнего ключа и квоты. Раннер поднимает двойника, подкладывает оверлей
@@ -43,9 +45,12 @@ TRACKER_PASSWORD="$(grep -E '^TRACKER_ADMIN_PASSWORD=' .env | cut -d= -f2- || tr
 # Пароль администратора портала — для admin-settings.spec (в вывод не попадает).
 ADMIN_PASSWORD="$(grep -E '^ADMIN_PASSWORD=' .env | cut -d= -f2- || true)"
 PW_VERSION="$(sed -n 's/.*"version": "\(.*\)".*/\1/p' ../customer-form/node_modules/@playwright/test/package.json)"
+# Адрес портала для спеков (PORTAL_URL и CUSTOMER_URL — одно и то же); пусто — 127.0.0.1:3080.
+PORTAL_URL="${PORTAL_URL:-http://127.0.0.1:3080}"
 status=0
 docker run --rm --network host --ipc host \
   -e TRACKER_PASSWORD="$TRACKER_PASSWORD" -e ADMIN_PASSWORD="$ADMIN_PASSWORD" -e LLM_DOUBLE=1 -e CI=1 \
+  -e PORTAL_URL="${PORTAL_URL%/}" -e CUSTOMER_URL="${PORTAL_URL%/}" \
   -v "$PWD/../customer-form:/work" -w /work \
   "mcr.microsoft.com/playwright:v${PW_VERSION}-noble" \
   npx playwright test "$@" || status=$?

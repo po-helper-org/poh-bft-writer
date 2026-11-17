@@ -15,7 +15,8 @@ export interface TrackerCfg {
 export function trackerCfgFromEnv(env: NodeJS.ProcessEnv): TrackerCfg {
   return {
     url: (env.TRACKER_URL ?? 'http://tracker:3456/api/v1').replace(/\/$/, ''),
-    publicUrl: (env.TRACKER_PUBLIC_URL ?? 'http://127.0.0.1:3456').replace(/\/$/, ''),
+    // '' — трекер наружу не опубликован (сервер, ADR-0014): ссылок в браузер не отдаём.
+    publicUrl: (env.TRACKER_PUBLIC_URL ?? 'http://127.0.0.1:3456').trim().replace(/\/+$/, ''),
     user: env.TRACKER_USER ?? 'bft-admin',
     password: env.TRACKER_PASSWORD ?? '',
   }

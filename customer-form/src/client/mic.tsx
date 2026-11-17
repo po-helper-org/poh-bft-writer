@@ -11,6 +11,7 @@
 import * as Primitives from '@deepseek-ai/dsh-client-ui-primitives'
 import { useEffect, useRef, useState, type ComponentType, type ReactElement } from 'react'
 import type { InputActionsLike } from './panels.js'
+import { portalHref } from './url.js'
 
 const SR = 16000
 const BLOCK = 4096 // ≈256 мс на 16 кГц
@@ -107,7 +108,7 @@ export function StreamingMic({ sessionId, inputActions, locked, onActiveChange }
       const id = seq++
       if (peak < SILENCE_PEAK) { results.set(id, ''); flush(); return } // пауза — в сеть не шлём
       inFlight++
-      const url = `/api/customer-form.dictate?session=${encodeURIComponent(sessionId)}&prev=${encodeURIComponent(said.slice(-200))}`
+      const url = portalHref(`/api/customer-form.dictate?session=${encodeURIComponent(sessionId)}&prev=${encodeURIComponent(said.slice(-200))}`)
       fetch(url, { method: 'POST', body: wav(samples) })
         .then(async (res) => {
           const reply = (await res.json().catch(() => ({}))) as { text?: string; error?: string }

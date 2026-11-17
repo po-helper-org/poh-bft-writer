@@ -15,6 +15,7 @@
  *    согласование сообщением в чат.
  */
 import { useEffect, useState, type ReactElement, useSyncExternalStore } from 'react'
+import { portalHref } from './url.js'
 
 export const ACCEPTANCE_TAB = 'customer-form/acceptance'
 export const ACCEPTANCE_PREFIX = 'dsh-resource://customer-acceptance/'
@@ -43,7 +44,7 @@ export function AcceptanceTab({ useTabInfo }: { useTabInfo: () => TabInfo }): Re
   const address = useTabInfo().tab.navigation.address
   const sessionId = sessionOfAddress(address)
   // Новый адрес (новая версия сценария) — новая загрузка страницы.
-  const src = sessionId ? `/api/customer-form.demo?session=${encodeURIComponent(sessionId)}&v=${encodeURIComponent(address)}` : undefined
+  const src = sessionId ? portalHref(`/api/customer-form.demo?session=${encodeURIComponent(sessionId)}&v=${encodeURIComponent(address)}`) : undefined
   if (!src) return <div style={{ padding: 16, opacity: 0.7 }}>Сценарий приёмки не найден.</div>
   return (
     <iframe
@@ -92,7 +93,7 @@ export function BftTab({ useTabInfo }: { useTabInfo: () => TabInfo }): ReactElem
   const sessionId = sessionOfBftAddress(address) ?? ''
   const version = useBftVersion(sessionId)
   if (!sessionId) return <div style={{ padding: 16, opacity: 0.7 }}>Документ не найден.</div>
-  const src = `/api/customer-form.bftFast?session=${encodeURIComponent(sessionId)}&v=${version}`
+  const src = portalHref(`/api/customer-form.bftFast?session=${encodeURIComponent(sessionId)}&v=${version}`)
   return (
     <iframe
       key={src}
@@ -186,8 +187,11 @@ export function InfoView({ sessionId, loadInfo, openAcceptance, openBft }: InfoP
         <div style={muted}>Обращение</div>
         {info?.ticket
           ? <div style={{ fontSize: 16, marginTop: 4 }}>
-              <a href={info.ticket.url} target="_blank" rel="noreferrer" style={{ color: 'inherit', fontWeight: 600 }}>Заявка #{info.ticket.taskId}</a>
-              <span style={{ ...muted, marginLeft: 8 }}>{info.ticket.url}</span>
+              {/* Без публичного трекера (TRACKER_PUBLIC_URL='') ссылки нет — только номер. */}
+              {info.ticket.url
+                ? <><a href={info.ticket.url} target="_blank" rel="noreferrer" style={{ color: 'inherit', fontWeight: 600 }}>Заявка #{info.ticket.taskId}</a>
+                    <span style={{ ...muted, marginLeft: 8 }}>{info.ticket.url}</span></>
+                : <span style={{ fontWeight: 600 }}>Заявка #{info.ticket.taskId}</span>}
             </div>
           : <div style={{ marginTop: 4 }}>{info ? 'Заявка появится после первого сообщения.' : 'Загружаю…'}</div>}
       </div>
@@ -219,7 +223,7 @@ export function InfoView({ sessionId, loadInfo, openAcceptance, openBft }: InfoP
                 <div style={{ marginTop: 6 }}>
                   Скачать:{' '}
                   {(['docx', 'pdf', 'md'] as const).map((format) => (
-                    <a key={format} href={`/api/customer-form.bftDownload?session=${encodeURIComponent(sessionId)}&doc=deep&format=${format}`} download style={{ color: 'inherit', fontWeight: 600, marginRight: 12 }}>.{format}</a>
+                    <a key={format} href={portalHref(`/api/customer-form.bftDownload?session=${encodeURIComponent(sessionId)}&doc=deep&format=${format}`)} download style={{ color: 'inherit', fontWeight: 600, marginRight: 12 }}>.{format}</a>
                   ))}
                 </div>
               )}

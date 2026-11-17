@@ -12,6 +12,7 @@
  */
 import { useEffect, useLayoutEffect, useRef, useState, type ReactElement } from 'react'
 import { createPortal } from 'react-dom'
+import { portalHref } from './url.js'
 
 const STORAGE_KEY = 'customer-form/sessions'
 /** Потолок записей после чистки: сессии с заявкой не вытесняются пустыми. */
@@ -152,7 +153,7 @@ export function RecentRequests({ sessionId, loadRequests, openSession }: Props):
           </ul>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '10px 4px 0', fontSize: 13 }}>
             <span style={{ opacity: 0.55 }}>{items.length > SHOWN ? `Показаны последние ${SHOWN} из ${items.length}` : ''}</span>
-            <a href={data!.boardUrl} target="_blank" rel="noreferrer" style={{ color: 'inherit', fontWeight: 600 }}>Смотреть все обращения →</a>
+            <a href={portalHref(data!.boardUrl)} target="_blank" rel="noreferrer" style={{ color: 'inherit', fontWeight: 600 }}>Смотреть все обращения →</a>
           </div>
         </section>,
         target,

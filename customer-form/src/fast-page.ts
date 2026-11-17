@@ -16,6 +16,7 @@
 import type { CortexBrief } from './cortex.js'
 import type { AcceptanceDemo } from './demo.js'
 import { userFlowMermaid } from './demo-page.js'
+import { FAVICON_TAG } from './links.js'
 
 export interface CustomerLayer {
   sessionId: string
@@ -205,7 +206,7 @@ function script(layer: CustomerLayer): string {
 
 /** Ссылки «Скачать» документа: .docx, .pdf, .md (ADR-0012, шаг 5). */
 export function downloadLinks(sessionId: string, doc: 'fast' | 'deep'): string {
-  const href = (format: string) => `/api/customer-form.bftDownload?session=${encodeURIComponent(sessionId)}&doc=${doc}&format=${format}`
+  const href = (format: string) => `customer-form.bftDownload?session=${encodeURIComponent(sessionId)}&doc=${doc}&format=${format}`
   return `<div class="cs-download" id="customer-download-${doc}"><span>Скачать:</span><a href="${esc(href('docx'))}" download>Word (.docx)</a><a href="${esc(href('pdf'))}" download>PDF</a><a href="${esc(href('md'))}" download>Markdown (.md)</a></div>`
 }
 
@@ -259,8 +260,8 @@ export interface RequestRow {
 /** Все заявки портала (ADR-0012, шаг 7): кто, что, на каком шаге, документ и выгрузка. */
 export function requestsPage(rows: RequestRow[], failed: boolean): string {
   const docOf = (row: RequestRow): string => {
-    const page = `/api/customer-form.bftFast?session=${encodeURIComponent(row.sessionId)}`
-    const dl = (format: string) => `/api/customer-form.bftDownload?session=${encodeURIComponent(row.sessionId)}&doc=deep&format=${format}`
+    const page = `customer-form.bftFast?session=${encodeURIComponent(row.sessionId)}`
+    const dl = (format: string) => `customer-form.bftDownload?session=${encodeURIComponent(row.sessionId)}&doc=deep&format=${format}`
     const open = (label: string) => `<a href="${esc(page)}" target="_blank" rel="noreferrer">${label}</a>`
     if (row.deep === 'ready') return `${open('Полный БФТ')}<span class="dl"><a href="${esc(dl('docx'))}">.docx</a><a href="${esc(dl('pdf'))}">.pdf</a><a href="${esc(dl('md'))}">.md</a></span>`
     if (row.deep === 'building') return `${open('Полный БФТ')} <span class="muted">собирается…</span>`
@@ -270,9 +271,9 @@ export function requestsPage(rows: RequestRow[], failed: boolean): string {
   }
   const when = (iso: string) => { try { return new Date(iso).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' }) } catch { return '' } }
   const body = rows.length
-    ? `<table><thead><tr><th>№</th><th>Заявка</th><th>Статус</th><th>Документ</th><th>Создана</th></tr></thead><tbody>${rows.map((row) => `<tr data-request="${row.taskId}"><td class="n"><a href="${esc(row.url)}" target="_blank" rel="noreferrer">#${row.taskId}</a></td><td>${esc(row.title)}</td><td>${row.status ? `<span class="pill">${esc(row.status)}</span>` : ''}</td><td>${docOf(row)}</td><td class="muted">${esc(when(row.created))}</td></tr>`).join('')}</tbody></table>`
+    ? `<table><thead><tr><th>№</th><th>Заявка</th><th>Статус</th><th>Документ</th><th>Создана</th></tr></thead><tbody>${rows.map((row) => `<tr data-request="${row.taskId}"><td class="n">${row.url ? `<a href="${esc(row.url)}" target="_blank" rel="noreferrer">#${row.taskId}</a>` : `#${row.taskId}`}</td><td>${esc(row.title)}</td><td>${row.status ? `<span class="pill">${esc(row.status)}</span>` : ''}</td><td>${docOf(row)}</td><td class="muted">${esc(when(row.created))}</td></tr>`).join('')}</tbody></table>`
     : `<p class="muted">${failed ? 'Трекер не ответил — обновите страницу через минуту.' : 'Заявок пока нет.'}</p>`
-  return `<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  return `<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${FAVICON_TAG}
 <title>Все заявки</title>
 <style>
 :root{ --fg:#111; --muted:#777; --line:#e4e1da; --bg:#fff; }
@@ -300,7 +301,7 @@ a{ color:inherit; }
 /** Сборка полного БФТ не удалась: причина и «Собрать заново». */
 export function deepFailedPage(sessionId: string, error: string, retryUrl: string, fastUrl: string): string {
   const cfg = JSON.stringify({ sessionId, retryUrl }).replace(/</g, '\\u003c')
-  return `<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  return `<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${FAVICON_TAG}
 <title>Полный БФТ не собран</title>
 <style>body{margin:0;font:15px/1.5 Georgia,serif;color:#111;background:#fff}.wrap{max-width:560px;margin:0 auto;padding:2.2rem 1.4rem}
 .kicker{font:.7rem/1.3 "Courier New",monospace;text-transform:uppercase;letter-spacing:.08em;color:#777}h1{font-size:1.4rem;margin:.4rem 0 .6rem}
@@ -391,7 +392,7 @@ export function waitingPage(sessionId: string, progress: { stage: string; starte
   const view = WAITING[kind]
   const cfg = JSON.stringify({ sessionId, statusUrl, startedAt: progress.startedAt, stage: progress.stage, order: view.stages.map((s) => s.key), tau: view.tau, late: view.late }).replace(/</g, '\\u003c')
   const stages = view.stages.map((s, i) => `<li data-stage="${s.key}" data-i="${i}"><span class="dot"></span><div><b>${esc(s.title)}</b><small>${esc(s.note)}</small></div></li>`).join('')
-  return `<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  return `<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${FAVICON_TAG}
 <title>${esc(view.title)}</title>
 <style>
 :root{ --fg:#111; --muted:#777; --line:#e4e1da; --ok:#2f6b2a; --bg:#fff; }

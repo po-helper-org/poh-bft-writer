@@ -16,6 +16,7 @@
  *     настроек заблокирована; администратор видит интерфейс dsh целиком.
  */
 import { createHmac, timingSafeEqual } from 'node:crypto'
+import { FAVICON_TAG, PORTAL_ROOT_HREF, portalCookiePath, siblingHref } from './links.js'
 
 export const ADMIN_PAGE = '/api/customer-form.admin'
 export const ADMIN_STATUS = '/api/customer-form.adminStatus'
@@ -84,7 +85,7 @@ export async function adminOnlyResponse(request: Request, endpoint: string): Pro
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!)
 
 function page(body: string, status = 200, headers: Record<string, string> = {}): Response {
-  return new Response(`<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  return new Response(`<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${FAVICON_TAG}
 <title>Администратор портала</title>
 <style>
 :root{ --fg:#111; --muted:#777; --line:#e4e1da; --bg:#fff; --accent:#111; --on-accent:#fff; --warn:#b45309; }
@@ -107,7 +108,7 @@ button, .btn{ display:inline-block; font:inherit; padding:.55rem 1rem; border-ra
 }
 
 function setCookie(value: string, maxAge: number): string {
-  return `${COOKIE}=${value}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAge}`
+  return `${COOKIE}=${value}; Path=${portalCookiePath()}; HttpOnly; SameSite=Strict; Max-Age=${maxAge}`
 }
 
 /** GET — форма входа или «вы вошли»; POST — вход (password) или выход (logout). */
@@ -119,10 +120,10 @@ export async function adminPage(request: Request): Promise<Response> {
   if (request.method === 'POST') {
     const form = new URLSearchParams(await request.text())
     if (form.get('logout') !== null) {
-      return new Response(null, { status: 303, headers: { location: ADMIN_PAGE, 'set-cookie': setCookie('', 0) } })
+      return new Response(null, { status: 303, headers: { location: siblingHref(ADMIN_PAGE), 'set-cookie': setCookie('', 0) } })
     }
     if (same(form.get('password') ?? '', password())) {
-      return new Response(null, { status: 303, headers: { location: '/', 'set-cookie': setCookie(token(), COOKIE_DAYS * 86400) } })
+      return new Response(null, { status: 303, headers: { location: PORTAL_ROOT_HREF, 'set-cookie': setCookie(token(), COOKIE_DAYS * 86400) } })
     }
     // Подбор пароля — не быстрее раза в секунду на запрос.
     await new Promise((resolve) => setTimeout(resolve, 1000))
@@ -130,7 +131,7 @@ export async function adminPage(request: Request): Promise<Response> {
   }
   if (isAdmin(request)) {
     return page(`${head}<p>Вы вошли. В портале открыт полный интерфейс: «Ещё → Настройки» — ключи провайдеров («Модели») и плагины («Встроенные плагины»), «Плагины» — каталог.</p>
-<div class="row"><a class="btn" href="/">Открыть портал</a><form method="post"><button class="ghost" name="logout" value="1">Выйти</button></form></div>`)
+<div class="row"><a class="btn" href="${PORTAL_ROOT_HREF}">Открыть портал</a><form method="post"><button class="ghost" name="logout" value="1">Выйти</button></form></div>`)
   }
   return page(`${head}${loginForm()}`)
 }

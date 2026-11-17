@@ -1,0 +1,27 @@
+# Эмулятор прода: портал под префиксом /bft/ за nginx (как
+# https://browser.harness.aleksishmanov.ru/bft/). Поверх основного файла:
+#   docker compose -f docker-compose.yml -f docker-compose.subpath.yml up -d customer-web subpath-nginx
+#   curl -sI http://127.0.0.1:3090/bft/
+#   PORTAL_URL=http://127.0.0.1:3090/bft ./e2e-customer.sh
+# Вне /bft/ эмулятор отвечает 418 — утёкший абсолютный адрес виден сразу
+# (docker compose ... logs subpath-nginx | grep ' 418 ').
+# Портал в этом режиме — «прод»: ссылки чата и кука администратора — под
+# PORTAL_PUBLIC_URL (/bft), вход администратора на :3080 напрямую не держится.
+# Вернуть обычный режим: docker compose up -d customer-web (без этого файла).
+services:
+  customer-web:
+    environment:
+      # Имя эмулятора — к именам портала по умолчанию (fence /api в dsh).
+      DSH_TRUSTED_HOSTS: "${PORTAL_TRUSTED_HOSTS:-customer-web.poh-bft-system.orb.local} 127.0.0.1:3090 localhost:3090"
+      PORTAL_PUBLIC_URL: ${SUBPATH_PORTAL_PUBLIC_URL:-http://127.0.0.1:3090/bft}
+
+  subpath-nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    volumes:
+      - ./subpath-nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      - "127.0.0.1:3090:80"
+    depends_on:
+      - customer-web
+    mem_limit: 64m

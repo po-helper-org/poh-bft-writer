@@ -89,7 +89,7 @@ test('администратор: вход по паролю, штатные «�
 
   // «Настройки → Портал»: модель полного БФТ выбирается, сохраняется в узле и сбрасывается.
   type Models = { chatChoice: unknown; deep: { provider: string; model: string } | null }
-  const readModels = () => page.evaluate(async () => (await fetch('/api/customer-form.portalModels')).json()) as Promise<Models>
+  const readModels = () => page.evaluate(async () => (await fetch('api/customer-form.portalModels')).json()) as Promise<Models>
   const chatBefore = (await readModels()).chatChoice
   await settings.getByText('Портал', { exact: true }).click()
   const deepSelect = settings.getByLabel('Модель полного БФТ')
@@ -114,15 +114,15 @@ test('администратор: вход по паролю, штатные «�
   const source = settings.locator('[data-source="po-hq"]')
   await expect(source).toContainText('MTS PO штаб')
   await expect(source).toContainText('только чтение: confluence_search, confluence_get_page, jira_search, jira_get_issue')
-  const sourceStatus = await page.evaluate(async () => (await fetch('/api/data-sources.status')).json()) as { admin: boolean; sources: { connected: boolean }[] }
+  const sourceStatus = await page.evaluate(async () => (await fetch('api/data-sources.status')).json()) as { admin: boolean; sources: { connected: boolean }[] }
   expect(sourceStatus.admin).toBe(true)
   if (!sourceStatus.sources[0]!.connected) {
-    await expect(source.getByRole('link', { name: 'Подключить' })).toHaveAttribute('href', '/api/data-sources.connect?source=po-hq')
+    await expect(source.getByRole('link', { name: 'Подключить' })).toHaveAttribute('href', `${PORTAL}/api/data-sources.connect?source=po-hq`)
   }
 
   // Вызов записи с кукой администратора доходит до шлюза (а не до отказа портала).
   const body = await page.evaluate(async () => {
-    const res = await fetch('/api/pluginManager/cancelInstall', {
+    const res = await fetch('api/pluginManager/cancelInstall', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ type: 'client-request', rpcId: 'e2e-2', method: 'pluginManager/cancelInstall', payload: { id: 'e2e-нет-такой-установки' } }),

@@ -145,7 +145,7 @@ function BftPage({ call, tab, onTab, onClose }: { call: Call; tab: Tab; onTab(ta
           <Input className="bm-search" icon={<IconSearch size={14} />} placeholder="Название или #номер" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Поиск" />
           <OwnerFilter people={data?.people ?? []} value={owner} label={ownerLabel} onChange={setOwner} />
           <Button variant="outline" size="sm" icon={<IconRefresh size={14} />} onClick={() => { void refresh() }} title="Обновить из Vikunja">Обновить</Button>
-          {data ? (
+          {data && (tab === 'board' ? data.bft.viewUrl : data.requests.viewUrl) ? (
             <Button variant="ghost" size="sm" icon={<IconExternal size={14} />} onClick={() => window.open(tab === 'board' ? data.bft.viewUrl : data.requests.viewUrl, '_blank', 'noopener')}>
               Vikunja
             </Button>
@@ -262,7 +262,8 @@ function StatusMenu({ statuses, current, onSelect }: { statuses: readonly string
   )
 }
 
-const openTask = (card: { url: string }) => window.open(card.url, '_blank', 'noopener')
+// Без публичного трекера (TRACKER_PUBLIC_URL='') url пуст — открывать нечего.
+const openTask = (card: { url: string }) => { if (card.url) window.open(card.url, '_blank', 'noopener') }
 
 function RequestsList({ board, match, onMove }: { board: Board; match(card: Card): boolean; onMove(card: Card, status: string): void }): ReactElement {
   const [status, setStatus] = useState<string>('active')
@@ -287,7 +288,7 @@ function RequestsList({ board, match, onMove }: { board: Board; match(card: Card
         </div>
         {shown.length === 0 ? <div className="bm-empty">Запросов с такими условиями нет.</div> : null}
         {shown.map((card) => (
-          <div key={card.id} className="bm-row" data-request={card.id} onClick={() => openTask(card)} title="Открыть в Vikunja">
+          <div key={card.id} className="bm-row" data-request={card.id} onClick={() => openTask(card)} title={card.url ? 'Открыть в Vikunja' : undefined}>
             <div className="bm-name"><b>{card.title}</b><span className="bm-muted">#{card.id} · создан {new Date(card.created).toLocaleDateString('ru-RU')}</span></div>
             <div className="bm-cell-wide"><Tag tone={statusTone(card.status)}>{card.status}</Tag></div>
             <div className="bm-cell-wide"><SlaTag card={card} /></div>
@@ -344,7 +345,7 @@ function BftBoard({ board, match, onMove }: { board: Board; match(card: Card): b
                   draggable
                   onDragStart={(e) => { e.dataTransfer.setData('text/bft-card', String(card.id)); e.dataTransfer.effectAllowed = 'move' }}
                   onClick={() => openTask(card)}
-                  title="Открыть в Vikunja"
+                  title={card.url ? 'Открыть в Vikunja' : undefined}
                 >
                   <div className="bm-card-title">{card.title.replace(/^Проработка БФТ:\s*/, '')}</div>
                   <div className="bm-card-meta">

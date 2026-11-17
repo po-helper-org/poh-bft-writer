@@ -19,7 +19,9 @@ export interface Cfg {
 export function cfgFromEnv(env: NodeJS.ProcessEnv): Cfg {
   return {
     trackerUrl: (env.TRACKER_URL ?? 'http://tracker:3456/api/v1').replace(/\/$/, ''),
-    trackerPublicUrl: (env.TRACKER_PUBLIC_URL ?? 'http://127.0.0.1:3456').replace(/\/$/, ''),
+    // Пустой TRACKER_PUBLIC_URL (сервер, ADR-0014) — трекер не публичный: ссылок не строим,
+    // иначе вышел бы '/tasks/N' от корня хоста — к чужому приложению.
+    trackerPublicUrl: (env.TRACKER_PUBLIC_URL ?? 'http://127.0.0.1:3456').trim().replace(/\/+$/, ''),
     trackerUser: env.TRACKER_USER ?? 'bft-admin',
     trackerPassword: env.TRACKER_PASSWORD ?? '',
     ticketsFile: join(env.DSH_HOME ?? '/data', 'customer-form', 'tickets.json'),
@@ -28,9 +30,22 @@ export function cfgFromEnv(env: NodeJS.ProcessEnv): Cfg {
 
 export interface Ticket {
   taskId: number
+  /** Ссылка на задачу в трекере; '' — трекер наружу не опубликован (TRACKER_PUBLIC_URL=''). */
   url: string
   /** Когда заказчик нажал «Согласую» на сценарии приёмки (ISO). */
   demoApprovedAt?: string
+}
+
+/** Заявка для текста (чат, документ): ссылка, если трекер публичный, иначе '#N'. */
+export function ticketRef(ticket: Ticket): string {
+  return ticket.url || `#${ticket.taskId}`
+}
+
+/** «Заявка #N зарегистрирована в беклоге[: ссылка. Статус — по ссылке]» — без ссылки в никуда. */
+export function ticketRegistered(ticket: Ticket): string {
+  return ticket.url
+    ? `Заявка #${ticket.taskId} зарегистрирована в беклоге: ${ticket.url}. Статус — по ссылке.`
+    : `Заявка #${ticket.taskId} зарегистрирована в беклоге.`
 }
 
 /** Обращение в списке «Мои обращения» на стартовом экране портала. */
@@ -129,6 +144,12 @@ export class Backlog {
     this.tickets = readFile(cfg.ticketsFile, 'utf8')
       .then((s) => JSON.parse(s) as Record<string, Ticket>)
       .catch(() => ({}))
+      // Ссылка — из текущего TRACKER_PUBLIC_URL, а не сохранённая: файл мог
+      // записать узел с другим адресом трекера (или с пустым → '/tasks/N').
+      .then((all) => {
+        for (const ticket of Object.values(all)) ticket.url = this.taskUrl(ticket.taskId)
+        return all
+      })
   }
 
   /** E2E (rev17): токен «истёк» — следующий запрос получит 401, как у живого узла через несколько минут. */
@@ -280,6 +301,7 @@ export class Backlog {
   async boardUrl(): Promise<string> {
     const pid = await this.projectId()
     const view = (await this.requestsView().catch(() => undefined))?.id
+    if (!this.cfg.trackerPublicUrl) return ''
     return `${this.cfg.trackerPublicUrl}/projects/${pid}${view ? `/${view}` : ''}`
   }
 
@@ -361,7 +383,12 @@ export class Backlog {
       }
     } catch { /* лейбл — косметика */ }
 
-    return { taskId, url: `${this.cfg.trackerPublicUrl}/tasks/${taskId}` }
+    return { taskId, url: this.taskUrl(taskId) }
+  }
+
+  /** Публичная ссылка на задачу; '' — трекер наружу не опубликован. */
+  private taskUrl(taskId: number): string {
+    return this.cfg.trackerPublicUrl ? `${this.cfg.trackerPublicUrl}/tasks/${taskId}` : ''
   }
 }
 

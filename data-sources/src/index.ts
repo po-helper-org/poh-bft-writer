@@ -78,12 +78,12 @@ function isAdmin(request: Request): boolean {
  */
 const CALLBACK_PORT = Number(process.env.DATA_SOURCES_CALLBACK_PORT ?? 3081)
 const CALLBACK_URL = process.env.DATA_SOURCES_CALLBACK_URL ?? `http://127.0.0.1:${CALLBACK_PORT}/callback`
-const PORTAL_URL = (process.env.PORTAL_PUBLIC_URL ?? 'http://127.0.0.1:3080').replace(/\/$/, '')
+const PORTAL_URL = (process.env.PORTAL_PUBLIC_URL ?? 'http://127.0.0.1:3080').replace(/\/+$/, '')
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!)
 
 function resultPage(ok: boolean, title: string, text: string): Response {
-  return new Response(`<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title>
+  return new Response(`<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" type="image/svg+xml" href="${esc(PORTAL_URL)}/favicon.svg"><title>${esc(title)}</title>
 <style>:root{--fg:#111;--muted:#666;--bg:#fff}@media(prefers-color-scheme:dark){:root{--fg:#eee;--muted:#999;--bg:#151515}}
 body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-serif}.w{max-width:440px;margin:14vh auto 0;padding:0 16px}
 h1{font-size:1.3rem}p{color:var(--muted)}a{color:inherit}</style></head><body><div class="w" data-source-result="${ok ? 'ok' : 'error'}">

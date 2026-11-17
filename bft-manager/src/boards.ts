@@ -193,7 +193,7 @@ export class BftBoards {
     })
     await pool(jobs, 8)
     for (const column of columns) column.cards.sort((a, b) => Date.parse(a.since) - Date.parse(b.since)) // дольше всех висящие — сверху
-    const viewUrl = `${this.tracker.cfg.publicUrl}/projects/${ready.projectId}/${view.id}`
+    const viewUrl = this.tracker.cfg.publicUrl ? `${this.tracker.cfg.publicUrl}/projects/${ready.projectId}/${view.id}` : ''
     return { board: { kind, viewId: view.id, viewUrl, columns }, tasks }
   }
 
@@ -283,10 +283,15 @@ export class BftBoards {
       assignee: owner ? personOf(owner) : null,
       links: [],
       hasHtml: !!task.attachments?.some((a) => /\.html?$/i.test(a.file.name)),
-      url: this.taskUrl(task.id),
+      url: this.tracker.cfg.publicUrl ? this.taskUrl(task.id) : '',
     }
   }
 
+  /**
+   * Ссылка на задачу. В комментариях трекера при непубличном трекере выходит
+   * '/tasks/N' — это ссылка внутри самого Vikunja, там она верна; в браузер
+   * портала (card.url) её не отдаём.
+   */
   private taskUrl(id: number): string {
     return `${this.tracker.cfg.publicUrl}/tasks/${id}`
   }

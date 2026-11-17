@@ -19,7 +19,7 @@ import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { Backlog, moscowTime, sharedBacklog, type Ticket } from './host.js'
+import { Backlog, moscowTime, sharedBacklog, ticketRef, ticketRegistered, type Ticket } from './host.js'
 import { sharedMaterials, type Material, type Materials, type WebLike } from './materials.js'
 import { VoiceContext } from './voice.js'
 import { sharedDemos } from './demo.js'
@@ -32,6 +32,7 @@ import { EXPORT_TYPES, exportDocument, type ExportFormat } from './export.js'
 import type { PrimaryDoc } from './primary.js'
 import { mergePortalModels, MODELS_ROUTE, readPortalModels, sameRoute, writePortalModels, type ModelRoute, type PortalModels } from './models.js'
 import { ADMIN_ONLY_ENDPOINTS, ADMIN_PAGE, ADMIN_STATUS, adminOnlyResponse, adminPage, isAdmin } from './admin.js'
+import { siblingHref } from './links.js'
 
 export const name = 'customer-form'
 
@@ -59,10 +60,6 @@ interface AttachmentsLike {
   imageHostPath(ref: unknown): string | undefined
 }
 
-function ticketText(ticket: Ticket): string {
-  return `Заявка #${ticket.taskId} зарегистрирована в беклоге: ${ticket.url}`
-}
-
 function textOf(message: UserMessageLike): string {
   return message.content.filter((b) => b.type === 'text').map((b) => b.text ?? '').join('\n')
 }
@@ -81,9 +78,11 @@ function collectMaterials(materials: Materials, attachments: AttachmentsLike, se
     const path = block.type === 'image' ? attachments.imageHostPath(block.attachment) : attachments.fileHostPath(block.attachment)
     if (path) found.push(materials.addFile(sessionId, block.attachment.name ?? path.split('/').pop() ?? 'file', path))
   }
-  const own = (process.env.TRACKER_PUBLIC_URL ?? 'http://127.0.0.1:3456').replace(/\/$/, '')
+  // Ссылки на наш же трекер — не материал. Пустой TRACKER_PUBLIC_URL (трекер не
+  // публичный) не фильтрует ничего: startsWith('') отбросил бы все ссылки.
+  const own = (process.env.TRACKER_PUBLIC_URL ?? 'http://127.0.0.1:3456').trim().replace(/\/+$/, '')
   for (const url of new Set(textOf(message).match(URL_RE) ?? [])) {
-    if (!url.startsWith(own)) found.push(materials.addLink(sessionId, url.replace(/[.,;:!?]+$/, '')))
+    if (!own || !url.startsWith(own)) found.push(materials.addLink(sessionId, url.replace(/[.,;:!?]+$/, '')))
   }
   return found
 }
@@ -259,7 +258,7 @@ export function apply(ctx: HarnessContext): void {
       const sourcesPath = join(fast.dir, 'sources.md')
       const sources = await sourcesMap(fast.md, sourcesPath, runtime)
       const state = await buildDeep({
-        startedAt, llm: runtime.llm, route: runtime.route(), skillsPath: SKILLS_PATH, fast, slug, taskUrl: ticket.url,
+        startedAt, llm: runtime.llm, route: runtime.route(), skillsPath: SKILLS_PATH, fast, slug, taskUrl: ticketRef(ticket),
         context: [
           context ? `Карта контекста (память организации — указатель, не фактбаза):\n${context}` : '',
           sources ? `Корпоративные источники (Jira/Confluence — указатель со ссылками, не фактбаза):\n${sources}` : '',
@@ -312,7 +311,7 @@ export function apply(ctx: HarnessContext): void {
               id: randomUUID(),
               role: 'user',
               source: { kind: 'user' },
-              content: [{ type: 'text', text: `📌 ${ticketText(ticket)}. Статус — по ссылке.${materialsLine(found)}` }],
+              content: [{ type: 'text', text: `📌 ${ticketRegistered(ticket)}${materialsLine(found)}` }],
             })
           }
           await attachFiles(backlog, attachments, ticket, message)
@@ -477,7 +476,7 @@ export function apply(ctx: HarnessContext): void {
         // Идёт сборка (rev16) — экран ожидания; он сам перезагрузится в документ.
         const progress = fastProgress.get(sessionId)
         if (progress && await stillBuilding(progress, files)) {
-          return new Response(waitingPage(sessionId, progress, '/api/customer-form.bftFastStatus'), { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } })
+          return new Response(waitingPage(sessionId, progress, siblingHref('/api/customer-form.bftFastStatus')), { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } })
         }
         const html = ticket ? await readFile(files.html, 'utf8').catch(() => undefined) : undefined
         if (!html) {
@@ -493,9 +492,9 @@ export function apply(ctx: HarnessContext): void {
         const fastApproved = (await fastState(files))?.approvedAt
         const deep = fastApproved ? await readDeepState(deepFiles(files, slug)) : undefined
         if (deep && params.get('view') !== 'fast') {
-          const fastUrl = `${fastPagePath(sessionId)}&view=fast`
-          if (deep.stage === 'building') return new Response(waitingPage(sessionId, { stage: 'building', startedAt: deep.startedAt }, '/api/customer-form.bftDeepStatus', 'deep'), { headers })
-          if (deep.stage === 'failed') return new Response(deepFailedPage(sessionId, deep.error ?? 'неизвестная ошибка', '/api/customer-form.bftDeepRetry', fastUrl), { headers })
+          const fastUrl = siblingHref(`${fastPagePath(sessionId)}&view=fast`)
+          if (deep.stage === 'building') return new Response(waitingPage(sessionId, { stage: 'building', startedAt: deep.startedAt }, siblingHref('/api/customer-form.bftDeepStatus'), 'deep'), { headers })
+          if (deep.stage === 'failed') return new Response(deepFailedPage(sessionId, deep.error ?? 'неизвестная ошибка', siblingHref('/api/customer-form.bftDeepRetry'), fastUrl), { headers })
           const deepHtml = await readFile(deepFiles(files, slug).html, 'utf8').catch(() => undefined)
           if (deepHtml) return new Response(customerDeepPage(deepHtml, sessionId, fastUrl), { headers })
         }
@@ -504,7 +503,7 @@ export function apply(ctx: HarnessContext): void {
         const doc = await readFile(files.primary, 'utf8').then((s) => JSON.parse(s) as PrimaryDoc).catch(() => undefined)
         const demo = sharedDemos().get(sessionId)?.demo
         return new Response(customerFastPage(html, {
-          sessionId, slug, approveUrl: '/api/customer-form.bftFastApprove',
+          sessionId, slug, approveUrl: siblingHref('/api/customer-form.bftFastApprove'),
           ...(state?.approvedAt ? { approvedAt: state.approvedAt } : {}),
           ...(demo ? { demo } : {}),
           ...(doc ? { people: doc.args.people ?? [], ...(doc.brief ? { brief: doc.brief } : {}) } : {}),

@@ -5,6 +5,7 @@
  * Список моделей — каталог dsh (`session/modelCatalog`): провайдеры с ключом.
  */
 import { useEffect, useState, type CSSProperties, type ReactElement } from 'react'
+import { portalHref } from './url.js'
 
 export const MODELS_ROUTE = '/api/customer-form.portalModels'
 
@@ -77,7 +78,7 @@ export function PortalSettings(props: { call: Rpc }): ReactElement {
 
   const load = async () => {
     const [models, res] = await Promise.all([
-      fetch(MODELS_ROUTE, { cache: 'no-store' }).then((r) => r.json() as Promise<ModelsState>),
+      fetch(portalHref(MODELS_ROUTE), { cache: 'no-store' }).then((r) => r.json() as Promise<ModelsState>),
       props.call('session/modelCatalog', { args: {} }),
     ])
     setState(models)
@@ -91,7 +92,7 @@ export function PortalSettings(props: { call: Rpc }): ReactElement {
     setSaving(true)
     setStatus(null)
     try {
-      const res = await fetch(MODELS_ROUTE, {
+      const res = await fetch(portalHref(MODELS_ROUTE), {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         // Только изменённое: сохранение модели БФТ не трогает модель чата и наоборот.

@@ -1,0 +1,24 @@
+# Портал заказчика на сервере (ADR-0014): https://browser.harness.aleksishmanov.ru/bft/
+# за входом Authentik (nginx → 127.0.0.1:3082, префикс /bft срезается).
+# Поверх docker-compose.yml — так его подключает deploy-server.sh:
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.server.yml COMPOSE_PROJECT_NAME=poh-bft-portal
+# Наружу (только 127.0.0.1 сервера) — портал, приёмник входа источников и трекер
+# для сида; порты 3080/3081/3456 на сервере заняты другими сервисами.
+services:
+  customer-web:
+    environment:
+      PORTAL_PUBLIC_URL: ${PORTAL_PUBLIC_URL:-https://browser.harness.aleksishmanov.ru/bft}
+      DSH_TRUSTED_HOSTS: ${PORTAL_TRUSTED_HOSTS:-browser.harness.aleksishmanov.ru}
+      # Трекер наружу не публикуется: ссылок на него заказчику не показываем.
+      TRACKER_PUBLIC_URL: ${TRACKER_PUBLIC_URL:-}
+      # Вход в источник данных (OAuth штаба PO): сервер штаба пускает любой
+      # loopback-порт с путём /callback. Подключать из браузера через туннель
+      #   ssh -L 3083:127.0.0.1:3083 harness-mts
+      DATA_SOURCES_CALLBACK_URL: http://127.0.0.1:3083/callback
+    ports: !override
+      - "127.0.0.1:3082:3080"
+      - "127.0.0.1:3083:3081"
+
+  tracker:
+    ports: !override
+      - "127.0.0.1:3084:3456"

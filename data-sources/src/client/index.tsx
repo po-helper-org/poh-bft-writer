@@ -5,6 +5,7 @@
  */
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import { useEffect, useState, type ComponentType, type CSSProperties, type ReactElement } from 'react'
+import { portalHref } from './url.js'
 
 // Имена СЛУЖБ cordis, не пакетов.
 export const inject = ['slots']
@@ -61,7 +62,7 @@ function SourceCard(props: { source: SourceStatus; onChange(): void }): ReactEle
 
   const disconnect = async () => {
     setBusy(true)
-    await fetch('/api/data-sources.disconnect', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ source: source.id }) }).catch(() => undefined)
+    await fetch(portalHref('/api/data-sources.disconnect'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ source: source.id }) }).catch(() => undefined)
     setBusy(false)
     props.onChange()
   }
@@ -70,7 +71,7 @@ function SourceCard(props: { source: SourceStatus; onChange(): void }): ReactEle
     setBusy(true)
     setFound(null)
     try {
-      const res = await fetch('/api/data-sources.search', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ query }) })
+      const res = await fetch(portalHref('/api/data-sources.search'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ query }) })
       const body = await res.json() as { findings?: Finding[]; errors?: string[]; error?: string }
       setFound({ findings: body.findings ?? [], errors: body.errors ?? (body.error ? [body.error] : []) })
     } catch (e) {
@@ -89,7 +90,7 @@ function SourceCard(props: { source: SourceStatus; onChange(): void }): ReactEle
         <span style={s.muted}>{source.connected ? `подключён${source.connectedAt ? ` ${new Date(source.connectedAt).toLocaleDateString('ru-RU')}` : ''}` : 'не подключён'}</span>
         {source.connected
           ? <button type="button" style={s.button} disabled={busy} onClick={() => void disconnect()}>Отключить</button>
-          : <a style={s.button} href={`/api/data-sources.connect?source=${encodeURIComponent(source.id)}`}>Подключить</a>}
+          : <a style={s.button} href={portalHref(`/api/data-sources.connect?source=${encodeURIComponent(source.id)}`)}>Подключить</a>}
       </div>
       <span style={s.muted}>MCP: {source.url} · только чтение: {source.tools.join(', ')}</span>
       {source.error && <span style={s.error} role="alert">{source.error}</span>}
@@ -121,7 +122,7 @@ function SourceCard(props: { source: SourceStatus; onChange(): void }): ReactEle
 
 function SourcesSection(): ReactElement {
   const [sources, setSources] = useState<SourceStatus[] | null>(null)
-  const load = () => fetch('/api/data-sources.status', { cache: 'no-store' })
+  const load = () => fetch(portalHref('/api/data-sources.status'), { cache: 'no-store' })
     .then((res) => res.json() as Promise<{ sources: SourceStatus[] }>)
     .then((body) => setSources(body.sources))
     .catch(() => setSources([]))
@@ -140,7 +141,7 @@ function SourcesSection(): ReactElement {
 export function apply(ctx: ClientContext): void {
   const slots = ctx.get('slots') as SlotsLike
   // Раздел — только администратору: статус узла говорит, вошёл ли он.
-  void fetch('/api/data-sources.status', { cache: 'no-store', credentials: 'same-origin' })
+  void fetch(portalHref('/api/data-sources.status'), { cache: 'no-store', credentials: 'same-origin' })
     .then((res) => (res.ok ? res.json() as Promise<{ admin?: boolean }> : undefined))
     .then((status) => {
       if (!status?.admin) return

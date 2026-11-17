@@ -20,6 +20,7 @@ import {
   bridges, InfoView, InputBridge, lastSessionId, sessionOfAddress, sessionOfBftAddress,
   type SessionInfo,
 } from './panels.js'
+import { portalHref } from './url.js'
 
 /** Вход и статус администратора портала (узел customer-form, admin.ts). */
 const ADMIN_PAGE = '/api/customer-form.admin'
@@ -165,7 +166,7 @@ export function apply(ctx: ClientContext): void {
   }
   window.addEventListener('keydown', blockSettingsKey, true)
   ctx.effect(() => () => window.removeEventListener('keydown', blockSettingsKey, true), 'customer-form: клавиша настроек')
-  void fetch(ADMIN_STATUS, { credentials: 'same-origin', cache: 'no-store' })
+  void fetch(portalHref(ADMIN_STATUS), { credentials: 'same-origin', cache: 'no-store' })
     .then((res) => (res.ok ? res.json() as Promise<{ admin?: boolean }> : undefined))
     .then((status) => {
       if (!status?.admin) return
@@ -173,7 +174,7 @@ export function apply(ctx: ClientContext): void {
       style.textContent = ''
       document.documentElement.dataset.portalRole = 'admin'
       const badge = document.createElement('a')
-      badge.href = ADMIN_PAGE
+      badge.href = portalHref(ADMIN_PAGE)
       badge.textContent = 'Администратор'
       badge.setAttribute('data-portal-admin', '')
       badge.title = 'Вы вошли администратором портала — выйти или открыть страницу входа'

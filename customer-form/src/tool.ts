@@ -14,7 +14,7 @@ import { contextMapMarkdown, cortexBrief } from './cortex.js'
 import { cortexQuery, KINDS, SPECIALISTS, toFastInput, type PrimaryArgs, type PrimaryDoc } from './primary.js'
 import { demoSteps, doneList, repairDemo, sharedDemos, storyboardMarkdown, type AcceptanceDemo, type DemoRecord } from './demo.js'
 import { demoPageHtml } from './demo-page.js'
-import { moscowTime, sharedBacklog, type Backlog, type Intake, type Ticket } from './host.js'
+import { moscowTime, sharedBacklog, ticketRegistered, type Backlog, type Intake, type Ticket } from './host.js'
 import { materialsPack, pendingNote, sharedMaterials, type Materials } from './materials.js'
 
 // defineTool — значение из dsh-tools профиля (не из devDependencies плагина).
@@ -246,7 +246,7 @@ async function ensureTicket(backlog: Backlog, agent: AgentLike, text: string): P
     id: randomUUID(),
     role: 'user',
     source: { kind: 'user' },
-    content: [{ type: 'text', text: `📌 Заявка #${ticket.taskId} зарегистрирована в беклоге: ${ticket.url}. Статус — по ссылке.` }],
+    content: [{ type: 'text', text: `📌 ${ticketRegistered(ticket)}` }],
   })
   return ticket
 }
@@ -281,7 +281,7 @@ function submitTool(backlog: Backlog) {
       const ticket = await ensureTicket(backlog, agent, [args.title, args.summary, `${args.customerName} ${args.customerEmail}`].join('\n'))
       await backlog.finalize(ticket, args, transcriptOf(agent, ticket, args))
       fastProgress.stage(agent.session.id, 'submitted')
-      return `Заявка #${ticket.taskId} обновлена: постановка, сводка и полный контекст сохранены. Отслеживание статуса: ${ticket.url}`
+      return `Заявка #${ticket.taskId} обновлена: постановка, сводка и полный контекст сохранены.${ticket.url ? ` Отслеживание статуса: ${ticket.url}` : ''}`
     },
   }
 }
@@ -354,7 +354,7 @@ function fastTool(backlog: Backlog) {
       fastProgress.stage(sessionId, 'building')
       // Шаблон — кодом из полей модели; Кортекс — параллельно, его не ждёт линтер.
       const [built, brief] = await Promise.all([
-        buildFast(toFastInput(args, checklist), { slug, howToDemo, source: `заявка #${ticket.taskId} в трекере — ${ticket.url}`, skillsPath: SKILLS_PATH }, FAST_ROOT),
+        buildFast(toFastInput(args, checklist), { slug, howToDemo, source: ticket.url ? `заявка #${ticket.taskId} в трекере — ${ticket.url}` : `заявка #${ticket.taskId} в трекере`, skillsPath: SKILLS_PATH }, FAST_ROOT),
         cortexBrief(cortexQuery(args, howToDemo)),
       ])
       if (!built.ok) throw new Error(`Документ не собран, исправь поля и вызови create_bft_fast снова:\n${built.errors}`)

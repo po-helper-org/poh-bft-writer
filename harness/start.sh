@@ -105,7 +105,8 @@ echo "    пароль — ADMIN_PASSWORD в harness/.env"
 # не гробят подъём (трекер оживёт на повторном start.sh).
 if command -v python3 >/dev/null; then
   set -a; . ./.env; set +a
-  TRACKER_SEED_URL="http://127.0.0.1:3456/api/v1" python3 tracker/seed.py \
+  # На сервере трекер опубликован на другом порту (docker-compose.server.yml).
+  TRACKER_SEED_URL="${TRACKER_SEED_URL:-http://127.0.0.1:3456/api/v1}" python3 tracker/seed.py \
     && echo "    Трекер: http://127.0.0.1:3456 (админ: ${TRACKER_ADMIN_USER:-bft-admin})" \
     || echo "⚠ Сид Трекера не прошёл: повторите ./start.sh или tracker/seed.py вручную"
 
