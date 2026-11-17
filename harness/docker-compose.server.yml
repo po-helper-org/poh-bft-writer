@@ -31,3 +31,11 @@ services:
   context-ingest:
     build:
       network: host
+
+# Пулы адресов docker на сервере исчерпаны: подсеть задана явно, по соглашению
+# сервера — маленькие сети в 100.101.0.0/16 (poh-box 240.0/24, webmail 231.0/28).
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 100.101.244.0/27
