@@ -85,13 +85,13 @@ echo "▸ Жду здоровья сервисов…"
 URL="${PORTAL_PUBLIC_URL:-http://127.0.0.1:3080}"
 for i in $(seq 1 90); do
   ST="$(docker compose ${PROFILE_ARGS[@]+"${PROFILE_ARGS[@]}"} ps --format '{{.Name}} {{.Health}}' 2>/dev/null)"
-  UNHEALTHY="$(echo "$ST" | grep -cv '(healthy)$' || true)"
+  UNHEALTHY="$(echo "$ST" | grep -Ecv '(\(healthy\)|[[:space:]]healthy)$' || true)"
   [ "$UNHEALTHY" = "0" ] && break
   sleep 2
 done
 if [ "$UNHEALTHY" != "0" ]; then
   echo "✗ Сервисы не поднялись за 3 минуты:" >&2
-  echo "$ST" | grep -v '(healthy)$' >&2
+  echo "$ST" | grep -Ev '(\(healthy\)|[[:space:]]healthy)$' >&2
   exit 1
 fi
 
