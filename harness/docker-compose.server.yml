@@ -22,3 +22,12 @@ services:
   tracker:
     ports: !override
       - "127.0.0.1:3084:3456"
+
+  # На сервере у docker сеть bridge выключена ("bridge": "none" в daemon.json):
+  # сборке нужен выход в интернет через сеть хоста.
+  cortex:
+    build:
+      network: host
+  context-ingest:
+    build:
+      network: host

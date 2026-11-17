@@ -65,7 +65,7 @@ cd harness
 touch .env && chmod 600 .env
 grep -q '^CORTEX_VAULT=' .env || printf 'CORTEX_VAULT=%s\n' "\$HOME/$REMOTE/.cortex-vault" >> .env
 echo "▸ Сборка образа портала…"
-docker build -q -f harness-web/Dockerfile -t poh-harness-web:local .. > /dev/null
+docker build --network host -q -f harness-web/Dockerfile -t poh-harness-web:local .. > /dev/null
 export COMPOSE_FILE=docker-compose.yml:docker-compose.server.yml COMPOSE_PROJECT_NAME=poh-bft-portal
 export TRACKER_SEED_URL=http://127.0.0.1:3084/api/v1 PORTAL_PUBLIC_URL=https://browser.harness.aleksishmanov.ru/bft
 ./start.sh --no-open
