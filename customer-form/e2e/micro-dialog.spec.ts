@@ -83,6 +83,9 @@ test('микродиалог: вложение → вопросы → согла
     await expect(doc.getByText(cut), `в документе заказчика нет «${cut}»`).toHaveCount(0)
   }
   await expect(page.getByText(new RegExp(`Отслеживание статуса: \\S+/tasks/${taskId}`)), 'ссылка на заявку в чате').toBeVisible()
+  // Ход ассистента кончается формой (confirm_bft_fast): заказчик отвечает кнопкой, а не ищет призыв в тексте.
+  await expect(page.getByRole('radio', { name: /Да, согласен/ }), 'форма «Документ справа верный?» в чате').toBeVisible({ timeout: 15_000 })
+  await expect(page.getByRole('radio', { name: /Есть замечания/ })).toBeVisible()
   await page.screenshot({ path: 'test-results/bft-fast-panel.png' })
 
   // «Добавить требования» → фраза в поле ввода → заказчик досказывает → новая версия.

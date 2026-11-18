@@ -71,7 +71,7 @@ test('сценарий справа: UserFlow, свёрнутая раскадр
   await page.keyboard.press('Escape')
 
   // Information: ссылка на заявку и сценарий.
-  await page.getByRole('tab', { name: 'Information' }).click()
+  await page.getByRole('tab', { name: 'Информация' }).click()
   await expect(page.locator('[data-customer-info]').getByRole('link', { name: `Заявка #${taskId}` })).toBeVisible({ timeout: 10_000 })
   await expect(page.locator('[data-customer-info]')).toContainText('Сценарий приёмки')
 })

@@ -18,14 +18,15 @@
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { join, posix } from 'node:path'
 import { Backlog, moscowTime, sharedBacklog, ticketRegistered, type Ticket } from './host.js'
 import { sharedMaterials, type Material, type Materials, type WebLike } from './materials.js'
 import { VoiceContext } from './voice.js'
 import { sharedDemos } from './demo.js'
 import { demoPageHtml } from './demo-page.js'
 import type { AgentLike, BlockLike } from './tool.js'
-import { approveFast, FAST_ROOT, fastFiles, fastPagePath, fastProgress, fastSlug, fastState, isLoopbackUrl, publicPortalUrl, requestRef, SKILLS_PATH, stillBuilding, type FastFiles } from './bft-fast.js'
+import { portalNoteSource } from './portal-note.js'
+import { FAST_ROOT, fastFiles, fastPagePath, fastProgress, fastSlug, fastState, isLoopbackUrl, publicPortalUrl, requestRef, SKILLS_PATH, stillBuilding, type FastFiles } from './bft-fast.js'
 import { customerDeepPage, customerFastPage, deepFailedPage, requestsPage, waitingPage, type RequestRow } from './fast-page.js'
 import { buildDeep, fixQueries, goldenCanon, saveDeepState, searchQueries, deepFiles, readDeepState, readIntake, reconSubject, sourcesForModel, triageFindings, type DeepRoute, type DeepState, type LlmLike, type ReconSubject, type SourcesStatus, type TriageItem, type TriageVerdict } from './bft-deep.js'
 import { EXPORT_TYPES, exportDocument, type ExportFormat } from './export.js'
@@ -36,6 +37,9 @@ import { customerWordsContext } from './intake.js'
 import { mergePortalModels, MODELS_ROUTE, readPortalModels, sameRoute, writePortalModels, type ModelRoute, type PortalModels } from './models.js'
 import { ADMIN_ONLY_ENDPOINTS, ADMIN_PAGE, ADMIN_STATUS, adminOnlyResponse, adminPage, isAdmin } from './admin.js'
 import { siblingHref } from './links.js'
+import { mirrorAll, mirrorRequest } from './workspace-mirror.js'
+import { approveFastRequest, portalHooks, releaseFastAsk } from './fast-approval.js'
+import { titleSession, useSessionTitles } from './session-title.js'
 
 export const name = 'customer-form'
 
@@ -127,9 +131,10 @@ export const CUSTOMER_PROMPT = `Ты — ассистент приёма ини�
 - HowToDemo без материалов: спроси «Как вы будете проверять результат? Где зайдёте, что нажмёте, что должны увидеть» — без вариантов ответа, только свободный текст: проверка — это последовательность шагов, а не выбор одного из них. По ответу сам составь 2–7 шагов (по одному экрану на шаг, результат — проверяемый; в шаге — то, что заказчик видит, а не передачи между системами) и вызови confirm_acceptance_demo; каждую деталь, которую добавил ты сам (статус, уведомление, надпись, шаг), запиши в unclear вопросом «Верно ли, что…?»: заказчик увидит раскадровку по экранам и согласует её кнопкой. Если просит правки — исправь и покажи снова.
 - «Согласую» на сценарии приёмки — это полное согласие заказчика с постановкой. Заказчик нажимает кнопку на карточке, поэтому в чате его «Согласую» сообщением не появится: результат confirm_acceptance_demo «Заказчик САМ нажал кнопку «Согласую»» и есть его подтверждение — не сомневайся в нём и не переспрашивай. ИТОГ не собирай и подтверждения больше не спрашивай. Ссылку на согласованный сценарий и «Уже готовлю БФТ-документ на проверку» портал показывает заказчику сам. Сразу, в этом же ходе и без реплик: submit_customer_request, затем create_bft_fast — без вопросов между ними. Чего не хватает или что противоречит (кто заказчик, расшифровки сокращений) — не спрашивай, а запиши в openQuestions обоих инструментов; в полях оставь то, что известно.
 - create_bft_fast — первичные требования со слов заказчика: ты стенографист, ничего не придумываешь и не дораскрываешь. Заполни только сказанное им и его материалами: что хочет и зачем, требования (каждое — одна фраза с типом и дословной цитатой: «Заказчик: «…»», «Материалы [S1]: «…»» или «Сценарий приёмки (согласован): «…»»), кого он назвал и по каким вопросам (about — зона влияния, email и телефон — в contact), открытые вопросы. Если заказчик описал, как сейчас, — дословный кусок его реплики в want.asis и в asis требований, к которым он относится; не описал — asis пусто. Если назвал — эффект (metric: сейчас → хотим), срок (deadline), кто будет пользоваться (actors), расшифровки (glossary). outOfScope — только явно исключённое им, с цитатой; обязательные условия и договорённости — в agreements; нерешённое — только в openQuestions. Ответ «Каким вы видите решение» — гипотеза реализации: дословно в achievable.vision. В requirements — результат, который заказчик назвал нужным пользователю или бизнесу; kind «система» — наблюдаемое поведение системы, а не механизм (кто кого вызывает, какой поток читает). Названная заказчиком обязательная интеграция или система остаётся требованием, сформулированным как результат (данные оказываются в системе X). Условие, которое ещё предстоит согласовать, — в approvals и openQuestions. Единственное, что ты дораскрываешь, — achievable: из его ответа «Каким вы видите решение» (дословно в vision) составь краткий план реализации — какие команды участвуют, какие согласования нужны, что проработать, какие специалисты нужны (PO, SA, BA, BE, FE, DevOps). Не ответил — заполни план по сути запроса, vision не пиши. Как он примет работу, где проверять и чьи зоны затрагивает запрос, инструмент добавит сам — из согласованного сценария и Кортекса (памяти организации). Если инструмент вернул ошибки — исправь поля и вызови снова.
-- Когда документ собран: одной репликой — ссылка на документ из результата create_bft_fast (он уже открыт справа), ссылка на отслеживание заявки, открытые вопросы списком и: «Если всё верно — нажмите „Да, согласен“. Если что-то пропущено — „Добавить требования“ или просто надиктуйте сюда голосом, что и где добавить».
-- Правки документа после сборки: заказчик пишет или надиктовывает, что поменять, или присылает «Замечания к документу БФТ:» со страницы документа, — исправь поля и снова вызови create_bft_fast (submit_customer_request повторно не вызывай).
+- Когда документ собран: короткая реплика — ссылка на документ из результата create_bft_fast (он уже открыт справа), ссылка на отслеживание заявки, открытые вопросы списком — и в этом же ходе сразу confirm_bft_fast. Не пиши «нажмите „Да, согласен“»: кнопки «Да, согласен» / «Есть замечания» покажет форма.
+- Правки документа после сборки: заказчик пишет или надиктовывает, что поменять, отвечает замечаниями в форме confirm_bft_fast или присылает «Замечания к документу БФТ:» со страницы документа, — исправь поля и снова вызови create_bft_fast, затем confirm_bft_fast (submit_customer_request повторно не вызывай).
 - Сообщение «✅ Да, согласен с документом БФТ.» отправляет кнопка «Да, согласен» на странице документа — согласование уже записано в заявку, и портал сам начал собирать полный БФТ по корпоративному канону. Поблагодари одной фразой и скажи: полный БФТ собирается справа, обычно от минуты до пяти, его можно будет скачать в Word, PDF и Markdown; инструменты не вызывай.
+- Каждый ход, в котором ждёшь ответа заказчика, заканчивай формой — он только отвечает на прямой вопрос, а не ищет его в тексте: уточнения и да/нет — ask_user_question с вариантами (да/нет — «Да» и «Нет, поправить»), сценарий приёмки — confirm_acceptance_demo, документ — confirm_bft_fast. Вопрос только текстом в конце реплики не задавай. Без формы заканчивай ход, только когда ничего от заказчика не ждёшь (документ согласован, идёт сборка).
 - Сообщения «📌 …» (заявка зарегистрирована, сценарий согласован) добавляет портал, а не заказчик: на них не отвечай; номер заявки упомяни в итоговой сводке.
 - Сроки и бюджет не обещай — это решает PO, но желаемый срок заказчика спроси и запиши. Не уходи в технические детали реализации.`
 
@@ -213,6 +218,20 @@ export function apply(ctx: HarnessContext): void {
   mkdir(workspacePath, { recursive: true }).catch(() => undefined)
 
   const backlog = sharedBacklog()
+  // «Файлы рабочей области»: папка на каждую заявку (workspace-mirror.ts) — и для
+  // заявок, заведённых до зеркала.
+  void (async () => {
+    const tickets = await Promise.all((await backlog.sessionIds()).map(async (sessionId) => ({ sessionId, ticket: await backlog.find(sessionId) })))
+    await mirrorAll(tickets.flatMap(({ sessionId, ticket }) => (ticket ? [{ sessionId, taskId: ticket.taskId }] : [])))
+  })().catch((e) => console.error('[customer-form] папки заявок в workspace не собраны:', e))
+  // Русские названия чатов (session-title.ts): служба dsh-session-title — инструментам заявки.
+  ctx.inject(['sessionTitle'], (scoped: HarnessContext) => {
+    const service = scoped.get('sessionTitle') as Parameters<typeof useSessionTitles>[0]
+    scoped.effect(() => {
+      useSessionTitles(service)
+      return () => useSessionTitles(undefined)
+    }, 'customer-form: названия чатов')
+  })
   const materials = sharedMaterials()
   const voice = new VoiceContext(materials)
 
@@ -350,11 +369,19 @@ export function apply(ctx: HarnessContext): void {
       // «Собирается» — сразу: разведка по источникам идёт до сборки, заказчик видит экран ожидания.
       const startedAt = new Date().toISOString()
       await saveDeepState(deepFiles(fast, slug), { stage: 'building', startedAt })
+      void mirrorRequest(ticket.taskId, sessionId)
       const { state, sources, sourcesPath } = await runDeep(fast, slug, deepRequestRef(ticket.taskId, sessionId), runtime, startedAt, { mode: 'live' })
+      // Полный БФТ и карта источников — в папку заявки, не дожидаясь трекера.
+      void mirrorRequest(ticket.taskId, sessionId)
       await reportDeep(backlog, ticket, slug, deepFiles(fast, slug), state, sources ? sourcesPath : undefined)
     })().catch((e) => console.error('[customer-form] bft-deep упал:', e)).finally(() => deepRunning.delete(slug))
     return true
   }
+  // Тот же запуск — согласованию из формы чата (confirm_bft_fast, fast-approval.ts).
+  ctx.effect(() => {
+    portalHooks.startDeep = startDeep
+    return () => { portalHooks.startDeep = undefined }
+  }, 'customer-form: полный БФТ по согласованию из чата')
 
   /**
    * Прогон качества (план качества, C0): фикстура <DSH_HOME>/quality/<name>/
@@ -444,12 +471,15 @@ export function apply(ctx: HarnessContext): void {
           const ticket = await backlog.ensure(sessionId, textOf(message))
           if (!known && !linked.has(sessionId)) {
             linked.add(sessionId)
+            // Чат — «Заявка #N — первые слова обращения»; папка заявки — в «Файлах рабочей области».
+            titleSession(agent.session, ticket.taskId, textOf(message))
+            void mirrorRequest(ticket.taskId, sessionId, textOf(message))
             // Пузырь инъекции dsh рисует сразу (даже пока модель недоступна) —
             // это и есть ссылка заказчику; модель видит его как контекст.
             agent.inject({
               id: randomUUID(),
               role: 'user',
-              source: { kind: 'user' },
+              source: portalNoteSource('ticket'),
               content: [{ type: 'text', text: `📌 ${ticketRegistered(ticket)}${materialsLine(found)}` }],
             })
           }
@@ -552,6 +582,47 @@ export function apply(ctx: HarnessContext): void {
           return forward.fetch(request, peer)
         },
       }), `customer-form: только администратор ${endpoint}`)
+    }
+    // Чтение файлов рабочей области (dsh-api-workspace-files) по замыслу dsh
+    // не ограничено её корнем: read/readBytes/stat примут /proc/self/environ.
+    // Не-администратору — только пути внутри рабочей области портала.
+    const insideWorkspace = (value: string): boolean => {
+      if (!value || value.includes('\0') || /^[a-z]+:/i.test(value)) return false
+      const root = posix.normalize(workspacePath).replace(/\/+$/, '')
+      const target = posix.normalize(value.startsWith('/') ? value : posix.join(root, value))
+      return target === root || target.startsWith(`${root}/`)
+    }
+    const pathsIn = (value: unknown, out: string[] = []): string[] => {
+      if (Array.isArray(value)) value.forEach((item) => pathsIn(item, out))
+      else if (value && typeof value === 'object') {
+        for (const [key, item] of Object.entries(value)) {
+          if ((key === 'path' || key === 'baseFile') && typeof item === 'string') out.push(item)
+          else pathsIn(item, out)
+        }
+      }
+      return out
+    }
+    for (const endpoint of ['workspaceFiles/read', 'workspaceFiles/readBytes', 'workspaceFiles/stat']) {
+      scoped.effect(() => register({
+        path: `/api/${endpoint}`,
+        methods: ['POST'],
+        requestBody: 'buffered',
+        fetch: async (request: Request) => {
+          const forward = gateway.interceptors?.get('/api')?.fetchHandler
+          const peer = gateway.browserPeer
+          if (!forward || !peer) return new Response('gateway unavailable', { status: 503 })
+          if (!isAdmin(request)) {
+            let body: { rpcId?: string; payload?: unknown } = {}
+            try { body = (await request.clone().json()) as typeof body } catch { /* разберёт шлюз */ }
+            const paths = pathsIn(body.payload)
+            if (!paths.length || !paths.every(insideWorkspace)) {
+              console.error(`[customer-form] ${endpoint}: путь вне рабочей области отклонён`)
+              return Response.json({ type: 'server-response', rpcId: body.rpcId ?? 'r', result: { ok: false, error: { code: 'portal/outside-workspace', message: 'Файл вне рабочей области портала', details: {} } } })
+            }
+          }
+          return forward.fetch(request, peer)
+        },
+      }), `customer-form: рабочая область ${endpoint}`)
     }
     scoped.effect(() => register({
       path: '/api/customer-form.workspacePath',
@@ -795,21 +866,35 @@ export function apply(ctx: HarnessContext): void {
         const sessionId = typeof body.sessionId === 'string' ? body.sessionId : ''
         const ticket = sessionId ? await backlog.find(sessionId).catch(() => undefined) : undefined
         if (!ticket) return Response.json({ error: 'заявка не найдена' }, { status: 404 })
-        const slug = fastSlug(ticket.taskId)
-        const files = fastFiles(FAST_ROOT, slug)
         try {
-          const before = await fastState(files)
-          const state = await approveFast(files)
-          if (!before?.approvedAt) {
-            void reportFastApproval(backlog, ticket, slug, files.html, state.approvedAt!)
-            startDeep(ticket, sessionId)
-          }
-          return Response.json({ approvedAt: state.approvedAt })
+          const { approvedAt } = await approveFastRequest(backlog, ticket, sessionId)
+          // Вопрос «Документ верный?» в чате снят: ответ уже дан кнопкой (confirm_bft_fast).
+          releaseFastAsk(sessionId, 'approved')
+          return Response.json({ approvedAt })
         } catch (e) {
           return Response.json({ error: (e as Error).message }, { status: 409 })
         }
       },
     }), 'customer-form: /api/customer-form.bftFastApprove')
+
+    // Страница документа пишет в чат (замечания, «Добавить требования»): карточка
+    // вопроса «Документ верный?» занимает место поля ввода — сначала снять её.
+    scoped.effect(() => register({
+      path: '/api/customer-form.fastAskRelease',
+      methods: ['POST'],
+      requestBody: 'buffered',
+      fetch: async (request: Request) => {
+        let rpcId = 'r'
+        let sessionId = ''
+        try {
+          const body = (await request.json()) as { rpcId?: string; payload?: { sessionId?: unknown } }
+          rpcId = body.rpcId ?? rpcId
+          if (typeof body.payload?.sessionId === 'string') sessionId = body.payload.sessionId
+        } catch { /* пустое тело */ }
+        const released = sessionId ? releaseFastAsk(sessionId, 'remarks') : false
+        return Response.json({ type: 'server-response', rpcId, result: { ok: true, value: { released } } })
+      },
+    }), 'customer-form: /api/customer-form.fastAskRelease')
 
     // Стартовый экран: последние обращения заказчика (сессии помнит его браузер)
     // и ссылка на доску со всеми обращениями.
@@ -867,16 +952,6 @@ export function apply(ctx: HarnessContext): void {
       },
     }), 'customer-form: /api/customer-form.sessionInfo')
   })
-}
-
-/** Согласование быстрой версии БФТ — в заявку: комментарий и согласованная страница. */
-async function reportFastApproval(backlog: Backlog, ticket: Ticket, slug: string, htmlPath: string, approvedAt: string): Promise<void> {
-  try {
-    await backlog.comment(ticket, `<p><strong>✅ Заказчик согласовал быструю версию БФТ</strong> — ${moscowTime(approvedAt)}</p><p>Согласованная страница — во вложении ${slug}-fast-soglasovan.html; следующий шаг — /bft-deep по документу.</p>`)
-    await backlog.attach(ticket, `${slug}-fast-soglasovan.html`, await readFile(htmlPath))
-  } catch (e) {
-    console.error('[customer-form] согласование БФТ не ушло в задачу:', e)
-  }
 }
 
 /** Полный БФТ — в заявку: документ и страница ревью, или причина сбоя. */

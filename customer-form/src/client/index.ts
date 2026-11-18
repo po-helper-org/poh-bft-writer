@@ -21,6 +21,8 @@ import {
   type SessionInfo,
 } from './panels.js'
 import { portalHref } from './url.js'
+import { NOTE_CSS, PORTAL_NOTE_RULE, PortalNoteMark } from './note.js'
+import { INFO_KIND, INFO_TAB, InfoGlyph, InfoTitle, REQUESTS_KIND, REQUESTS_TAB, RequestsGlyph, RequestsGuideEntry, RequestsTab, RequestsTitle } from './guide.js'
 
 /** Вход и статус администратора портала (узел customer-form, admin.ts). */
 const ADMIN_PAGE = '/api/customer-form.admin'
@@ -41,6 +43,11 @@ const HIDE_SIDEBAR_CSS = `
 .pI_x6G_leadingSeat button[aria-label="Открыть боковую панель"], .pI_x6G_leadingSeat button[aria-label="Open sidebar"] { display: none !important; }
 .pI_x6G_centerCol { grid-column: 1 / 3 !important; }
 .pI_x6G_rightbarCol { grid-column: 3 !important; }
+/* Правая панель «Старт»: без терминала (плагины выключены в профиле — здесь на случай
+   оверлея) и без меню «Дополнительные инструменты» — у заказчика только свои карточки. */
+[data-sidebar-right-guide] > :has([data-sidebar-right-guide-entry="terminal"]) { display: none !important; }
+[data-sidebar-right-guide] > :not(:has([data-sidebar-right-guide-entry])):has(button[aria-haspopup="menu"]),
+[data-sidebar-right-guide] > button[aria-haspopup="menu"] { display: none !important; }
 `
 
 /**
@@ -134,8 +141,16 @@ interface SlotsLike {
   register(options: Record<string, unknown>, component: ComponentType<never>): () => void
 }
 
+interface UiConversationLike {
+  userText: { register(rule: typeof PORTAL_NOTE_RULE): () => void }
+}
+
 interface SidebarRightTabsLike {
-  register(definition: { id: string; kind: string; patterns: string[]; priority: string; canOpen?: (address: string) => boolean; title: () => string }): () => void
+  register(definition: {
+    id: string; kind: string; patterns?: string[]; priority: string; canOpen?: (address: string) => boolean; title: () => string
+    /** Карточки панели «Старт»; тип без patterns — страница, открывается по kind. */
+    guide?: { id: string; order: number; title: () => string; description?: () => string; icon?: ComponentType<{ size?: number; className?: string }> }[]
+  }): () => void
 }
 
 /** Язык портала: штатный русский ядра + тексты экрана заказчика поверх. */
@@ -153,6 +168,12 @@ export function apply(ctx: ClientContext): void {
   style.textContent = HIDE_SIDEBAR_CSS
   document.head.appendChild(style)
   ctx.effect(() => () => style.remove(), 'customer-form: стили портала')
+  // Служебные «📌 …» портала — не пузырь заказчика (note.tsx); стиль и у администратора.
+  const noteStyle = document.createElement('style')
+  noteStyle.setAttribute('data-plugin', 'customer-form-notes')
+  noteStyle.textContent = NOTE_CSS
+  document.head.appendChild(noteStyle)
+  ctx.effect(() => () => noteStyle.remove(), 'customer-form: строки портала в чате')
 
   // 1а) Администратор портала (ADR-0012): ему — интерфейс dsh целиком, со
   //     штатными «Настройками» (ключи, плагины). Заказчику сайдбар скрыт, а
@@ -231,7 +252,7 @@ export function apply(ctx: ClientContext): void {
   let activeSessionId: string | undefined
 
   // 4) Сценарий приёмки страницей в правой панели, замечания → строка ввода,
-  //    вкладка Information (ADR-0007 rev10).
+  //    вкладка «Информация» (ADR-0007 rev10).
   const slots = ctx.get('slots') as SlotsLike
   ctx.inject(['sidebarRightTabs'], (scoped) => {
     const tabs = scoped.get('sidebarRightTabs') as SidebarRightTabsLike
@@ -251,12 +272,37 @@ export function apply(ctx: ClientContext): void {
       canOpen: (address) => sessionOfBftAddress(address) !== undefined,
       title: () => 'Документ БФТ',
     }), 'customer-form: вкладка документа БФТ')
+    // «Старт»: «Информация» (InfoView в панели) и «Смотреть все заявки» (доска портала).
+    scoped.effect(() => tabs.register({
+      id: INFO_TAB,
+      kind: INFO_KIND,
+      priority: 'extension',
+      title: () => 'Информация',
+      guide: [{ id: 'info', order: 30, title: () => 'Информация', description: () => 'Заявка, сценарий приёмки, документы БФТ и материалы', icon: InfoGlyph }],
+    }), 'customer-form: вкладка «Информация»')
+    scoped.effect(() => tabs.register({
+      id: REQUESTS_TAB,
+      kind: REQUESTS_KIND,
+      priority: 'extension',
+      title: () => 'Все заявки',
+      guide: [{ id: 'all', order: 40, title: () => 'Смотреть все заявки', description: () => 'Доска всех заявок портала и статус документов', icon: RequestsGlyph }],
+    }), 'customer-form: вкладка «Все заявки»')
   })
   slots.inject('sidebar.right.pane.tab', () => slots.register({ name: 'sidebar.right.pane.tab', key: BFT_TAB }, BftTab as ComponentType<never>))
   slots.inject('sidebar.right.pane.tab.title', () => slots.register({ name: 'sidebar.right.pane.tab.title', key: BFT_TAB }, BftTitle as ComponentType<never>))
   slots.inject('conversation.input.right', () => slots.register({ name: 'conversation.input.right', id: 'customer-form-bft-watch' }, BftWatcher as ComponentType<never>))
   slots.inject('sidebar.right.pane.tab', () => slots.register({ name: 'sidebar.right.pane.tab', key: ACCEPTANCE_TAB }, AcceptanceTab as ComponentType<never>))
   slots.inject('sidebar.right.pane.tab.title', () => slots.register({ name: 'sidebar.right.pane.tab.title', key: ACCEPTANCE_TAB }, AcceptanceTitle as ComponentType<never>))
+  // «📌 …» портала: правило userText узнаёт ведущий значок, ключевой слот рисует пометку (note.tsx).
+  ctx.inject(['uiConversation'], (scoped) => {
+    const conversation = scoped.get('uiConversation') as UiConversationLike
+    scoped.effect(() => conversation.userText.register(PORTAL_NOTE_RULE), 'customer-form: правило строк портала')
+  })
+  slots.inject('conversation.user.text.node', () => slots.register({
+    name: 'conversation.user.text.node',
+    key: PORTAL_NOTE_RULE.id,
+    priority: 100,
+  }, PortalNoteMark as ComponentType<never>))
   // Мост — в списочном input.right: одиночный input.activity занят микрофоном.
   slots.inject('conversation.input.right', () => slots.register({ name: 'conversation.input.right', id: 'customer-form-bridge' }, InputBridge as ComponentType<never>))
   // Потоковый микрофон вместо штатного голосового ввода (ui-voice-input выключен в профиле, ADR-0008 rev4).
@@ -282,9 +328,20 @@ export function apply(ctx: ClientContext): void {
     name: 'conversation.view',
     id: 'information',
     order: 20,
-    label: () => 'Information',
+    label: () => 'Информация',
     inject: (sessionId: string) => ({ sessionId, loadInfo, openAcceptance, openBft }),
   }, InfoView as ComponentType<never>))
+  // Та же «Информация» — страницей правой панели (карточка «Старта»).
+  slots.inject('sidebar.right.pane.tab', () => slots.register({
+    name: 'sidebar.right.pane.tab',
+    key: INFO_TAB,
+    inject: (sessionId: string) => ({ sessionId, loadInfo, openAcceptance, openBft }),
+  }, InfoView as ComponentType<never>))
+  slots.inject('sidebar.right.pane.tab.title', () => slots.register({ name: 'sidebar.right.pane.tab.title', key: INFO_TAB }, InfoTitle as ComponentType<never>))
+  // «Смотреть все заявки»: карточка-ссылка на доску (как под формой) и тело вкладки на случай открытия в панели.
+  slots.inject('sidebar.right.tab.guide.entry', () => slots.register({ name: 'sidebar.right.tab.guide.entry', key: REQUESTS_TAB }, RequestsGuideEntry as ComponentType<never>))
+  slots.inject('sidebar.right.pane.tab', () => slots.register({ name: 'sidebar.right.pane.tab', key: REQUESTS_TAB }, RequestsTab as ComponentType<never>))
+  slots.inject('sidebar.right.pane.tab.title', () => slots.register({ name: 'sidebar.right.pane.tab.title', key: REQUESTS_TAB }, RequestsTitle as ComponentType<never>))
 
   // «Мои обращения» под формой стартового экрана (rev12): слот hero.agentPreset
   // свободен (ui-agent-preset выключен в профиле) и есть только у пустого чата.
@@ -316,24 +373,42 @@ export function apply(ctx: ClientContext): void {
   // Страница документа БФТ (rev15): «Отправить замечания в чат» и «Согласовать»
   // сразу отправляют сообщение в чат своей сессии — как будто заказчик написал сам.
   // «Добавить требования» (rev16): начало фразы в поле ввода и запись голосом — без отправки.
+  const COMPOSER = '[data-composer-input][contenteditable="true"]'
+  /** Поле ввода на месте: карточка вопроса (confirm_bft_fast) его на время заменяет. */
+  const composerBack = async (): Promise<void> => {
+    for (let i = 0; i < 40 && !document.querySelector(COMPOSER); i++) await new Promise((resolve) => setTimeout(resolve, 100))
+    // Мост поля ввода (InputBridge) переподключается эффектом после монтирования.
+    await new Promise((resolve) => setTimeout(resolve, 50))
+  }
   const onSay = (event: MessageEvent) => {
     const data = event.data as { type?: string; id?: string; text?: string } | undefined
     const compose = data?.type === 'customer-form/compose'
     if (event.origin !== location.origin || (data?.type !== 'customer-form/say' && !compose) || typeof data?.text !== 'string') return
+    const text = data.text
+    const source = event.source as Window | null
     const frame = Array.from(document.querySelectorAll<HTMLIFrameElement>('iframe[data-customer-bft]')).find((f) => f.contentWindow === event.source)
     const sessionId = frame?.dataset.customerBft ?? lastSessionId
-    const actions = sessionId ? bridges.get(sessionId) : undefined
-    let ok = false
-    try {
-      if (actions && compose) {
-        actions.setDraft(data.text)
-        ;(document.querySelector('[data-composer-input][contenteditable="true"]') as HTMLElement | null)?.focus()
-        // Микрофон портала (StreamingMic): заказчик сразу говорит, что и где добавить.
-        ;(document.querySelector('[data-streaming-mic] button[aria-label="Начать запись"]') as HTMLButtonElement | null)?.click()
-        ok = true
-      } else if (actions) { actions.setDraft(data.text); actions.submit(); ok = true }
-    } catch { ok = false }
-    ;(event.source as Window | null)?.postMessage({ type: 'customer-form/say-ack', id: data.id, ok }, location.origin)
+    void (async () => {
+      let ok = false
+      try {
+        // Вопрос «Документ верный?» в чате ждёт ответа — снять его: заказчик отвечает со страницы.
+        // (После «Да, согласен» узел уже снял его сам: здесь — ничего.)
+        if (sessionId) {
+          const res = await host.rpc.call('/api', 'customer-form.fastAskRelease', { sessionId }).catch(() => undefined)
+          if (res?.ok && (res.value as unknown as { released?: boolean } | undefined)?.released) await composerBack()
+          else if (!document.querySelector(COMPOSER)) await composerBack()
+        }
+        const actions = sessionId ? bridges.get(sessionId) : undefined
+        if (actions && compose) {
+          actions.setDraft(text)
+          ;(document.querySelector(COMPOSER) as HTMLElement | null)?.focus()
+          // Микрофон портала (StreamingMic): заказчик сразу говорит, что и где добавить.
+          ;(document.querySelector('[data-streaming-mic] button[aria-label="Начать запись"]') as HTMLButtonElement | null)?.click()
+          ok = true
+        } else if (actions) { actions.setDraft(text); actions.submit(); ok = true }
+      } catch { ok = false }
+      source?.postMessage({ type: 'customer-form/say-ack', id: data.id, ok }, location.origin)
+    })()
   }
   window.addEventListener('message', onSay)
   ctx.effect(() => () => window.removeEventListener('message', onSay), 'customer-form: сообщения со страницы документа БФТ')

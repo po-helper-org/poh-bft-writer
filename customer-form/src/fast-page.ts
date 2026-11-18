@@ -134,7 +134,9 @@ function script(layer: CustomerLayer): string {
     if(window.parent === window){ done(false); return; }
     var id = Math.random().toString(36).slice(2);
     window.parent.postMessage({ type: type, id: id, text: text }, location.origin);
-    setTimeout(function(){ done(acked[id] === true); }, 500);
+    // Клиент сначала снимает вопрос формы в чате (он занимает поле ввода) — ждём ack до 6 с.
+    var started = Date.now();
+    (function wait(){ if(id in acked || Date.now() - started > 6000) done(acked[id] === true); else setTimeout(wait, 100); })();
   }
   function say(text, done){ post("customer-form/say", text, done); }
 

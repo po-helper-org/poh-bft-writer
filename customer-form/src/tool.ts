@@ -9,7 +9,7 @@
  */
 import { randomUUID } from 'node:crypto'
 import { readFile, writeFile } from 'node:fs/promises'
-import { FAST_ROOT, fastFiles, fastPagePath, fastPageUrl, fastProgress, fastSlug, portalUrl, publicPortalUrl } from './bft-fast.js'
+import { FAST_ROOT, fastFiles, fastPagePath, fastPageUrl, fastProgress, fastSlug, fastState, portalUrl, publicPortalUrl } from './bft-fast.js'
 import { contextMapMarkdown, cortexBrief, relevantBrief } from './cortex.js'
 import { buildFastFromPrimary, cortexQuery, KINDS, primaryErrors, SPECIALISTS, type PrimaryArgs, type PrimaryDoc } from './primary.js'
 import { demoIntake, glossaryOf, mergeIntake } from './intake.js'
@@ -17,6 +17,10 @@ import { demoSteps, doneList, repairDemo, sharedDemos, storyboardMarkdown, type 
 import { demoPageHtml } from './demo-page.js'
 import { moscowTime, sharedBacklog, ticketRegistered, type Backlog, type Intake, type Ticket } from './host.js'
 import { materialsPack, pendingNote, sharedMaterials, type Materials } from './materials.js'
+import { mirrorRequest } from './workspace-mirror.js'
+import { titleSession } from './session-title.js'
+import { approveFastRequest, holdFastAsk, type FastAskRelease } from './fast-approval.js'
+import { portalNoteSource } from './portal-note.js'
 
 // defineTool — значение из dsh-tools профиля (не из devDependencies плагина).
 const DSH_TOOLS = '@deepseek-ai/dsh-tools'
@@ -33,7 +37,7 @@ export interface BlockLike {
 
 export interface AgentLike {
   session: { id: string; deriveMessages(): readonly { role: string; content: readonly BlockLike[] }[] }
-  inject(message: { id: string; role: 'user'; source: { kind: string }; content: readonly BlockLike[] }): void
+  inject(message: { id: string; role: 'user'; source: { kind: string; [field: string]: unknown }; content: readonly BlockLike[] }): void
 }
 
 interface ToolContext {
@@ -47,6 +51,7 @@ export function apply(ctx: ToolContext): void {
   ctx.effect(() => tools.register(defineTool(confirmDemoTool(ctx, sharedBacklog()))), 'customer-form: confirm_acceptance_demo')
   ctx.effect(() => tools.register(defineTool(submitTool(sharedBacklog()))), 'customer-form: submit_customer_request')
   ctx.effect(() => tools.register(defineTool(fastTool(sharedBacklog()))), 'customer-form: create_bft_fast')
+  ctx.effect(() => tools.register(defineTool(confirmFastTool(ctx, sharedBacklog()))), 'customer-form: confirm_bft_fast')
 }
 
 /** Диалог как текст: файл полного контекста для PO. */
@@ -153,6 +158,7 @@ function confirmDemoTool(ctx: ToolContext, backlog: Backlog) {
       demos.set(agent.session.id, record)
       // Каждая версия сценария — страницей в заявку: PO видит, что предлагали заказчику.
       void attachAcceptancePage(backlog, agent.session.id, record)
+      void mirrorSession(backlog, agent.session.id)
       const answer = await questions.ask({
         questions: [{
           id: DEMO_REVIEW,
@@ -187,13 +193,14 @@ function confirmDemoTool(ctx: ToolContext, backlog: Backlog) {
       // Черновик и допущения сценария — в intake.json заявки (план C1): их читает полный БФТ.
       if (ticket) await mergeIntake(fastFiles(FAST_ROOT, fastSlug(ticket.taskId)).dir, demoIntake(args)).catch((e) => console.error('[customer-form] intake.json (сценарий) не записан:', e))
       await attachAcceptancePage(backlog, agent.session.id, approved)
+      void mirrorSession(backlog, agent.session.id)
       // Дальше заказчик только ждёт документ (rev16): ссылку и «уже готовлю» пишет
       // портал сам — сразу, не дожидаясь модели; справа — ход сборки.
       fastProgress.start(agent.session.id)
       agent.inject({
         id: randomUUID(),
         role: 'user',
-        source: { kind: 'user' },
+        source: portalNoteSource('demo'),
         content: [{ type: 'text', text: `📌 Сценарий приёмки согласован: ${portalUrl(`/api/customer-form.demo?session=${encodeURIComponent(agent.session.id)}`)}\nУже готовлю БФТ-документ на проверку, буквально 3 минуты — ход сборки справа.` }],
       })
       return ['Заказчик САМ нажал кнопку «Согласую» на карточке сценария приёмки — это его подтверждение и полное согласие с постановкой.',
@@ -223,6 +230,22 @@ async function attachAcceptancePage(backlog: Backlog, sessionId: string, record:
   }
 }
 
+/** Папка заявки сессии в workspace — если заявка уже заведена. */
+async function mirrorSession(backlog: Backlog, sessionId: string): Promise<void> {
+  const ticket = await backlog.find(sessionId).catch(() => undefined)
+  if (ticket) await mirrorRequest(ticket.taskId, sessionId)
+}
+
+/** Первое обращение заказчика в диалоге (без служебных «📌 …» портала). */
+function firstCustomerText(agent: AgentLike): string | undefined {
+  for (const message of agent.session.deriveMessages()) {
+    if (message.role !== 'user') continue
+    const text = message.content.filter((b) => b.type === 'text').map((b) => b.text ?? '').join('\n').trim()
+    if (text && !text.startsWith('📌')) return text
+  }
+  return undefined
+}
+
 /**
  * Заявка сессии — найденная или созданная сейчас (rev17). Заявку создаёт узел
  * по первому сообщению, но трекер мог не ответить (истёкший токен, сбой сети):
@@ -246,10 +269,13 @@ async function ensureTicket(backlog: Backlog, agent: AgentLike, text: string): P
     void attachAcceptancePage(backlog, sessionId, record)
   }
   if (known) return ticket
+  // Заявку завёл сам инструмент (трекер не ответил на первое сообщение): название чата и папка — сейчас.
+  titleSession(agent.session, ticket.taskId, text)
+  void mirrorRequest(ticket.taskId, sessionId, firstCustomerText(agent) ?? text)
   agent.inject({
     id: randomUUID(),
     role: 'user',
-    source: { kind: 'user' },
+    source: portalNoteSource('ticket'),
     content: [{ type: 'text', text: `📌 ${ticketRegistered(ticket)}` }],
   })
   return ticket
@@ -286,6 +312,7 @@ function submitTool(backlog: Backlog) {
       await backlog.finalize(ticket, args, transcriptOf(agent, ticket, args))
       // Данные приёма — рядом с документом (план C1): трекер их хранит, полный БФТ читает отсюда.
       await mergeIntake(fastFiles(FAST_ROOT, fastSlug(ticket.taskId)).dir, {
+        ...(args.title?.trim() ? { title: args.title.trim() } : {}),
         ...(args.summary?.trim() ? { summary: args.summary.trim() } : {}),
         ...(args.asis?.trim() ? { asis: args.asis.trim() } : {}),
         ...(args.gap?.trim() ? { gap: args.gap.trim() } : {}),
@@ -295,6 +322,8 @@ function submitTool(backlog: Backlog) {
         openQuestions: (args.openQuestions ?? []).filter((q) => q?.trim()),
       }).catch((e) => console.error('[customer-form] intake.json не записан:', e))
       fastProgress.stage(agent.session.id, 'submitted')
+      if (args.title?.trim()) titleSession(agent.session, ticket.taskId, args.title)
+      void mirrorRequest(ticket.taskId, agent.session.id)
       return `Заявка #${ticket.taskId} обновлена: постановка, сводка и полный контекст сохранены.${ticket.url ? ` Отслеживание статуса: ${ticket.url}` : ''}`
     },
   }
@@ -419,6 +448,8 @@ function fastTool(backlog: Backlog) {
       await writeFile(counter, String(rev), 'utf8')
       const questions = (args.openQuestions ?? []).map((q) => q.trim()).filter(Boolean)
       fastProgress.stage(sessionId, 'ready')
+      titleSession(agent.session, ticket.taskId, args.title)
+      void mirrorRequest(ticket.taskId, sessionId)
       void publishFast(backlog, ticket, slug, rev, built.files, questions, !!brief)
       const zones = brief?.people.map((p) => `${p.name} (${p.zones.slice(0, 2).join(', ')})`) ?? []
       return [
@@ -426,9 +457,105 @@ function fastTool(backlog: Backlog) {
         `Страница документа для заказчика: ${fastPageUrl(sessionId)}`,
         brief ? `Кортекс${brief.vault.demo ? ' (демо-память)' : ''}: зоны влияния — ${zones.join('; ') || 'не найдены'}; систем для проверки — ${brief.landscape.length}. Это уже на странице.` : 'Кортекс не подключён: контуров проверки и зон влияния на странице нет.',
         questions.length ? ['Открытые вопросы (перечисли заказчику):', ...questions.map((q) => `- ${q}`)].join('\n') : 'Открытых вопросов нет.',
+        'Дальше: короткая реплика (ссылка на документ, отслеживание заявки, открытые вопросы) и в этом же ходе сразу confirm_bft_fast — кнопки «Да, согласен» / «Есть замечания» покажет форма, текстом их не описывай.',
       ].join('\n')
     },
   }
+}
+
+const FAST_REVIEW = 'bft-fast-review'
+const FAST_REMARKS = 'bft-fast-remarks'
+const AGREE = 'Да, согласен'
+const REMARKS = 'Есть замечания'
+
+/**
+ * «Документ верный?» — формой в чате сразу после сборки первичных требований:
+ * заказчик отвечает кнопкой, а не ищет призыв в тексте. «Да, согласен» делает
+ * то же, что кнопка на странице документа (fast-approval.ts): отметка, заявка,
+ * полный БФТ. «Есть замечания» — следующий вопрос той же формой: что поправить.
+ * Если заказчик ответил на странице документа (согласовал или пишет замечания
+ * в чат), страница снимает вопрос — карточка занимает место поля ввода.
+ */
+function confirmFastTool(ctx: ToolContext, backlog: Backlog) {
+  return {
+    name: 'confirm_bft_fast',
+    description: 'Спросить заказчика формой, верен ли собранный документ первичных требований: кнопки «Да, согласен» и «Есть замечания». '
+      + 'Вызывай сразу после create_bft_fast (после короткой реплики со ссылкой и открытыми вопросами) и после каждой пересборки. «Да, согласен» согласует документ и запускает полный БФТ — сам этого не делай.',
+    parameters: {},
+    output: {
+      schema: { type: 'string' },
+      render: (_args: unknown, value: string) => [{ type: 'text', text: value }],
+    },
+    async execute(_args: unknown, exec: { agent?: AgentLike; signal?: AbortSignal }) {
+      const agent = exec.agent
+      if (!agent) throw new Error('нет сессии заказчика')
+      const sessionId = agent.session.id
+      const ticket = await backlog.find(sessionId)
+      const files = ticket ? fastFiles(FAST_ROOT, fastSlug(ticket.taskId)) : undefined
+      const state = files ? await fastState(files) : undefined
+      if (!ticket || !state) throw new Error('Документ ещё не собран: сначала create_bft_fast без ошибок, затем confirm_bft_fast.')
+      if (state.approvedAt) return 'Эта версия документа уже согласована, полный БФТ собирается справа. Ничего не спрашивай.'
+      const questions = ctx.get('userQuestions') as UserQuestionsLike | undefined
+      if (!questions) throw new Error('форма вопросов недоступна — спроси одной фразой, верен ли документ, и жди ответа')
+      const doc = await readFile(files!.primary, 'utf8').then((s) => JSON.parse(s) as PrimaryDoc).catch(() => undefined)
+      const open = (doc?.args.openQuestions ?? []).map((q) => q.trim()).filter(Boolean)
+      const hold = holdFastAsk(sessionId)
+      const signal = exec.signal ? AbortSignal.any([exec.signal, hold.signal]) : hold.signal
+      const ask = (request: unknown) => questions.ask(request).catch((cause: { code?: string }) => {
+        if (hold.signal.aborted) return { released: hold.signal.reason as FastAskRelease }
+        if (cause?.code === 'ASK_CANCELLED') return { released: 'remarks' as FastAskRelease }
+        throw cause
+      })
+      try {
+        const first = await ask({
+          questions: [{
+            id: FAST_REVIEW,
+            header: 'Первичные требования',
+            question: 'Документ справа верный?',
+            ...(open.length ? { detail: ['Открытые вопросы уйдут в заявку для PO:', ...open.map((q) => `- ${q}`)].join('\n') } : {}),
+            options: [
+              { label: AGREE, description: 'Всё верно — собирайте полный БФТ.' },
+              { label: REMARKS, description: 'Напишу, что поправить или добавить.' },
+            ],
+          }],
+          agent,
+          signal,
+        })
+        if ('released' in first) return released(first.released)
+        const item = first.answers.find((a) => a.id === FAST_REVIEW)
+        const custom = item?.custom?.trim()
+        if (custom) return remarks(custom)
+        if (item?.selected[0] === AGREE) {
+          const approval = await approveFastRequest(backlog, ticket, sessionId)
+          return approval.deep
+            ? 'Заказчик САМ нажал «Да, согласен» в форме: документ согласован, отметка в заявке, полный БФТ по корпоративному канону уже собирается справа. '
+              + 'Поблагодари одной фразой и скажи: полный БФТ — справа, обычно от минуты до пяти, скачать можно в Word, PDF и Markdown. Инструменты не вызывай, вопросов не задавай.'
+            : 'Заказчик согласовал документ (отметка в заявке), но модель портала для полного БФТ сейчас недоступна. Поблагодари и скажи, что полный БФТ соберёт PO. Инструменты не вызывай.'
+        }
+        if (item?.selected[0] !== REMARKS) return 'Заказчик пропустил вопрос. Ничего не спрашивай повторно — жди его сообщения.'
+        const second = await ask({
+          questions: [{ id: FAST_REMARKS, header: 'Замечания', question: 'Что поправить или добавить в документе?' }],
+          agent,
+          signal,
+        })
+        if ('released' in second) return released(second.released)
+        const text = second.answers.find((a) => a.id === FAST_REMARKS)?.custom?.trim()
+        return text ? remarks(text) : released('remarks')
+      } finally {
+        hold.done()
+      }
+    },
+  }
+}
+
+function released(reason: FastAskRelease): string {
+  return reason === 'approved'
+    ? 'Заказчик нажал «Да, согласен» на странице документа: согласование записано, полный БФТ собирается. Сейчас придёт его сообщение «✅ Да, согласен с документом БФТ.» — ответь на него; до этого ничего не пиши.'
+    : 'Заказчик пишет замечания в чат (голосом или текстом). Ничего не пиши и не спрашивай — дождись его сообщения, исправь поля, снова create_bft_fast, затем confirm_bft_fast.'
+}
+
+function remarks(text: string): string {
+  return `Замечания заказчика к документу: «${text}». Без реплик исправь поля по ним и снова вызови create_bft_fast, затем confirm_bft_fast. Если замечание непонятно — уточни ask_user_question.`
 }
 
 /**

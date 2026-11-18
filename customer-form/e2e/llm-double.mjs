@@ -2,7 +2,8 @@
  * Модель-ДВОЙНИК для E2E микродиалога портала (не ИИ): OpenAI-совместимый
  * /v1/chat/completions со стримингом и tool-calls, проигрывающий сценарий
  * «вопросы формой → раскадровка на согласование → «Согласую» → «уже готовлю» →
- * submit_customer_request → create_bft_fast → ссылка на документ» (rev16: без ИТОГ).
+ * submit_customer_request → create_bft_fast → ссылка на документ и форма «Да, согласен» /
+ * «Есть замечания» (confirm_bft_fast)» (rev16: без ИТОГ).
  * Нужен, чтобы путь заказчика проверялся без внешнего ключа и квоты.
  *
  *   node e2e/llm-double.mjs            # порт LLM_DOUBLE_PORT (8799)
@@ -215,7 +216,15 @@ function nextTurn(messages) {
       const submitted = messages.find((m) => m.role === 'tool' && /tasks\/\d+/.test(text(m)))
       const url = /https?:\/\/\S+\/tasks\/\d+/.exec(submitted ? text(submitted) : '')?.[0] ?? ''
       const page = /https?:\/\/\S+\/api\/customer-form\.bftFast\?session=\S+/.exec(text(last))?.[0] ?? ''
-      return { content: `БФТ-документ на проверку: [открыть документ](${page}). Отслеживание статуса: ${url}\n\nЕсли всё верно — нажмите «Да, согласен». Если что-то пропущено — «Добавить требования».` }
+      // Ход, ждущий заказчика, кончается формой: «Да, согласен» / «Есть замечания» (confirm_bft_fast).
+      return { content: `БФТ-документ на проверку: [открыть документ](${page}). Отслеживание статуса: ${url}`, tool: { name: 'confirm_bft_fast', args: {} } }
+    }
+    if (call?.function.name === 'confirm_bft_fast') {
+      const result = text(last)
+      if (result.includes('Замечания заказчика к документу')) return { content: 'Учла замечания, пересобираю документ…', tool: { name: 'create_bft_fast', args: FAST_REVISED } }
+      if (result.includes('«Да, согласен» в форме')) return { content: 'Спасибо! Документ согласован — полный БФТ собирается справа, его можно будет скачать в Word, PDF и Markdown.' }
+      if (result.includes('на странице документа')) return { content: 'Вижу согласование — полный БФТ уже собирается справа.' }
+      return { content: 'Жду ваших замечаний.' }
     }
     if (call?.function.name === 'read_customer_materials' && text(last).includes('Ещё разбираются')) {
       return { content: 'Запись длинная — пока она расшифровывается, один вопрос:', tool: { name: 'ask_user_question', args: TITLE_QUESTIONS } }

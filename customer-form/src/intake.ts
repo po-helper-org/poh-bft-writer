@@ -19,6 +19,8 @@ import { baselineOf, presentState } from './present.js'
 
 /** Что лежит в intake.json: поля Intake (canon-check) плюс черновик сценария. */
 export interface IntakeFile extends Intake {
+  /** Название заявки из submit_customer_request: им названа папка заявки в workspace. */
+  title?: string
   summary?: string
   /** Черновик по материалам из сценария приёмки (писал ассистент). */
   demo?: { asis?: string; gap?: string; tobe?: string }

@@ -22,6 +22,8 @@ test('под формой — мои обращения: клик открыва
   const link = page.getByText(/Заявка #\d+ зарегистрирована в беклоге/).first()
   await expect(link).toBeVisible({ timeout: 5_000 })
   const taskId = Number(/#(\d+)/.exec((await link.textContent()) ?? '')?.[1])
+  // С двойником ассистент сразу спрашивает формой: обращение открывается с ждущим вопросом.
+  if (process.env.LLM_DOUBLE === '1') await expect(page.getByRole('radio', { name: 'Вручную в Excel' })).toBeVisible({ timeout: 15_000 })
 
   // Частые входы без сообщений не вытесняют обращение: 80 старых пустых сессий
   // свежее нашей — после загрузки списка они вычищены.
@@ -64,7 +66,8 @@ test('под формой — мои обращения: клик открыва
   await expect(all).toHaveAttribute('target', '_blank')
 
   // Клик — чат по этой инициативе, список пропадает вместе со стартовым экраном.
+  // Ждать пузырь сообщения в чате, а не тот же текст в строке списка (название заявки = текст обращения).
   await rows.first().click()
-  await expect(page.getByText(text, { exact: true })).toBeVisible({ timeout: 15_000 })
-  await expect(recent).toHaveCount(0)
+  await expect(page.locator('[data-message-bubble]').getByText(text, { exact: true })).toBeVisible({ timeout: 15_000 })
+  await expect(recent).toBeHidden({ timeout: 15_000 })
 })
