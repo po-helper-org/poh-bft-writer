@@ -123,13 +123,13 @@ H1: `# [БФТ] {epic_slug}: {Название}`. Проверяется гей�
 
 | Источник | Голый текст ❌ | Markdown-ссылка ✅ |
 | --- | --- | --- |
-| Jira | `JIRA ACME-1409` | `[JIRA ACME-1409](https://jira.example.com/browse/ACME-1409)` |
+| Jira | `JIRA PROJ-123` | `[JIRA PROJ-123](https://jira.example.com/browse/PROJ-123)` |
 | Confluence (pageId) | `Confluence 1000000001` | `[Confluence 1000000001](https://confluence.example.com/pages/viewpage.action?pageId=1000000001)` |
 
 **Правило 3 — при публикации в Confluence: макросы для превью (ЗМ-009).** На отгружаемой странице (`/bft-deliver`) предпочтительны **макросы Confluence** — они дают быстрый доступ и live-превью со статусом, а не просто гиперссылку:
 - Jira-задача → **Jira-макрос** (ключ + актуальный статус + hover-превью).
-  - storage: `<ac:structured-macro ac:name="jira"><ac:parameter ac:name="key">ACME-1610</ac:parameter></ac:structured-macro>`
-  - wiki: `{jira:key=ACME-1610}`
+  - storage: `<ac:structured-macro ac:name="jira"><ac:parameter ac:name="key">PROJ-106</ac:parameter></ac:structured-macro>`
+  - wiki: `{jira:key=PROJ-106}`
 - Confluence-страница → **smart-link/inline-card** или макрос `include`/`excerpt-include` для превью содержимого.
   - storage-ссылка на страницу по заголовку: `<ac:link><ri:page ri:content-title="<Заголовок>"/></ac:link>`
   - wiki: `[<Заголовок страницы>]` или `{include:<Space>:<Заголовок>}`
@@ -144,14 +144,14 @@ H1: `# [БФТ] {epic_slug}: {Название}`. Проверяется гей�
 Q{квартал}{год} KR{N}.{M} команда {команда}, PO {ФИО}
 ```
 
-Пример: `Q32026 KR2.7 команда GDS, PO Петров Иван`. Так цель читается без похода в чужой репозиторий. Сам файл, если он нужен как якорь, идёт в «Якоря истины». Проверяется машинно: `SR002`.
+Пример: `Q32026 KR2.7 команда TeamA, PO Петров Иван`. Так цель читается без похода в чужой репозиторий. Сам файл, если он нужен как якорь, идёт в «Якоря истины». Проверяется машинно: `SR002`.
 
 **Правило 4 — линкуются и проекты/пространства, и КАЖДОЕ вхождение (ЗМ-012).** Ссылка ставится не только на задачу-ключ, но и на **JIRA-проект** и **Confluence-пространство**, если они упомянуты. Линкуется **каждое** вхождение в каждой колонке и абзаце (не только первое) — цель прямая: читатель кликает и переходит, не тратит время на поиск по внешним ресурсам. Ни одного голого ключа/pageId/имени проекта в готовом документе.
 
 | Объект | Голый текст ❌ | Ссылка ✅ |
 | --- | --- | --- |
-| JIRA-задача | `ACME-1409` | `[ACME-1409](https://jira.example.com/browse/ACME-1409)` |
-| JIRA-проект | `проект ACME` | `[проект ACME](https://jira.example.com/projects/ACME)` |
+| JIRA-задача | `PROJ-123` | `[PROJ-123](https://jira.example.com/browse/PROJ-123)` |
+| JIRA-проект | `проект PROJ` | `[проект PROJ](https://jira.example.com/projects/PROJ)` |
 | Confluence-страница | `Confluence 1000000001` | `[Confluence 1000000001](https://confluence.example.com/pages/viewpage.action?pageId=1000000001)` |
 | Confluence-пространство | `space SPACE` | `[space SPACE](https://confluence.example.com/display/SPACE)` |
 

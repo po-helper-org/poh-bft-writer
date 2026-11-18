@@ -33,7 +33,7 @@ import sys
 from dataclasses import dataclass, asdict
 from pathlib import Path
 
-# Имя сервера произвольно («atlassian», «jira-mts», «corp-wiki»), поэтому источник
+# Имя сервера произвольно («atlassian», «jira-corp», «corp-wiki»), поэтому источник
 # опознаётся по подстроке в имени сервера, команде запуска и аргументах.
 TRACKER_MARKERS = ("jira", "atlassian", "tracker", "youtrack")
 WIKI_MARKERS = ("confluence", "atlassian", "wiki")

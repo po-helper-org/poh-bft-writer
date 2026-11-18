@@ -21,7 +21,7 @@ test('пути конфига считаются от каталога чато�
 test('секции путей переписываются, остальные секции остаются как были', () => {
   const root = `# bft-config
 
-## gds_sheet_url
+## team_sheet_url
 https://docs.google.com/spreadsheets/d/x
 
 Комментарий к таблице.
@@ -40,7 +40,7 @@ bft/index
   assert.match(out, /## index_path\nindex\n/)
   assert.match(out, /## skills_path\n\.\.\/agent\/skills\n$/, 'отсутствующая секция дописана в конец')
   assert.match(out, /## team_name\nTeamA\/Платформа/)
-  assert.match(out, /## gds_sheet_url\nhttps:\/\/docs\.google\.com\/spreadsheets\/d\/x\n\nКомментарий к таблице\./)
+  assert.match(out, /## team_sheet_url\nhttps:\/\/docs\.google\.com\/spreadsheets\/d\/x\n\nКомментарий к таблице\./)
   assert.ok(!out.includes('bft/documentation'), 'старое значение секции стёрто')
 })
 
