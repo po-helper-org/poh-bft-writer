@@ -1,12 +1,14 @@
 /**
- * Источник данных «MTS PO штаб» — удалённый MCP штаба агентов PO (Jira,
+ * Источник данных «Шлюз агентов» — удалённый MCP-шлюз агентов (Jira,
  * Confluence). Портал зовёт ТОЛЬКО инструменты чтения из белого списка:
- * у штаба есть и запись (создать задачу, изменить страницу, shell,
+ * у шлюза есть и запись (создать задачу, изменить страницу, shell,
  * сообщения), до неё портал не дотягивается.
  *
  * Два режима подключения: OAuth администратора (локальный портал) и
- * служебный токен моста Hermes из окружения `DATA_SOURCES_TOKEN_<ID>`
- * (сервер): мост сам режет такой токен до тех же четырёх инструментов.
+ * служебный токен шлюза агентов из окружения `DATA_SOURCES_TOKEN_<ID>`
+ * (сервер): шлюз сам режет такой токен до тех же четырёх инструментов.
+ * Адрес не задан (ни в конфиге, ни в `DATA_SOURCES_URL_<ID>`) — источник
+ * «не настроен»: не подключён и ни к чему не обращается.
  */
 import { discover, dropConnection, exchange, loadConnection, newState, pkce, refresh, register, revoke, saveConnection, authorizeUrl, type Connection, type PendingAuth } from './oauth.js'
 import { McpError, McpHttpClient } from './mcp.js'
@@ -16,14 +18,14 @@ import {
 } from './findings.js'
 import { pool, withTimeout } from './pool.js'
 
-/** Инструменты штаба, которые порталу разрешено вызывать (только чтение). */
+/** Инструменты шлюза, которые порталу разрешено вызывать (только чтение). */
 export const READ_ONLY_TOOLS = ['confluence_search', 'confluence_get_page', 'jira_search', 'jira_get_issue'] as const
 type ReadOnlyTool = typeof READ_ONLY_TOOLS[number]
 
 /**
  * Как источник подключён: `oauth` — вход администратора (локальный портал),
- * `service` — служебный токен моста Hermes из окружения (сервер, ADR-0013):
- * без окна входа, мост пускает его только к инструментам чтения.
+ * `service` — служебный токен шлюза агентов из окружения (сервер, ADR-0013):
+ * без окна входа, шлюз пускает его только к инструментам чтения.
  */
 export type SourceMode = 'oauth' | 'service'
 
@@ -32,6 +34,8 @@ export interface SourceStatus {
   name: string
   url: string
   connected: boolean
+  /** Адрес MCP задан (конфиг или DATA_SOURCES_URL_<ID>). */
+  configured: boolean
   mode: SourceMode
   /** Человеческая подпись состояния для «Настроек». */
   label: string
@@ -85,9 +89,16 @@ export function serviceTokenEnv(sourceId: string): string {
   return `DATA_SOURCES_TOKEN_${sourceId.toUpperCase().replace(/[^A-Z0-9]/g, '_')}`
 }
 
-export const SERVICE_LABEL = 'подключён служебным токеном Hermes'
-export const SERVICE_REJECTED = 'служебный токен отклонён мостом — выпустите новый (harness/deploy/issue-sources-token.sh)'
-const SERVICE_FIXED = 'источник подключён служебным токеном Hermes — подключать и отключать его в «Настройках» не нужно'
+/** Переменная окружения адреса источника: po-hq → DATA_SOURCES_URL_PO_HQ. */
+export function sourceUrlEnv(sourceId: string): string {
+  return `DATA_SOURCES_URL_${sourceId.toUpperCase().replace(/[^A-Z0-9]/g, '_')}`
+}
+
+export const SERVICE_LABEL = 'подключён служебным токеном шлюза агентов'
+export const NOT_CONFIGURED_LABEL = 'не настроен'
+const NOT_CONFIGURED = (id: string) => `источник не настроен — задайте адрес MCP в ${sourceUrlEnv(id)} или в конфиге плагина`
+export const SERVICE_REJECTED = 'служебный токен отклонён шлюзом агентов — выпустите новый (harness/deploy/issue-sources-token.sh)'
+const SERVICE_FIXED = 'источник подключён служебным токеном шлюза агентов — подключать и отключать его в «Настройках» не нужно'
 
 export interface McpSourceOptions {
   /** Служебный токен; не задан — из окружения (serviceTokenEnv), пусто — OAuth. */
@@ -128,10 +139,10 @@ export class McpSource {
   }
 
   /**
-   * Переход на служебный токен: прежнее OAuth-подключение (полный токен штаба —
+   * Переход на служебный токен: прежнее OAuth-подключение (полный токен шлюза —
    * shell, доска, память, сообщения; refresh живёт 30 дней) не должно остаться
    * в томе. Файл удаляем сразу — иначе пустая переменная окружения тихо вернула
-   * бы портал к полному токену; отзыв на мосту — в фоне, по возможности
+   * бы портал к полному токену; отзыв на шлюзе — в фоне, по возможности
    * (сбой сети не мешает запуску, а без файла токен порталу уже недоступен).
    */
   private async retireOAuth(): Promise<void> {
@@ -151,11 +162,19 @@ export class McpSource {
     return this.#serviceToken ? 'service' : 'oauth'
   }
 
+  /** Адрес MCP задан; нет — источник «не настроен» и ни к чему не обращается. */
+  get configured(): boolean {
+    return this.url.trim() !== ''
+  }
+
   async status(): Promise<SourceStatus> {
     await this.loaded
+    if (!this.configured) {
+      return { id: this.id, name: this.name, url: '', connected: false, configured: false, mode: this.mode, label: NOT_CONFIGURED_LABEL, tools: READ_ONLY_TOOLS }
+    }
     if (this.#serviceToken) {
       return {
-        id: this.id, name: this.name, url: this.url, connected: true, mode: 'service', label: SERVICE_LABEL,
+        id: this.id, name: this.name, url: this.url, connected: true, configured: true, mode: 'service', label: SERVICE_LABEL,
         ...(this.lastError ? { error: this.lastError } : {}),
         tools: READ_ONLY_TOOLS,
       }
@@ -165,6 +184,7 @@ export class McpSource {
       name: this.name,
       url: this.url,
       connected: !!this.connection,
+      configured: true,
       mode: 'oauth',
       label: this.connection ? 'подключён' : 'не подключён',
       ...(this.connection ? { connectedAt: this.connection.connectedAt } : {}),
@@ -174,6 +194,7 @@ export class McpSource {
   }
 
   async connected(): Promise<boolean> {
+    if (!this.configured) return false
     if (this.#serviceToken) return true
     await this.loaded
     return !!this.connection
@@ -181,6 +202,7 @@ export class McpSource {
 
   /** Начать вход: адрес окна авторизации сервера. */
   async beginAuth(redirectUri: string): Promise<string> {
+    if (!this.configured) throw new Error(NOT_CONFIGURED(this.id))
     if (this.#serviceToken) throw new Error(SERVICE_FIXED)
     const server = await discover(this.url)
     const client = await register(server, redirectUri, this.scope)
@@ -240,6 +262,7 @@ export class McpSource {
 
   private async call(tool: ReadOnlyTool, args: Record<string, unknown>): Promise<string> {
     if (!(READ_ONLY_TOOLS as readonly string[]).includes(tool)) throw new Error(`инструмент ${tool} не в белом списке`)
+    if (!this.configured) throw new Error(NOT_CONFIGURED(this.id))
     try {
       const text = await this.client.callTool(tool, args)
       this.lastError = undefined

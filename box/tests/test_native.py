@@ -14,7 +14,7 @@ from tests.test_quality import NOW, good
 def fill(*stores):
     for key in ("00000001", "00000002"):
         e, _, w = Engine.start(Policy.load(), f"ini-{key}", {"schema_version": "1.0.0", "goal": "Выгрузка " + key, "brief": "Бухгалтер копирует заказы вручную",
-                                                               "team": "team-a", "idempotency_key": key}, "hermes", NOW)
+                                                               "team": "team-a", "idempotency_key": key}, "gateway", NOW)
         if key == "00000001":
             e.complete(w.iteration_id, good(next_state="brief", directives=[
                 {"kind": "ask", "to": {"role": "po", "po_can_answer": True}, "text": "Кто сверяет заказы?", "closes": ["G07"], "expected": "fact"}]), NOW)
@@ -26,10 +26,10 @@ def test_sqlite_store_behaves_like_the_memory_store(tmp_path):
     mem, sql = MemoryStore(), make_store(f"sqlite:///{tmp_path}/box.db")
     assert isinstance(sql, SqliteStore)
     fill(mem, sql)
-    assert [i["initiative_id"] for i in sql.initiatives("hermes")] == ["ini-00000002", "ini-00000001"] or len(sql.initiatives("hermes")) == 2
+    assert [i["initiative_id"] for i in sql.initiatives("gateway")] == ["ini-00000002", "ini-00000001"] or len(sql.initiatives("gateway")) == 2
     assert sql.initiatives("other") == []
     ini = sql.initiative("ini-00000001")
-    assert ini["owner"] == "hermes" and ini["updated_at"] and ini["status"]["latest"]["status"] == "ready"
+    assert ini["owner"] == "gateway" and ini["updated_at"] and ini["status"]["latest"]["status"] == "ready"
     assert sql.iteration(ini["latest_iteration_id"])["directives"][0]["id"] == "dir-001"
     assert sql.latest("ini-00000002")["status"] == "preparing"
     assert sql.initiative("nope") is None and sql.iteration("nope") is None
@@ -43,8 +43,8 @@ def test_sqlite_store_survives_reopening_and_claims_start_keys_once(tmp_path):
     fill(first)
     again = make_store(url)                                      # другой процесс (воркер ↔ MCP) видит то же
     assert len(again.initiatives()) == 2
-    assert again.claim_start("hermes", "k", "h1", "ini-a") == ("h1", "ini-a")
-    assert again.claim_start("hermes", "k", "h2", "ini-b") == ("h1", "ini-a")   # повтор — записанное
+    assert again.claim_start("gateway", "k", "h1", "ini-a") == ("h1", "ini-a")
+    assert again.claim_start("gateway", "k", "h2", "ini-b") == ("h1", "ini-a")   # повтор — записанное
 
 
 def test_model_key_is_read_from_a_file_on_every_call(tmp_path, monkeypatch):

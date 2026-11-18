@@ -33,7 +33,7 @@ function handler(tool, args) {
     ] })
   }
   if (tool === 'confluence_get_page') {
-    if (args.page_id === '1') return wrap({ content: { value: 'Общая информация\n================\n\n| Автор | @Иванов |\n\nОписание\n========\n\nСистема Ticketsale (Касса) продаёт абонементы.\n\n| Epic | AB-5 |\n\ntrue\n' } })
+    if (args.page_id === '1') return wrap({ content: { value: 'Общая информация\n================\n\n| Автор | @Иванов |\n\nОписание\n========\n\nСистема Saleport (Касса) продаёт абонементы.\n\n| Epic | AB-5 |\n\ntrue\n' } })
     return wrap({ metadata: { title: 'Связанная страница' }, content: { value: 'текст' } })
   }
   if (tool === 'jira_get_issue') {
@@ -58,9 +58,9 @@ test('разведка: тела чистятся, пустой эпик — е�
   assert.match(md, /Состав эпика:\n- \[AB-11\]\(https:\/\/j\/browse\/AB-11\) — Выдача абонемента в приложении \(Открыт\)/)
   assert.doesNotMatch(md, /Общая информация|@Иванов|^true$/m)
   assert.match(md, /## Связанные \(через Абонемент: продажа в кассе\)\n\n## AB-5 · Абонемент: оплата/)
-  assert.deepEqual(result.synonyms, [{ system: 'Касса', alias: 'Ticketsale' }])
-  assert.match(md, /Другие названия систем .*«Касса» — «Ticketsale»/)
-  assert.ok(result.queries.some((q) => /Ticketsale/.test(q)))
+  assert.deepEqual(result.synonyms, [{ system: 'Касса', alias: 'Saleport' }])
+  assert.match(md, /Другие названия систем .*«Касса» — «Saleport»/)
+  assert.ok(result.queries.some((q) => /Saleport/.test(q)))
   assert.match(md, /→ «Риски»/)
   assert.match(md, /## Отсеяно триажем \(не использовать\)\n\n- Confluence · Абонемент на парковку/)
   // Только процессные слова — ниже порога, в карту не попадает вовсе.

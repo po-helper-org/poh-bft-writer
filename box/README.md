@@ -3,13 +3,13 @@
 Оркестратор подготовки бизнес-функциональных требований (БФТ). На вход — цель и бриф, на выход — пакет БФТ
 (документ, матрица исполнения, BluePrint-карта, эпик), который коробка **не выпускает на приёмку, пока он не прошёл
 проверки качества**. Процесс инициативы ведёт Temporal: итерации, таймеры сроков указаний и повторы вызовов модели
-переживают рестарт. Людей, Jira и Confluence трогают внешние исполнители (например, агенты Hermes) по указаниям
+переживают рестарт. Людей, Jira и Confluence трогают внешние исполнители (например, агенты за шлюзом агентов) по указаниям
 коробки: у самой коробки своих каналов нет. Решения — [ADR 0001](docs/adr/0001-korobka-mozg-ispolniteli-ruki.md),
 [ADR 0002](docs/adr/0002-otdelnyj-repo-temporal-compose.md), словарь — [GLOSSARY](docs/GLOSSARY.md),
 контракт — [CONTRACT](docs/CONTRACT.md).
 
 ```
-исполнитель (Hermes, Claude, страница /bft)
+исполнитель (шлюз агентов, Claude, страница /bft)
    │  MCP / HTTP + Bearer         start · submit · get · status · control · list
    ▼
 box-mcp ──▶ Temporal ──▶ box-worker ──▶ модель (OpenAI-совместимый API)
@@ -31,7 +31,7 @@ docker compose --profile debug up -d   # + Temporal UI на 127.0.0.1:8233 (сс
 
 ```bash
 docker compose --profile demo --profile debug up -d
-BOX_TOKEN=<токен hermes из BOX_TOKENS> python scripts/smoke.py   # бриф → план → проработка → приёмка → принято
+BOX_TOKEN=<токен gateway из BOX_TOKENS> python scripts/smoke.py   # бриф → план → проработка → приёмка → принято
 ```
 
 Память (замер на этом стеке): postgres ≈ 140 МБ, temporal ≈ 60–400 МБ, воркер и MCP по ≈ 60 МБ; лимиты заданы в compose.

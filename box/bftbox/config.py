@@ -33,7 +33,7 @@ MATRIX_DEMO_CUSTOMER = env("MATRIX_DEMO_CUSTOMER", "customer-demo")
 
 
 def tokens() -> dict:
-    """BOX_TOKENS="hermes:секрет1,ui:секрет2" → {секрет: исполнитель}."""
+    """BOX_TOKENS="gateway:секрет1,ui:секрет2" → {секрет: исполнитель}."""
     out = {}
     for pair in env("BOX_TOKENS").split(","):
         name, _, secret = pair.strip().partition(":")

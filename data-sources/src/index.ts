@@ -2,18 +2,19 @@
  * data-sources · узловая половина: корпоративные источники данных портала БФТ
  * (Jira, Confluence) как dsh-плагин.
  *
- * - Источники — удалённые MCP с OAuth (первый — «MTS PO штаб»); список —
- *   конфиг плагина (cordis.patch.yml).
+ * - Источники — удалённые MCP с OAuth (первый — «Шлюз агентов»); список —
+ *   конфиг плагина (cordis.patch.yml). Адрес — из конфига или окружения
+ *   DATA_SOURCES_URL_<ID>; не задан — источник «не настроен».
  * - Подключает администратор в «Настройках → Источники данных»: вход в окне
  *   сервера авторизации, токены — в томе, обновляются сами. На сервере вместо
- *   входа — служебный токен моста Hermes из окружения
+ *   входа — служебный токен шлюза агентов из окружения
  *   (DATA_SOURCES_TOKEN_<ID>, ADR-0013): без OAuth, только чтение.
  * - Другим плагинам — служба `dataSources` (ctx.inject(['dataSources'])):
  *   поиск и разведка для полного БФТ. Только инструменты чтения.
  */
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import { createServer, type Server } from 'node:http'
-import { McpSource, type ReconOptions, type ReconResult, type SourceStatus } from './sources.js'
+import { McpSource, sourceUrlEnv, type ReconOptions, type ReconResult, type SourceStatus } from './sources.js'
 import type { Finding } from './findings.js'
 
 export const name = 'data-sources'
@@ -21,7 +22,8 @@ export const name = 'data-sources'
 export interface SourceConfig {
   id: string
   name: string
-  url: string
+  /** Адрес MCP; пусто — берётся из DATA_SOURCES_URL_<ID>, нет и там — «не настроен». */
+  url?: string
   scope?: string
 }
 
@@ -72,7 +74,7 @@ function isAdmin(request: Request): boolean {
 }
 
 /**
- * Возврат из окна входа. Сервер штаба PO разрешает только loopback-адреса
+ * Возврат из окна входа. Шлюз агентов разрешает только loopback-адреса
  * вида http://127.0.0.1:<порт>/callback, а маршруты dsh живут под /api —
  * поэтому плагин держит отдельный приёмник ровно на /callback (порт 3081,
  * compose публикует его только на 127.0.0.1 хоста). Без state начатого
@@ -96,12 +98,17 @@ h1{font-size:1.3rem}p{color:var(--muted)}a{color:inherit}</style></head><body><d
 }
 
 const DEFAULT_SOURCES: SourceConfig[] = [
-  { id: 'po-hq', name: 'MTS PO штаб', url: 'https://harness.aleksishmanov.ru/mcp', scope: 'staff' },
+  { id: 'po-hq', name: 'Шлюз агентов', scope: 'staff' },
 ]
+
+/** Адрес источника: из конфига, иначе из DATA_SOURCES_URL_<ID>; пусто — «не настроен». */
+function sourceUrl(source: SourceConfig): string {
+  return (source.url?.trim() || process.env[sourceUrlEnv(source.id)]?.trim() || '')
+}
 
 export function apply(ctx: HarnessContext, config: Config = {}): void {
   const sources = (config.sources?.length ? config.sources : DEFAULT_SOURCES)
-    .map((source) => new McpSource(source.id, source.name, source.url, source.scope ?? 'staff'))
+    .map((source) => new McpSource(source.id, source.name, sourceUrl(source), source.scope ?? 'staff'))
   const byId = (id: unknown) => sources.find((source) => source.id === id)
 
   const service: DataSources = {
@@ -146,7 +153,7 @@ export function apply(ctx: HarnessContext, config: Config = {}): void {
   }
 
   // Приёмник входа нужен только источникам на OAuth: служебному токену окно входа не нужно.
-  if (sources.some((source) => source.mode === 'oauth')) ctx.effect(() => {
+  if (sources.some((source) => source.configured && source.mode === 'oauth')) ctx.effect(() => {
     const server: Server = createServer((req, res) => {
       const url = new URL(req.url ?? '/', 'http://callback')
       if (req.method !== 'GET' || url.pathname !== '/callback') {
@@ -184,7 +191,8 @@ export function apply(ctx: HarnessContext, config: Config = {}): void {
       }
       const source = byId(new URL(request.url).searchParams.get('source'))
       if (!source) return resultPage(false, 'Источник не найден', 'Такого источника нет в настройках плагина.')
-      if (source.mode === 'service') return resultPage(true, `«${source.name}» уже подключён`, 'Источник подключён служебным токеном Hermes — входить не нужно.')
+      if (!source.configured) return resultPage(false, `«${source.name}» не настроен`, `Задайте адрес MCP в ${sourceUrlEnv(source.id)} или в конфиге плагина.`)
+      if (source.mode === 'service') return resultPage(true, `«${source.name}» уже подключён`, 'Источник подключён служебным токеном шлюза агентов — входить не нужно.')
       try {
         const location = await source.beginAuth(CALLBACK_URL)
         console.error(`[data-sources] ${source.id}: начат вход, возврат на ${CALLBACK_URL}`)
@@ -200,7 +208,7 @@ export function apply(ctx: HarnessContext, config: Config = {}): void {
       const body = await request.json().catch(() => ({})) as { source?: string }
       const source = byId(body.source)
       if (!source) return Response.json({ error: 'источник не найден' }, { status: 404 })
-      if (source.mode === 'service') return Response.json({ error: 'источник подключён служебным токеном Hermes — отключается на сервере (отзыв токена в мосте)', sources: await service.status() }, { status: 409 })
+      if (source.mode === 'service') return Response.json({ error: 'источник подключён служебным токеном шлюза агентов — отключается на сервере (отзыв токена в шлюзе)', sources: await service.status() }, { status: 409 })
       await source.disconnect()
       return Response.json({ sources: await service.status() })
     })

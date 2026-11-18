@@ -20,7 +20,9 @@ interface SourceStatus {
   name: string
   url: string
   connected: boolean
-  /** service — служебный токен моста Hermes: подключать и отключать не нужно. */
+  /** false — адрес MCP не задан: источник «не настроен». */
+  configured?: boolean
+  /** service — служебный токен шлюза агентов: подключать и отключать не нужно. */
   mode?: 'oauth' | 'service'
   label?: string
   connectedAt?: string
@@ -90,16 +92,18 @@ function SourceCard(props: { source: SourceStatus; onChange(): void }): ReactEle
       <div style={s.head}>
         <span style={{ ...s.dot, background: source.connected ? '#16a34a' : '#dc2626' }} aria-hidden />
         <span style={s.name}>{source.name}</span>
-        <span style={s.muted} data-source-mode={source.mode ?? 'oauth'}>{source.mode === 'service'
-          ? source.label ?? 'подключён служебным токеном Hermes'
+        <span style={s.muted} data-source-mode={source.mode ?? 'oauth'}>{source.configured === false
+          ? source.label ?? 'не настроен'
+          : source.mode === 'service'
+          ? source.label ?? 'подключён служебным токеном шлюза агентов'
           : source.connected ? `подключён${source.connectedAt ? ` ${new Date(source.connectedAt).toLocaleDateString('ru-RU')}` : ''}` : 'не подключён'}</span>
-        {source.mode === 'service'
+        {source.configured === false || source.mode === 'service'
           ? null
           : source.connected
           ? <button type="button" style={s.button} disabled={busy} onClick={() => void disconnect()}>Отключить</button>
           : <a style={s.button} href={portalHref(`/api/data-sources.connect?source=${encodeURIComponent(source.id)}`)}>Подключить</a>}
       </div>
-      <span style={s.muted}>MCP: {source.url} · только чтение: {source.tools.join(', ')}</span>
+      <span style={s.muted}>MCP: {source.url || 'адрес не задан'} · только чтение: {source.tools.join(', ')}</span>
       {source.error && <span style={s.error} role="alert">{source.error}</span>}
       {source.connected && (
         <>

@@ -1,4 +1,4 @@
-// Разбор находок Jira/Confluence из ответов MCP штаба и карта для полного БФТ.
+// Разбор находок Jira/Confluence из ответов MCP-шлюза и карта для полного БФТ.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { applyTriage, cleanBody, confluenceFindings, epicChildren, extractLeads, findingsMarkdown, jiraBrowseBase, jiraFindings, jqlsFor, linkKeys, merge, rank, staleness, stems, synonymsIn, triageItems, typeLabel, statusLabel, unwrap } from '../lib/findings.js'
@@ -8,14 +8,14 @@ import { parseRpcBody, toolText } from '../lib/mcp.js'
 const wrap = (value) => JSON.stringify({ result: JSON.stringify(value) })
 
 const CF = [
-  { id: '1362734601', title: 'Интеграция с КЕДО', type: 'page', updated: '2025-07-01 17:35:14 MSK', url: 'https://confluence.example/pages/viewpage.action?pageId=1362734601', space: { key: 'ELEMENT' }, content: { value: 'формирования @@@hl@@@заявления@@@endhl@@@ на отпуск' } },
+  { id: '1000000001', title: 'Интеграция с КЕДО', type: 'page', updated: '2025-07-01 17:35:14 MSK', url: 'https://confluence.example/pages/viewpage.action?pageId=1000000001', space: { key: 'PORTAL' }, content: { value: 'формирования @@@hl@@@заявления@@@endhl@@@ на отпуск' } },
 ]
 const JR = { total: 2, issues: [
-  { key: 'HREDF-1', summary: 'Ошибка в модалке', browse_url: 'https://jira.example/browse/HREDF-1', description: 'h3. Шаги\r\n!a.png|thumbnail!', status: { name: 'Закрыт' }, issue_type: { name: 'Ошибка' }, project: { key: 'HREDF' }, updated: '2026-11-12 10:52:58 MSK' },
-  { key: 'HREDF-2', summary: 'Заявление на отпуск в портале', browse_url: 'https://jira.example/browse/HREDF-2', status: { name: 'В работе' }, issue_type: { name: 'Эпик' }, project: { key: 'HREDF' }, updated: '2026-10-01 10:00:00 MSK' },
+  { key: 'HRDOC-1', summary: 'Ошибка в модалке', browse_url: 'https://jira.example/browse/HRDOC-1', description: 'h3. Шаги\r\n!a.png|thumbnail!', status: { name: 'Закрыт' }, issue_type: { name: 'Ошибка' }, project: { key: 'HRDOC' }, updated: '2026-11-12 10:52:58 MSK' },
+  { key: 'HRDOC-2', summary: 'Заявление на отпуск в портале', browse_url: 'https://jira.example/browse/HRDOC-2', status: { name: 'В работе' }, issue_type: { name: 'Эпик' }, project: { key: 'HRDOC' }, updated: '2026-10-01 10:00:00 MSK' },
 ] }
 
-test('ответ штаба разворачивается из {"result": "<json>"} и без обёртки', () => {
+test('ответ шлюза разворачивается из {"result": "<json>"} и без обёртки', () => {
   assert.deepEqual(unwrap(wrap([1])), [1])
   assert.deepEqual(unwrap(JSON.stringify([2])), [2])
 })
@@ -23,14 +23,14 @@ test('ответ штаба разворачивается из {"result": "<jso
 test('Confluence: страница, пространство, выдержка без подсветки', () => {
   const [page] = confluenceFindings(wrap(CF), 'заявление на отпуск')
   assert.equal(page.kind, 'confluence')
-  assert.equal(page.container, 'ELEMENT')
+  assert.equal(page.container, 'PORTAL')
   assert.equal(page.snippet, 'формирования заявления на отпуск')
   assert.deepEqual(page.queries, ['заявление на отпуск'])
 })
 
 test('Jira: эпик выше ошибки, повторная находка копит hits и запросы', () => {
   const merged = merge([...jiraFindings(wrap(JR), 'отпуск'), ...jiraFindings(wrap(JR), 'заявление')])
-  assert.equal(merged[0].id, 'HREDF-2')
+  assert.equal(merged[0].id, 'HRDOC-2')
   assert.equal(merged[0].hits, 2)
   assert.deepEqual(merged[0].queries, ['отпуск', 'заявление'])
   assert.equal(merged[1].snippet, 'Шаги')
@@ -66,9 +66,9 @@ test('ранжирование: при равном покрытии эпик в
 test('ключи задач в тексте находок — ссылками, уже оформленные не трогаем', () => {
   const base = jiraBrowseBase(jiraFindings(wrap(JR), 'q'))
   assert.equal(base, 'https://jira.example/browse/')
-  assert.equal(linkKeys('см. ELEMENT-3301 и [HREDF-1](u)', base), 'см. [ELEMENT-3301](https://jira.example/browse/ELEMENT-3301) и [HREDF-1](u)')
-  assert.equal(linkKeys('ELEMENT-3301', undefined), 'ELEMENT-3301')
-  assert.equal(linkKeys('[Jira ELEMENT-3301](u) и HREDF-2', base), '[Jira ELEMENT-3301](u) и [HREDF-2](https://jira.example/browse/HREDF-2)')
+  assert.equal(linkKeys('см. PORTAL-101 и [HRDOC-1](u)', base), 'см. [PORTAL-101](https://jira.example/browse/PORTAL-101) и [HRDOC-1](u)')
+  assert.equal(linkKeys('PORTAL-101', undefined), 'PORTAL-101')
+  assert.equal(linkKeys('[Jira PORTAL-101](u) и HRDOC-2', base), '[Jira PORTAL-101](u) и [HRDOC-2](https://jira.example/browse/HRDOC-2)')
 })
 
 test('JQL: по названию и по тексту, без подзадач и без ORDER BY; кавычки не ломают выражение', () => {
@@ -83,10 +83,10 @@ test('JQL: по названию и по тексту, без подзадач �
 
 test('карта находок: готовые markdown-ссылки для БФТ, без голых ключей', () => {
   const findings = merge([...confluenceFindings(wrap(CF), 'q'), ...jiraFindings(wrap(JR), 'q')])
-  const md = findingsMarkdown(findings, { source: 'MTS PO штаб', queries: ['q'], at: '2026-11-13 09:00' })
-  assert.match(md, /## HREDF-2 · Заявление на отпуск в портале/)
-  assert.match(md, /Ссылка для БФТ: \[Jira HREDF-2\]\(https:\/\/jira\.example\/browse\/HREDF-2\)/)
-  assert.match(md, /Ссылка для БФТ: \[Confluence: Интеграция с КЕДО\]\(https:\/\/confluence\.example\/pages\/viewpage\.action\?pageId=1362734601\)/)
+  const md = findingsMarkdown(findings, { source: 'Шлюз агентов', queries: ['q'], at: '2026-11-13 09:00' })
+  assert.match(md, /## HRDOC-2 · Заявление на отпуск в портале/)
+  assert.match(md, /Ссылка для БФТ: \[Jira HRDOC-2\]\(https:\/\/jira\.example\/browse\/HRDOC-2\)/)
+  assert.match(md, /Ссылка для БФТ: \[Confluence: Интеграция с КЕДО\]\(https:\/\/confluence\.example\/pages\/viewpage\.action\?pageId=1000000001\)/)
   assert.doesNotMatch(md, /\[(CF|JR)-\d+\]/)
   assert.match(findingsMarkdown([], { source: 'S', queries: ['x'], at: '' }), /Ничего не найдено/)
 })
@@ -99,13 +99,13 @@ test('MCP: ответ из потока событий и текст инстр�
 })
 
 test('токенизация: латиница и CamelCase целиком, «:» и «/» режут, аббревиатуры целиком', () => {
-  const [a, b] = [stems(['Ticketland']), stems(['TicketsCloud'])]
-  assert.deepEqual(a, ['ticketland'])
-  assert.deepEqual(b, ['ticketscloud'])
+  const [a, b] = [stems(['MarketA']), stems(['MarketsHub'])]
+  assert.deepEqual(a, ['marketa'])
+  assert.deepEqual(b, ['marketshub'])
   assert.notDeepEqual(a, b)
   assert.deepEqual(stems(['1С:ЗУП']), ['1с', 'зуп'])
   assert.deepEqual(stems(['КЭДО/ЛК портал']), ['кэдо', 'лк', 'порта'])
-  assert.deepEqual(stems(['Ticketland BE']), ['ticketland'])
+  assert.deepEqual(stems(['MarketA BE']), ['marketa'])
 })
 
 test('аббревиатура совпадает только целым словом', () => {
@@ -116,12 +116,12 @@ test('аббревиатура совпадает только целым сло
   assert.deepEqual(rank(jira, ['ЛК']).map((f) => f.id), ['L-2'])
 })
 
-test('ранжирование: Ticketland и TicketsCloud не сливаются в одну основу', () => {
+test('ранжирование: MarketA и MarketsHub не сливаются в одну основу', () => {
   const jira = jiraFindings(wrap({ issues: [
-    { key: 'T-1', summary: 'Ticketland: партнёрство', browse_url: 't1', issue_type: { name: 'Задача' } },
-    { key: 'T-2', summary: 'Виджет TicketsCloud', browse_url: 't2', issue_type: { name: 'Задача' } },
-  ] }), 'TicketsCloud')
-  assert.deepEqual(rank(jira, ['виджет TicketsCloud']).map((f) => f.id), ['T-2'])
+    { key: 'T-1', summary: 'MarketA: партнёрство', browse_url: 't1', issue_type: { name: 'Задача' } },
+    { key: 'T-2', summary: 'Виджет MarketsHub', browse_url: 't2', issue_type: { name: 'Задача' } },
+  ] }), 'MarketsHub')
+  assert.deepEqual(rank(jira, ['виджет MarketsHub']).map((f) => f.id), ['T-2'])
 })
 
 test('ранжирование: находка только с процессными словами — без очков, ниже порога', () => {
@@ -217,20 +217,20 @@ test('пустой эпик — его состав; без детей — яв�
 
 test('второй шаг: только подписанные строки и ссылки с предметом в подписи', () => {
   const body = [
-    '| Epic | GDS-10 |',
+    '| Epic | TEAMA-10 |',
     '| Аналитика | [Разбор](https://c/pages/viewpage.action?pageId=55) |',
     'См. также OTHER-1 в тексте без подписи.',
     '* [Промокоды в кассе](https://c/pages/viewpage.action?pageId=77)',
     '* [Посторонняя страница](https://c/pages/viewpage.action?pageId=88)',
   ].join('\n')
-  assert.deepEqual(extractLeads('| Решения | * [[BI\\_28] Промокод: выдача](https://c/pages/viewpage.action?pageId=99) |', ['Промокод'], new Set()).map((l) => [l.id, l.label]), [['99', 'BI_28 Промокод: выдача']])
+  assert.deepEqual(extractLeads('| Решения | * [[DOC\\_1] Промокод: выдача](https://c/pages/viewpage.action?pageId=99) |', ['Промокод'], new Set()).map((l) => [l.id, l.label]), [['99', 'DOC_1 Промокод: выдача']])
   const leads = extractLeads(body, ['Промокод за покупку'], new Set(['jira:KNOWN-1']))
-  assert.deepEqual(leads.map((l) => l.id), ['GDS-10', '55', '77'])
+  assert.deepEqual(leads.map((l) => l.id), ['TEAMA-10', '55', '77'])
   assert.deepEqual(extractLeads('| Epic | KNOWN-1 |', ['x'], new Set(['jira:KNOWN-1'])), [])
 })
 
 test('синонимы систем: «Имя (Синоним)», одна сторона — система из заявки', () => {
-  assert.deepEqual(synonymsIn(['Участники: Система Ticketsale (Базис), BFF (слой)'], ['БАЗИС', 'Витрина']), [{ system: 'БАЗИС', alias: 'Ticketsale' }])
+  assert.deepEqual(synonymsIn(['Участники: Система Saleport (Опора), BFF (слой)'], ['ОПОРА', 'Витрина']), [{ system: 'ОПОРА', alias: 'Saleport' }])
   assert.deepEqual(synonymsIn(['Витрина (Storefront)'], ['Витрина']), [{ system: 'Витрина', alias: 'Storefront' }])
   assert.deepEqual(synonymsIn(['Касса (POS)'], ['Витрина']), [])
 })
@@ -298,17 +298,17 @@ test('ранжирование: старая страница ровно о пр
 
 test('статус «Завершено» — закрыт; подпись ссылки не режется посреди слова', () => {
   assert.equal(statusLabel('Завершено'), 'закрыт (Завершено)')
-  const title = 'TC-001 [СТ] Отображение виджета TicketsCloud на мероприятиях TicketsCloud на витрине Ticketland'
-  const md = findingsMarkdown([{ kind: 'confluence', id: '2391063246', title, url: 'https://c/pages/viewpage.action?pageId=2391063246', snippet: '', hits: 1, queries: [] }], { source: 's', queries: ['q'], at: '2026-11-17' })
-  assert.ok(md.includes('Ссылка для БФТ: [Confluence: TC-001 СТ Отображение виджета TicketsCloud на мероприятиях TicketsCloud на витрине Ticketland]('), md)
+  const title = 'TC-001 [СТ] Отображение виджета PartnerX на мероприятиях PartnerX на витрине MarketA'
+  const md = findingsMarkdown([{ kind: 'confluence', id: '1000000002', title, url: 'https://c/pages/viewpage.action?pageId=1000000002', snippet: '', hits: 1, queries: [] }], { source: 's', queries: ['q'], at: '2026-11-17' })
+  assert.ok(md.includes('Ссылка для БФТ: [Confluence: TC-001 СТ Отображение виджета PartnerX на мероприятиях PartnerX на витрине MarketA]('), md)
   const long = `${'Очень длинное название страницы '.repeat(8)}конец`
   const label = /Ссылка для БФТ: \[Confluence: ([^\]]+)\]/.exec(findingsMarkdown([{ kind: 'confluence', id: '1', title: long, url: 'u', snippet: '', hits: 1, queries: [] }], { source: 's', queries: ['q'], at: '2026-11-17' }))[1]
   assert.ok(label.endsWith('…') && /(?:страницы|название|длинное|Очень)…$/.test(label), label)
 })
 
-test('синонимы: обстоятельство в скобках («из COS DB», «Этапе 1») — не другое имя системы', () => {
-  assert.deepEqual(synonymsIn(['Заказы виджета TicketsCloud (из COS DB) и TicketsCloud (Этапе 1)'], ['TicketsCloud']), [])
-  assert.deepEqual(synonymsIn(['Система Ticketsale (БАЗИС)'], ['БАЗИС']), [{ system: 'БАЗИС', alias: 'Ticketsale' }])
+test('синонимы: обстоятельство в скобках («из OrdersDB», «Этапе 1») — не другое имя системы', () => {
+  assert.deepEqual(synonymsIn(['Заказы виджета PartnerX (из OrdersDB) и PartnerX (Этапе 1)'], ['PartnerX']), [])
+  assert.deepEqual(synonymsIn(['Система Saleport (ОПОРА)'], ['ОПОРА']), [{ system: 'ОПОРА', alias: 'Saleport' }])
 })
 
 // Раунд 4: полнота разведки. Нейтральный домен — подписка на прокат самокатов (не из заявок портала).

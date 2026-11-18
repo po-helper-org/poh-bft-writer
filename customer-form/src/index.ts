@@ -145,7 +145,7 @@ interface ConnectionLike {
   fetch?: { register: (route: { path: string; methods: string[]; requestBody: 'buffered'; fetch(request: Request): Promise<Response> }) => () => void }
 }
 
-/** Служба плагина data-sources (Jira/Confluence через MCP штаба PO). */
+/** Служба плагина data-sources (Jira/Confluence через MCP-шлюз агентов PO). */
 interface DataSourcesLike {
   available(): Promise<boolean>
   recon(queries: string[], options?: {

@@ -38,7 +38,7 @@ if [ ! -s "$ENV" ]; then
 DATABASE_URL=sqlite:///$BASE/box.db
 TEMPORAL_ADDRESS=127.0.0.1:7233
 TEMPORAL_UI_URL=http://127.0.0.1:8233
-BOX_TOKENS=hermes:$H,ui:$U
+BOX_TOKENS=gateway:$H,ui:$U
 BOX_ADMINS=ui
 HOST=127.0.0.1
 PORT=8700

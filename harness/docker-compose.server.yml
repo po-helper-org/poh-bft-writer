@@ -1,20 +1,21 @@
-# Портал заказчика на сервере (ADR-0014): https://browser.harness.aleksishmanov.ru/bft/
+# Портал заказчика на сервере (ADR-0014): $PORTAL_PUBLIC_URL (например https://portal.example.org/bft/)
 # за входом Authentik (nginx → 127.0.0.1:3082, префикс /bft срезается).
-# Поверх docker-compose.yml — так его подключает deploy-server.sh:
+# Адрес, имена хоста и подсеть — в harness/.env сервера (их переносит deploy-server.sh
+# из локального harness/deploy/server.env). Поверх docker-compose.yml — так его подключает deploy-server.sh:
 #   COMPOSE_FILE=docker-compose.yml:docker-compose.server.yml COMPOSE_PROJECT_NAME=poh-bft-portal
 # Наружу (только 127.0.0.1 сервера) — портал, приёмник входа источников и трекер
 # для сида; порты 3080/3081/3456 на сервере заняты другими сервисами.
 services:
   customer-web:
     environment:
-      PORTAL_PUBLIC_URL: ${PORTAL_PUBLIC_URL:-https://browser.harness.aleksishmanov.ru/bft}
-      DSH_TRUSTED_HOSTS: ${PORTAL_TRUSTED_HOSTS:-browser.harness.aleksishmanov.ru}
+      PORTAL_PUBLIC_URL: ${PORTAL_PUBLIC_URL:?задайте PORTAL_PUBLIC_URL (harness/deploy/server.env)}
+      DSH_TRUSTED_HOSTS: ${PORTAL_TRUSTED_HOSTS:?задайте PORTAL_TRUSTED_HOSTS (harness/deploy/server.env)}
       # Трекер наружу не публикуется: ссылок на него заказчику не показываем.
       TRACKER_PUBLIC_URL: ${TRACKER_PUBLIC_URL:-}
-      # Источник данных на сервере — служебный токен моста Hermes
+      # Источник данных на сервере — служебный токен шлюза агентов
       # (DATA_SOURCES_TOKEN_PO_HQ в .env, пишет deploy/issue-sources-token.sh):
       # с ним приёмник входа не поднимается. Запасной путь без токена — OAuth
-      # штаба через туннель  ssh -L 3083:127.0.0.1:3083 harness-mts
+      # шлюза через туннель  ssh -L 3083:127.0.0.1:3083 $DEPLOY_HOST
       DATA_SOURCES_CALLBACK_URL: http://127.0.0.1:3083/callback
       # Администратор — по учётке Authentik (/bft/admin), пароль не принимается.
       # ADMIN_PASSWORD остаётся секретом куки администратора.
@@ -38,10 +39,11 @@ services:
     build:
       network: host
 
-# Пулы адресов docker на сервере исчерпаны: подсеть задана явно, по соглашению
-# сервера — маленькие сети в 100.101.0.0/16 (poh-box 240.0/24, webmail 231.0/28).
+# Пулы адресов docker на сервере могут быть исчерпаны: подсеть задана явно —
+# PORTAL_SUBNET, задать под свой сервер (свободная маленькая сеть, не пересекается
+# с остальными сетями docker хоста).
 networks:
   default:
     ipam:
       config:
-        - subnet: 100.101.244.0/27
+        - subnet: ${PORTAL_SUBNET:-172.31.244.0/27}

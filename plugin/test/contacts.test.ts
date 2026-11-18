@@ -12,16 +12,16 @@ const DOC = `---
 slug: 2026-10-23-direct-faq
 stage: fast
 contacts:
-  - {role: customer, name: "И. Иванов", email: iivanov@corp.ru}
-  - {role: po, name: "П. Петров", email: ppetrov@corp.ru}
+  - {role: customer, name: "И. Иванов", email: iivanov@example.com}
+  - {role: po, name: "П. Петров", email: ppetrov@example.com}
   - {role: tech-lead, name: "С. Сидоров", email: }
 sources:
-  - https://confluence.corp.ru/x/AbCd
+  - https://confluence.example.com/x/AbCd
 ---
 # Заголовок`
 
 test('все три роли с email — вопросов нет', () => {
-  const v = parseContacts(DOC.replace(/, email: \}/, ', email: ssidorov@corp.ru}'))
+  const v = parseContacts(DOC.replace(/, email: \}/, ', email: ssidorov@example.com}'))
   assert.deepEqual(v.missing, [])
   assert.equal(v.contacts.length, 3)
 })
@@ -35,7 +35,7 @@ test('роль без email и пропущенная роль — открыт�
 test('пропущенная роль попадает в missing', () => {
   const v = parseContacts(`---
 contacts:
-  - {role: customer, email: a@b.ru}
+  - {role: customer, email: a@example.com}
 ---`)
   assert.deepEqual(v.missing, ['po', 'tech-lead'])
   assert.equal(v.contacts[0].name, undefined)
@@ -50,16 +50,16 @@ test('блока нет — все роли в missing, пустой списо�
 test('мусорные строки и чужие роли пропускаются, разбор не падает', () => {
   const v = parseContacts(`---
 contacts:
-  - {role: intern, email: x@y.ru}
+  - {role: intern, email: x@example.com}
   - сломанная строка
-  - {role: po, email: p@b.ru}
+  - {role: po, email: p@example.com}
 ---`)
   assert.deepEqual(v.contacts.map((c) => c.role), ['po'])
   assert.ok(!v.missing.includes('po'))
 })
 
 test('кавычки имени снимаются, конец блока — следующий ключ', () => {
-  const v = parseContacts(DOC.replace(/, email: \}/, ', email: ssidorov@corp.ru}'))
+  const v = parseContacts(DOC.replace(/, email: \}/, ', email: ssidorov@example.com}'))
   assert.equal(v.contacts[0].name, 'И. Иванов')
   // Блок закончился на sources:, заголовок не разбирается как контакт.
   assert.equal(v.contacts.length, 3)

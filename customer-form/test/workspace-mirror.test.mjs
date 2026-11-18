@@ -16,7 +16,7 @@ const titles = await import('../lib-test/session-title.js')
 test.after(() => rmSync(HOME, { recursive: true, force: true }))
 
 test('имя папки: «Заявка N — название», без запрещённых символов, длинное — по границе слова', () => {
-  assert.equal(mirror.folderName(12, 'Промокоды за покупку через TicketsCloud'), 'Заявка 12 — Промокоды за покупку через TicketsCloud')
+  assert.equal(mirror.folderName(12, 'Промокоды за покупку через PartnerX'), 'Заявка 12 — Промокоды за покупку через PartnerX')
   assert.equal(mirror.folderName(3, '  Отчёт: план/факт?  '), 'Заявка 3 — Отчёт план факт')
   assert.equal(mirror.folderName(5, undefined), 'Заявка 5')
   const long = mirror.folderName(7, 'слово '.repeat(30))
@@ -63,11 +63,11 @@ test('папка заявки: запрос, сценарий, fast; переи�
   // Сценарий, сдача (название), документ fast.
   sharedDemos().set(sessionId, { rev: 1, approvedAt: '2026-11-18T09:00:00Z', demo: { title: 'Промокод в письме', where: 'почта', steps: [{ screen: 'Почта', action: 'Открываю письмо', expect: 'Вижу промокод' }], done: ['Вижу промокод'] } })
   const fastDir = join(HOME, 'bft-fast', 'zayavka-41')
-  writeFileSync(join(fastDir, 'intake.json'), JSON.stringify({ title: 'Промокоды за покупку через TicketsCloud', summary: 'Промокод после оплаты' }))
+  writeFileSync(join(fastDir, 'intake.json'), JSON.stringify({ title: 'Промокоды за покупку через PartnerX', summary: 'Промокод после оплаты' }))
   writeFileSync(join(fastDir, 'zayavka-41-fast.md'), '# Первичные требования\n')
   writeFileSync(join(fastDir, 'sources.md'), '# Карта находок\n')
   const dir2 = await mirror.mirrorRequest(taskId, sessionId)
-  assert.equal(dir2, join(HOME, 'Customer-requests', 'Заявка 41 — Промокоды за покупку через TicketsCloud'))
+  assert.equal(dir2, join(HOME, 'Customer-requests', 'Заявка 41 — Промокоды за покупку через PartnerX'))
   assert.ok(!existsSync(dir1), 'старая папка переименована, а не оставлена рядом')
   const files = readdirSync(dir2).sort()
   assert.deepEqual(files, [mirror.MIRROR_FILES.request, mirror.MIRROR_FILES.sources, mirror.MIRROR_FILES.fast, mirror.MIRROR_FILES.demo].sort())

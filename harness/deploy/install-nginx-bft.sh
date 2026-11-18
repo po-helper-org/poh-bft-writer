@@ -1,20 +1,28 @@
 #!/usr/bin/env bash
-# Разовый шаг владельца (нужен sudo): /bft/ на browser.harness.aleksishmanov.ru —
+# Разовый шаг владельца (нужен sudo): /bft/ на хосте портала —
 # портал заказчика БФТ вместо виджета «Управление требованиями» (ADR-0014).
-#   bash ~/Projects/poh-bft-portal/harness/deploy/install-nginx-bft.sh
+#   bash ~/<DEPLOY_DIR>/harness/deploy/install-nginx-bft.sh
+# Хост (vhost /etc/nginx/sites-available/<хост>.conf): PORTAL_HOST, иначе первое имя
+# из PORTAL_TRUSTED_HOSTS в harness/.env портала (переносит deploy-server.sh
+# из harness/deploy/server.env).
 # Идемпотентно. include виджета в vhost комментируется (сам виджет и его сниппет
 # не удаляются — откат: --rollback). nginx перезагружается только после успешного
 # `nginx -t`, иначе vhost и сниппет восстанавливаются.
 set -euo pipefail
 
 DIR="$(cd "$(dirname "$0")" && pwd)"
-NAME=browser.harness.aleksishmanov.ru
+ENV_FILE="$DIR/../.env"
+NAME=${PORTAL_HOST:-}
+if [ -z "$NAME" ] && [ -f "$ENV_FILE" ]; then
+  NAME=$(grep -m1 '^PORTAL_TRUSTED_HOSTS=' "$ENV_FILE" | cut -d= -f2- | awk '{print $1}' || true)
+fi
+[ -n "$NAME" ] || { echo "Не задан хост портала: PORTAL_HOST=<хост> или PORTAL_TRUSTED_HOSTS в $ENV_FILE"; exit 1; }
 VHOST=/etc/nginx/sites-available/$NAME.conf
 SNIP=/etc/nginx/snippets/poh-bft-portal.conf
 WIDGET_INCLUDE='include /etc/nginx/snippets/poh-widget-bft.conf;'
 PORTAL_INCLUDE='include /etc/nginx/snippets/poh-bft-portal.conf;'
 
-[ "$(id -un)" = aleks ] || { echo "Запускать под aleks (sudo спросит пароль сам)"; exit 1; }
+[ "$(id -u)" != 0 ] || { echo "Запускать под пользователем сервера, не под root (sudo спросит пароль сам)"; exit 1; }
 
 BAK="$VHOST.bak-bft-portal-$(date +%Y%m%d%H%M%S)"
 sudo cp -a "$VHOST" "$BAK"

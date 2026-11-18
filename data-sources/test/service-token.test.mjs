@@ -1,4 +1,4 @@
-// Служебный токен моста Hermes (DATA_SOURCES_TOKEN_<ID>): без OAuth, статус «service»,
+// Служебный токен шлюза агентов (DATA_SOURCES_TOKEN_<ID>): без OAuth, статус «service»,
 // подключение/отключение отклоняются, 401 — понятная ошибка без попытки обновления,
 // токен не попадает ни в один ответ API.
 import { test } from 'node:test'
@@ -46,7 +46,7 @@ test('имя переменной: po-hq → DATA_SOURCES_TOKEN_PO_HQ', () => {
 test('служебный токен: поиск без OAuth, статус service, токен не в статусе', async () => {
   const bridge = await fakeBridge()
   try {
-    const source = new McpSource('svc-a', 'Штаб', bridge.url, 'staff', { serviceToken: TOKEN })
+    const source = new McpSource('svc-a', 'Шлюз', bridge.url, 'staff', { serviceToken: TOKEN })
     assert.equal(source.mode, 'service')
     assert.equal(await source.connected(), true)
     const result = await source.search('абонемент', 5)
@@ -60,7 +60,7 @@ test('служебный токен: поиск без OAuth, статус servi
     const status = await source.status()
     assert.equal(status.mode, 'service')
     assert.equal(status.connected, true)
-    assert.match(status.label, /служебным токеном Hermes/)
+    assert.match(status.label, /служебным токеном шлюза агентов/)
     assert.doesNotMatch(JSON.stringify(status), new RegExp(TOKEN))
     await assert.rejects(source.beginAuth('http://127.0.0.1:1/callback'), /служебным токеном/)
     await assert.rejects(source.disconnect(), /служебным токеном/)
@@ -72,9 +72,9 @@ test('служебный токен: поиск без OAuth, статус servi
 test('служебный токен из окружения DATA_SOURCES_TOKEN_<ID>', async () => {
   process.env.DATA_SOURCES_TOKEN_SVC_ENV = TOKEN
   try {
-    const source = new McpSource('svc-env', 'Штаб', 'http://127.0.0.1:9/mcp')
+    const source = new McpSource('svc-env', 'Шлюз', 'http://127.0.0.1:9/mcp')
     assert.equal(source.mode, 'service')
-    const plain = new McpSource('svc-none', 'Штаб', 'http://127.0.0.1:9/mcp')
+    const plain = new McpSource('svc-none', 'Шлюз', 'http://127.0.0.1:9/mcp')
     assert.equal(plain.mode, 'oauth')
     assert.equal((await plain.status()).mode, 'oauth')
   } finally {
@@ -82,10 +82,10 @@ test('служебный токен из окружения DATA_SOURCES_TOKEN_<
   }
 })
 
-test('401 от моста — «выпустите новый», без повторов и обновления', async () => {
+test('401 от шлюза — «выпустите новый», без повторов и обновления', async () => {
   const bridge = await fakeBridge({ reject: true })
   try {
-    const source = new McpSource('svc-b', 'Штаб', bridge.url, 'staff', { serviceToken: TOKEN })
+    const source = new McpSource('svc-b', 'Шлюз', bridge.url, 'staff', { serviceToken: TOKEN })
     await assert.rejects(source.searchConfluence('абонемент'), (e) => e.message === SERVICE_REJECTED)
     // Один запрос initialize — ни повтора, ни обращения к выдаче токенов.
     assert.equal(bridge.requests.length, 1)
@@ -112,7 +112,7 @@ test('маршруты: статус без токена, «Подключить
     provide: () => () => {},
   }
   try {
-    apply(ctx, { sources: [{ id: 'svc-route', name: 'Штаб', url: bridge.url }] })
+    apply(ctx, { sources: [{ id: 'svc-route', name: 'Шлюз', url: bridge.url }] })
     assert.ok(!effects.some((label) => /приёмник входа/.test(label)))
     const { createHmac } = await import('node:crypto')
     const cookie = `portal_admin=${createHmac('sha256', 'admin-test').update('portal-admin-v1').digest('hex')}`
@@ -127,7 +127,7 @@ test('маршруты: статус без токена, «Подключить
 
     const connect = await call('/api/data-sources.connect?source=svc-route')
     assert.notEqual(connect.status, 302)
-    assert.match(await connect.text(), /служебным токеном Hermes/)
+    assert.match(await connect.text(), /служебным токеном шлюза агентов/)
 
     const disconnect = await call('/api/data-sources.disconnect', { method: 'POST', body: JSON.stringify({ source: 'svc-route' }) })
     assert.equal(disconnect.status, 409)

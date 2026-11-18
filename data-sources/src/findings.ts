@@ -178,7 +178,7 @@ function termOf(raw: string): Term | undefined {
   const lower = word.toLowerCase()
   if (/^\p{N}+$/u.test(word)) return undefined
   if (ACRONYM.test(word)) return STOP_EXACT.has(lower) ? undefined : { key: lower, exact: true }
-  // Латиница, цифры, CamelCase — целиком: Ticketland и TicketsCloud — разные системы.
+  // Латиница, цифры, CamelCase — целиком: MarketA и MarketsHub — разные системы.
   if (/^[a-z0-9]+$/.test(lower)) return lower.length >= 4 ? { key: lower, exact: false } : undefined
   return lower.length >= 4 ? { key: lower.slice(0, 5), exact: false } : undefined
 }
@@ -547,7 +547,7 @@ export function synonymsIn(texts: string[], systems: string[]): Synonym[] {
     const clean = alias.replace(/[\\*_`"«»]/g, '').trim()
     if (clean.length < 2 || clean.length > 30 || same(clean, system)) return
     // Имя системы начинается с заглавной или цифры и не содержит отдельных чисел:
-    // «(из COS DB)», «(Этапе 1)» — обстоятельство в скобках, не другое название.
+    // «(из OrdersDB)», «(Этапе 1)» — обстоятельство в скобках, не другое название.
     if (!/^[\p{Lu}\p{N}]/u.test(clean) || clean.split(/\s+/).some((w) => /^\p{N}+$/u.test(w))) return
     if (out.some((item) => same(item.system, system) && same(item.alias, clean))) return
     out.push({ system, alias: clean })
@@ -557,7 +557,7 @@ export function synonymsIn(texts: string[], systems: string[]): Synonym[] {
       const left = match[1]!.trim()
       const inner = match[2]!.trim()
       for (const system of names) {
-        // Левая часть может начинаться с чужих слов («Система Ticketsale (Базис)») — сверяем её хвост.
+        // Левая часть может начинаться с чужих слов («Система Saleport (Опора)») — сверяем её хвост.
         const leftTail = left.split(/\s+/).slice(-system.split(/\s+/).length).join(' ')
         if (same(inner, system)) add(system, left.split(/\s+/).at(-1) ?? '')
         else if (same(leftTail, system)) add(system, inner)

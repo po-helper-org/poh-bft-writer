@@ -109,14 +109,17 @@ test('администратор: вход по паролю, штатные «�
   expect(reset.deep).toBeNull()
   expect(reset.chatChoice).toEqual(chatBefore)
 
-  // «Настройки → Источники данных» (плагин data-sources): источник штаба PO и вход в него.
+  // «Настройки → Источники данных» (плагин data-sources): источник шлюза агентов PO и вход в него.
   await settings.getByText('Источники данных', { exact: true }).click()
   const source = settings.locator('[data-source="po-hq"]')
-  await expect(source).toContainText('MTS PO штаб')
+  await expect(source).toContainText(/шлюз/i)
   await expect(source).toContainText('только чтение: confluence_search, confluence_get_page, jira_search, jira_get_issue')
-  const sourceStatus = await page.evaluate(async () => (await fetch('api/data-sources.status')).json()) as { admin: boolean; sources: { connected: boolean }[] }
+  const sourceStatus = await page.evaluate(async () => (await fetch('api/data-sources.status')).json()) as { admin: boolean; sources: { connected: boolean; configured?: boolean }[] }
   expect(sourceStatus.admin).toBe(true)
-  if (!sourceStatus.sources[0]!.connected) {
+  // Без DATA_SOURCES_URL_PO_HQ источник «не настроен» — кнопки входа нет.
+  if (sourceStatus.sources[0]!.configured === false) {
+    await expect(source.getByRole('link', { name: 'Подключить' })).toHaveCount(0)
+  } else if (!sourceStatus.sources[0]!.connected) {
     await expect(source.getByRole('link', { name: 'Подключить' })).toHaveAttribute('href', `${PORTAL}/api/data-sources.connect?source=po-hq`)
   }
 

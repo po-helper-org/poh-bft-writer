@@ -1,4 +1,4 @@
-// Переход на служебный токен: прежнее OAuth-подключение (полный токен штаба)
+// Переход на служебный токен: прежнее OAuth-подключение (полный токен шлюза)
 // удаляется из тома и отзывается на сервере — пустая переменная окружения
 // не возвращает портал к полному токену.
 import { test } from 'node:test'
@@ -30,7 +30,7 @@ test('служебный токен: старое OAuth-подключение �
       clientId: 'c', redirectUri: 'http://127.0.0.1:3081/callback', tokenEndpoint: `${base}/token`, revocationEndpoint: `${base}/revoke`,
       accessToken: 'old-access', refreshToken: 'old-refresh', connectedAt: '2026-11-01T00:00:00Z',
     })
-    const source = new McpSource('po-mig', 'Штаб', `${base}/mcp`, 'staff', { serviceToken: 'svc' })
+    const source = new McpSource('po-mig', 'Шлюз', `${base}/mcp`, 'staff', { serviceToken: 'svc' })
     const status = await source.status()
     assert.equal(status.mode, 'service')
     assert.equal(await loadConnection('po-mig'), undefined)
@@ -38,7 +38,7 @@ test('служебный токен: старое OAuth-подключение �
     for (let i = 0; i < 50 && revoked.length < 2; i++) await new Promise((r) => setTimeout(r, 20))
     assert.deepEqual(revoked.sort(), ['access_token', 'refresh_token'])
     // Без служебного токена источник больше не подключён (не тихий возврат к OAuth).
-    const plain = new McpSource('po-mig', 'Штаб', `${base}/mcp`, 'staff', { serviceToken: '' })
+    const plain = new McpSource('po-mig', 'Шлюз', `${base}/mcp`, 'staff', { serviceToken: '' })
     assert.equal(await plain.connected(), false)
   } finally {
     await new Promise((resolve) => server.close(resolve))

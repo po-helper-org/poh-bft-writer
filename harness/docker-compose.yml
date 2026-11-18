@@ -169,16 +169,18 @@ services:
       INGEST_URL: http://context-ingest:8090
       # Кортекс (ADR-0011): bft-fast дораскрывает запрос — контуры проверки и зоны влияния.
       CORTEX_URL: http://cortex:8095
-      # Источник данных «MTS PO штаб» по служебному токену моста Hermes (ADR-0013):
-      # задан — без OAuth и окна входа, мост пускает только 4 инструмента чтения.
-      # На сервере пишет harness/deploy/issue-sources-token.sh; пусто — OAuth.
+      # Источник данных po-hq — MCP-шлюз агентов (ADR-0013): адрес MCP шлюза;
+      # пусто — источник не настроен. На сервере переносит deploy-server.sh.
+      DATA_SOURCES_URL_PO_HQ: ${DATA_SOURCES_URL_PO_HQ:-}
+      # Служебный токен шлюза: задан — без OAuth и окна входа, шлюз пускает
+      # только 4 инструмента чтения. На сервере пишет harness/deploy/issue-sources-token.sh; пусто — OAuth.
       DATA_SOURCES_TOKEN_PO_HQ: ${DATA_SOURCES_TOKEN_PO_HQ:-}
     depends_on:
       context-ingest: { condition: service_healthy }
     ports:
       - "${PORTAL_BIND:-127.0.0.1}:3080:3080"
       # Возврат из окна входа источников данных (data-sources, OAuth): сервер
-      # штаба PO пускает только http://<loopback>:<порт>/callback. Только 127.0.0.1.
+      # шлюза агентов пускает только http://<loopback>:<порт>/callback. Только 127.0.0.1.
       - "127.0.0.1:3081:3081"
     volumes:
       - customerdata:/data

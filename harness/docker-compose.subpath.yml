@@ -1,5 +1,5 @@
 # Эмулятор прода: портал под префиксом /bft/ за nginx (как
-# https://browser.harness.aleksishmanov.ru/bft/). Поверх основного файла:
+# https://portal.example.org/bft/). Поверх основного файла:
 #   docker compose -f docker-compose.yml -f docker-compose.subpath.yml up -d customer-web subpath-nginx
 #   curl -sI http://127.0.0.1:3090/bft/
 #   PORTAL_URL=http://127.0.0.1:3090/bft ./e2e-customer.sh

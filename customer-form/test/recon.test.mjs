@@ -50,7 +50,7 @@ test('раунд 4: короткие запросы по именам из на�
 
 test('процессные слова не дают якоря; аббревиатуры и латиница — целиком', () => {
   assert.deepEqual(contentTerms(['согласование маршрута руководителем']), [])
-  assert.deepEqual(contentTerms(['1С:ЗУП TicketsCloud']).map((t) => t.key), ['1с', 'зуп', 'ticketscloud'])
+  assert.deepEqual(contentTerms(['1С:ЗУП PartnerX']).map((t) => t.key), ['1с', 'зуп', 'partnerx'])
 })
 
 const node = (id, title, summary = '', owner) => ({ node_id: id, title, summary, sources: [], ...(owner ? { owner } : {}) })

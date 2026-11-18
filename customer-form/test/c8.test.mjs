@@ -90,12 +90,12 @@ test('LK001: хвост эталона навыка (промт Claude Code) —
 
 test('statusLine и deepHead: строка status по факту разведки', () => {
   const fast = '---\nversion: 0.1\nsynced: 2026-11-01\nstatus: Черновик 0.1 (fast — шапка; deep не запускался)\nstage: fast\n---\n\n# [БФТ] lib-1: Бронь\n'
-  const fresh = deepHead(fast, '2026-11-17', { mode: 'fresh', source: 'Штаб', count: 4 })
-  assert.match(fresh, /^status: Черновик 0\.2 \(deep — собран в портале; источники: Штаб, находок 4 — указатель, не фактбаза; git не подключался\)$/m)
+  const fresh = deepHead(fast, '2026-11-17', { mode: 'fresh', source: 'Jira и Confluence', count: 4 })
+  assert.match(fresh, /^status: Черновик 0\.2 \(deep — собран в портале; источники: Jira и Confluence, находок 4 — указатель, не фактбаза; git не подключался\)$/m)
   assert.match(fresh, /^synced: 2026-11-17$/m)
   assert.match(fresh, /^stage: deep$/m)
-  assert.match(statusLine({ mode: 'previous', source: 'Штаб', count: 3 }), /прошлая карта находок \(3\), Штаб в этот раз недоступен/)
-  assert.match(statusLine({ mode: 'none', source: 'Штаб', count: 0 }), /Штаб опрошены, находок нет; git не подключался/)
+  assert.match(statusLine({ mode: 'previous', source: 'Jira и Confluence', count: 3 }), /прошлая карта находок \(3\), Jira и Confluence в этот раз недоступен/)
+  assert.match(statusLine({ mode: 'none', source: 'Jira и Confluence', count: 0 }), /Jira и Confluence опрошены, находок нет; git не подключался/)
   assert.match(statusLine({ mode: 'unavailable', source: '', count: 0 }), /Confluence, JIRA и git не подключались/)
   assert.match(deepHead(fast, '2026-11-17'), /Confluence, JIRA и git не подключались/)
 })

@@ -7,7 +7,8 @@
 node_modules/
 dist/
 harness/.env
-harness/.last-url
+harness/.last-url*
+harness/deploy/server.env
 customer-form/test-results/
 customer-form/lib-test/
 speech-ru/lib/

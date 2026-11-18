@@ -685,7 +685,7 @@ export const dependencyAddresseeFix: Fix = {
       for (const row of table.rows) {
         const first = teamKey(row.cells[0] ?? '')
         if (!first) continue
-        // Точное совпадение важнее вхождения: «Ticketland BE» — не команда «BE».
+        // Точное совпадение важнее вхождения: «MarketA BE» — не команда «BE».
         const team = teams.find((t) => first === t.key) ?? teams.find((t) => first.length >= 3 && (first.includes(t.key) || t.key.includes(first)))
         if (!team) continue
         // «Команда портала» → «команды портала»; имя без слова «команда» — в кавычках («команды «Каталог»»).
@@ -974,7 +974,7 @@ function teamAddressee(first: string, fastMd: string): string | undefined {
   return /^команд\p{L}*\s+/iu.test(team.name) ? team.name.replace(/^команд\p{L}*\s+/iu, 'команды ') : `команды «${team.name}»`
 }
 
-const SYS_STOP = new Set(['МТС', 'POST', 'GET', 'PUT', 'PATCH', 'DELETE', 'API', 'URL', 'HTTP', 'HTTPS', 'PDF', 'XLSX', 'JSON', 'XML', 'SOAP', 'REST', 'ФИО', 'ООО', 'ПАО', 'ЭЦП', 'ЭП', 'TODO', 'UTC', 'MSK', 'НФТ', 'ФТ', 'ПТ', 'ИТ', 'БТ', 'БФТ', 'ID', 'UI', 'UX', 'SLA', 'FAQ'])
+const SYS_STOP = new Set(['POST', 'GET', 'PUT', 'PATCH', 'DELETE', 'API', 'URL', 'HTTP', 'HTTPS', 'PDF', 'XLSX', 'JSON', 'XML', 'SOAP', 'REST', 'ФИО', 'ООО', 'ПАО', 'ЭЦП', 'ЭП', 'TODO', 'UTC', 'MSK', 'НФТ', 'ФТ', 'ПТ', 'ИТ', 'БТ', 'БФТ', 'ID', 'UI', 'UX', 'SLA', 'FAQ'])
 
 /**
  * «Зависимости» (раунд 2, документ портала):

@@ -13,7 +13,7 @@ x-box: &box
     LLM_BASE_URL: ${LLM_BASE_URL:-https://api.openai.com/v1}
     LLM_API_KEY: ${LLM_API_KEY:-}
     LLM_MODEL: ${LLM_MODEL:-gpt-4o}
-    BOX_TOKENS: ${BOX_TOKENS:?задайте BOX_TOKENS в .env, например hermes:секрет,ui:секрет}
+    BOX_TOKENS: ${BOX_TOKENS:?задайте BOX_TOKENS в .env, например gateway:секрет,ui:секрет}
     BOX_ADMINS: ${BOX_ADMINS:-ui}
     TEMPORAL_UI_URL: ${TEMPORAL_UI_URL:-http://127.0.0.1:8233}
   depends_on:
