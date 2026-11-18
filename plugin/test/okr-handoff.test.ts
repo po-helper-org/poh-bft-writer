@@ -6,7 +6,7 @@ import {
 
 const FORM = {
   confluence: 'https://confluence.example.com/pages/viewpage.action?pageId=1',
-  epic: 'https://jira.example.com/browse/ACME-1',
+  epic: 'https://jira.example.com/browse/PROJ-1',
   quarter: '2026-Q4',
   stages: {
     research: { sprint: null, resources: '' },
@@ -38,7 +38,7 @@ test('без ссылок и квартала в OKR не передаётся �
   const cases: Array<[unknown, RegExp]> = [
     [null, /форма/],
     [{ ...FORM, confluence: '' }, /Confluence/],
-    [{ ...FORM, epic: 'ACME-1' }, /эпик/],
+    [{ ...FORM, epic: 'PROJ-1' }, /эпик/],
     [{ ...FORM, quarter: 'Q4 2026' }, /2026-Q3/],
     [{ ...FORM, stages: { ...FORM.stages, dev: { sprint: 6, resources: '' } } }, /dev/],
   ]

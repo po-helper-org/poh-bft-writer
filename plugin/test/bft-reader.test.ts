@@ -239,10 +239,10 @@ test('сверка: провал CLI — причина словом у зада
 // ── «Добавить в OKR» ──────────────────────────────────────────────────────────
 
 const deepDoc = (slug: string, title: string) =>
-  `---\npageId: 1000000001\njira: "ACME-1409"\nepic_slug: ${slug}\nstage: deep\n---\n\n# [БФТ] ${slug}: ${title}\n`
+  `---\npageId: 1000000001\njira: "PROJ-123"\nepic_slug: ${slug}\nstage: deep\n---\n\n# [БФТ] ${slug}: ${title}\n`
 const OKR_FORM = {
   confluence: 'https://confluence.example.com/pages/viewpage.action?pageId=1000000001',
-  epic: 'https://jira.example.com/browse/ACME-1409',
+  epic: 'https://jira.example.com/browse/PROJ-123',
   quarter: '2026-Q4',
   stages: {
     research: { sprint: null, resources: '' },
@@ -368,7 +368,7 @@ test('рабочее пространство чатов — родитель к
   const tree: Record<string, string[] | string> = {
     '/ws/bft/documentation': ['alpha'],
     '/ws/bft/documentation/alpha': ['alpha-fast.md'],
-    '/ws/bft-config.md': '# bft-config\n\n## docs_path\nbft/documentation\n\n## team_name\nGDS\n',
+    '/ws/bft-config.md': '# bft-config\n\n## docs_path\nbft/documentation\n\n## team_name\nTeamA\n',
   }
   const reader = new BftReader(
     loadConfig({ BFT_WORKSPACE_ROOT: '/ws', BFT_ENTIRE_REQUIRED: '0', BFT_INDEX_PATH: 'bft/index', BFT_SKILLS_PATH: 'agent/skills' }),
@@ -380,12 +380,12 @@ test('рабочее пространство чатов — родитель к
   assert.match(config as string, /## docs_path\ndocumentation\n/)
   assert.match(config as string, /## index_path\nindex\n/)
   assert.match(config as string, /## skills_path\n\.\.\/agent\/skills\n/)
-  assert.match(config as string, /## team_name\nGDS/)
+  assert.match(config as string, /## team_name\nTeamA/)
 
   // Копия следует за корневым конфигом: PO дописал wiki_space в корне — в копии он есть.
-  tree['/ws/bft-config.md'] = '# bft-config\n\n## docs_path\nbft/documentation\n\n## wiki_space\nGDS\n'
+  tree['/ws/bft-config.md'] = '# bft-config\n\n## docs_path\nbft/documentation\n\n## wiki_space\nSPACE\n'
   await reader.sessionWorkspace()
-  assert.match(tree['/ws/bft/bft-config.md'] as string, /## wiki_space\nGDS/)
+  assert.match(tree['/ws/bft/bft-config.md'] as string, /## wiki_space\nSPACE/)
   assert.match(tree['/ws/bft/bft-config.md'] as string, /## docs_path\ndocumentation\n/)
 })
 
@@ -617,6 +617,6 @@ test('снимок каталога обновляется каждым скан
   assert.equal(snapshot.rows.length, 1)
   assert.equal(snapshot.rows[0].id, 'PO-140')
   assert.equal(snapshot.rows[0].stage, 'DEEP-DONE')
-  assert.equal(snapshot.rows[0].jira, 'https://jira.example.com/browse/ACME-1409')
+  assert.equal(snapshot.rows[0].jira, 'https://jira.example.com/browse/PROJ-123')
   assert.equal(reader.catalogSnapshotSync(), snapshot)
 })

@@ -169,7 +169,7 @@ render "$LEGACY" "legacy" && {
   # Голые упоминания внешних систем в старом документе страница линкует сама
   # (ЗМ-041): гейт LN001/LN002 бережёт новые документы, но не переписывает
   # написанные раньше — читателю нужен переход, а не сверка ключа глазами.
-  if grep -q 'href="https://jira.example.com/browse/ACME-1409"' "$TMP/legacy.html"; then
+  if grep -q 'href="https://jira.example.com/browse/PROJ-123"' "$TMP/legacy.html"; then
     echo "ok    голый ключ трекера стал ссылкой в JIRA"
   else
     echo "FAIL  голый ключ трекера ссылкой не стал"
