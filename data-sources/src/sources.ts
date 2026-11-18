@@ -3,9 +3,13 @@
  * Confluence). Портал зовёт ТОЛЬКО инструменты чтения из белого списка:
  * у штаба есть и запись (создать задачу, изменить страницу, shell,
  * сообщения), до неё портал не дотягивается.
+ *
+ * Два режима подключения: OAuth администратора (локальный портал) и
+ * служебный токен моста Hermes из окружения `DATA_SOURCES_TOKEN_<ID>`
+ * (сервер): мост сам режет такой токен до тех же четырёх инструментов.
  */
 import { discover, dropConnection, exchange, loadConnection, newState, pkce, refresh, register, revoke, saveConnection, authorizeUrl, type Connection, type PendingAuth } from './oauth.js'
-import { McpHttpClient } from './mcp.js'
+import { McpError, McpHttpClient } from './mcp.js'
 import {
   applyTriage, childJqls, cleanBody, confluenceFindings, epicChildren, extractLeads, findingsMarkdown, jiraBrowseBase, jiraFindings, jiraIssueFinding,
   jqlsFor, merge, rank, synonymsIn, titleOnSubject, triageItems, unwrap, contentTerms, type Finding, type Synonym, type TriageItem, type TriageVerdict,
@@ -16,11 +20,21 @@ import { pool, withTimeout } from './pool.js'
 export const READ_ONLY_TOOLS = ['confluence_search', 'confluence_get_page', 'jira_search', 'jira_get_issue'] as const
 type ReadOnlyTool = typeof READ_ONLY_TOOLS[number]
 
+/**
+ * Как источник подключён: `oauth` — вход администратора (локальный портал),
+ * `service` — служебный токен моста Hermes из окружения (сервер, ADR-0013):
+ * без окна входа, мост пускает его только к инструментам чтения.
+ */
+export type SourceMode = 'oauth' | 'service'
+
 export interface SourceStatus {
   id: string
   name: string
   url: string
   connected: boolean
+  mode: SourceMode
+  /** Человеческая подпись состояния для «Настроек». */
+  label: string
   connectedAt?: string
   /** Последняя ошибка обращения (без секретов). */
   error?: string
@@ -66,6 +80,20 @@ const BODY_BUDGET = { confluence: 4000, jira: 2000 } as const
 
 const JIRA_FIELDS = 'summary,status,issuetype,project,updated,description'
 
+/** Переменная окружения служебного токена источника: po-hq → DATA_SOURCES_TOKEN_PO_HQ. */
+export function serviceTokenEnv(sourceId: string): string {
+  return `DATA_SOURCES_TOKEN_${sourceId.toUpperCase().replace(/[^A-Z0-9]/g, '_')}`
+}
+
+export const SERVICE_LABEL = 'подключён служебным токеном Hermes'
+export const SERVICE_REJECTED = 'служебный токен отклонён мостом — выпустите новый (harness/deploy/issue-sources-token.sh)'
+const SERVICE_FIXED = 'источник подключён служебным токеном Hermes — подключать и отключать его в «Настройках» не нужно'
+
+export interface McpSourceOptions {
+  /** Служебный токен; не задан — из окружения (serviceTokenEnv), пусто — OAuth. */
+  serviceToken?: string
+}
+
 export class McpSource {
   private connection: Connection | undefined
   private loaded: Promise<void>
@@ -73,8 +101,19 @@ export class McpSource {
   private readonly client: McpHttpClient
   private lastError: string | undefined
   private refreshing: Promise<boolean> | undefined
+  /** Служебный токен (режим service): только в памяти, наружу не отдаётся и не пишется в журнал. */
+  readonly #serviceToken: string | undefined
 
-  constructor(readonly id: string, readonly name: string, readonly url: string, private readonly scope = 'staff') {
+  constructor(readonly id: string, readonly name: string, readonly url: string, private readonly scope = 'staff', options: McpSourceOptions = {}) {
+    const token = (options.serviceToken ?? process.env[serviceTokenEnv(id)] ?? '').trim()
+    this.#serviceToken = token || undefined
+    if (this.#serviceToken) {
+      const serviceToken = this.#serviceToken
+      this.loaded = Promise.resolve()
+      // 401 на служебный токен не лечится обновлением: токен выпускают заново.
+      this.client = new McpHttpClient(url, { token: async () => serviceToken, unauthorized: async () => false })
+      return
+    }
     this.loaded = loadConnection(id).then((connection) => { this.connection = connection })
     this.client = new McpHttpClient(url, {
       token: async () => {
@@ -88,13 +127,27 @@ export class McpSource {
     })
   }
 
+  /** Источник подключён служебным токеном из окружения (без OAuth). */
+  get mode(): SourceMode {
+    return this.#serviceToken ? 'service' : 'oauth'
+  }
+
   async status(): Promise<SourceStatus> {
     await this.loaded
+    if (this.#serviceToken) {
+      return {
+        id: this.id, name: this.name, url: this.url, connected: true, mode: 'service', label: SERVICE_LABEL,
+        ...(this.lastError ? { error: this.lastError } : {}),
+        tools: READ_ONLY_TOOLS,
+      }
+    }
     return {
       id: this.id,
       name: this.name,
       url: this.url,
       connected: !!this.connection,
+      mode: 'oauth',
+      label: this.connection ? 'подключён' : 'не подключён',
       ...(this.connection ? { connectedAt: this.connection.connectedAt } : {}),
       ...(this.lastError ? { error: this.lastError } : {}),
       tools: READ_ONLY_TOOLS,
@@ -102,12 +155,14 @@ export class McpSource {
   }
 
   async connected(): Promise<boolean> {
+    if (this.#serviceToken) return true
     await this.loaded
     return !!this.connection
   }
 
   /** Начать вход: адрес окна авторизации сервера. */
   async beginAuth(redirectUri: string): Promise<string> {
+    if (this.#serviceToken) throw new Error(SERVICE_FIXED)
     const server = await discover(this.url)
     const client = await register(server, redirectUri, this.scope)
     const { verifier, challenge } = pkce()
@@ -140,6 +195,7 @@ export class McpSource {
   }
 
   async disconnect(): Promise<void> {
+    if (this.#serviceToken) throw new Error(SERVICE_FIXED)
     await this.loaded
     if (this.connection) await revoke(this.connection)
     this.connection = undefined
@@ -148,6 +204,7 @@ export class McpSource {
   }
 
   private renew(): Promise<boolean> {
+    if (this.#serviceToken) return Promise.resolve(false)
     this.refreshing ??= (async () => {
       if (!this.connection?.refreshToken) return false
       try {
@@ -169,6 +226,10 @@ export class McpSource {
       this.lastError = undefined
       return text
     } catch (e) {
+      if (this.#serviceToken && e instanceof McpError && e.status === 401) {
+        this.lastError = SERVICE_REJECTED
+        throw new Error(SERVICE_REJECTED)
+      }
       this.lastError = e instanceof Error ? e.message : String(e)
       throw e
     }

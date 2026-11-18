@@ -5,7 +5,9 @@
  * - Источники — удалённые MCP с OAuth (первый — «MTS PO штаб»); список —
  *   конфиг плагина (cordis.patch.yml).
  * - Подключает администратор в «Настройках → Источники данных»: вход в окне
- *   сервера авторизации, токены — в томе, обновляются сами.
+ *   сервера авторизации, токены — в томе, обновляются сами. На сервере вместо
+ *   входа — служебный токен моста Hermes из окружения
+ *   (DATA_SOURCES_TOKEN_<ID>, ADR-0013): без OAuth, только чтение.
  * - Другим плагинам — служба `dataSources` (ctx.inject(['dataSources'])):
  *   поиск и разведка для полного БФТ. Только инструменты чтения.
  */
@@ -143,7 +145,8 @@ export function apply(ctx: HarnessContext, config: Config = {}): void {
     }
   }
 
-  ctx.effect(() => {
+  // Приёмник входа нужен только источникам на OAuth: служебному токену окно входа не нужно.
+  if (sources.some((source) => source.mode === 'oauth')) ctx.effect(() => {
     const server: Server = createServer((req, res) => {
       const url = new URL(req.url ?? '/', 'http://callback')
       if (req.method !== 'GET' || url.pathname !== '/callback') {
@@ -181,6 +184,7 @@ export function apply(ctx: HarnessContext, config: Config = {}): void {
       }
       const source = byId(new URL(request.url).searchParams.get('source'))
       if (!source) return resultPage(false, 'Источник не найден', 'Такого источника нет в настройках плагина.')
+      if (source.mode === 'service') return resultPage(true, `«${source.name}» уже подключён`, 'Источник подключён служебным токеном Hermes — входить не нужно.')
       try {
         const location = await source.beginAuth(CALLBACK_URL)
         console.error(`[data-sources] ${source.id}: начат вход, возврат на ${CALLBACK_URL}`)
@@ -196,6 +200,7 @@ export function apply(ctx: HarnessContext, config: Config = {}): void {
       const body = await request.json().catch(() => ({})) as { source?: string }
       const source = byId(body.source)
       if (!source) return Response.json({ error: 'источник не найден' }, { status: 404 })
+      if (source.mode === 'service') return Response.json({ error: 'источник подключён служебным токеном Hermes — отключается на сервере (отзыв токена в мосте)', sources: await service.status() }, { status: 409 })
       await source.disconnect()
       return Response.json({ sources: await service.status() })
     })

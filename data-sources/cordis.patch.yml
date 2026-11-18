@@ -1,6 +1,8 @@
 # data-sources: корпоративные источники данных портала БФТ (Jira, Confluence).
 # Каждый источник — удалённый MCP с OAuth; подключает администратор в
 # «Настройках → Источники данных», токены — в томе /data/data-sources.
+# Или служебный токен моста Hermes из окружения DATA_SOURCES_TOKEN_<ID>
+# (для po-hq — DATA_SOURCES_TOKEN_PO_HQ): без OAuth, так работает сервер.
 # Портал зовёт только инструменты чтения (белый список в src/sources.ts).
 - insert:
     - id: data-sources

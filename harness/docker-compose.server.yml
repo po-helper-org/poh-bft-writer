@@ -11,9 +11,10 @@ services:
       DSH_TRUSTED_HOSTS: ${PORTAL_TRUSTED_HOSTS:-browser.harness.aleksishmanov.ru}
       # Трекер наружу не публикуется: ссылок на него заказчику не показываем.
       TRACKER_PUBLIC_URL: ${TRACKER_PUBLIC_URL:-}
-      # Вход в источник данных (OAuth штаба PO): сервер штаба пускает любой
-      # loopback-порт с путём /callback. Подключать из браузера через туннель
-      #   ssh -L 3083:127.0.0.1:3083 harness-mts
+      # Источник данных на сервере — служебный токен моста Hermes
+      # (DATA_SOURCES_TOKEN_PO_HQ в .env, пишет deploy/issue-sources-token.sh):
+      # с ним приёмник входа не поднимается. Запасной путь без токена — OAuth
+      # штаба через туннель  ssh -L 3083:127.0.0.1:3083 harness-mts
       DATA_SOURCES_CALLBACK_URL: http://127.0.0.1:3083/callback
       # Администратор — по учётке Authentik (/bft/admin), пароль не принимается.
       # ADMIN_PASSWORD остаётся секретом куки администратора.

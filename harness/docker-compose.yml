@@ -169,6 +169,10 @@ services:
       INGEST_URL: http://context-ingest:8090
       # Кортекс (ADR-0011): bft-fast дораскрывает запрос — контуры проверки и зоны влияния.
       CORTEX_URL: http://cortex:8095
+      # Источник данных «MTS PO штаб» по служебному токену моста Hermes (ADR-0013):
+      # задан — без OAuth и окна входа, мост пускает только 4 инструмента чтения.
+      # На сервере пишет harness/deploy/issue-sources-token.sh; пусто — OAuth.
+      DATA_SOURCES_TOKEN_PO_HQ: ${DATA_SOURCES_TOKEN_PO_HQ:-}
     depends_on:
       context-ingest: { condition: service_healthy }
     ports:
