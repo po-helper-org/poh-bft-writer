@@ -45,3 +45,4 @@ cd "$PORTAL/harness"
 COMPOSE_FILE=docker-compose.yml:docker-compose.server.yml COMPOSE_PROJECT_NAME=poh-bft-portal \
   docker compose up -d --force-recreate customer-web
 echo "✓ customer-web пересоздан: «Настройки → Источники данных» — «подключён служебным токеном Hermes»"
+echo "  прежнее OAuth-подключение (если было) портал удаляет и отзывает сам — см. «прежнее OAuth-подключение удалено» в docker compose logs customer-web"

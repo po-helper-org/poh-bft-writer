@@ -109,7 +109,7 @@ export class McpSource {
     this.#serviceToken = token || undefined
     if (this.#serviceToken) {
       const serviceToken = this.#serviceToken
-      this.loaded = Promise.resolve()
+      this.loaded = this.retireOAuth()
       // 401 на служебный токен не лечится обновлением: токен выпускают заново.
       this.client = new McpHttpClient(url, { token: async () => serviceToken, unauthorized: async () => false })
       return
@@ -125,6 +125,25 @@ export class McpSource {
       },
       unauthorized: () => this.renew(),
     })
+  }
+
+  /**
+   * Переход на служебный токен: прежнее OAuth-подключение (полный токен штаба —
+   * shell, доска, память, сообщения; refresh живёт 30 дней) не должно остаться
+   * в томе. Файл удаляем сразу — иначе пустая переменная окружения тихо вернула
+   * бы портал к полному токену; отзыв на мосту — в фоне, по возможности
+   * (сбой сети не мешает запуску, а без файла токен порталу уже недоступен).
+   */
+  private async retireOAuth(): Promise<void> {
+    try {
+      const old = await loadConnection(this.id)
+      if (!old) return
+      await dropConnection(this.id)
+      console.warn(`[data-sources] «${this.name}»: служебный токен задан — прежнее OAuth-подключение удалено, отзываю его на сервере`)
+      void revoke(old).catch(() => undefined)
+    } catch (e) {
+      console.warn(`[data-sources] «${this.name}»: не удалось убрать прежнее OAuth-подключение: ${e instanceof Error ? e.message : String(e)}`)
+    }
   }
 
   /** Источник подключён служебным токеном из окружения (без OAuth). */
