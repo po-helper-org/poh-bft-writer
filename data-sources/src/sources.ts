@@ -1,16 +1,15 @@
 /**
- * Источник данных «Шлюз агентов» — удалённый MCP-шлюз агентов (Jira,
- * Confluence). Портал зовёт ТОЛЬКО инструменты чтения из белого списка:
- * у шлюза есть и запись (создать задачу, изменить страницу, shell,
- * сообщения), до неё портал не дотягивается.
+ * Источник данных «Jira и Confluence (только чтение)» — шлюз источников
+ * (`harness/sources-gateway`, ADR-0015): отдельный MCP-процесс, у которого
+ * есть ровно четыре инструмента чтения и больше ничего. Портал ходит в него
+ * по статическому bearer-токену из окружения `DATA_SOURCES_TOKEN_<ID>`;
+ * адрес — из конфига или `DATA_SOURCES_URL_<ID>`. Нет адреса или токена —
+ * источник «не настроен»: не подключён и ни к чему не обращается.
  *
- * Два режима подключения: OAuth администратора (локальный портал) и
- * служебный токен шлюза агентов из окружения `DATA_SOURCES_TOKEN_<ID>`
- * (сервер): шлюз сам режет такой токен до тех же четырёх инструментов.
- * Адрес не задан (ни в конфиге, ни в `DATA_SOURCES_URL_<ID>`) — источник
- * «не настроен»: не подключён и ни к чему не обращается.
+ * Второй слой защиты — здесь: портал зовёт ТОЛЬКО инструменты из белого
+ * списка READ_ONLY_TOOLS, call() отклоняет любое другое имя ещё до сети.
+ * OAuth нет (ADR-0015): ни входа, ни обновления, ни приёмника возврата.
  */
-import { discover, dropConnection, exchange, loadConnection, newState, pkce, refresh, register, revoke, saveConnection, authorizeUrl, type Connection, type PendingAuth } from './oauth.js'
 import { McpError, McpHttpClient } from './mcp.js'
 import {
   applyTriage, childJqls, cleanBody, confluenceFindings, epicChildren, extractLeads, findingsMarkdown, jiraBrowseBase, jiraFindings, jiraIssueFinding,
@@ -22,24 +21,20 @@ import { pool, withTimeout } from './pool.js'
 export const READ_ONLY_TOOLS = ['confluence_search', 'confluence_get_page', 'jira_search', 'jira_get_issue'] as const
 type ReadOnlyTool = typeof READ_ONLY_TOOLS[number]
 
-/**
- * Как источник подключён: `oauth` — вход администратора (локальный портал),
- * `service` — служебный токен шлюза агентов из окружения (сервер, ADR-0013):
- * без окна входа, шлюз пускает его только к инструментам чтения.
- */
-export type SourceMode = 'oauth' | 'service'
+/** Имя инструмента входит в белый список — точное совпадение, без префиксов и регистра. */
+export function isReadOnlyTool(name: unknown): name is ReadOnlyTool {
+  return typeof name === 'string' && (READ_ONLY_TOOLS as readonly string[]).includes(name)
+}
 
 export interface SourceStatus {
   id: string
   name: string
   url: string
   connected: boolean
-  /** Адрес MCP задан (конфиг или DATA_SOURCES_URL_<ID>). */
+  /** Адрес MCP и токен заданы (конфиг или DATA_SOURCES_URL_<ID>, DATA_SOURCES_TOKEN_<ID>). */
   configured: boolean
-  mode: SourceMode
   /** Человеческая подпись состояния для «Настроек». */
   label: string
-  connectedAt?: string
   /** Последняя ошибка обращения (без секретов). */
   error?: string
   tools: readonly string[]
@@ -84,191 +79,66 @@ const BODY_BUDGET = { confluence: 4000, jira: 2000 } as const
 
 const JIRA_FIELDS = 'summary,status,issuetype,project,updated,description'
 
-/** Переменная окружения служебного токена источника: po-hq → DATA_SOURCES_TOKEN_PO_HQ. */
+const envKey = (sourceId: string) => sourceId.toUpperCase().replace(/[^A-Z0-9]/g, '_')
+
+/** Переменная окружения токена источника: atlassian → DATA_SOURCES_TOKEN_ATLASSIAN. */
 export function serviceTokenEnv(sourceId: string): string {
-  return `DATA_SOURCES_TOKEN_${sourceId.toUpperCase().replace(/[^A-Z0-9]/g, '_')}`
+  return `DATA_SOURCES_TOKEN_${envKey(sourceId)}`
 }
 
-/** Переменная окружения адреса источника: po-hq → DATA_SOURCES_URL_PO_HQ. */
+/** Переменная окружения адреса источника: atlassian → DATA_SOURCES_URL_ATLASSIAN. */
 export function sourceUrlEnv(sourceId: string): string {
-  return `DATA_SOURCES_URL_${sourceId.toUpperCase().replace(/[^A-Z0-9]/g, '_')}`
+  return `DATA_SOURCES_URL_${envKey(sourceId)}`
 }
 
-export const SERVICE_LABEL = 'подключён служебным токеном шлюза агентов'
+export const CONNECTED_LABEL = 'подключён: только чтение'
 export const NOT_CONFIGURED_LABEL = 'не настроен'
-const NOT_CONFIGURED = (id: string) => `источник не настроен — задайте адрес MCP в ${sourceUrlEnv(id)} или в конфиге плагина`
-export const SERVICE_REJECTED = 'служебный токен отклонён шлюзом агентов — выпустите новый (harness/deploy/issue-sources-token.sh)'
-const SERVICE_FIXED = 'источник подключён служебным токеном шлюза агентов — подключать и отключать его в «Настройках» не нужно'
+const NOT_CONFIGURED = (id: string) => `источник не настроен — задайте ${sourceUrlEnv(id)} и ${serviceTokenEnv(id)} (harness/.env)`
+// Без латинского слова token: e2e проверяет, что статус не похож на секрет.
+export const SERVICE_REJECTED = 'токен отклонён шлюзом источников — перевыпустите его на сервере (harness/deploy/install-sources-gateway.sh, ADR-0015)'
 
 export interface McpSourceOptions {
-  /** Служебный токен; не задан — из окружения (serviceTokenEnv), пусто — OAuth. */
+  /** Токен шлюза источников; не задан — из окружения (serviceTokenEnv). */
   serviceToken?: string
 }
 
 export class McpSource {
-  private connection: Connection | undefined
-  private loaded: Promise<void>
-  private readonly pending = new Map<string, PendingAuth>()
-  private readonly client: McpHttpClient
+  private readonly client: McpHttpClient | undefined
   private lastError: string | undefined
-  private refreshing: Promise<boolean> | undefined
-  /** Служебный токен (режим service): только в памяти, наружу не отдаётся и не пишется в журнал. */
-  readonly #serviceToken: string | undefined
+  /** Есть и адрес, и токен. Сам токен — только внутри клиента, наружу не отдаётся. */
+  readonly configured: boolean
 
-  constructor(readonly id: string, readonly name: string, readonly url: string, private readonly scope = 'staff', options: McpSourceOptions = {}) {
+  constructor(readonly id: string, readonly name: string, readonly url: string, options: McpSourceOptions = {}) {
     const token = (options.serviceToken ?? process.env[serviceTokenEnv(id)] ?? '').trim()
-    this.#serviceToken = token || undefined
-    if (this.#serviceToken) {
-      const serviceToken = this.#serviceToken
-      this.loaded = this.retireOAuth()
-      // 401 на служебный токен не лечится обновлением: токен выпускают заново.
-      this.client = new McpHttpClient(url, { token: async () => serviceToken, unauthorized: async () => false })
-      return
-    }
-    this.loaded = loadConnection(id).then((connection) => { this.connection = connection })
-    this.client = new McpHttpClient(url, {
-      token: async () => {
-        await this.loaded
-        if (!this.connection) throw new Error(`«${this.name}» не подключён — подключите в «Настройках → Источники данных»`)
-        // Токен истекает через минуту — обновляем заранее.
-        if (this.connection.expiresAt && this.connection.expiresAt - Date.now() < 60_000) await this.renew()
-        return this.connection.accessToken
-      },
-      unauthorized: () => this.renew(),
-    })
-  }
-
-  /**
-   * Переход на служебный токен: прежнее OAuth-подключение (полный токен шлюза —
-   * shell, доска, память, сообщения; refresh живёт 30 дней) не должно остаться
-   * в томе. Файл удаляем сразу — иначе пустая переменная окружения тихо вернула
-   * бы портал к полному токену; отзыв на шлюзе — в фоне, по возможности
-   * (сбой сети не мешает запуску, а без файла токен порталу уже недоступен).
-   */
-  private async retireOAuth(): Promise<void> {
-    try {
-      const old = await loadConnection(this.id)
-      if (!old) return
-      await dropConnection(this.id)
-      console.warn(`[data-sources] «${this.name}»: служебный токен задан — прежнее OAuth-подключение удалено, отзываю его на сервере`)
-      void revoke(old).catch(() => undefined)
-    } catch (e) {
-      console.warn(`[data-sources] «${this.name}»: не удалось убрать прежнее OAuth-подключение: ${e instanceof Error ? e.message : String(e)}`)
-    }
-  }
-
-  /** Источник подключён служебным токеном из окружения (без OAuth). */
-  get mode(): SourceMode {
-    return this.#serviceToken ? 'service' : 'oauth'
-  }
-
-  /** Адрес MCP задан; нет — источник «не настроен» и ни к чему не обращается. */
-  get configured(): boolean {
-    return this.url.trim() !== ''
+    this.configured = url.trim() !== '' && token !== ''
+    this.client = this.configured ? new McpHttpClient(url, token) : undefined
   }
 
   async status(): Promise<SourceStatus> {
-    await this.loaded
     if (!this.configured) {
-      return { id: this.id, name: this.name, url: '', connected: false, configured: false, mode: this.mode, label: NOT_CONFIGURED_LABEL, tools: READ_ONLY_TOOLS }
-    }
-    if (this.#serviceToken) {
-      return {
-        id: this.id, name: this.name, url: this.url, connected: true, configured: true, mode: 'service', label: SERVICE_LABEL,
-        ...(this.lastError ? { error: this.lastError } : {}),
-        tools: READ_ONLY_TOOLS,
-      }
+      return { id: this.id, name: this.name, url: this.url.trim(), connected: false, configured: false, label: NOT_CONFIGURED_LABEL, tools: READ_ONLY_TOOLS }
     }
     return {
-      id: this.id,
-      name: this.name,
-      url: this.url,
-      connected: !!this.connection,
-      configured: true,
-      mode: 'oauth',
-      label: this.connection ? 'подключён' : 'не подключён',
-      ...(this.connection ? { connectedAt: this.connection.connectedAt } : {}),
+      id: this.id, name: this.name, url: this.url, connected: true, configured: true, label: CONNECTED_LABEL,
       ...(this.lastError ? { error: this.lastError } : {}),
       tools: READ_ONLY_TOOLS,
     }
   }
 
   async connected(): Promise<boolean> {
-    if (!this.configured) return false
-    if (this.#serviceToken) return true
-    await this.loaded
-    return !!this.connection
+    return this.configured
   }
 
-  /** Начать вход: адрес окна авторизации сервера. */
-  async beginAuth(redirectUri: string): Promise<string> {
-    if (!this.configured) throw new Error(NOT_CONFIGURED(this.id))
-    if (this.#serviceToken) throw new Error(SERVICE_FIXED)
-    const server = await discover(this.url)
-    const client = await register(server, redirectUri, this.scope)
-    const { verifier, challenge } = pkce()
-    const state = newState()
-    const pending: PendingAuth = {
-      sourceId: this.id, verifier, redirectUri, clientId: client.clientId,
-      ...(client.clientSecret ? { clientSecret: client.clientSecret } : {}),
-      server, scope: this.scope, createdAt: Date.now(),
-    }
-    // Незавершённые входы старше 15 минут — выбрасываем.
-    for (const [key, value] of this.pending) if (Date.now() - value.createdAt > 15 * 60_000) this.pending.delete(key)
-    this.pending.set(state, pending)
-    return authorizeUrl(pending, challenge, state, this.url)
-  }
-
-  ownsState(state: string): boolean {
-    return this.pending.has(state)
-  }
-
-  /** Возврат из окна авторизации: код → токены → сохранить. */
-  async completeAuth(state: string, code: string): Promise<void> {
-    const pending = this.pending.get(state)
-    if (!pending) throw new Error('вход устарел или начат в другом окне — нажмите «Подключить» ещё раз')
-    this.pending.delete(state)
-    const connection = await exchange(pending, code, this.url)
-    await saveConnection(this.id, connection)
-    this.connection = connection
-    this.lastError = undefined
-    this.client.reset()
-  }
-
-  async disconnect(): Promise<void> {
-    if (this.#serviceToken) throw new Error(SERVICE_FIXED)
-    await this.loaded
-    if (this.connection) await revoke(this.connection)
-    this.connection = undefined
-    this.client.reset()
-    await dropConnection(this.id)
-  }
-
-  private renew(): Promise<boolean> {
-    if (this.#serviceToken) return Promise.resolve(false)
-    this.refreshing ??= (async () => {
-      if (!this.connection?.refreshToken) return false
-      try {
-        this.connection = await refresh(this.connection, this.url)
-        await saveConnection(this.id, this.connection)
-        return true
-      } catch (e) {
-        this.lastError = `токен не обновился: ${e instanceof Error ? e.message : String(e)} — подключите источник заново`
-        return false
-      }
-    })().finally(() => { this.refreshing = undefined })
-    return this.refreshing
-  }
-
+  /** Единственная дорога к шлюзу: имя вне белого списка отклоняется до сети. */
   private async call(tool: ReadOnlyTool, args: Record<string, unknown>): Promise<string> {
-    if (!(READ_ONLY_TOOLS as readonly string[]).includes(tool)) throw new Error(`инструмент ${tool} не в белом списке`)
-    if (!this.configured) throw new Error(NOT_CONFIGURED(this.id))
+    if (!isReadOnlyTool(tool)) throw new Error(`инструмент ${String(tool)} не в белом списке`)
+    if (!this.client) throw new Error(NOT_CONFIGURED(this.id))
     try {
       const text = await this.client.callTool(tool, args)
       this.lastError = undefined
       return text
     } catch (e) {
-      if (this.#serviceToken && e instanceof McpError && e.status === 401) {
+      if (e instanceof McpError && e.status === 401) {
         this.lastError = SERVICE_REJECTED
         throw new Error(SERVICE_REJECTED)
       }

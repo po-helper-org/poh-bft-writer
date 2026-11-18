@@ -1,6 +1,6 @@
 # ADR-0014: Публикация портала заказчика на сервере — /bft/ за Authentik
 
-Статус: принято (2026-11-18)
+Статус: принято (2026-11-18); источник данных на сервере — ADR-0015 (шлюз источников)
 
 ## Контекст
 
@@ -30,8 +30,8 @@
 - **Отдельная папка на сервере** `~/$DEPLOY_DIR`, например
   `~/Projects/poh-bft-portal` (в домашней папке пользователя сервера),
   проект compose `poh-bft-portal`,
-  `docker-compose.server.yml`: портал 127.0.0.1:3082, приёмник входа
-  источников 127.0.0.1:3083, трекер 127.0.0.1:3084 (только для сида).
+  `docker-compose.server.yml`: портал 127.0.0.1:3082, трекер 127.0.0.1:3084
+  (только для сида); шлюз источников (ADR-0015) — служба хоста 127.0.0.1:3086.
   Выкладка — `harness/deploy-server.sh` (закоммиченный HEAD, сборка на
   сервере; `--keys` — ключи моделей из локального `.env` без вывода).
 - **Параметры выкладки — `harness/deploy/server.env`** (не в git; образец —
@@ -40,33 +40,40 @@
   `DEPLOY_HOST` — ssh-хост сервера (`${DEPLOY_HOST}`), `DEPLOY_DIR` — папка
   на сервере, `PORTAL_PUBLIC_URL` — `https://portal.example.org/bft`,
   `PORTAL_TRUSTED_HOSTS` — имена хоста портала (первое — vhost nginx),
-  `DATA_SOURCES_URL_PO_HQ` — адрес MCP-шлюза агентов
-  (`https://agents.example.org/mcp`), `AGENT_GATEWAY_DIR` — каталог шлюза
-  на сервере (для выпуска служебного токена), `PORTAL_SUBNET` — подсеть
+  `DATA_SOURCES_URL_ATLASSIAN` — адрес шлюза источников
+  (`https://portal.example.org/bft-sources/mcp`), `SOURCES_MCP_CONFIG` и
+  `SOURCES_MCP_SERVER` — конфиг MCP-клиента на сервере и имя сервера Jira/
+  Confluence в нём (для `install-sources-gateway.sh`), `PORTAL_SUBNET` — подсеть
   docker-сети портала (задать под свой сервер). `deploy-server.sh` переносит
-  их в `harness/.env` на сервере идемпотентно и без вывода значений.
+  их в `harness/.env` на сервере идемпотентно и без вывода значений, а
+  ключи прежнего источника (`DATA_SOURCES_URL_PO_HQ`, `DATA_SOURCES_TOKEN_PO_HQ`,
+  `AGENT_GATEWAY_DIR`) оттуда убирает.
 - **nginx — разовый шаг владельца** `harness/deploy/install-nginx-bft.sh`
-  (sudo; `nginx -t` или откат vhost и сниппета).
+  (sudo; `nginx -t` или откат vhost и сниппета). Он же ставит
+  `location = /bft-sources/mcp` → шлюз источников (без Authentik — токен
+  проверяет сам шлюз); после ADR-0015 владелец перезапускает его один раз.
+- **linger — разовый шаг владельца** `sudo loginctl enable-linger <пользователь>`:
+  шлюз источников — служба `systemd --user`, без linger она останавливается
+  после выхода из сессии. Там же, разово, — отзыв прежних доступов портала к
+  шлюзу агентов (команда — в ADR-0015).
 - **Трекер наружу не публикуется**: пустой `TRACKER_PUBLIC_URL` — заказчику
   «#N» без ссылки.
-- **Источник данных на сервере — служебный токен шлюза агентов** (ADR-0013,
-  дополнение 2026-11-18): `harness/deploy/issue-sources-token.sh` на сервере
-  выпускает токен `bft-portal` (только четыре инструмента чтения), пишет его
-  в `harness/.env` как `DATA_SOURCES_TOKEN_PO_HQ` без вывода и пересоздаёт
-  `customer-web`. Контейнер ходит в шлюз через его публичный адрес
-  `DATA_SOURCES_URL_PO_HQ` (например `https://agents.example.org/mcp`; VPN и
-  127.0.0.1 хоста ему недоступны), nginx не меняется. Прежнее OAuth-подключение
-  администратора (полный токен шлюза в томе `customerdata`) портал при
-  первом запуске со служебным токеном сам удаляет и отзывает — отдельного
-  шага миграции нет; проверка — строка «прежнее OAuth-подключение удалено»
-  в `docker compose logs customer-web`. Туннель
-  `ssh -L 3083:127.0.0.1:3083 ${DEPLOY_HOST}` и OAuth администратора остались
-  запасным путём (и способом для локального портала).
+- **Источник данных на сервере — шлюз источников** (ADR-0015, заменяет
+  служебный токен шлюза агентов и `issue-sources-token.sh`):
+  `harness/deploy/install-sources-gateway.sh` на сервере (без sudo) ставит
+  службу `systemd --user` `bft-sources-gateway` на 127.0.0.1:3086, пишет её
+  токен в `harness/.env` как `DATA_SOURCES_TOKEN_ATLASSIAN` без вывода и
+  пересоздаёт `customer-web`. Контейнер ходит в шлюз через публичный адрес
+  `DATA_SOURCES_URL_ATLASSIAN` (nginx `/bft-sources/mcp`; 127.0.0.1 хоста ему
+  недоступен). Приёмника входа, туннеля 3083 и OAuth больше нет; файлы
+  прежних OAuth-подключений в томе `customerdata` портал удаляет сам при
+  запуске (строка «удалены прежние OAuth-подключения» в
+  `docker compose logs customer-web`).
 
 ## Последствия
 
 - Токен в `.env` сервера переживает выкладку (`deploy-server.sh` не трогает
-  `.env`); смена токена — повторный запуск `issue-sources-token.sh`.
+  его строку); смена токена — `install-sources-gateway.sh --rotate-token`.
 - Обновление сервера — `harness/deploy-server.sh` после коммита; автодеплой
   `main` портал не затрагивает, пока ветка не влита.
 - Пять e2e-сценариев ждут публичную ссылку трекера: на серверной конфигурации

@@ -38,14 +38,16 @@ test('заказчик: сайдбара и «Настроек» нет, зап�
   const models = await request.post(`${PORTAL}/api/customer-form.portalModels`, { data: { chat: null } })
   expect(models.status(), 'модели портала без входа не меняются').toBe(403)
 
-  // Источники данных: статус без секретов, подключение и поиск — только администратору.
+  // Источники данных: статус без секретов, поиск — только администратору;
+  // подключения через портал нет (только токен на сервере, ADR-0015).
   const sources = await (await request.get(`${PORTAL}/api/data-sources.status`)).json()
   expect(sources.admin).toBe(false)
   expect(JSON.stringify(sources)).not.toMatch(/token|secret/i)
   expect((await request.post(`${PORTAL}/api/data-sources.search`, { data: { query: 'отпуск' } })).status()).toBe(403)
-  expect((await request.post(`${PORTAL}/api/data-sources.disconnect`, { data: { source: 'po-hq' } })).status()).toBe(403)
-  const connect = await request.get(`${PORTAL}/api/data-sources.connect?source=po-hq`, { maxRedirects: 0 })
-  expect(connect.status(), 'вход в источник без администратора не начинается').toBe(400)
+  for (const gone of ['/api/data-sources.connect?source=atlassian', '/api/data-sources.disconnect']) {
+    const res = await request.fetch(`${PORTAL}${gone}`, { method: gone.includes('disconnect') ? 'POST' : 'GET', maxRedirects: 0 })
+    expect(res.status(), `${gone}: маршрута нет — вход в источник не начинается`).not.toBe(302)
+  }
 
   for (const method of ['credentials/set', 'settings/mutate', 'pluginManager/setPluginEnabled', 'terminal/create']) {
     const body = await rpc(request, method, {})
@@ -109,19 +111,17 @@ test('администратор: вход по паролю, штатные «�
   expect(reset.deep).toBeNull()
   expect(reset.chatChoice).toEqual(chatBefore)
 
-  // «Настройки → Источники данных» (плагин data-sources): источник шлюза агентов PO и вход в него.
+  // «Настройки → Источники данных» (плагин data-sources): Jira и Confluence только на чтение, без кнопок входа.
   await settings.getByText('Источники данных', { exact: true }).click()
-  const source = settings.locator('[data-source="po-hq"]')
-  await expect(source).toContainText(/шлюз/i)
+  const source = settings.locator('[data-source="atlassian"]')
+  await expect(source).toContainText('Jira и Confluence (только чтение)')
   await expect(source).toContainText('только чтение: confluence_search, confluence_get_page, jira_search, jira_get_issue')
   const sourceStatus = await page.evaluate(async () => (await fetch('api/data-sources.status')).json()) as { admin: boolean; sources: { connected: boolean; configured?: boolean }[] }
   expect(sourceStatus.admin).toBe(true)
-  // Без DATA_SOURCES_URL_PO_HQ источник «не настроен» — кнопки входа нет.
-  if (sourceStatus.sources[0]!.configured === false) {
-    await expect(source.getByRole('link', { name: 'Подключить' })).toHaveCount(0)
-  } else if (!sourceStatus.sources[0]!.connected) {
-    await expect(source.getByRole('link', { name: 'Подключить' })).toHaveAttribute('href', `${PORTAL}/api/data-sources.connect?source=po-hq`)
-  }
+  // Подключить/Отключить нет ни в каком состоянии: источник задаётся только токеном на сервере.
+  await expect(source.getByRole('link', { name: 'Подключить' })).toHaveCount(0)
+  await expect(source.getByRole('button', { name: 'Отключить' })).toHaveCount(0)
+  if (!sourceStatus.sources[0]!.configured) await expect(source).toContainText('не настроен')
 
   // Вызов записи с кукой администратора доходит до шлюза (а не до отказа портала).
   const body = await page.evaluate(async () => {

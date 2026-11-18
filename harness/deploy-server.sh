@@ -15,8 +15,15 @@
 #  3. Память организации (Кортекс) — клон poh-cortex на сервере, только чтение.
 #  4. Образ портала собирается на сервере (x86_64), стек поднимается start.sh
 #     с docker-compose.server.yml: портал 127.0.0.1:3082, трекер 127.0.0.1:3084.
-#  5. nginx (/bft/ за Authentik) — разовый шаг владельца с sudo:
+#  5. nginx (/bft/ за Authentik, /bft-sources/mcp — шлюз источников) — разовый шаг
+#     владельца с sudo:
 #       bash ~/$DEPLOY_DIR/harness/deploy/install-nginx-bft.sh
+#  6. Шлюз источников (Jira/Confluence только чтение, ADR-0015) — на сервере
+#     без sudo, после выкладки и при смене токена:
+#       bash ~/$DEPLOY_DIR/harness/deploy/install-sources-gateway.sh
+#     Разово владельцу с sudo: sudo loginctl enable-linger <пользователь>
+#     (иначе служба systemd --user останавливается после выхода из сессии)
+#     и отзыв прежних доступов портала к шлюзу агентов — см. ADR-0015.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 SERVER_ENV="$ROOT/harness/deploy/server.env"
@@ -33,9 +40,9 @@ for v in DEPLOY_HOST DEPLOY_DIR PORTAL_PUBLIC_URL PORTAL_TRUSTED_HOSTS; do
   [ -n "${!v:-}" ] || { echo "✗ В $SERVER_ENV не задан $v" >&2; exit 1; }
 done
 HOST=$DEPLOY_HOST
-# Каталоги на сервере (DEPLOY_DIR, AGENT_GATEWAY_DIR) — относительно домашнего, без ~ и
+# Пути на сервере (DEPLOY_DIR, SOURCES_MCP_CONFIG) — относительно домашнего, без ~ и
 # без «/» в начале: «. server.env» раскрыл бы ~ в локальный $HOME.
-for v in DEPLOY_DIR AGENT_GATEWAY_DIR; do
+for v in DEPLOY_DIR SOURCES_MCP_CONFIG; do
   case "${!v:-}" in
     /*|~*) echo "✗ $v в $SERVER_ENV — путь относительно домашнего каталога сервера, без ~ и «/» в начале" >&2; exit 1 ;;
   esac
@@ -57,7 +64,7 @@ REV=$(git rev-parse --short HEAD)
 # предупреждение; --untracked-files=all — чтобы видеть и новые файлы.
 DIRTY=$(git status --porcelain --untracked-files=all -- customer-form data-sources bft-manager speech-ru skills \
   harness/harness-web harness/profile harness/docker-compose.yml harness/docker-compose.server.yml \
-  harness/start.sh harness/deploy harness/deploy-server.sh)
+  harness/start.sh harness/deploy harness/deploy-server.sh harness/sources-gateway)
 if [ -n "$DIRTY" ]; then
   echo "✗ Незакоммиченные или неотслеживаемые правки — на сервер ушёл бы $REV без них:" >&2
   printf '%s\n' "$DIRTY" | sed 's/^/    /' >&2
@@ -90,11 +97,15 @@ fi
 # start.sh и скрипты harness/deploy/ на сервере). Пустые не переносятся.
 {
   printf 'PORTAL_PUBLIC_URL=%s\n' "$PUBLIC_URL"
-  for v in PORTAL_TRUSTED_HOSTS DATA_SOURCES_URL_PO_HQ PORTAL_SUBNET AGENT_GATEWAY_DIR; do
+  for v in PORTAL_TRUSTED_HOSTS DATA_SOURCES_URL_ATLASSIAN SOURCES_MCP_CONFIG SOURCES_MCP_SERVER PORTAL_SUBNET; do
     [ -n "${!v:-}" ] && printf '%s=%s\n' "$v" "${!v}"
   done
   true
 } | push_env
+
+# Прежний источник (большой шлюз агентов, ADR-0015) — его адрес, каталог и
+# служебный токен из серверного .env убираются; значения не выводятся.
+ssh "$HOST" "umask 077 && cd ~/$REMOTE/harness && touch .env && chmod 600 .env && for k in DATA_SOURCES_URL_PO_HQ DATA_SOURCES_TOKEN_PO_HQ AGENT_GATEWAY_DIR; do if grep -q \"^\$k=\" .env; then grep -v \"^\$k=\" .env > .env.tmp || true; mv .env.tmp .env; chmod 600 .env; echo \"✓ убран \$k\"; fi; done"
 
 ssh "$HOST" "bash -s" <<EOF
 set -euo pipefail

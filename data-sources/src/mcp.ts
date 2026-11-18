@@ -2,18 +2,14 @@
  * Минимальный клиент MCP по Streamable HTTP: initialize → tools/call.
  *
  * Свой, а не штатный dsh-mcp-client: тот публикует в агента ВСЕ инструменты
- * сервера и знает только статические заголовки, а здесь нужны OAuth с
- * обновлением токена и белый список инструментов только для чтения.
+ * сервера, а здесь нужен белый список инструментов только для чтения
+ * (проверяет McpSource). Авторизация — один статический bearer-токен шлюза
+ * источников (ADR-0015): без OAuth, без обновления; 401 — ошибка сразу.
+ * tools/list клиент не зовёт: список инструментов порталу не нужен.
  */
 
 const PROTOCOL = '2025-06-18'
 
-export interface McpAuth {
-  /** Текущий access-токен (обновлённый, если истёк). */
-  token(): Promise<string>
-  /** Сервер ответил 401: обновить токен; false — обновить нельзя. */
-  unauthorized(): Promise<boolean>
-}
 
 export class McpError extends Error {
   constructor(message: string, readonly status?: number) {
@@ -58,19 +54,19 @@ export class McpHttpClient {
   private ready: Promise<void> | undefined
   private nextId = 1
 
-  constructor(private readonly url: string, private readonly auth: McpAuth, private readonly timeoutMs = 30_000) {}
+  /** Bearer-токен: только в памяти, в журнал и ответы не попадает. */
+  readonly #token: string
+
+  constructor(private readonly url: string, token: string, private readonly timeoutMs = 30_000) {
+    this.#token = token
+  }
 
   /** Вызов инструмента; результат — текст. */
   async callTool(name: string, args: Record<string, unknown>): Promise<string> {
     return toolText(await this.request('tools/call', { name, arguments: args }))
   }
 
-  async listTools(): Promise<string[]> {
-    const result = await this.request('tools/list', {}) as { tools?: { name: string }[] }
-    return (result.tools ?? []).map((tool) => tool.name)
-  }
-
-  /** Забыть сессию (после смены токена или отключения). */
+  /** Забыть сессию. */
   reset(): void {
     this.session = undefined
     this.ready = undefined
@@ -102,19 +98,9 @@ export class McpHttpClient {
     return this.ready
   }
 
-  private async send(method: string, params: unknown, retried = false): Promise<unknown> {
+  private async send(method: string, params: unknown): Promise<unknown> {
     const id = this.nextId++
-    let response: { status: number; contentType: string; body: string }
-    try {
-      response = await this.post({ jsonrpc: '2.0', id, method, params }, id)
-    } catch (e) {
-      if (e instanceof McpError && e.status === 401 && !retried && await this.auth.unauthorized()) {
-        if (method !== 'initialize') this.reset()
-        if (method !== 'initialize') await this.initialize()
-        return this.send(method, params, true)
-      }
-      throw e
-    }
+    const response = await this.post({ jsonrpc: '2.0', id, method, params }, id)
     const message = parseRpcBody(response.contentType, response.body, id)
     if (!message) throw new McpError(`${method}: нет ответа сервера`)
     if (message.error) throw new McpError(`${method}: ${message.error.message}`)
@@ -125,7 +111,7 @@ export class McpHttpClient {
     const headers: Record<string, string> = {
       'content-type': 'application/json',
       accept: 'application/json, text/event-stream',
-      authorization: `Bearer ${await this.auth.token()}`,
+      authorization: `Bearer ${this.#token}`,
       'mcp-protocol-version': PROTOCOL,
     }
     if (this.session) headers['mcp-session-id'] = this.session

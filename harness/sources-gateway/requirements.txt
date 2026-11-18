@@ -1,0 +1,6 @@
+# Шлюз источников (bft_sources_gateway.py). Версии закреплены: обновлять осознанно,
+# прогоняя tests/ (python -m pytest -q tests).
+fastmcp==3.4.8
+mcp==1.30.0
+uvicorn==0.54.0
+pyyaml==6.0.3

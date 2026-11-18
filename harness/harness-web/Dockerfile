@@ -22,7 +22,7 @@ COPY bft-manager/package.json bft-manager/tsconfig*.json bft-manager/tsdown.conf
 COPY bft-manager/src ./bft-manager/src
 COPY bft-manager/test ./bft-manager/test
 RUN cd bft-manager && npm install --no-audit --no-fund && npm run build && npm test
-# data-sources: Jira/Confluence через MCP-шлюз агентов (OAuth или служебный токен, только чтение)
+# data-sources: Jira/Confluence через шлюз источников по токену (только чтение, ADR-0015)
 COPY data-sources/package.json data-sources/tsconfig*.json data-sources/tsdown.config.ts data-sources/cordis.patch.yml ./data-sources/
 COPY data-sources/src ./data-sources/src
 COPY data-sources/test ./data-sources/test

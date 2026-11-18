@@ -8,6 +8,10 @@
 # Идемпотентно. include виджета в vhost комментируется (сам виджет и его сниппет
 # не удаляются — откат: --rollback). nginx перезагружается только после успешного
 # `nginx -t`, иначе vhost и сниппет восстанавливаются.
+# Тот же сниппет отдаёт и шлюз источников (ADR-0015): location = /bft-sources/mcp →
+# 127.0.0.1:3086/mcp, без Authentik (токен проверяет сам шлюз). После правки
+# bft-portal.nginx.conf — запустить этот скрипт заново. Проверка снаружи:
+#   curl -s -o /dev/null -w '%{http_code}' -X POST https://<хост>/bft-sources/mcp   # ждём 401
 set -euo pipefail
 
 DIR="$(cd "$(dirname "$0")" && pwd)"

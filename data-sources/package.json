@@ -1,7 +1,7 @@
 {
   "name": "data-sources",
   "version": "0.1.0",
-  "description": "Источники данных портала БФТ: Jira и Confluence через удалённый MCP с OAuth (только чтение), разведка для полного БФТ",
+  "description": "Источники данных портала БФТ: Jira и Confluence через шлюз источников по токену (только чтение), разведка для полного БФТ",
   "license": "MIT",
   "type": "module",
   "main": "lib/index.js",

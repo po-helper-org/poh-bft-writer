@@ -1,7 +1,9 @@
 /**
  * data-sources · браузерная половина: «Настройки → Источники данных».
  * Раздел штатных «Настроек» dsh (слот `settings.section`) — только
- * администратору портала: подключить/отключить источник, пробный поиск.
+ * администратору портала: состояние источника и пробный поиск. Подключается
+ * источник только токеном на сервере (ADR-0015) — кнопок входа здесь нет,
+ * токен браузер не видит.
  */
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import { useEffect, useState, type ComponentType, type CSSProperties, type ReactElement } from 'react'
@@ -20,12 +22,9 @@ interface SourceStatus {
   name: string
   url: string
   connected: boolean
-  /** false — адрес MCP не задан: источник «не настроен». */
+  /** false — адрес или токен не заданы: источник «не настроен». */
   configured?: boolean
-  /** service — служебный токен шлюза агентов: подключать и отключать не нужно. */
-  mode?: 'oauth' | 'service'
   label?: string
-  connectedAt?: string
   error?: string
   tools: string[]
 }
@@ -52,7 +51,7 @@ const s: Record<string, CSSProperties> = {
   dot: { width: 8, height: 8, borderRadius: 999, display: 'inline-block' },
   muted: { opacity: 0.65, fontSize: 12, lineHeight: 1.5, wordBreak: 'break-all' },
   error: { color: '#dc2626', fontSize: 12, lineHeight: 1.5 },
-  button: { font: 'inherit', fontSize: 13, fontWeight: 500, padding: '6px 14px', borderRadius: 8, border: '1px solid currentColor', background: 'transparent', color: 'inherit', cursor: 'pointer', textDecoration: 'none', marginLeft: 'auto' },
+  button: { font: 'inherit', fontSize: 13, fontWeight: 500, padding: '6px 14px', borderRadius: 8, border: '1px solid currentColor', background: 'transparent', color: 'inherit', cursor: 'pointer', textDecoration: 'none' },
   row: { display: 'flex', gap: 8 },
   input: { flex: 1, font: 'inherit', fontSize: 13, padding: '6px 10px', borderRadius: 8, border: '1px solid color-mix(in srgb, currentColor 22%, transparent)', background: 'transparent', color: 'inherit' },
   list: { margin: 0, paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13 },
@@ -65,12 +64,6 @@ function SourceCard(props: { source: SourceStatus; onChange(): void }): ReactEle
   const [busy, setBusy] = useState(false)
   const [found, setFound] = useState<{ findings: Finding[]; errors: string[] } | null>(null)
 
-  const disconnect = async () => {
-    setBusy(true)
-    await fetch(portalHref('/api/data-sources.disconnect'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ source: source.id }) }).catch(() => undefined)
-    setBusy(false)
-    props.onChange()
-  }
   const search = async () => {
     if (!query.trim()) return
     setBusy(true)
@@ -92,16 +85,7 @@ function SourceCard(props: { source: SourceStatus; onChange(): void }): ReactEle
       <div style={s.head}>
         <span style={{ ...s.dot, background: source.connected ? '#16a34a' : '#dc2626' }} aria-hidden />
         <span style={s.name}>{source.name}</span>
-        <span style={s.muted} data-source-mode={source.mode ?? 'oauth'}>{source.configured === false
-          ? source.label ?? 'не настроен'
-          : source.mode === 'service'
-          ? source.label ?? 'подключён служебным токеном шлюза агентов'
-          : source.connected ? `подключён${source.connectedAt ? ` ${new Date(source.connectedAt).toLocaleDateString('ru-RU')}` : ''}` : 'не подключён'}</span>
-        {source.configured === false || source.mode === 'service'
-          ? null
-          : source.connected
-          ? <button type="button" style={s.button} disabled={busy} onClick={() => void disconnect()}>Отключить</button>
-          : <a style={s.button} href={portalHref(`/api/data-sources.connect?source=${encodeURIComponent(source.id)}`)}>Подключить</a>}
+        <span style={s.muted} data-source-state={source.connected ? 'connected' : 'not-configured'}>{source.label ?? (source.connected ? 'подключён: только чтение' : 'не настроен')}</span>
       </div>
       <span style={s.muted}>MCP: {source.url || 'адрес не задан'} · только чтение: {source.tools.join(', ')}</span>
       {source.error && <span style={s.error} role="alert">{source.error}</span>}
@@ -109,7 +93,7 @@ function SourceCard(props: { source: SourceStatus; onChange(): void }): ReactEle
         <>
           <div style={s.row}>
             <input style={s.input} aria-label={`Пробный поиск в ${source.name}`} placeholder="Пробный поиск: например, «заявление на отпуск»" value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void search() }} />
-            <button type="button" style={{ ...s.button, marginLeft: 0 }} disabled={busy || !query.trim()} onClick={() => void search()}>{busy ? 'Ищу…' : 'Найти'}</button>
+            <button type="button" style={s.button} disabled={busy || !query.trim()} onClick={() => void search()}>{busy ? 'Ищу…' : 'Найти'}</button>
           </div>
           {found && (
             <div data-source-results>
@@ -142,7 +126,7 @@ function SourcesSection(): ReactElement {
     <div style={s.wrap} data-sources-settings>
       <div>
         <h2 style={s.title}>Источники данных</h2>
-        <p style={s.lead}>Корпоративные Jira и Confluence. Перед сборкой полного БФТ портал ищет по ним связанные эпики, задачи и страницы и даёт модели как указатель со ссылками — в разделе «Якоря истины» они появятся ссылками. Порталу доступно только чтение.</p>
+        <p style={s.lead}>Корпоративные Jira и Confluence. Перед сборкой полного БФТ портал ищет по ним связанные эпики, задачи и страницы и даёт модели как указатель со ссылками — в разделе «Якоря истины» они появятся ссылками. Порталу доступно только чтение: отдельный шлюз источников даёт ему четыре инструмента поиска и чтения и ничего больше. Подключается на сервере токеном шлюза — здесь только состояние и пробный поиск.</p>
       </div>
       {sources === null ? <span style={s.muted}>Загружаю…</span> : sources.map((source) => <SourceCard key={source.id} source={source} onChange={() => void load()} />)}
     </div>
