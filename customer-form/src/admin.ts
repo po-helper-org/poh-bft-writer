@@ -111,9 +111,55 @@ function setCookie(value: string, maxAge: number): string {
   return `${COOKIE}=${value}; Path=${portalCookiePath()}; HttpOnly; SameSite=Strict; Max-Age=${maxAge}`
 }
 
+/**
+ * Вход через Authentik (ADR-0014): на сервере портал стоит за nginx с входом
+ * Authentik, и nginx передаёт узлу, кто вошёл (X-authentik-username/-groups;
+ * значения ставит сам nginx — заголовки клиента он перезаписывает). Режим
+ * включает `ADMIN_LOGIN=sso`: пароль не принимается, администратор — член
+ * группы из `ADMIN_SSO_GROUPS` (по умолчанию «authentik Admins») или
+ * пользователь из `ADMIN_SSO_USERS` (через запятую).
+ */
+const ssoMode = (): boolean => (process.env.ADMIN_LOGIN ?? '').trim().toLowerCase() === 'sso'
+const list = (value: string | undefined) => (value ?? '').split(/[,|]/).map((v) => v.trim().toLowerCase()).filter(Boolean)
+
+function ssoUser(request: Request): { name: string; admin: boolean } | undefined {
+  const name = (request.headers.get('x-authentik-username') ?? '').trim()
+  if (!name) return undefined
+  const groups = list(request.headers.get('x-authentik-groups') ?? '')
+  const allowedGroups = list(process.env.ADMIN_SSO_GROUPS ?? 'authentik Admins')
+  const allowedUsers = list(process.env.ADMIN_SSO_USERS)
+  return { name, admin: allowedUsers.includes(name.toLowerCase()) || groups.some((g) => allowedGroups.includes(g)) }
+}
+
+async function ssoPage(request: Request, head: string): Promise<Response> {
+  const user = ssoUser(request)
+  if (request.method === 'POST') {
+    const form = new URLSearchParams(await request.text())
+    if (form.get('logout') !== null) {
+      return new Response(null, { status: 303, headers: { location: PORTAL_ROOT_HREF, 'set-cookie': setCookie('', 0) } })
+    }
+  }
+  const wantLogin = request.method === 'POST' || new URL(request.url).searchParams.has('login')
+  if (!user) {
+    return page(`${head}<p class="warn">Вход администратора — через Authentik, а учётка не передана.</p><p>Откройте портал по его адресу на сервере (…/bft/admin).</p>`, 401)
+  }
+  if (!user.admin) {
+    return page(`${head}<p class="warn">Учётка «${esc(user.name)}» — не администратор портала.</p><p>Администратор — член группы Authentik из <code>ADMIN_SSO_GROUPS</code> или пользователь из <code>ADMIN_SSO_USERS</code>.</p><div class="row"><a class="btn ghost" href="${PORTAL_ROOT_HREF}">Вернуться в портал</a></div>`, 403)
+  }
+  if (wantLogin && !isAdmin(request)) {
+    return new Response(null, { status: 303, headers: { location: PORTAL_ROOT_HREF, 'set-cookie': setCookie(token(), COOKIE_DAYS * 86400) } })
+  }
+  if (isAdmin(request)) {
+    return page(`${head}<p>Вы вошли как «${esc(user.name)}». В портале открыт полный интерфейс: «Ещё → Настройки» — ключи провайдеров («Модели»), «Портал», «Источники данных», плагины.</p>
+<div class="row"><a class="btn" href="${PORTAL_ROOT_HREF}">Открыть портал</a><form method="post"><button class="ghost" name="logout" value="1">Выйти из режима администратора</button></form></div>`)
+  }
+  return page(`${head}<p>Учётка «${esc(user.name)}» — администратор портала.</p><form method="post"><button type="submit" name="login" value="1">Войти как администратор</button></form>`)
+}
+
 /** GET — форма входа или «вы вошли»; POST — вход (password) или выход (logout). */
 export async function adminPage(request: Request): Promise<Response> {
   const head = '<div class="kicker">Портал заказчика</div><h1>Администратор</h1>'
+  if (ssoMode() && password()) return ssoPage(request, head)
   if (!password()) {
     return page(`${head}<p class="warn">Пароль администратора не задан.</p><p>Задайте <code>ADMIN_PASSWORD</code> в <code>harness/.env</code> (его создаёт <code>./start.sh</code>) и перезапустите портал.</p>`)
   }

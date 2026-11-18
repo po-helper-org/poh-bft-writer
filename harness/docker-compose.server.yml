@@ -15,6 +15,11 @@ services:
       # loopback-порт с путём /callback. Подключать из браузера через туннель
       #   ssh -L 3083:127.0.0.1:3083 harness-mts
       DATA_SOURCES_CALLBACK_URL: http://127.0.0.1:3083/callback
+      # Администратор — по учётке Authentik (/bft/admin), пароль не принимается.
+      # ADMIN_PASSWORD остаётся секретом куки администратора.
+      ADMIN_LOGIN: sso
+      ADMIN_SSO_GROUPS: ${ADMIN_SSO_GROUPS:-authentik Admins}
+      ADMIN_SSO_USERS: ${ADMIN_SSO_USERS:-}
     ports: !override
       - "127.0.0.1:3082:3080"
       - "127.0.0.1:3083:3081"
