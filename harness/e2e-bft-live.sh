@@ -45,7 +45,7 @@ docker run --rm --network host --ipc host \
   -e PORTAL_URL="$PORTAL_URL" -e LIVE_REQUEST="${LIVE_REQUEST:-}" -e CI=1 \
   -v "$PORTAL_DIR/customer-form/e2e/live:/work/e2e/live:ro" -v "$OUT:/work/test-results" -w /work \
   "$IMAGE" bash -c "npm init -y > /dev/null && npm i -s --no-audit --no-fund @playwright/test@$PW_VERSION > /dev/null \
-    && npx playwright test -c e2e/live/playwright.config.ts; s=\$?; chown -R $(id -u):$(id -g) /work/test-results; exit \$s" || status=$?
+    && npx playwright test -c e2e/live/playwright.config.ts bft-full; s=\$?; chown -R $(id -u):$(id -g) /work/test-results; exit \$s" || status=$?
 
 slug=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1])).get('slug',''))" "$OUT/live-run.json" 2>/dev/null || true)
 if [ -n "$slug" ]; then
