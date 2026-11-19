@@ -18,6 +18,7 @@
  */
 import { readFile } from 'node:fs/promises'
 import { GoogleConnector, googleTarget } from './google.js'
+import { confluenceLink, pageLabel, pageMarkdown, sameConfluence, type ConfluencePage, type ConfluenceSource } from './confluence.js'
 
 export interface Ingested {
   ok: boolean
@@ -36,6 +37,8 @@ export interface Material {
   result: Promise<Ingested>
   /** Готовый результат, когда разбор закончился (для подсказки терминов). */
   settled?: Ingested
+  /** Страница Confluence, выбранная в чате (ADR-0019). */
+  pageId?: string
 }
 
 export interface WebLike {
@@ -94,8 +97,10 @@ function fit(text: string, budget: number): string {
 }
 
 export class Materials {
-  private sessions = new Map<string, { items: Material[]; delivered: Set<string> }>()
+  private sessions = new Map<string, { items: Material[]; delivered: Set<string>; pages: Map<string, ConfluencePage> }>()
   web?: WebLike
+  /** Confluence через шлюз источников (ADR-0015/0019); нет — ссылки Confluence идут через ctx.web. */
+  confluence?: ConfluenceSource
   /** Ссылки Google (Docs, Slides, Sheets, Drive) — открытым экспортом, ADR-0017. */
   google: GoogleConnector
 
@@ -105,7 +110,7 @@ export class Materials {
 
   private bucket(sessionId: string) {
     let bucket = this.sessions.get(sessionId)
-    if (!bucket) this.sessions.set(sessionId, bucket = { items: [], delivered: new Set() })
+    if (!bucket) this.sessions.set(sessionId, bucket = { items: [], delivered: new Set(), pages: new Map() })
     return bucket
   }
 
@@ -223,15 +228,76 @@ export class Materials {
         return { ok: true, label: read.label, markdown: `Источник: ${url}\n\n${read.markdown}`, elapsedMs: Date.now() - started }
       })
     }
-    return this.add(sessionId, url, async () => {
-      if (!this.web) throw new Error('загрузка ссылок недоступна')
-      const page = await this.web.fetch({ url }, AbortSignal.timeout(30_000))
-      if (page.statusCode >= 400) {
-        return { ok: false, label: 'страница', markdown: '', error: `страница ответила ${page.statusCode} — вероятно, нужен вход (JIRA, Confluence)` }
-      }
-      const markdown = page.body.kind === 'html' ? (await this.ingest('page.html', page.body.content)).markdown : page.body.content
-      return { ok: true, label: `страница${page.truncated ? ' (обрезана)' : ''}`, markdown }
+    const wiki = confluenceLink(url)
+    if (wiki && this.confluence) {
+      const source = this.confluence
+      return this.add(sessionId, url, async () => {
+        try {
+          const page = await this.confluencePage(source, wiki)
+          if (page && sameConfluence(url, page)) return this.pageMaterial(sessionId, page, url)
+        } catch (e) {
+          console.error(`[customer-form] ссылка Confluence через шлюз источников не прочитана: ${(e as Error).message}`)
+        }
+        return this.webPage(url)
+      })
+    }
+    return this.add(sessionId, url, () => this.webPage(url))
+  }
+
+  /** Публичная страница через ctx.web dsh. */
+  private async webPage(url: string): Promise<Ingested> {
+    if (!this.web) throw new Error('загрузка ссылок недоступна')
+    const page = await this.web.fetch({ url }, AbortSignal.timeout(30_000))
+    if (page.statusCode >= 400) {
+      return { ok: false, label: 'страница', markdown: '', error: `страница ответила ${page.statusCode} — вероятно, нужен вход (JIRA, Confluence)` }
+    }
+    const markdown = page.body.kind === 'html' ? (await this.ingest('page.html', page.body.content)).markdown : page.body.content
+    return { ok: true, label: `страница${page.truncated ? ' (обрезана)' : ''}`, markdown }
+  }
+
+  /** Страница по ссылке: по id — сразу; /display/KEY/Title — поиском, только точное совпадение названия и пространства. */
+  private async confluencePage(source: ConfluenceSource, link: NonNullable<ReturnType<typeof confluenceLink>>): Promise<ConfluencePage | undefined> {
+    if ('pageId' in link) return source.readConfluencePage(link.pageId)
+    const norm = (t: string) => t.replace(/\s+/g, ' ').trim().toLowerCase()
+    const hits = await source.searchConfluence(link.title, 10)
+    const hit = hits.find((h) => norm(h.title) === norm(link.title) && (!h.container || h.container.toLowerCase() === link.space.toLowerCase()))
+    return hit ? source.readConfluencePage(hit.id) : undefined
+  }
+
+  private pageMaterial(sessionId: string, page: ConfluencePage, link?: string): Ingested {
+    this.bucket(sessionId).pages.set(page.id, page)
+    return { ok: true, label: pageLabel(page), markdown: pageMarkdown(page, link) }
+  }
+
+  /**
+   * Страница Confluence, выбранная заказчиком в чате (attach_confluence_page):
+   * материал заявки, как вложение или ссылка. Уже приложенная — тот же материал.
+   */
+  addConfluence(sessionId: string, pageId: string, title?: string): Material {
+    const bucket = this.bucket(sessionId)
+    const known = bucket.items.find((m) => m.pageId === pageId && m.settled?.ok !== false)
+    if (known) return known
+    const material = this.add(sessionId, `Confluence: ${title?.trim() || `страница ${pageId}`}`, async () => {
+      if (!this.confluence) throw new Error('Confluence не подключён')
+      return this.pageMaterial(sessionId, await this.confluence.readConfluencePage(pageId))
     })
+    material.pageId = pageId
+    return material
+  }
+
+  /** Страницы Confluence, прочитанные в сессии (по ссылке или из поиска), с id материала. */
+  confluencePages(sessionId: string): { material: string; page: ConfluencePage }[] {
+    const bucket = this.sessions.get(sessionId)
+    if (!bucket) return []
+    return [...bucket.pages.values()].map((page) => ({
+      page,
+      material: bucket.items.find((m) => m.settled?.ok && (m.pageId === page.id || m.settled.label === pageLabel(page)))?.id ?? '',
+    }))
+  }
+
+  /** Материал уже отдан модели (результатом инструмента): read_customer_materials его не повторит. */
+  deliver(sessionId: string, id: string): void {
+    this.sessions.get(sessionId)?.delivered.add(id)
   }
 
   /** Материалы сессии для вкладки Information: что приложено и в каком состоянии. */

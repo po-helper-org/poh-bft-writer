@@ -97,6 +97,18 @@ const NOT_CONFIGURED = (id: string) => `источник не настроен �
 // Без латинского слова token: e2e проверяет, что статус не похож на секрет.
 export const SERVICE_REJECTED = 'токен отклонён шлюзом источников — перевыпустите его на сервере (harness/deploy/install-sources-gateway.sh, ADR-0015)'
 
+/** Страница Confluence целиком: для материалов заявки в чате (ADR-0019). */
+export interface ConfluencePage {
+  id: string
+  title: string
+  url?: string
+  space?: string
+  spaceName?: string
+  updated?: string
+  /** Текст страницы в Markdown, без чистки и бюджета: бюджет — у потребителя. */
+  text: string
+}
+
 export interface McpSourceOptions {
   /** Токен шлюза источников; не задан — из окружения (serviceTokenEnv). */
   serviceToken?: string
@@ -162,6 +174,18 @@ export class McpSource {
   private async jiraByJql(jql: string, query: string, limit: number, titleMatch: boolean): Promise<Finding[]> {
     const found = jiraFindings(await this.call('jira_search', { jql, limit, fields: JIRA_FIELDS }), query)
     return titleMatch ? found.map((finding) => ({ ...finding, titleMatch: true })) : found
+  }
+
+  /** Страница Confluence по id: текст и метаданные (название, пространство, ссылка). */
+  async readConfluencePage(pageId: string): Promise<ConfluencePage> {
+    const id = String(pageId).trim()
+    if (!/^\d{1,20}$/.test(id)) throw new Error(`неверный id страницы Confluence: ${id.slice(0, 40)}`)
+    const page = this.parsePage(await this.call('confluence_get_page', { page_id: id, convert_to_markdown: true, include_metadata: true }))
+    return {
+      id, title: page.title ?? `Страница ${id}`, text: page.text,
+      ...(page.url ? { url: page.url } : {}), ...(page.space ? { space: page.space } : {}),
+      ...(page.spaceName ? { spaceName: page.spaceName } : {}), ...(page.updated ? { updated: page.updated } : {}),
+    }
   }
 
   /** Поиск по обоим: для проверки в «Настройках» и для агентов. */

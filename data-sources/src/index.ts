@@ -13,7 +13,9 @@
  *   поиск и разведка для полного БФТ. Только инструменты чтения.
  */
 import { createHmac, timingSafeEqual } from 'node:crypto'
-import { McpSource, sourceUrlEnv, type ReconOptions, type ReconResult, type SourceStatus } from './sources.js'
+import { existsSync } from 'node:fs'
+import { join } from 'node:path'
+import { McpSource, sourceUrlEnv, type ConfluencePage, type ReconOptions, type ReconResult, type SourceStatus } from './sources.js'
 import { removeLegacyConnections } from './legacy.js'
 import type { Finding } from './findings.js'
 
@@ -24,6 +26,12 @@ export interface SourceConfig {
   name: string
   /** Адрес MCP; пусто — берётся из DATA_SOURCES_URL_<ID>, нет и там — «не настроен». */
   url?: string
+  /**
+   * Только для E2E с двойником шлюза (customer-form/e2e/sources-double.mjs):
+   * учитывается, лишь когда в томе есть флаг e2e-hooks (его ставит и снимает
+   * harness/e2e-customer.sh). Настоящий токен — только DATA_SOURCES_TOKEN_<ID>.
+   */
+  e2eToken?: string
 }
 
 export interface Config {
@@ -36,6 +44,14 @@ export interface DataSources {
   available(): Promise<boolean>
   status(): Promise<SourceStatus[]>
   search(query: string, limit?: number): Promise<{ findings: Finding[]; errors: string[] }>
+  /**
+   * Поиск страниц Confluence (чат заказчика, ADR-0019). Нет подключённого
+   * источника или шлюз не ответил — исключение: потребитель честно говорит,
+   * что поиск недоступен.
+   */
+  searchConfluence(query: string, limit?: number): Promise<Finding[]>
+  /** Страница Confluence целиком по id (материал заявки, ADR-0019). */
+  readConfluencePage(pageId: string): Promise<ConfluencePage>
   /** Разведка по запросам в первом подключённом источнике; нет источника — undefined. */
   recon(queries: string[], options?: ReconOptions): Promise<(ReconResult & { source: string }) | undefined>
 }
@@ -80,9 +96,19 @@ function sourceUrl(source: SourceConfig): string {
   return (source.url?.trim() || process.env[sourceUrlEnv(source.id)]?.trim() || '')
 }
 
+/** Флаг E2E в томе (как у customer-form): без него токен из конфига не берётся. */
+function e2eHooks(): boolean {
+  return existsSync(join(process.env.DSH_HOME ?? '/data', 'e2e-hooks'))
+}
+
 export function apply(ctx: HarnessContext, config: Config = {}): void {
   const sources = (config.sources?.length ? config.sources : DEFAULT_SOURCES)
-    .map((source) => new McpSource(source.id, source.name, sourceUrl(source)))
+    .map((source) => new McpSource(source.id, source.name, sourceUrl(source),
+      source.e2eToken && e2eHooks() ? { serviceToken: source.e2eToken } : {}))
+  const first = async () => {
+    for (const source of sources) if (await source.connected()) return source
+    throw new Error('нет подключённых источников')
+  }
 
   const service: DataSources = {
     async available() {
@@ -94,6 +120,8 @@ export function apply(ctx: HarnessContext, config: Config = {}): void {
       for (const source of sources) if (await source.connected()) return source.search(query, limit)
       return { findings: [], errors: ['нет подключённых источников'] }
     },
+    searchConfluence: async (query, limit) => (await first()).searchConfluence(query, limit),
+    readConfluencePage: async (pageId) => (await first()).readConfluencePage(pageId),
     async recon(queries, options) {
       for (const source of sources) {
         if (await source.connected()) return { ...(await source.recon(queries, options)), source: source.name }

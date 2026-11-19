@@ -17,6 +17,7 @@ import { demoSteps, doneList, repairDemo, sharedDemos, storyboardMarkdown, type 
 import { demoPageHtml } from './demo-page.js'
 import { moscowTime, sharedBacklog, ticketRegistered, type Backlog, type Intake, type Ticket } from './host.js'
 import { materialsPack, pendingNote, sharedMaterials, type Materials } from './materials.js'
+import { customerPage, hitsText, saveCustomerPages, unavailableText, type ConfluenceHit } from './confluence.js'
 import { mirrorRequest } from './workspace-mirror.js'
 import { titleSession } from './session-title.js'
 import { approveFastRequest, holdFastAsk, type FastAskRelease } from './fast-approval.js'
@@ -48,8 +49,10 @@ interface ToolContext {
 export function apply(ctx: ToolContext): void {
   const tools = ctx.get('tools') as { register(definition: unknown): () => void }
   ctx.effect(() => tools.register(defineTool(materialsTool(sharedMaterials()))), 'customer-form: read_customer_materials')
+  ctx.effect(() => tools.register(defineTool(searchConfluenceTool(sharedMaterials()))), 'customer-form: search_confluence')
+  ctx.effect(() => tools.register(defineTool(attachConfluenceTool(sharedMaterials(), sharedBacklog()))), 'customer-form: attach_confluence_page')
   ctx.effect(() => tools.register(defineTool(confirmDemoTool(ctx, sharedBacklog()))), 'customer-form: confirm_acceptance_demo')
-  ctx.effect(() => tools.register(defineTool(submitTool(sharedBacklog()))), 'customer-form: submit_customer_request')
+  ctx.effect(() => tools.register(defineTool(submitTool(sharedBacklog(), sharedMaterials()))), 'customer-form: submit_customer_request')
   ctx.effect(() => tools.register(defineTool(fastTool(sharedBacklog()))), 'customer-form: create_bft_fast')
   ctx.effect(() => tools.register(defineTool(confirmFastTool(ctx, sharedBacklog()))), 'customer-form: confirm_bft_fast')
 }
@@ -101,6 +104,104 @@ function materialsTool(materials: Materials) {
       const { ready, pending } = await materials.take(agent.session.id)
       if (!ready.length && !pending.length) return 'Новых материалов нет.'
       return [ready.length ? materialsPack(ready) : '', pendingNote(pending)].filter(Boolean).join('\n\n')
+    },
+  }
+}
+
+/** Последняя выдача поиска сессии: название страницы для имени материала. */
+const lastHits = new Map<string, ConfluenceHit[]>()
+
+const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e))
+
+/**
+ * Поиск документов Confluence (ADR-0019) — тем же read-only шлюзом источников,
+ * что и разведка полного БФТ (служба dataSources, ADR-0015). Шлюза нет или он
+ * не ответил — модель получает «поиск недоступен» и говорит это заказчику.
+ */
+export function searchConfluenceTool(materials: Materials) {
+  return {
+    name: 'search_confluence',
+    description: 'Найти документ или страницу в Confluence компании (только чтение). Вызывай, когда заказчик просит найти документ, страницу, регламент или '
+      + 'инструкцию, называет документ по названию («по регламенту …», «у нас в вики есть страница …») или дал ссылку Confluence, которую не удалось прочитать. '
+      + 'Запрос — 2–5 ключевых слов из названия, без служебных слов. Результат — список страниц: покажи его заказчику (название, пространство, ссылка) '
+      + 'и спроси формой, какую приложить; выбранную — attach_confluence_page.',
+    parameters: {
+      query: text('Что искать: 2–5 слов из названия документа или темы'),
+      limit: { type: 'number', description: 'Необязательно: сколько страниц показать, 1–10 (по умолчанию 6)' },
+    },
+    output: {
+      schema: { type: 'string' },
+      render: (_args: unknown, value: string) => [{ type: 'text', text: value }],
+    },
+    async execute(args: { query?: string; limit?: number }, exec: { agent?: AgentLike }) {
+      const query = (args?.query ?? '').replace(/\s+/g, ' ').trim().slice(0, 200)
+      if (!query) throw new Error('пустой запрос: передай 2–5 слов из названия документа')
+      const source = materials.confluence
+      if (!source || !(await source.available().catch(() => false))) return unavailableText('источник не подключён')
+      const limit = Math.min(10, Math.max(1, Math.floor(Number(args?.limit) || 6)))
+      let hits: ConfluenceHit[]
+      try {
+        hits = (await source.searchConfluence(query, limit)).slice(0, limit)
+      } catch (e) {
+        console.error('[customer-form] поиск по Confluence не удался:', errorText(e))
+        return unavailableText('шлюз источников не ответил')
+      }
+      if (exec.agent) lastHits.set(exec.agent.session.id, hits)
+      return hitsText(query, hits)
+    },
+  }
+}
+
+/**
+ * Выбранная заказчиком страница → материал заявки (как ссылка Google,
+ * ADR-0017): текст — модели сразу (<source id="S…">), .md — в задачу, а для
+ * полного БФТ — в customer-pages.json рядом с документом (раздел «Приложено
+ * заказчиком» в карте находок).
+ */
+export function attachConfluenceTool(materials: Materials, backlog: Backlog) {
+  return {
+    name: 'attach_confluence_page',
+    description: 'Прочитать страницу Confluence и приложить её к заявке как материал заказчика (S1, S2…). Вызывай после того, как заказчик выбрал страницу '
+      + 'из результата search_confluence (pageId — оттуда) или когда он прямо назвал её. Дальше опирайся на неё с меткой источника, как на другие материалы.',
+    parameters: {
+      pageId: text('pageId страницы из результата search_confluence (только цифры)'),
+    },
+    output: {
+      schema: { type: 'string' },
+      render: (_args: unknown, value: string) => [{ type: 'text', text: value }],
+    },
+    async execute(args: { pageId?: string }, exec: { agent?: AgentLike }) {
+      const agent = exec.agent
+      if (!agent) throw new Error('нет сессии заказчика')
+      const pageId = String(args?.pageId ?? '').trim()
+      if (!/^\d{1,20}$/.test(pageId)) throw new Error('pageId — только цифры, из результата search_confluence')
+      const source = materials.confluence
+      if (!source || !(await source.available().catch(() => false))) return unavailableText('источник не подключён')
+      const sessionId = agent.session.id
+      const title = lastHits.get(sessionId)?.find((h) => h.id === pageId)?.title
+      const material = materials.addConfluence(sessionId, pageId, title)
+      const result = await material.result
+      if (!result.ok) {
+        console.error(`[customer-form] страница Confluence ${pageId} не прочитана:`, result.error)
+        return unavailableText(`страница не прочитана: ${result.error ?? 'ошибка шлюза'}`)
+      }
+      materials.deliver(sessionId, material.id)
+      const page = materials.confluencePages(sessionId).find((p) => p.page.id === pageId)?.page
+      const ticket = await backlog.find(sessionId).catch(() => undefined)
+      if (ticket) {
+        const base = `confluence-${(page?.title ?? pageId).replace(/[^\p{L}\p{N}._-]+/gu, '_')}`.slice(0, 80)
+        const file = `# ${material.id} · ${page?.title ?? material.name}\n\n_${result.label}_\n\n${result.markdown}\n`
+        await backlog.attach(ticket, `${material.id}-${base}.md`, new TextEncoder().encode(file))
+          .catch((e) => console.error('[customer-form] страница Confluence не ушла в задачу:', e))
+        const saved = page ? customerPage(page, material.id) : undefined
+        if (saved) await saveCustomerPages(fastFiles(FAST_ROOT, fastSlug(ticket.taskId)).dir, [saved]).catch((e) => console.error('[customer-form] customer-pages.json не записан:', e))
+      }
+      return [
+        `Страница приложена к заявке как материал ${material.id}${page?.url ? ` (${page.url})` : ''}.`,
+        `Опирайся на неё с меткой [${material.id}], как на другие материалы; ссылку на страницу добавь в links submit_customer_request. `
+          + 'Заказчику — одна фраза, что приложила, и продолжай постановку.',
+        materialsPack([{ material, result }]),
+      ].join('\n')
     },
   }
 }
@@ -288,7 +389,7 @@ async function ensureTicket(backlog: Backlog, agent: AgentLike, text: string): P
   return ticket
 }
 
-function submitTool(backlog: Backlog) {
+function submitTool(backlog: Backlog, materials: Materials) {
   return {
     name: 'submit_customer_request',
     description: 'Сдать согласованную заказчиком постановку в заявку беклога: описание, сводку и полный контекст. Вызывай один раз — сразу после «Согласую» на сценарии приёмки, без ИТОГА и повторного подтверждения; пробелы — в openQuestions.',
@@ -328,6 +429,9 @@ function submitTool(backlog: Backlog) {
         links: (args.links ?? []).filter((l) => l?.trim()),
         openQuestions: (args.openQuestions ?? []).filter((q) => q?.trim()),
       }).catch((e) => console.error('[customer-form] intake.json не записан:', e))
+      // Страницы Confluence, прочитанные в чате (ссылкой или из поиска), — для полного БФТ (ADR-0019).
+      const pages = materials.confluencePages(agent.session.id).flatMap(({ page, material }) => customerPage(page, material || undefined) ?? [])
+      await saveCustomerPages(fastFiles(FAST_ROOT, fastSlug(ticket.taskId)).dir, pages).catch((e) => console.error('[customer-form] customer-pages.json не записан:', e))
       fastProgress.stage(agent.session.id, 'submitted')
       if (args.title?.trim()) titleSession(agent.session, ticket.taskId, args.title)
       void mirrorRequest(ticket.taskId, agent.session.id)
