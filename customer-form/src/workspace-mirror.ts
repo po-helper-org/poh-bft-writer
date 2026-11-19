@@ -41,6 +41,7 @@ export const MIRROR_FILES = {
   deep: 'БФТ.md',
   sources: 'Источники (Jira, Confluence).md',
   context: 'Карта контекста (Кортекс).md',
+  answers: 'Ответы на вопросы (форма).md',
 } as const
 
 /** Имя папки заявки: «Заявка N — название» без символов, которые не всякая ФС примет. */
@@ -193,6 +194,7 @@ async function mirrorNow(taskId: number, sessionId: string, firstText?: string):
   await copy(MIRROR_FILES.deep, deep?.stage === 'ready' ? deepFiles(files, slug).md : undefined)
   await copy(MIRROR_FILES.sources, join(files.dir, 'sources.md'))
   await copy(MIRROR_FILES.context, files.contextMap)
+  await copy(MIRROR_FILES.answers, join(files.dir, 'form-answers.md'))
   return dir
 }
 

@@ -17,7 +17,7 @@
 
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join, posix } from 'node:path'
 import { Backlog, moscowTime, sharedBacklog, ticketRegistered, type Ticket } from './host.js'
 import { sharedMaterials, type Material, type Materials, type WebLike } from './materials.js'
@@ -26,7 +26,7 @@ import { sharedDemos } from './demo.js'
 import { demoPageHtml } from './demo-page.js'
 import type { AgentLike, BlockLike } from './tool.js'
 import { portalNoteSource } from './portal-note.js'
-import { FAST_ROOT, fastFiles, fastPagePath, fastProgress, fastSlug, fastState, isLoopbackUrl, publicPortalUrl, requestRef, SKILLS_PATH, stillBuilding, type FastFiles } from './bft-fast.js'
+import { FAST_ROOT, fastFiles, fastPagePath, fastProgress, fastSlug, fastState, isLoopbackUrl, portalUrl, publicPortalUrl, requestRef, SKILLS_PATH, stillBuilding, type FastFiles } from './bft-fast.js'
 import { customerDeepPage, customerFastPage, deepFailedPage, requestsPage, waitingPage, type RequestRow } from './fast-page.js'
 import { buildDeep, fixQueries, goldenCanon, saveDeepState, searchQueries, deepFiles, readDeepState, readIntake, reconSubject, sourcesForModel, triageFindings, type DeepRoute, type DeepState, type LlmLike, type ReconSubject, type SourcesStatus, type TriageItem, type TriageVerdict } from './bft-deep.js'
 import { EXPORT_TYPES, exportDocument, type ExportFormat } from './export.js'
@@ -37,6 +37,8 @@ import { customerWordsContext } from './intake.js'
 import { mergePortalModels, MODELS_ROUTE, readPortalModels, sameRoute, writePortalModels, type ModelRoute, type PortalModels } from './models.js'
 import { ADMIN_ONLY_ENDPOINTS, ADMIN_PAGE, ADMIN_STATUS, adminOnlyResponse, adminPage, isAdmin } from './admin.js'
 import { siblingHref } from './links.js'
+import { answersContext, answersMarkdown, answersPath, editQuestions, formOfRequest, isFormId, latestVersion, linkForm, newForm, readForm, refreshForm, reissue, saveForm, submitAnswers, SubmitGate, type BftForm, type EditOp, type FormPerson, type FormQuestion } from './forms.js'
+import { formGonePage, formPage, previewPage, type DeepFormLayer } from './form-page.js'
 import { mirrorAll, mirrorRequest } from './workspace-mirror.js'
 import { approveFastRequest, portalHooks, releaseFastAsk } from './fast-approval.js'
 import { titleSession, useSessionTitles } from './session-title.js'
@@ -45,6 +47,23 @@ export const name = 'customer-form'
 
 /** Страница «Все заявки» портала (ADR-0012, шаг 7). */
 const REQUESTS_PAGE = '/api/customer-form.requests'
+/** Форма вопросов по БФТ (ADR-0018): открытые маршруты по ссылке-ключу и правка PO в портале. */
+const FORM_PAGE = '/api/customer-form.form'
+const FORM_ANSWER = '/api/customer-form.formAnswer'
+const FORM_PREVIEW = '/api/customer-form.formPreview'
+const FORM_CREATE = '/api/customer-form.formCreate'
+const FORM_REVOKE = '/api/customer-form.formRevoke'
+const FORM_EDIT = '/api/customer-form.formEdit'
+/** Открытые страницы формы: не индексировать, не кэшировать, без Referer наружу. */
+const PUBLIC_HEADERS = { 'cache-control': 'no-store', 'x-robots-tag': 'noindex, nofollow', 'referrer-policy': 'no-referrer' }
+/**
+ * Ссылки открытых страниц: за nginx (заголовок X-Bft-Public) страницы живут по
+ * /bft/form и /bft/preview — соседние адреса короткие; иначе — маршруты /api.
+ */
+const publicHrefs = (request: Request) => request.headers.get('x-bft-public') === '1'
+  ? { form: 'form', answer: 'form/answer', preview: 'preview' }
+  : { form: siblingHref(FORM_PAGE), answer: siblingHref(FORM_ANSWER), preview: siblingHref(FORM_PREVIEW) }
+
 /** Прогон качества на фикстурах (план качества, C0) — только администратор. */
 const QUALITY_RUN = '/api/customer-form.qualityRun'
 /** Фикстуры прогона качества: <DSH_HOME>/quality/<имя>/primary.json …, итог — в <имя>/out/. */
@@ -342,10 +361,13 @@ export function apply(ctx: HarnessContext): void {
     // старая заявка без intake.json — только primary.json.
     const primary = await readFile(fast.primary, 'utf8').then((t) => JSON.parse(t) as PrimaryDoc, () => undefined)
     const words = customerWordsContext(primary, await readIntake(fast))
+    // Ответы из формы вопросов (ADR-0018) — рядом со словами заказчика: они закрывают свои [УТОЧНИТЬ].
+    const answers = answersContext(await formOfRequest(fast.dir))
     const state = await buildDeep({
       startedAt, llm: runtime.llm, route: runtime.route(), skillsPath: SKILLS_PATH, fast, slug, request, sources: sourcesStatus,
       context: [
         words,
+        answers,
         context ? `Карта контекста (память организации — указатель, не фактбаза):\n${context}` : '',
         sources ? `Корпоративные источники (Jira/Confluence — указатель со ссылками, не фактбаза):\n${sourcesForModel(sources)}` : '',
       ].filter(Boolean).join('\n\n'),
@@ -377,6 +399,100 @@ export function apply(ctx: HarnessContext): void {
     })().catch((e) => console.error('[customer-form] bft-deep упал:', e)).finally(() => deepRunning.delete(slug))
     return true
   }
+  /**
+   * Форма вопросов по БФТ (ADR-0018). Запись формы — под замком по id: ответы
+   * из формы и правки PO могут прийти одновременно.
+   */
+  const formLocks = new Map<string, Promise<unknown>>()
+  const withFormLock = <T>(key: string, fn: () => Promise<T>): Promise<T> => {
+    const run = (formLocks.get(key) ?? Promise.resolve()).then(fn, fn)
+    formLocks.set(key, run.catch(() => undefined))
+    return run
+  }
+  const formGate = new SubmitGate()
+  /** Пауза после последнего ответа до пересборки БФТ: отвечают пачкой — собираем один раз. */
+  const FORM_REBUILD_MS = Number(process.env.FORM_REBUILD_MS ?? 120_000)
+  const rebuildTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  /** Ссылка формы для PO: короткий открытый адрес за nginx (BFT_FORM_PUBLIC=1) или маршрут портала. */
+  const formUrl = (id: string): string => {
+    const pretty = process.env.BFT_FORM_PUBLIC === '1' ? publicPortalUrl(`/form?id=${id}`) : undefined
+    return pretty ?? portalUrl(`/api/customer-form.form?id=${encodeURIComponent(id)}`)
+  }
+  /** Готовый полный БФТ заявки — то, из чего форма берёт вопросы. */
+  const deepDocOf = async (slug: string) => {
+    const files = fastFiles(FAST_ROOT, slug)
+    const deep = await readDeepState(deepFiles(files, slug))
+    const md = deep?.stage === 'ready' ? await readFile(deepFiles(files, slug).md, 'utf8').catch(() => '') : ''
+    const primary = await readFile(files.primary, 'utf8').then((t) => JSON.parse(t) as PrimaryDoc, () => undefined)
+    const people: FormPerson[] = primary?.args.people ?? []
+    const title = (/^# (.+)$/m.exec(md)?.[1] ?? slug).replace(/^\[БФТ\]\s*/, '').trim()
+    return { files, deep, md, people, title }
+  }
+  type DeepDoc = Awaited<ReturnType<typeof deepDocOf>>
+  /** Свести форму с текущим документом (готовый БФТ пересобран — новые вопросы). */
+  const syncForm = (form: BftForm, doc: DeepDoc): boolean =>
+    doc.deep?.stage === 'ready' && doc.md && doc.deep.finishedAt ? refreshForm(form, { md: doc.md, deepAt: doc.deep.finishedAt, people: doc.people }) : false
+  /** Форма заявки; нет — новая (сохраняется только при правке или выдаче ссылки). */
+  const formFor = async (slug: string, sessionId: string, doc: DeepDoc): Promise<{ form: BftForm; stored: boolean }> => {
+    const stored = await formOfRequest(doc.files.dir)
+    const form = stored ?? newForm({ slug, sessionId, title: doc.title })
+    if (!stored || form.title === slug) form.title = doc.title
+    return { form, stored: !!stored }
+  }
+  const storeForm = async (form: BftForm, doc: DeepDoc) => {
+    await saveForm(form)
+    await linkForm(doc.files.dir, form.id)
+  }
+  const removedOf = (form: BftForm): FormQuestion[] => {
+    const all = new Map<string, FormQuestion>()
+    for (const q of [...form.versions.flatMap((v) => v.questions), ...form.edits.added]) all.set(q.qid, q)
+    return form.edits.removed.map((qid) => all.get(qid)).filter((q): q is FormQuestion => !!q)
+  }
+  /** Слой формы для страницы полного БФТ в портале. */
+  const deepFormLayer = async (slug: string, sessionId: string): Promise<DeepFormLayer | undefined> => {
+    const doc = await deepDocOf(slug)
+    return withFormLock(slug, async () => {
+      const { form, stored } = await formFor(slug, sessionId, doc)
+      if (syncForm(form, doc) && stored) await saveForm(form)
+      const version = latestVersion(form)
+      if (!version) return undefined
+      return {
+        sessionId, questions: version.questions, answers: form.answers, removed: removedOf(form), version: version.v,
+        ...(form.publishedAt && !form.revokedAt ? { link: formUrl(form.id) } : {}),
+        api: { create: siblingHref(FORM_CREATE), revoke: siblingHref(FORM_REVOKE), edit: siblingHref(FORM_EDIT) },
+      }
+    })
+  }
+  /** Ответы пришли — пересобрать полный БФТ через паузу; идёт сборка — дождаться и собрать ещё раз. */
+  const scheduleRebuild = (form: BftForm) => {
+    clearTimeout(rebuildTimers.get(form.slug))
+    rebuildTimers.set(form.slug, setTimeout(() => {
+      rebuildTimers.delete(form.slug)
+      void (async () => {
+        if (deepRunning.has(form.slug)) return scheduleRebuild(form)
+        const fresh = await readForm(form.id)
+        const doc = await deepDocOf(form.slug)
+        const last = fresh?.lastSubmitAt
+        // Ответы уже учтены сборкой, начатой после них, — повторять не нужно.
+        if (!last || (doc.deep?.startedAt && doc.deep.startedAt > last)) return
+        const ticket = await backlog.find(form.sessionId).catch(() => undefined)
+        if (!ticket) return console.error(`[customer-form] форма ${form.slug}: заявка не найдена — БФТ не пересобран`)
+        console.error(`[customer-form] форма ${form.slug}: ответы — пересобираю полный БФТ`)
+        startDeep(ticket, form.sessionId)
+      })().catch((e) => console.error('[customer-form] пересборка по ответам формы упала:', e))
+    }, FORM_REBUILD_MS))
+  }
+  // Пересборка по ответам и после рестарта: форма с ответами новее сборки.
+  void (async () => {
+    const root = join(process.env.DSH_HOME ?? '/data', 'bft-forms')
+    for (const name of await readdir(root).catch(() => [] as string[])) {
+      const form = await readForm(name.replace(/\.json$/, ''))
+      if (!form || form.revokedAt || !form.lastSubmitAt) continue
+      const deep = await readDeepState(deepFiles(fastFiles(FAST_ROOT, form.slug), form.slug))
+      if (deep?.stage !== 'building' && (!deep?.startedAt || deep.startedAt < form.lastSubmitAt)) scheduleRebuild(form)
+    }
+  })().catch(() => undefined)
+
   // Тот же запуск — согласованию из формы чата (confirm_bft_fast, fast-approval.ts).
   ctx.effect(() => {
     portalHooks.startDeep = startDeep
@@ -706,7 +822,10 @@ export function apply(ctx: HarnessContext): void {
           if (deep.stage === 'building') return new Response(waitingPage(sessionId, { stage: 'building', startedAt: deep.startedAt }, siblingHref('/api/customer-form.bftDeepStatus'), 'deep'), { headers })
           if (deep.stage === 'failed') return new Response(deepFailedPage(sessionId, deep.error ?? 'неизвестная ошибка', siblingHref('/api/customer-form.bftDeepRetry'), fastUrl), { headers })
           const deepHtml = await readFile(deepFiles(files, slug).html, 'utf8').catch(() => undefined)
-          if (deepHtml) return new Response(customerDeepPage(deepHtml, sessionId, fastUrl, deep.questions), { headers })
+          if (deepHtml) {
+            const layer = await deepFormLayer(slug, sessionId).catch((e) => { console.error('[customer-form] слой формы вопросов:', e); return undefined })
+            return new Response(customerDeepPage(deepHtml, sessionId, fastUrl, deep.questions, layer), { headers })
+          }
         }
         // Заказчику (rev21) — тот же документ: How to demo таблицей, зоны и контакты, без полей для PO.
         const state = await fastState(files)
@@ -720,6 +839,147 @@ export function apply(ctx: HarnessContext): void {
         }), { headers })
       },
     }), 'customer-form: /api/customer-form.bftFast')
+
+    // Форма вопросов по БФТ (ADR-0018). Открытые маршруты — по ссылке-ключу (UUID формы):
+    // nginx отдаёт их без Authentik как /bft/form, /bft/form/answer, /bft/preview.
+    const html = (body: string, status = 200) => new Response(body, { status, headers: { 'content-type': 'text/html; charset=utf-8', ...PUBLIC_HEADERS } })
+    /** Форма по ключу, сведённая с текущим БФТ; нет, не выдана или отозвана — причина. */
+    const openForm = async (id: string): Promise<{ form: BftForm; doc: DeepDoc } | { gone: 'missing' | 'revoked' }> => {
+      const found = isFormId(id) ? await readForm(id) : undefined
+      if (!found || !found.publishedAt) return { gone: 'missing' }
+      if (found.revokedAt) return { gone: 'revoked' }
+      const doc = await deepDocOf(found.slug)
+      return withFormLock(found.slug, async () => {
+        const form = (await readForm(id)) ?? found
+        if (syncForm(form, doc)) await saveForm(form)
+        return { form, doc }
+      })
+    }
+    scoped.effect(() => register({
+      path: FORM_PAGE,
+      methods: ['GET'],
+      requestBody: 'buffered',
+      fetch: async (request: Request) => {
+        const opened = await openForm(new URL(request.url).searchParams.get('id') ?? '')
+        if ('gone' in opened) return html(formGonePage(opened.gone === 'revoked'), opened.gone === 'revoked' ? 410 : 404)
+        const version = latestVersion(opened.form)
+        if (!version) return html(formGonePage(false), 404)
+        const links = publicHrefs(request)
+        return html(formPage(opened.form, version, { previewHref: `${links.preview}?id=${opened.form.id}`, answerHref: links.answer }))
+      },
+    }), 'customer-form: форма вопросов')
+    scoped.effect(() => register({
+      path: FORM_PREVIEW,
+      methods: ['GET'],
+      requestBody: 'buffered',
+      fetch: async (request: Request) => {
+        const opened = await openForm(new URL(request.url).searchParams.get('id') ?? '')
+        if ('gone' in opened) return html(formGonePage(opened.gone === 'revoked'), opened.gone === 'revoked' ? 410 : 404)
+        const version = latestVersion(opened.form)
+        const deepHtml = await readFile(deepFiles(opened.doc.files, opened.form.slug).html, 'utf8').catch(() => undefined)
+        if (!version || !deepHtml) return html(formGonePage(false), 404)
+        const links = publicHrefs(request)
+        return html(previewPage(deepHtml, opened.form, version, { formHref: `${links.form}?id=${opened.form.id}`, building: opened.doc.deep?.stage === 'building' }))
+      },
+    }), 'customer-form: предпросмотр БФТ по ссылке формы')
+    scoped.effect(() => register({
+      path: FORM_ANSWER,
+      methods: ['POST'],
+      requestBody: 'buffered',
+      fetch: async (request: Request) => {
+        const raw = await request.text().catch(() => '')
+        if (raw.length > 512_000) return Response.json({ error: 'слишком большой ответ' }, { status: 413, headers: PUBLIC_HEADERS })
+        let body: { id?: unknown; author?: unknown; answers?: unknown }
+        try { body = JSON.parse(raw) as typeof body } catch { return Response.json({ error: 'ожидаю JSON' }, { status: 400, headers: PUBLIC_HEADERS }) }
+        const id = typeof body.id === 'string' ? body.id : ''
+        if (!isFormId(id)) return Response.json({ error: 'форма не найдена' }, { status: 404, headers: PUBLIC_HEADERS })
+        if (!formGate.allow(id)) return Response.json({ error: 'слишком часто — подождите несколько минут' }, { status: 429, headers: PUBLIC_HEADERS })
+        const opened = await openForm(id)
+        if ('gone' in opened) return Response.json({ error: opened.gone === 'revoked' ? 'ссылка отозвана' : 'форма не найдена' }, { status: opened.gone === 'revoked' ? 410 : 404, headers: PUBLIC_HEADERS })
+        const result = await withFormLock(opened.form.slug, async () => {
+          const form = (await readForm(id)) ?? opened.form
+          const res = submitAnswers(form, Array.isArray(body.answers) ? body.answers : [], typeof body.author === 'string' ? body.author : undefined)
+          if ('saved' in res && res.saved) {
+            await saveForm(form)
+            await writeFile(answersPath(opened.doc.files.dir), answersMarkdown(form), 'utf8')
+            scheduleRebuild(form)
+            const taskId = Number(/^zayavka-(\d+)$/.exec(form.slug)?.[1])
+            if (taskId) void mirrorRequest(taskId, form.sessionId)
+          }
+          return res
+        })
+        if ('error' in result) return Response.json({ error: result.error }, { status: 400, headers: PUBLIC_HEADERS })
+        return Response.json({ ok: true, saved: result.saved }, { headers: PUBLIC_HEADERS })
+      },
+    }), 'customer-form: ответы формы вопросов')
+
+    // Правка вопросов и выдача ссылки — в портале (за Authentik), со страницы полного БФТ.
+    /** Заявка и готовый полный БФТ по sessionId из тела запроса. */
+    const deepOfRequest = async (request: Request) => {
+      const body = (await request.json().catch(() => ({}))) as Record<string, unknown>
+      const sessionId = typeof body.sessionId === 'string' ? body.sessionId : ''
+      const ticket = sessionId ? await backlog.find(sessionId).catch(() => undefined) : undefined
+      if (!ticket) return { ok: false as const, error: Response.json({ error: 'заявка не найдена' }, { status: 404 }) }
+      const slug = fastSlug(ticket.taskId)
+      const doc = await deepDocOf(slug)
+      if (doc.deep?.stage !== 'ready' || !doc.md) return { ok: false as const, error: Response.json({ error: 'полный БФТ ещё не готов' }, { status: 409 }) }
+      return { ok: true as const, body, sessionId, slug, doc }
+    }
+    scoped.effect(() => register({
+      path: FORM_EDIT,
+      methods: ['POST'],
+      requestBody: 'buffered',
+      fetch: async (request: Request) => {
+        const got = await deepOfRequest(request)
+        if (!got.ok) return got.error
+        const op = got.body.op
+        if (op !== 'add' && op !== 'edit' && op !== 'remove' && op !== 'restore') return Response.json({ error: 'op — add, edit, remove или restore' }, { status: 400 })
+        return withFormLock(got.slug, async () => {
+          const { form } = await formFor(got.slug, got.sessionId, got.doc)
+          syncForm(form, got.doc)
+          const error = editQuestions(form, got.body as unknown as EditOp, got.doc.people)
+          if (error) return Response.json({ error }, { status: 400 })
+          syncForm(form, got.doc)
+          await storeForm(form, got.doc)
+          return Response.json({ ok: true, version: latestVersion(form)?.v ?? 0 })
+        })
+      },
+    }), 'customer-form: правка вопросов формы')
+    scoped.effect(() => register({
+      path: FORM_CREATE,
+      methods: ['POST'],
+      requestBody: 'buffered',
+      fetch: async (request: Request) => {
+        const got = await deepOfRequest(request)
+        if (!got.ok) return got.error
+        return withFormLock(got.slug, async () => {
+          let { form } = await formFor(got.slug, got.sessionId, got.doc)
+          if (form.revokedAt) form = reissue(form).fresh
+          syncForm(form, got.doc)
+          form.publishedAt ??= new Date().toISOString()
+          await storeForm(form, got.doc)
+          return Response.json({ ok: true, id: form.id, url: formUrl(form.id) })
+        })
+      },
+    }), 'customer-form: сформировать форму вопросов')
+    scoped.effect(() => register({
+      path: FORM_REVOKE,
+      methods: ['POST'],
+      requestBody: 'buffered',
+      fetch: async (request: Request) => {
+        const got = await deepOfRequest(request)
+        if (!got.ok) return got.error
+        return withFormLock(got.slug, async () => {
+          const form = await formOfRequest(got.doc.files.dir)
+          if (!form?.publishedAt || form.revokedAt) return Response.json({ error: 'ссылка не выдана' }, { status: 409 })
+          // Старый ключ — «ссылка отозвана»; список, правки и ответы — под новым, ещё не выданным.
+          const { old, fresh } = reissue(form)
+          await saveForm(old)
+          await storeForm(fresh, got.doc)
+          return Response.json({ ok: true })
+        })
+      },
+    }), 'customer-form: отозвать ссылку формы')
 
     // Прогон качества (план качества, C0): только администратор и только при заданном ADMIN_PASSWORD.
     // Ответ синхронный — сборка идёт минуты; ход — в журнале контейнера.

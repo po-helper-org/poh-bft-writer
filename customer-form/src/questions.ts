@@ -36,7 +36,7 @@ const strip = (s: string) => squash(s.replace(/\*\*|__|`/g, '').replace(/^[\s.,;
 export const questionKey = (s: string) => s.toLowerCase().replace(/ё/g, 'е').replace(/[«»"“”„'`*_]/g, '').replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
 
 /** Адресат и вопрос из тела маркера (то, что после «УТОЧНИТЬ» до «]»): «у X: вопрос» или «у X — вопрос». */
-function parseMarker(inner: string): { addressee?: string; question?: string } {
+export function parseMarker(inner: string): { addressee?: string; question?: string } {
   const body = inner.trim()
   const m = /^у\s+([^:—–]+?)\s*(?::|\s[—–]\s)\s*(.*)$/is.exec(body)
   if (m) {
@@ -124,7 +124,7 @@ export interface QuestionSources {
 /** Основы слов вопроса (5 букв) — для близких дублей. */
 const stemsOf = (s: string) => new Set(wordsOf(s.toLowerCase().replace(/ё/g, 'е')).filter((w) => w.length >= 3).map((w) => w.slice(0, 5)))
 /** Близкий дубль: тот же нормализованный текст, один содержит другой или 80% основ общие. */
-function nearDuplicate(a: string, b: string): boolean {
+export function nearDuplicate(a: string, b: string): boolean {
   const [ka, kb] = [questionKey(a), questionKey(b)]
   if (ka === kb || (ka.length >= 8 && kb.includes(ka)) || (kb.length >= 8 && ka.includes(kb))) return true
   const [sa, sb] = [stemsOf(a), stemsOf(b)]
@@ -138,9 +138,10 @@ export const QUESTIONS_MAX = 10
 /**
  * Сводный список (раунд 4): только вопросы маркеров канона; близкие дубли
  * (normalized/вложение/80% основ) — один пункт со всеми ссылками; порядок —
- * по числу мест, где вопрос стоит, затем по документу; не больше QUESTIONS_MAX.
+ * по числу мест, где вопрос стоит, затем по документу; не больше max
+ * (QUESTIONS_MAX; форма вопросов берёт все — Infinity).
  */
-export function collectQuestions(src: QuestionSources): OpenQuestion[] {
+export function collectQuestions(src: QuestionSources, max: number = QUESTIONS_MAX): OpenQuestion[] {
   const out: OpenQuestion[] = []
   for (const q of canonQuestions(src.canon)) {
     const seen = out.find((o) => o.addressee.toLowerCase() === q.addressee.toLowerCase() && nearDuplicate(o.text, q.text))
@@ -153,7 +154,7 @@ export function collectQuestions(src: QuestionSources): OpenQuestion[] {
   return out
     .map((q, i) => ({ q, i }))
     .sort((a, b) => b.q.refs.length - a.q.refs.length || a.i - b.i)
-    .slice(0, QUESTIONS_MAX)
+    .slice(0, max)
     .sort((a, b) => a.i - b.i)
     .map(({ q }) => q)
 }

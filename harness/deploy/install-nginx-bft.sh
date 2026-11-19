@@ -12,6 +12,8 @@
 # 127.0.0.1:3086/mcp, без Authentik (токен проверяет сам шлюз). После правки
 # bft-portal.nginx.conf — запустить этот скрипт заново. Проверка снаружи:
 #   curl -s -o /dev/null -w '%{http_code}' -X POST https://<хост>/bft-sources/mcp   # ждём 401
+# Форма вопросов по БФТ (ADR-0018): /bft/form, /bft/form/answer, /bft/preview — без
+# Authentik (ключ в ссылке проверяет портал). Проверка: /bft/form без ключа — 404, не 302.
 set -euo pipefail
 
 DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -67,3 +69,4 @@ sleep 1
 printf "снаружи  %s/bft       -> %s (ждём 301)\n" "$HOST" "$(curl -s -m 15 -o /dev/null -w '%{http_code}' "$HOST/bft")"
 printf "снаружи  %s/bft/      -> %s (ждём 302 на вход Authentik)\n" "$HOST" "$(curl -s -m 15 -o /dev/null -w '%{http_code}' "$HOST/bft/")"
 printf "внутри   127.0.0.1:3082 -> %s (ждём 200 — портал жив)\n" "$(curl -s -m 15 -o /dev/null -w '%{http_code}' http://127.0.0.1:3082/)"
+printf "снаружи  %s/bft/form  -> %s (ждём 404 — форма открыта без входа, ключа нет)\n" "$HOST" "$(curl -s -m 15 -o /dev/null -w '%{http_code}' "$HOST/bft/form")"
