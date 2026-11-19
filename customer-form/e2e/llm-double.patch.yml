@@ -18,3 +18,12 @@
   config:
     provider: e2e
     model: double
+# Шлюз источников — двойник (e2e/sources-double.mjs, ADR-0019): поиск документов в чате.
+# e2eToken действует только при флаге e2e-hooks в томе (его ставит и снимает раннер).
+- id: data-sources
+  config:
+    sources:
+      - id: atlassian
+        name: Jira и Confluence (только чтение)
+        url: http://host.docker.internal:8798/mcp
+        e2eToken: e2e-double

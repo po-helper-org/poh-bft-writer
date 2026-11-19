@@ -202,6 +202,27 @@ function nextTurn(messages) {
     // «#порядок» (tracker-recovery): как Haiku вживую — сначала сборка, потом сдача заявки.
     const reversed = messages.some((m) => m.role === 'user' && text(m).includes('#порядок'))
     const called = (name) => messages.some((m) => (m.tool_calls ?? []).some((c) => c.function.name === name))
+    // Поиск документа в Confluence (ADR-0019): список → форма выбора → чтение страницы в материалы.
+    if (call?.function.name === 'search_confluence') {
+      const result = text(last)
+      if (/недоступен/.test(result)) return { content: 'Поиск по Confluence сейчас недоступен — пришлите, пожалуйста, ссылку на страницу или приложите документ файлом.' }
+      const hits = [...result.matchAll(/^\d+\. «(.+?)» — (.+?)(?:, изменена [\d-]+)?\n\s+pageId: (\d+) · ссылка: (\S+)/gm)].map((m) => ({ title: m[1], space: m[2], id: m[3], url: m[4] }))
+      if (!hits.length) return { content: 'В Confluence ничего не нашлось — пришлите ссылку или файл.' }
+      return {
+        content: ['Нашла в Confluence:', ...hits.map((h) => `- [${h.title}](${h.url}) — ${h.space}`)].join('\n'),
+        tool: { name: 'ask_user_question', args: { questions: [{ id: 'page', header: 'Документ', question: 'Какую страницу приложить к заявке?',
+          options: [...hits.map((h) => ({ label: h.title, description: h.space })), { label: 'Ничего из этого' }] }] } },
+      }
+    }
+    if (call?.function.name === 'ask_user_question' && called('search_confluence') && !called('attach_confluence_page')) {
+      const search = messages.findLast((m) => m.role === 'tool' && messages.flatMap((x) => x.tool_calls ?? []).some((c) => c.id === m.tool_call_id && c.function.name === 'search_confluence'))
+      const hit = [...text(search).matchAll(/^\d+\. «(.+?)» —.*\n\s+pageId: (\d+)/gm)].find((m) => text(last).includes(m[1]))
+      return hit ? { content: '', tool: { name: 'attach_confluence_page', args: { pageId: hit[2] } } } : { content: 'Хорошо, без документа.' }
+    }
+    if (call?.function.name === 'attach_confluence_page') {
+      const id = /материал (S\d+)/.exec(text(last))?.[1]
+      return { content: id ? `Приложила страницу к заявке как материал ${id} — буду опираться на неё.` : 'Страницу прочитать не удалось.' }
+    }
     if (call?.function.name === 'confirm_acceptance_demo' && text(last).includes('нажал кнопку «Согласую»')) {
       return reversed ? { tool: { name: 'create_bft_fast', args: FAST }, delay: 2000 } : { tool: { name: 'submit_customer_request', args: INTAKE } }
     }
@@ -254,6 +275,13 @@ function nextTurn(messages) {
   }
   if (/подтвержда/i.test(said.at(-1) ?? '')) {
     return { tool: { name: 'submit_customer_request', args: INTAKE } }
+  }
+  // Просьба найти документ (confluence.spec): поиск по Confluence запросом из слов заказчика.
+  // Последняя реплика заказчика — не служебный снимок «Current runtime context» dsh.
+  const asked = said.filter((t) => !t.startsWith('Current runtime context')).at(-1) ?? ''
+  if (asked.includes('#confluence') && !messages.some((m) => m.role === 'assistant')) {
+    const query = /найди\s+(?:документ\s+)?(.+)$/i.exec(asked.replace('#confluence', '').trim())?.[1] ?? 'регламент'
+    return { content: '', tool: { name: 'search_confluence', args: { query: query.replace(/[«»]/g, '').trim() } } }
   }
   // Сценарий микрофона (voice-terms.spec): поле ввода должно остаться свободным.
   if (said.some((t) => t.includes('#без-вопросов'))) return { content: 'Принято, записала.' }
