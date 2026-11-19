@@ -113,8 +113,19 @@ def main(run_dir: str) -> int:
     candidates = list(dict.fromkeys(candidates))
     new_knowledge = [n for n in candidates if not mentioned(words, n)]
     used = [n for n in new_knowledge if mentioned(deep_md, n)]
-    check("опора: полный БФТ использует знание из памяти", len(used) >= 2,
-          f"из памяти и не от заказчика: {len(new_knowledge)}; в полном БФТ: {len(used)} — {', '.join(used[:12])}")
+    # Где проверять и владельцы из карты — фрагменты строк IT-ландшафта и «Владельцев систем».
+    details = []
+    for line in landscape:
+        tail = line.split("** — ", 1)[1] if "** — " in line else ""
+        details += [d.strip(" .") for d in re.split(r";|\. Владелец: ", tail.split(" `")[0]) if len(d.strip()) >= 12]
+    details += [l.split(" → ", 1)[1].strip() for l in sections.get("Владельцы систем", []) if " → " in l]
+    details = [d for d in dict.fromkeys(details) if d.lower() not in words.lower()]
+    found_details = [d for d in details if d.lower() in deep_md.lower()]
+    marks = len(re.findall(r"(?i)по памяти организации", deep_md))
+    evidence = len(used) + len(found_details) + marks
+    check("опора: полный БФТ использует знание из памяти", marks >= 1 and evidence >= 3,
+          f"пометок «по памяти организации» {marks}; новых имён из карты {len(used)} ({', '.join(used[:6])}); "
+          f"мест проверки и владельцев из карты {len(found_details)} ({'; '.join(found_details[:4])[:200]})")
 
     # 4. Качество сборки.
     quality = state.get("quality") or {}
