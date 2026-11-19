@@ -66,12 +66,16 @@
           # Уточняющие вопросы — штатной формой dsh (HowToDemo п.8).
           - id: tool-ask-user
             name: '@deepseek-ai/dsh-tool-ask-user'
-          # Проверка ссылок заказчика; поиск выключен — ему нужен ключ DeepSeek.
+          # web_fetch у модели выключен (ADR-0017): ссылки заказчика читает портал
+          # (материалы, ctx.web dsh и коннектор Google) и отдаёт целиком через
+          # read_customer_materials. Сам web_fetch обрезал документы, не шёл за
+          # редиректами Google и толкал модель к сторонним прокси — утечка документов.
+          # Поиск выключен — ему нужен ключ DeepSeek. Сервис ctx.web (dsh-web) остаётся.
           - id: tool-web
             name: '@deepseek-ai/dsh-tool-web'
             config:
               search: false
-              fetch: true
+              fetch: false
           # Сдача постановки в заявку (HowToDemo п.9–10).
           - id: customer-form-tool
             name: 'customer-form/tool'

@@ -81,16 +81,23 @@ interface UserQuestionsLike {
 function materialsTool(materials: Materials) {
   return {
     name: 'read_customer_materials',
-    description: 'Прочитать материалы, которые приложил заказчик: расшифровки голосовых записей (m4a и др.), тексты документов (PDF, Word, Excel, PowerPoint) и страниц по его ссылкам. '
-      + 'Вызывай первым делом, если в сообщении есть файлы или ссылки; повторно — когда заказчик приложил новые или когда прошлый вызов сказал «Ещё разбираются».',
-    parameters: {},
+    description: 'Прочитать материалы, которые приложил заказчик: расшифровки голосовых записей (m4a и др.), тексты документов (PDF, Word, Excel, PowerPoint), страниц по его ссылкам '
+      + 'и файлов Google по ссылке (Docs, Slides, Sheets, файл или папка Drive — портал выгружает их сам, картинки макетов читает OCR). '
+      + 'Вызывай первым делом, если в сообщении есть файлы или ссылки; повторно — когда заказчик приложил новые или когда прошлый вызов сказал «Ещё разбираются». '
+      + 'Источник в пакете урезан до бюджета — полный текст дочитывай здесь же: id источника (S1…) и part (1, 2, …). '
+      + 'Ссылки заказчика не открывай через web_fetch и никогда не передавай их сторонним сервисам-прокси (r.jina.ai и т. п.): это утечка документов заказчика.',
+    parameters: {
+      id: optional('Необязательно: id источника (S1, S2…), чтобы дочитать его полный текст'),
+      part: { type: 'number', description: 'Необязательно, вместе с id: номер части полного текста, с 1' },
+    },
     output: {
       schema: { type: 'string' },
       render: (_args: unknown, value: string) => [{ type: 'text', text: value }],
     },
-    async execute(_args: unknown, exec: { agent?: AgentLike }) {
+    async execute(args: { id?: string; part?: number } | undefined, exec: { agent?: AgentLike }) {
       const agent = exec.agent
       if (!agent) throw new Error('нет сессии заказчика')
+      if (args?.id?.trim()) return materials.part(agent.session.id, args.id, args.part ?? 1)
       const { ready, pending } = await materials.take(agent.session.id)
       if (!ready.length && !pending.length) return 'Новых материалов нет.'
       return [ready.length ? materialsPack(ready) : '', pendingNote(pending)].filter(Boolean).join('\n\n')

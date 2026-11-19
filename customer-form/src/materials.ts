@@ -17,6 +17,7 @@
  * вырезкой середины (полный текст — файлом в заявке).
  */
 import { readFile } from 'node:fs/promises'
+import { GoogleConnector, googleTarget } from './google.js'
 
 export interface Ingested {
   ok: boolean
@@ -73,6 +74,8 @@ function stamp(seconds: number): string {
 
 const PER_SOURCE = 20_000
 const TOTAL = 60_000
+/** Часть полного текста при дочитывании (read_customer_materials id+part). */
+const FULL_PART = 30_000
 const WAIT_MS = 10 * 60_000
 /** Сколько первый вызов ждёт разбора, прежде чем отдать «ещё разбирается». */
 const QUICK_MS = Number(process.env.MATERIALS_QUICK_MS ?? 6_000)
@@ -87,14 +90,18 @@ function fit(text: string, budget: number): string {
   if (text.length <= budget) return text
   const head = Math.floor(budget * 0.7)
   const tail = budget - head
-  return `${text.slice(0, head)}\n\n[… пропущено ${text.length - budget} симв.; полный текст — файлом в заявке …]\n\n${text.slice(-tail)}`
+  return `${text.slice(0, head)}\n\n[… пропущено ${text.length - budget} симв.; полный текст — read_customer_materials с id этого источника и part …]\n\n${text.slice(-tail)}`
 }
 
 export class Materials {
   private sessions = new Map<string, { items: Material[]; delivered: Set<string> }>()
   web?: WebLike
+  /** Ссылки Google (Docs, Slides, Sheets, Drive) — открытым экспортом, ADR-0017. */
+  google: GoogleConnector
 
-  constructor(private readonly ingestUrl: string) {}
+  constructor(private readonly ingestUrl: string, google?: GoogleConnector) {
+    this.google = google ?? new GoogleConnector((name, bytes) => this.ingest(name, bytes))
+  }
 
   private bucket(sessionId: string) {
     let bucket = this.sessions.get(sessionId)
@@ -203,8 +210,19 @@ export class Materials {
     }
   }
 
-  /** Ссылка из сообщения: публичная страница через ctx.web dsh. */
+  /**
+   * Ссылка из сообщения. Google Docs/Slides/Sheets/Drive — коннектором
+   * (экспорт файла, картинки — OCR); прочие — публичная страница через ctx.web dsh.
+   */
   addLink(sessionId: string, url: string): Material {
+    if (googleTarget(url)) {
+      return this.add(sessionId, url, async () => {
+        const started = Date.now()
+        const read = await this.google.read(url)
+        console.log(`[customer-form] ссылка Google: ${read.label}, ${read.markdown.length} симв. за ${Date.now() - started} мс`)
+        return { ok: true, label: read.label, markdown: `Источник: ${url}\n\n${read.markdown}`, elapsedMs: Date.now() - started }
+      })
+    }
     return this.add(sessionId, url, async () => {
       if (!this.web) throw new Error('загрузка ссылок недоступна')
       const page = await this.web.fetch({ url }, AbortSignal.timeout(30_000))
@@ -230,6 +248,27 @@ export class Materials {
   /** Тексты уже разобранных материалов сессии (без ожидания). */
   texts(sessionId: string): string[] {
     return (this.sessions.get(sessionId)?.items ?? []).flatMap((m) => m.settled?.ok ? [m.settled.markdown] : [])
+  }
+
+  /**
+   * Полный текст разобранного материала частями по FULL_PART символов: пакет
+   * для модели урезан бюджетом, а дочитать нужное модель может здесь — без
+   * web_fetch по ссылкам заказчика (он обрезает и не идёт за редиректами Google).
+   */
+  part(sessionId: string, id: string, part = 1): string {
+    const material = this.sessions.get(sessionId)?.items.find((m) => m.id.toLowerCase() === id.trim().toLowerCase())
+    if (!material) return `Материала ${id} нет. Есть: ${(this.sessions.get(sessionId)?.items ?? []).map((m) => m.id).join(', ') || 'ничего'}.`
+    if (!material.settled) return `${material.id} ещё разбирается — вызови позже.`
+    if (!material.settled.ok) return `${material.id} не разобран: ${material.settled.error ?? 'ошибка'}.`
+    const text = material.settled.markdown
+    const parts = Math.max(1, Math.ceil(text.length / FULL_PART))
+    const n = Math.min(Math.max(1, Math.floor(part)), parts)
+    return [
+      `<source id="${material.id}" name="${material.name}" type="${material.settled.label}" part="${n} из ${parts}">`,
+      text.slice((n - 1) * FULL_PART, n * FULL_PART),
+      '</source>',
+      n < parts ? `Дальше — read_customer_materials с id «${material.id}» и part ${n + 1}.` : 'Это конец материала.',
+    ].join('\n')
   }
 
   has(sessionId: string): boolean {
