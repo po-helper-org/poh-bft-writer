@@ -5,7 +5,7 @@
 В образе Кортекса шаблон уже лежит в /opt/poh-cortex. Без шаблона тесты vault
 пропускаются, фильтр секретов проверяется всегда.
 """
-import importlib
+import importlib.util
 import json
 import os
 import pathlib
@@ -16,6 +16,17 @@ import unittest
 HERE = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import bft_memory  # noqa: E402
+
+def load_server():
+    """server.py рядом (репозиторий) или /opt/cortex-server.py (образ) — заново, с текущим CORTEX_VAULT_ROOT."""
+    path = HERE / "server.py"
+    if not path.is_file():
+        path = HERE / "cortex-server.py"
+    spec = importlib.util.spec_from_file_location("cortex_server_under_test", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
 
 TEMPLATE = pathlib.Path(os.environ.get("CORTEX_TEMPLATE", "/opt/poh-cortex"))
 HAS_TEMPLATE = (TEMPLATE / "GROUND" / "SCHEMA").is_dir()
@@ -109,7 +120,7 @@ class VaultTest(unittest.TestCase):
                        encoding="utf-8")
         bft_memory.cmd_bft(self.root, [doc])
         os.environ["CORTEX_VAULT_ROOT"] = str(self.root)
-        server = importlib.reload(importlib.import_module("server"))
+        server = load_server()
         brief = server.brief("Нужна премодерация описаний для ПК: сейчас всё уходит без проверки")
         self.assertEqual(brief["vault"]["name"], "bft-creator")
         self.assertEqual([t["term"] for t in brief["glossary"]], ["ПК"], "термин — целым словом, КАССА в тексте нет")
