@@ -43,6 +43,26 @@ case "$choice" in
   *) echo "Неизвестный выбор"; exit 1 ;;
 esac
 
+# ── Режим работы (HowToDemo шаг 2): UI | CLI | оба ───────────────────────
+# BFT_WRITER_MODE=ui|cli|both — без вопроса; по умолчанию (пустой ответ) — cli.
+echo -e "${BLUE}Каким режимом будете пользоваться?${NC}"
+echo "  1) UI  — автономная система в Docker: compose + web-интерфейс (harness/)"
+echo "  2) CLI — скиллы и команды в IDE-агенте (как раньше)"
+echo "  3) оба"
+if [ -n "${BFT_WRITER_MODE:-}" ]; then
+  mode="$BFT_WRITER_MODE"
+  echo "Выбор [2]: $mode (BFT_WRITER_MODE)"
+elif [ -r /dev/tty ]; then
+  read -rp "Выбор [2]: " mode < /dev/tty 2>/dev/null || mode=""
+else
+  mode=""
+fi
+case "${mode:-2}" in
+  1|ui|UI) MODE="ui" ;;
+  3|both) MODE="both" ;;
+  2|cli|CLI|*) MODE="cli" ;;
+esac
+
 # Синк команд действующего контура.
 # Список явный, а не «всё из commands/»: снятая команда, уехавшая в воркспейс,
 # снова начнёт конкурировать за выбор навыка (issue #25). Архив в docs/archive/
@@ -82,4 +102,13 @@ done
 
 echo -e "${GREEN}✔ Установлено в $ROOT/${NC}"
 echo -e "Контур: ${GREEN}/bft-fast${NC} → ${GREEN}/bft-deep${NC} → ${GREEN}/bft-deliver${NC} (+ /bft-html для ревью)."
-echo -e "${YELLOW}Следующий шаг:${NC} запусти ${GREEN}/bft-index${NC} — навык построит контекст воркспейса."
+case "$MODE" in
+  ui|both)
+    echo -e "${YELLOW}UI-режим под ключ:${NC} ${GREEN}cd harness && ./start.sh${NC} — поднимет web-интерфейс, коробку и Temporal (нужен Docker);"
+    echo "  при первом открытии предложит онбординг: 5 шагов и ключ Z.AI."
+    if [ "$MODE" = "ui" ]; then
+      echo -e "Скиллы и команды всё равно синкнуты выше — CLI доступен и без Docker."
+    fi
+    ;;
+esac
+echo -e "${YELLOW}Следующий шаг (CLI):${NC} запусти ${GREEN}/bft-index${NC} — навык построит контекст воркспейса."

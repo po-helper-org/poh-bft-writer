@@ -1,0 +1,14 @@
+# data-sources: корпоративные источники данных портала БФТ (Jira, Confluence).
+# Источник — шлюз источников (harness/sources-gateway, ADR-0015): отдельный
+# MCP ровно с четырьмя инструментами чтения. Адрес — DATA_SOURCES_URL_<ID>
+# (для atlassian — DATA_SOURCES_URL_ATLASSIAN) или полем url ниже, токен —
+# DATA_SOURCES_TOKEN_<ID> (DATA_SOURCES_TOKEN_ATLASSIAN). Нет адреса или
+# токена — источник «не настроен». OAuth нет.
+# Портал зовёт только инструменты чтения (белый список в src/sources.ts).
+- insert:
+    - id: data-sources
+      name: data-sources
+      config:
+        sources:
+          - id: atlassian
+            name: Jira и Confluence (только чтение)

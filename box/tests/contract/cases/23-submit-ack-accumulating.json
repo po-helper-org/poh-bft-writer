@@ -1,0 +1,9 @@
+{
+  "schema_version": "1.0.0",
+  "initiative_id": "ini-0001",
+  "iteration_id": "it-0009",
+  "status": "ready",
+  "state": "working",
+  "new_iteration": false,
+  "pending_outcomes": 1
+}

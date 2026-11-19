@@ -12,12 +12,15 @@ import {
   WorkLogWriteError,
 } from './errors.js'
 import { parseTransition } from './board-transition.js'
+import { OnboardingService } from './onboarding-host.js'
+import type { StartAck, StartPayloadInput } from './box-client.js'
+import { fastDocPath } from './intake-fast.js'
 import { parseOkrHandoff } from './okr-handoff.js'
 
 export const BFT_CHANNEL = '/bft'
 
 /** Все подкоманды канала — по ним ядро 0.1.7+ получает маршруты `/api/bft.<подкоманда>`. */
-export const BFT_ENDPOINTS: readonly string[] = ['list', 'task', 'document', 'findDocument', 'handoff', 'worklog', 'attachSession', 'sessionWorkspace', 'finishWork', 'chatStart', 'chatPoll', 'chatStop', 'chatStatus', 'addToOkr', 'transition', 'catalog']
+export const BFT_ENDPOINTS: readonly string[] = ['list', 'task', 'document', 'findDocument', 'handoff', 'worklog', 'attachSession', 'sessionWorkspace', 'finishWork', 'chatStart', 'chatPoll', 'chatStop', 'chatStatus', 'addToOkr', 'transition', 'catalog', 'onboardingState', 'onboardingCheckKey', 'onboardingComplete', 'onboardingSkip', 'onboardingDictation', 'intakeStart', 'intakeDoc', 'boxBoard', 'boxSubmit']
 
 export type RpcResult<T> =
   | { ok: true; value: T }
@@ -73,12 +76,92 @@ function numberField(payload: unknown, field: string): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
 }
 
+/** Сервис интейка для узла: документ по слагу + старт + чтение доски + ответ на указание. */
+export interface IntakeService {
+  doc(slug: string): Promise<string | null>
+  start(input: StartPayloadInput): Promise<StartAck>
+  board(): Promise<{ ok: true; initiatives: object[] } | { ok: false; code: string; message: string }>
+  submitOutcome(input: { initiativeId: string; baseIteration: string; directiveId: string; content: string; idempotencyKey: string }): Promise<StartAck>
+}
+
 export async function dispatch(
   reader: BftReader,
   endpoint: string,
   payload: unknown,
+  onboarding?: OnboardingService,
+  intake?: IntakeService,
 ): Promise<RpcResult<unknown>> {
   try {
+    // Онбординг не зависит от читателя воркспейса: отдельная служба, тот же канал.
+    switch (endpoint) {
+      case 'onboardingState':
+        if (!onboarding) return fail('onboarding-unavailable', 'онбординг не настроен на этом хосте')
+        return ok(await onboarding.state())
+      case 'onboardingCheckKey': {
+        if (!onboarding) return fail('onboarding-unavailable', 'онбординг не настроен на этом хосте')
+        const key = stringField(payload, 'key') ?? ''
+        return ok(await onboarding.checkKey(key))
+      }
+      case 'onboardingComplete': {
+        if (!onboarding) return fail('onboarding-unavailable', 'онбординг не настроен на этом хосте')
+        const key = stringField(payload, 'key') ?? ''
+        const dictation = stringField(payload, 'dictation')
+        if (dictation !== null && dictation !== 'browser' && dictation !== 'local') {
+          return fail('bad-request', `неизвестный режим диктовки «${dictation}»`)
+        }
+        const res = await onboarding.complete(key, dictation ?? 'browser')
+        return 'error' in res ? fail('bad-key', res.error) : ok(res)
+      }
+      case 'onboardingSkip':
+        if (!onboarding) return fail('onboarding-unavailable', 'онбординг не настроен на этом хосте')
+        await onboarding.skip()
+        return ok({ skipped: true })
+      case 'onboardingDictation': {
+        if (!onboarding) return fail('onboarding-unavailable', 'онбординг не настроен на этом хосте')
+        const mode = stringField(payload, 'mode')
+        if (mode !== 'browser' && mode !== 'local') return fail('bad-request', `неизвестный режим диктовки «${mode}»`)
+        await onboarding.setDictation(mode)
+        return ok({ mode })
+      }
+      // Интейк → процесс (Т8): чтение fast-документа и старт инициативы в Коробке.
+      case 'intakeDoc': {
+        if (!intake) return fail('intake-unavailable', 'интейк не настроен на этом хосте')
+        const slug = stringField(payload, 'slug')
+        if (!slug) return fail('bad-request', 'не передан слаг')
+        const text = await intake.doc(slug)
+        if (text === null) return fail('doc-not-found', `fast-документ слага «${slug}» ещё не собран`)
+        return ok({ slug, text })
+      }
+      case 'boxBoard': {
+        if (!intake) return fail('intake-unavailable', 'интейк не настроен на этом хосте')
+        return ok(await intake.board())
+      }
+      case 'boxSubmit': {
+        if (!intake) return fail('intake-unavailable', 'интейк не настроен на этом хосте')
+        const input = payload as Record<string, unknown> | null
+        const initiativeId = typeof input?.initiativeId === 'string' ? input.initiativeId : ''
+        const directiveId = typeof input?.directiveId === 'string' ? input.directiveId : ''
+        const content = typeof input?.content === 'string' ? input.content.trim() : ''
+        if (!initiativeId || !directiveId || !content) return fail('bad-request', 'нужны initiativeId, directiveId, content')
+        const ack = await intake.submitOutcome({
+          initiativeId,
+          baseIteration: typeof input?.baseIteration === 'string' ? input.baseIteration : '',
+          directiveId,
+          content,
+          idempotencyKey: typeof input?.idempotencyKey === 'string' ? input.idempotencyKey : `ui-${Date.now()}`,
+        })
+        return ack.ok ? ok(ack) : fail(`box-${ack.code}`, ack.message)
+      }
+      case 'intakeStart': {
+        if (!intake) return fail('intake-unavailable', 'интейк не настроен на этом хосте')
+        const input = payload as Partial<StartPayloadInput> | null
+        const goal = typeof input?.goal === 'string' ? input.goal : ''
+        const idempotencyKey = typeof input?.idempotencyKey === 'string' ? input.idempotencyKey : ''
+        if (!goal || !idempotencyKey) return fail('bad-request', 'нужны goal и idempotencyKey')
+        const ack = await intake.start({ ...input, goal, idempotencyKey } as StartPayloadInput)
+        return ack.ok ? ok(ack) : fail(`box-${ack.code}`, ack.message)
+      }
+    }
     switch (endpoint) {
       case 'list':
         return ok(await reader.listTasks())

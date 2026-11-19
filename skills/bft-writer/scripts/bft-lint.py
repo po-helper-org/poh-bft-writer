@@ -116,6 +116,9 @@ CANON_SECTIONS_FORBIDDEN = {
     "Границы": "в каноне отсутствует (ЗМ-014)",
     "Критерии успеха": "в каноне отсутствует (v10)",
     "Ключевые решения": "в каноне отсутствует",
+    # ЗМ-020: в Claude Code открытые вопросы идут ответом в чат; в портале (customer-form) чата
+    # с PO нет — сводный список «Что нужно для согласования» собирается кодом из ячеек
+    # [УТОЧНИТЬ] и показывается вне документа. В документе в обоих случаях — только ячейки.
     "Вводные для разрабатываемого функционала": "снят решением PO (ЗМ-020): открытые вопросы живут в письме и в ответе в чате, в документе — [УТОЧНИТЬ] в ячейке требования",
 }
 
@@ -813,6 +816,214 @@ def check_internal_sources(doc: Doc, out: list[Finding]) -> None:
                     f"только на Confluence и JIRA, внутренний путь идёт в «{SOURCES_SECTION}»"))
 
 
+# --- Трассировка, якоря, риски, высота (stage: deep; план качества C2, C5, C6, C7) ---
+#
+# Правила канона, которые проходит эталон golden_deep_document.md. Проверки,
+# специфичные для портала (принадлежность ссылки к карте находок, тип задачи
+# Jira, ID скелета), живут в customer-form/src/canon-check.ts, не здесь.
+
+# ID требования внутри текста: «НФТ-1» не даёт лишнего «ФТ-1».
+REQ_ID_INLINE_RE = re.compile(r"(?<![А-ЯЁA-Za-z])(?:БТ|ПТ|ИТ|ФТ|НФТ)-\d+")
+SEE_RE = re.compile(r"\(см\.\s*([^)]*)\)")
+QUOTED_RE = re.compile(r"«([^»]+)»")
+RATING_RE = re.compile(r"^(?:высок|средн|низк)", re.IGNORECASE)
+HTTP_LINK_RE = re.compile(r"\]\(https?://")
+# «подтверждено PO …», но не «не подтверждены».
+CONFIRMED_RE = re.compile(r"(?<!не )подтвержд", re.IGNORECASE)
+FULL_DATE_RE = re.compile(r"\b\d{2}\.\d{2}\.\d{4}\b")
+DASH_RANK = {"—", "–", "-"}
+# Словарь «Типа» якоря: решение заказчика/PO (R3), задача и страница (R2), код (R1),
+# ранг «—» — [УТОЧНИТЬ у …].
+ANCHOR_TYPES = {"Решение заказчика", "Решение PO", "Jira", "JIRA", "Confluence", "Код (As-Is)"}
+# Жаргон реализации на схеме сценария (гейт высоты БФТ): участник или подпись стрелки.
+TECH_WORD_RE = re.compile(r"(?<!\w)(?:стрим|топик|kafka|очеред|эндпоинт|бэкенд)\w*", re.IGNORECASE)
+TECH_ABBR_RE = re.compile(r"(?<!\w)(?:API|REST|BE|БД)(?!\w)")
+PLANTUML_DECL_RE = re.compile(r"^\s*(?:actor|participant|database|queue|entity|collections|boundary|control)\b")
+
+
+def canon_range(doc: Doc, border: int) -> tuple[int, int]:
+    """Область канона: от первого раздела до блока «Продолжить» (не включая)."""
+    start = doc.canon_start(border)
+    stop = doc.find_line(CONTINUE_HEADING, start)
+    return start, (stop - 1 if stop else len(doc.lines))
+
+
+def section_range(doc: Doc, border: int, title: str) -> tuple[int, int]:
+    """Раздел канона «## title» (без «*»): (строка заголовка, последняя строка); нет — (0, 0)."""
+    start, stop = canon_range(doc, border)
+    want = title.rstrip("*").strip()
+    begin = 0
+    for idx, head in doc.headings(start, stop):
+        if not doc.lines[idx - 1].startswith("## "):
+            continue
+        if begin:
+            return begin, idx - 1
+        if head.strip().rstrip("*").strip() == want:
+            begin = idx
+    return (begin, stop) if begin else (0, 0)
+
+
+def column(header: list[str], prefix: str) -> int:
+    p = prefix.lower()
+    for i, h in enumerate(header):
+        if h.replace("*", "").strip().lower().startswith(p):
+            return i
+    return -1
+
+
+def check_traceability(doc: Doc, border: int, out: list[Finding]) -> None:
+    """Граф трассировки канона (гейт каскада, план C2).
+
+    TR001 — ссылка на ID, которого в документе нет («Связанные требования» или
+    «(см. X-N)»): читатель идёт по ссылке в пустоту. TR002 — ИТ без ПТ, НФТ без
+    ФТ/ПТ: каскад «вверх» (ИТ → ПТ, НФТ → ФТ/ПТ) рвётся. TR003 — строка «что
+    если» с «Нет»/«Частично» не говорит, где закрыт пробел. TR004 — «(см. «X»)»
+    на раздел, которого нет.
+    """
+    if doc.stage != "deep":
+        return
+    start, stop = canon_range(doc, border)
+    if start > len(doc.lines):
+        return
+    tables = doc.tables(start, stop)
+    defined: set[str] = set()
+    for _, rows in tables:
+        for _, cells in rows:
+            if cells and ID_RE.match(cells[0]):
+                defined.add(cells[0])
+
+    for header, rows in tables:
+        rel = column(header, "Связанные")
+        if rel < 0:
+            continue
+        for idx, cells in rows:
+            if not cells or not ID_RE.match(cells[0]) or rel >= len(cells):
+                continue
+            refs = REQ_ID_INLINE_RE.findall(cells[rel])
+            for ref in refs:
+                if ref not in defined:
+                    out.append(Finding(idx, "ERROR", "TR001", f"{cells[0]}: «Связанные требования» ссылаются на {ref}, такого требования в документе нет"))
+            rid = cells[0]
+            if rid.startswith("ИТ-") and not any(r.startswith("ПТ-") for r in refs):
+                out.append(Finding(idx, "WARN", "TR002", f"{rid}: интерфейсное требование не связано с ПТ, которое оно обслуживает"))
+            if rid.startswith("НФТ-") and not any(r.startswith(("ФТ-", "ПТ-")) for r in refs):
+                out.append(Finding(idx, "WARN", "TR002", f"{rid}: нефункциональное требование не связано с ФТ/ПТ, которые оно ограничивает"))
+
+    titles = {t.strip().rstrip("*").strip().lower() for _, t in doc.headings(start, stop)}
+    for idx in range(start, stop + 1):
+        if doc.skip(idx):
+            continue
+        for m in SEE_RE.finditer(doc.lines[idx - 1]):
+            inner = m.group(1)
+            for ref in REQ_ID_INLINE_RE.findall(inner):
+                if ref not in defined:
+                    out.append(Finding(idx, "ERROR", "TR001", f"«(см. {ref})» — такого требования в документе нет"))
+            for name in QUOTED_RE.findall(inner):
+                key = name.strip().rstrip("*").strip().lower()
+                if not any(t == key or t.startswith(key) for t in titles):
+                    out.append(Finding(idx, "WARN", "TR004", f"«(см. «{name}»)» — раздела с таким заголовком в документе нет"))
+
+    for header, rows in tables:
+        if not header or not re.search(r"what-if|что если", header[0], re.IGNORECASE):
+            continue
+        for idx, cells in rows:
+            if len(cells) < 3:
+                continue
+            verdict = cells[1].replace("`", "").strip().lower()
+            if not verdict.startswith(("нет", "частично")):
+                continue
+            result = cells[2]
+            if REQ_ID_INLINE_RE.search(result) or re.search(r"\(см\.\s*«", result):
+                continue
+            out.append(Finding(idx, "WARN", "TR003", f"«что если» «{cells[0][:60]}»: пробел без ссылки — «(см. ФТ-N)» или «(см. «Зависимости»/«Риски»)»"))
+
+
+def check_risks(doc: Doc, border: int, out: list[Finding]) -> None:
+    """RK002 — оценка риска без источника (гейт 21, план C5).
+
+    Вероятность и Влияние — только если их назвал заказчик или PO (в строке
+    «подтверждено …») или находка со ссылкой. Иначе — [УТОЧНИТЬ у PO]. Риски
+    прозой без таблицы («Риски заказчиком не названы.») — допустимы.
+    """
+    if doc.stage != "deep":
+        return
+    start, end = section_range(doc, border, "Риски")
+    if not start:
+        return
+    for header, rows in doc.tables(start, end):
+        cols = [c for c in (column(header, "Вероятность"), column(header, "Влияние")) if c >= 0]
+        if not cols:
+            continue
+        for idx, cells in rows:
+            rated = any(c < len(cells) and RATING_RE.match(cells[c].replace("`", "").strip()) for c in cols)
+            row = " ".join(cells)
+            if rated and not CONFIRMED_RE.search(row) and not HTTP_LINK_RE.search(row):
+                out.append(Finding(idx, "ERROR", "RK002", f"риск «{cells[0][:60]}»: вероятность/влияние без источника — «подтверждено {{кем}} {{дата}}», ссылка на находку или [УТОЧНИТЬ у PO]"))
+
+
+def check_anchors(doc: Doc, border: int, out: list[Finding]) -> None:
+    """Якоря истины (anchor_rules.md, план C6).
+
+    AN001 — ранг «—» без [УТОЧНИТЬ у …] в «Типе»: строка не якорь и не вопрос.
+    AN002 — R2 без markdown-ссылки: задачу или страницу читатель не откроет.
+    AN003 — R3 без «кто + дата» (DD.MM.YYYY): решение без даты — не якорь.
+    AN004 — «Тип» вне словаря (WARN).
+    """
+    if doc.stage != "deep":
+        return
+    start, end = section_range(doc, border, SOURCES_SECTION)
+    if not start:
+        return
+    for header, rows in doc.tables(start, end):
+        rank_col = column(header, "Ранг")
+        if rank_col < 0:
+            continue
+        type_col = column(header, "Тип")
+        for idx, cells in rows:
+            if rank_col >= len(cells):
+                continue
+            rank = cells[rank_col].replace("`", "").strip()
+            kind = cells[type_col].replace("`", "").strip() if 0 <= type_col < len(cells) else ""
+            row = " ".join(cells)
+            if rank in DASH_RANK and UNCLEAR_MARKER not in kind:
+                out.append(Finding(idx, "ERROR", "AN001", f"якорь «{cells[0][:60]}»: ранг «—» без [УТОЧНИТЬ у …] в «Типе» — нерелевантное в якоря не выносится"))
+            if rank == "R2" and not HTTP_LINK_RE.search(row):
+                out.append(Finding(idx, "ERROR", "AN002", f"якорь «{cells[0][:60]}»: R2 без markdown-ссылки на задачу или страницу"))
+            if rank == "R3" and not FULL_DATE_RE.search(row) and UNCLEAR_MARKER not in row:
+                out.append(Finding(idx, "ERROR", "AN003", f"якорь «{cells[0][:60]}»: R3 без «кто + дата (DD.MM.YYYY) + источник»"))
+            if type_col >= 0 and kind and kind not in ANCHOR_TYPES and not kind.startswith(UNCLEAR_MARKER):
+                out.append(Finding(idx, "WARN", "AN004", f"тип якоря «{kind}» вне словаря: {', '.join(sorted(ANCHOR_TYPES))}, [УТОЧНИТЬ у …]"))
+
+
+def check_altitude(doc: Doc, border: int, out: list[Finding]) -> None:
+    """DP006 (WARN) — жаргон реализации на схеме сценария (высота БФТ, план C7).
+
+    Участники — акторы и то, что они видят; потоки, очереди, API и хранилища —
+    в «Зависимостях», не на схеме приёмки.
+    """
+    if doc.stage != "deep":
+        return
+    start, stop = canon_range(doc, border)
+    in_uml = False
+    for idx in range(start, stop + 1):
+        raw = doc.lines[idx - 1]
+        stripped = raw.strip()
+        if stripped.startswith("```"):
+            in_uml = stripped[3:].strip() == "plantuml" if not in_uml else False
+            continue
+        if not in_uml:
+            continue
+        if PLANTUML_DECL_RE.match(raw):
+            text = raw
+        elif "->" in raw and ":" in raw:
+            text = raw.split(":", 1)[1]
+        else:
+            continue
+        m = TECH_WORD_RE.search(text) or TECH_ABBR_RE.search(text)
+        if m:
+            out.append(Finding(idx, "WARN", "DP006", f"на схеме сценария «{m.group()}» — внутренняя механика; участники — акторы и то, что они видят, механизм — в «Зависимостях»"))
+
+
 # --- Прогон -----------------------------------------------------------------
 
 
@@ -833,6 +1044,10 @@ def lint(path: Path) -> list[Finding]:
     check_markup(doc, out)
     check_bare_refs(doc, out)
     check_internal_sources(doc, out)
+    check_traceability(doc, border, out)
+    check_risks(doc, border, out)
+    check_anchors(doc, border, out)
+    check_altitude(doc, border, out)
     return sorted(out, key=lambda f: (f.line, f.code))
 
 
