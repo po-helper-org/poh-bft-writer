@@ -140,3 +140,10 @@ test('раунд 5: ядро запросов — объект с каждой �
   assert.equal(out.filter((q) => !/скидк/i.test(q) && /RideGo|CityMove|ЛОЯЛ/.test(q)).length, 1, 'запрос только о платформе — не больше одного')
   assert.ok(out.length <= 6)
 })
+
+test('рассуждения полного БФТ: off для Z.AI Coding Plan, у остальных — умолчание модели, переменная главнее', async () => {
+  const { deepReasoning } = await import('../lib-test/bft-deep.js')
+  assert.equal(deepReasoning({ provider: 'zai-coding', model: 'glm-5' }, {}), 'off')
+  assert.equal(deepReasoning({ provider: 'anthropic', model: 'claude-haiku-5-5' }, {}), undefined)
+  assert.equal(deepReasoning({ provider: 'zai-coding', model: 'glm-5' }, { PORTAL_DEEP_REASONING: 'high' }), 'high')
+})

@@ -70,7 +70,7 @@ export async function saveDeepState(files: DeepFiles, state: DeepState): Promise
 export interface DeepRoute { provider: string; model: string }
 type Chunk = { type: string; text?: string; reason?: unknown }
 export interface LlmLike {
-  prepareCall(config: DeepRoute & { maxTokens?: number }, signal?: AbortSignal): Promise<{
+  prepareCall(config: DeepRoute & { maxTokens?: number; reasoningEffort?: string }, signal?: AbortSignal): Promise<{
     config: DeepRoute & Record<string, unknown>
     stream(options: Record<string, unknown>): AsyncIterable<Chunk>
   }>
@@ -515,14 +515,26 @@ export function sourcesForModel(sourcesMd: string): string {
 }
 
 /**
+ * Уровень рассуждений при сборке документа: PORTAL_DEEP_REASONING, иначе off для
+ * Z.AI Coding Plan — GLM-5 с рассуждениями тратит весь лимит вывода на них и
+ * не успевает написать документ (живой E2E, ADR-0016). Другим моделям — их умолчание:
+ * уровень, которого модель не объявила, pi-ai отклоняет.
+ */
+export function deepReasoning(route: DeepRoute, env = process.env): string | undefined {
+  if (env.PORTAL_DEEP_REASONING) return env.PORTAL_DEEP_REASONING
+  return route.provider === 'zai-coding' ? 'off' : undefined
+}
+
+/**
  * Один вызов модели: текст ответа целиком. Пустой ответ (модель ушла в
  * рассуждения до лимита, поток оборвался) переспрашивается один раз; ошибка
  * говорит, почему пусто: причина завершения, объём рассуждений, расход токенов.
  */
 export async function generate(llm: LlmLike, route: DeepRoute, prompt: { system: string; user: string }, signal: AbortSignal, maxTokens = 32_000): Promise<string> {
   let why = ''
+  const effort = deepReasoning(route)
   for (let attempt = 1; attempt <= 2; attempt++) {
-    const call = await llm.prepareCall({ ...route, maxTokens }, signal)
+    const call = await llm.prepareCall({ ...route, maxTokens, ...(effort ? { reasoningEffort: effort } : {}) }, signal)
     let text = ''
     let reasoning = 0
     let finish: unknown

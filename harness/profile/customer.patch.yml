@@ -19,10 +19,19 @@
             api: openai-completions
             baseURL: https://api.z.ai/api/coding/paas/v4
             apiKeyEnv: ZAI_CODING_API_KEY
+            # Рассуждения GLM-5 — параметром z.ai thinking: чат думает (high, как
+            # по умолчанию у z.ai), полный БФТ зовёт с reasoningEffort off —
+            # иначе модель тратит весь лимит вывода на рассуждения (ADR-0016).
+            reasoning: high
+            compat:
+              thinkingFormat: zai
             models:
               - id: glm-5
                 name: GLM-5
                 contextWindow: 200000
+                reasoningEfforts:
+                  'off':
+                  high: high
                 # GLM-5 — только текст: фото документов читает OCR
                 # context-ingest (ADR-0008), в модель они уходят текстом.
                 input: [text]

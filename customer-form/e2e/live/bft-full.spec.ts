@@ -95,7 +95,8 @@ test('живой /bft: обращение → первичные требова�
   await expect(card, 'сценарий приёмки').toBeVisible({ timeout: 8 * 60_000 })
   await page.screenshot({ path: `${OUT}/live-1-acceptance.png` })
   console.log(`▸ сценарий приёмки (${sec()})`)
-  await page.getByRole('button', { name: 'Согласую' }).click()
+  // Модель может показать сценарий повторно (правка шагов) — согласуем последний.
+  await page.getByRole('button', { name: 'Согласую' }).last().click()
 
   // Первичные требования (fast) — в правой панели; блоки из памяти организации.
   const doc = page.frameLocator('iframe[data-customer-bft]')
