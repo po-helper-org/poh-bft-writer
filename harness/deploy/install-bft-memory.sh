@@ -17,7 +17,7 @@
 # Все пути — от домашнего каталога, без ~ и «/» в начале. Пустой — источник пропускается.
 #
 # Что делает (идемпотентно):
-#   1. собирает образ Кортекса, если его нет (в нём утилита bft_memory.py и шаблон poh-cortex);
+#   1. образ Кортекса (в нём bft_memory.py и шаблон poh-cortex) — от выкладки; нет — собирает;
 #   2. vault из шаблона (первый раз), импорт источников, гейт Кортекса — в контейнере,
 #      без сети, файлы источников смонтированы только на чтение;
 #   3. история памяти — локальный git в BFT_MEMORY_DIR (без remote: там корпоративные данные);
@@ -55,9 +55,10 @@ IFS=, read -r -a BFT_REL <<< "${BFT_MEMORY_BFT:-$(env_get BFT_MEMORY_BFT)}"
 
 export COMPOSE_FILE=$HARNESS/docker-compose.yml:$HARNESS/docker-compose.server.yml COMPOSE_PROJECT_NAME=poh-bft-portal
 IMAGE=poh-cortex:local
-if ! docker image inspect "$IMAGE" > /dev/null 2>&1 || [ "$REFRESH" = 0 ]; then
+# Образ собирает выкладка (start.sh); нет его — тем же compose (BuildKit: Dockerfile с heredoc).
+if ! docker image inspect "$IMAGE" > /dev/null 2>&1; then
   echo "▸ образ Кортекса"
-  docker build --network host -q -t "$IMAGE" "$HARNESS/cortex" > /dev/null
+  (cd "$HARNESS" && docker compose build -q cortex)
 fi
 
 mkdir -p "$MEM"
