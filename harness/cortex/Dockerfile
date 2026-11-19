@@ -20,6 +20,10 @@ RUN cp -r /opt/poh-cortex /opt/demo-vault \
  && sed -i -E 's/^  # - (\{slug: (landscape|processes),)/  - \1/' /opt/demo-vault/GROUND/NEXUS/_registry.yaml \
  && python3 /opt/demo-vault/bin/cortex --root /opt/demo-vault report | tail -3
 COPY server.py /opt/cortex-server.py
+# Наполнение памяти агента bft-creator (ADR-0016): запускается разово тем же образом —
+#   docker run --rm --user $(id -u):$(id -g) -v <память>:/memory poh-cortex:local python3 /opt/bft_memory.py …
+COPY bft_memory.py test_memory.py /opt/
+RUN cd /opt && python3 -m unittest -q test_memory.py
 RUN useradd -m -u 10002 cortex
 USER cortex
 EXPOSE 8095

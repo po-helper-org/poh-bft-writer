@@ -24,6 +24,9 @@
 #     Разово владельцу с sudo: sudo loginctl enable-linger <пользователь>
 #     (иначе служба systemd --user останавливается после выхода из сессии)
 #     и отзыв прежних доступов портала к шлюзу агентов — см. ADR-0015.
+#  7. Память агента bft-creator (Кортекс, ADR-0016) — на сервере без sudo, после выкладки:
+#       bash ~/$DEPLOY_DIR/harness/deploy/install-bft-memory.sh
+#     Источники памяти — BFT_MEMORY_* в server.env; без них Кортекс читает клон poh-cortex.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 SERVER_ENV="$ROOT/harness/deploy/server.env"
@@ -42,7 +45,7 @@ done
 HOST=$DEPLOY_HOST
 # Пути на сервере (DEPLOY_DIR, SOURCES_MCP_CONFIG) — относительно домашнего, без ~ и
 # без «/» в начале: «. server.env» раскрыл бы ~ в локальный $HOME.
-for v in DEPLOY_DIR SOURCES_MCP_CONFIG; do
+for v in DEPLOY_DIR SOURCES_MCP_CONFIG BFT_MEMORY_DIR BFT_MEMORY_GLOSSARY BFT_MEMORY_ITMAP BFT_MEMORY_BFT BFT_MEMORY_CURATED; do
   case "${!v:-}" in
     /*|~*) echo "✗ $v в $SERVER_ENV — путь относительно домашнего каталога сервера, без ~ и «/» в начале" >&2; exit 1 ;;
   esac
@@ -79,7 +82,7 @@ git archive --format=tar HEAD | tar -x -C "$TMP"
 echo "$REV" > "$TMP/harness/.deployed-rev"
 ssh "$HOST" "mkdir -p ~/$REMOTE"
 rsync -az --delete \
-  --exclude 'harness/.env' --exclude 'harness/.last-url' --exclude '.cortex-vault/' \
+  --exclude 'harness/.env' --exclude 'harness/.last-url' --exclude '.cortex-vault/' --exclude '.e2e-live/' \
   "$TMP/" "$HOST:~/$REMOTE/"
 
 # Строки KEY=VALUE со stdin → harness/.env на сервере (set_kv: старая строка ключа
@@ -97,7 +100,8 @@ fi
 # start.sh и скрипты harness/deploy/ на сервере). Пустые не переносятся.
 {
   printf 'PORTAL_PUBLIC_URL=%s\n' "$PUBLIC_URL"
-  for v in PORTAL_TRUSTED_HOSTS DATA_SOURCES_URL_ATLASSIAN SOURCES_MCP_CONFIG SOURCES_MCP_SERVER PORTAL_SUBNET; do
+  for v in PORTAL_TRUSTED_HOSTS DATA_SOURCES_URL_ATLASSIAN SOURCES_MCP_CONFIG SOURCES_MCP_SERVER PORTAL_SUBNET \
+    BFT_MEMORY_DIR BFT_MEMORY_GLOSSARY BFT_MEMORY_ITMAP BFT_MEMORY_BFT BFT_MEMORY_CURATED BFT_E2E_REQUEST_FILE; do
     [ -n "${!v:-}" ] && printf '%s=%s\n' "$v" "${!v}"
   done
   true
@@ -115,6 +119,7 @@ if [ -d .cortex-vault/.git ]; then git -C .cortex-vault pull -q --ff-only || ech
 else git clone -q https://github.com/po-helper-org/poh-cortex .cortex-vault; fi
 cd harness
 touch .env && chmod 600 .env
+# Память bft-creator (install-bft-memory.sh) сама пишет CORTEX_VAULT; иначе — клон poh-cortex.
 grep -q '^CORTEX_VAULT=' .env || printf 'CORTEX_VAULT=%s\n' "\$HOME/$REMOTE/.cortex-vault" >> .env
 echo "▸ Сборка образа портала…"
 docker build --network host -q -f harness-web/Dockerfile -t poh-harness-web:local .. > /dev/null

@@ -81,6 +81,27 @@ test('Кортекс: остаются узлы по теме, зоны — за
   assert.match(empty, /Память по этой теме ничего не знает/)
 })
 
+test('память bft-creator: домены и прошлые БФТ — по теме и по aliases, термины — как отдал Кортекс', () => {
+  const brief = {
+    vault: { name: 'bft-creator', nodes: 40, demo: false },
+    people: [], processes: [], domains: [],
+    landscape: [{ ...node('sys-tl', 'Витрина клуба', 'сайт продаж'), aliases: ['ВФ', 'Fitly'], where_to_check: [], environments: [] }],
+    areas: [node('dom-fit', 'Fitly — партнёр по абонементам', 'клубы'), node('dom-pk', 'ПК — контрагент', 'витрина ПК')],
+    glossary: [{ node_id: 'term-vf', term: 'ВФ', meaning: 'Витрина Fitly', sources: ['glossary'] }],
+    precedents: [node('bft-fit', 'БФТ: продажа абонементов Fitly в кассе', 'прошлая заявка'), node('bft-x', 'БФТ: модерация', 'другое')],
+  }
+  const kept = relevantBrief(brief, 'Продажа абонементов Fitly через ВФ')
+  assert.deepEqual(kept.landscape.map((s) => s.node_id), ['sys-tl'], 'система по aliases')
+  assert.deepEqual(kept.areas.map((a) => a.node_id), ['dom-fit'])
+  assert.deepEqual(kept.precedents.map((p) => p.node_id), ['bft-fit'])
+  const md = contextMapMarkdown(kept, 'z')
+  assert.match(md, /## Домены и контрагенты\n\n- \*\*Fitly — партнёр по абонементам\*\*/)
+  assert.match(md, /## Термины\n\n- \*\*ВФ\*\* — Витрина Fitly `term-vf`/)
+  assert.match(md, /## Прошлые БФТ по теме\n\n- \*\*БФТ: продажа абонементов Fitly в кассе\*\*/)
+  // Старый Кортекс без новых разделов — карта прежняя, без пустых заголовков.
+  assert.doesNotMatch(contextMapMarkdown({ ...kept, areas: undefined, glossary: undefined, precedents: undefined }, 'z'), /Термины|Прошлые БФТ|Домены и контрагенты/)
+})
+
 test('карта для модели — без хвоста «Отсеяно триажем»', () => {
   const md = '# Корпоративные источники\n\n## A-1 · x\nJira\nСсылка для БФТ: [Jira A-1](u)\n\n## Отсеяно триажем (не использовать)\n\n- B-1 · чужое\n'
   assert.doesNotMatch(sourcesForModel(md), /Отсеяно|B-1/)

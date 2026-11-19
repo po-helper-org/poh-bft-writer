@@ -11,6 +11,13 @@ poh-cortex — markdown в git и один CLI на стандартной би�
   3. домены и зоны влияния — владельцы найденного знания и их зоны;
   4. IT-ландшафт — системы, где и как это можно проверить (Нексус landscape).
 
+Память агента bft-creator (ADR-0016) добавляет ещё три раздела:
+
+  5. домены и контрагенты — границы команд, партнёры, заказчики (Нексус domains);
+  6. термины — расшифровки из словаря (Нексус glossary): только те, что
+     встречаются в тексте запроса, целым словом или основой;
+  7. прошлые БФТ по теме — архив итоговых документов (Нексус bft-archive).
+
 Каждый ответ — с якорем: node_id, источники, CP и свежесть. Пусто — значит
 память этого не знает, и это валидный ответ (принцип Кортекса), а не ошибка.
 
@@ -37,6 +44,8 @@ DEMO_ROOT = pathlib.Path(os.environ.get("CORTEX_DEMO", "/opt/demo-vault"))
 VAULT_ROOT = pathlib.Path(os.environ.get("CORTEX_VAULT_ROOT", "/vault"))
 BUILTIN_TOOL = pathlib.Path(os.environ.get("CORTEX_TOOL", "/opt/poh-cortex/bin/cortex"))
 TOP = 4
+# Нексусы памяти bft-creator со своими разделами ответа: в «процессы» не попадают.
+SPECIAL = ("team", "landscape", "domains", "glossary", "bft-archive")
 
 
 def vault_root() -> tuple[pathlib.Path, bool]:
@@ -107,9 +116,10 @@ def as_list(value) -> list[str]:
     return [str(value)]
 
 
-def hits(idx, text: str, keep, top: int = TOP):
-    """Поиск Кортекса + отсечка слабого: доля от лучшего, чтобы общие слова не тянули мусор."""
-    found = [(s, n) for s, n in idx.search(text, top=40) if keep(n)]
+def hits(idx, text: str, keep, top: int = TOP, nexus: str | None = None):
+    """Поиск Кортекса + отсечка слабого: доля от лучшего, чтобы общие слова не тянули мусор.
+    nexus — искать только в нём: иначе в живой памяти первые 40 мест займут другие Нексусы."""
+    found = [(s, n) for s, n in idx.search(text, top=40 if nexus else 120, nexus=nexus) if keep(n)]
     if not found:
         return []
     best = found[0][0]
@@ -120,30 +130,80 @@ def anchor(tool, cx, node) -> dict:
     a = tool.anchors(cx, node)
     return {"node_id": a["node_id"], "title": a["title"], "owner": a["owner"], "cp": a["effective_cp"],
             "ripeness": a["ripeness"], "sources": [str(s) for s in a["sources"]][:3], "summary": summary_of(node),
-            "draft": node["status"] == "draft"}
+            "aliases": as_list(node["aliases"]), "draft": node["status"] == "draft"}
+
+
+_WORD = re.compile(r"[\w]+", re.UNICODE)
+
+
+def _words(text: str) -> list[str]:
+    return _WORD.findall(text.replace("ё", "е").replace("Ё", "Е"))
+
+
+def _mentions(text_words: list[str], lower_words: set[str], name: str) -> bool:
+    """Термин в тексте: аббревиатура (ПК, ВФ, BI) — тем же регистром целым словом;
+    одно слово — основой от 5 букв; фраза — все её слова основами подряд не нужны,
+    достаточно каждого."""
+    parts = _words(name)
+    if not parts:
+        return False
+    if len(parts) == 1 and re.fullmatch(r"[A-ZА-Я0-9]{2,6}", parts[0]):
+        return parts[0] in text_words
+    for part in parts:
+        low = part.lower()
+        if len(low) < 3:
+            return False
+        stem = low[:5] if len(low) > 5 else low
+        if not any(w.startswith(stem) for w in lower_words):
+            return False
+    return True
+
+
+def glossary(cx, text: str, top: int = 12) -> list[dict]:
+    """Термины словаря, которые есть в тексте запроса — детерминированно, без ранжирования поиском."""
+    text_words = _words(text)
+    lower_words = {w.lower() for w in text_words}
+    out = []
+    for n in cx.nodes:
+        if n["nexus"] != "glossary" or n.layer != "curated" or n["status"] == "rejected":
+            continue
+        term = str(n["term"] or n.title.partition(" — ")[0]).strip()
+        # Псевдоним в одно русское слово («мероприятие», «билетная») — обычное слово, а не термин:
+        # засчитываются аббревиатуры, латиница и фразы.
+        names = [term, *(a for a in as_list(n["aliases"])
+                         if len(_words(a)) > 1 or re.fullmatch(r"[A-ZА-ЯЁ0-9]{2,6}|[A-Za-z][\w.-]*", a.strip()))]
+        if any(_mentions(text_words, lower_words, name) for name in names):
+            meaning = str(n["meaning"] or n.title.partition(" — ")[2] or summary_of(n)).strip()
+            out.append({"node_id": n.id, "term": term, "meaning": meaning,
+                        "sources": [str(s) for s in as_list(n["sources"])][:3]})
+    out.sort(key=lambda t: t["term"].lower())
+    return out[:top]
 
 
 def brief(text: str) -> dict:
     tool, cx, idx = MEMORY.get()
-    empirical = lambda n: n["kind"] != "normative"  # noqa: E731 — методология PAF — не знание об организации
+    # Методология PAF (normative) и оглавления Нексусов (spine, _index.md) — не знание об организации.
+    empirical = lambda n: n["kind"] != "normative" and n["node_type"] != "spine"  # noqa: E731
 
     people = []
-    for n in hits(idx, text, lambda n: n["nexus"] == "team" and n["node_type"] == "person"):
+    for n in hits(idx, text, lambda n: n["node_type"] == "person", nexus="team"):
         # Шаблон кладёт роль и зоны в поля; живая память часто — в заголовок
         # «Имя — роль» и первый абзац тела (он уходит в summary).
         head, _, tail = n.title.partition(" — ")
         people.append({**anchor(tool, cx, n), "name": str(n["full_name"] or head), "role": str(n["role_title"] or tail),
                        "zones": as_list(n["influence_zones"]), "contact_for": as_list(n["contact_for"])})
 
-    processes = [anchor(tool, cx, n) for n in hits(idx, text, lambda n: empirical(n) and n["nexus"] not in ("team", "landscape"))]
+    processes = [anchor(tool, cx, n) for n in hits(idx, text, lambda n: empirical(n) and n["nexus"] not in SPECIAL)]
+    areas = [anchor(tool, cx, n) for n in hits(idx, text, lambda n: True, nexus="domains")]
+    precedents = [anchor(tool, cx, n) for n in hits(idx, text, lambda n: True, top=3, nexus="bft-archive")]
 
     landscape = []
-    for n in hits(idx, text, lambda n: n["nexus"] == "landscape"):
+    for n in hits(idx, text, lambda n: True, nexus="landscape"):
         landscape.append({**anchor(tool, cx, n), "where_to_check": as_list(n["where_to_check"]), "environments": as_list(n["environments"])})
 
     # Зоны влияния: владельцы найденного знания (как `cortex who`) + зоны людей.
     owners: dict[str, dict] = {}
-    for n in hits(idx, text, empirical, top=10):
+    for n in hits(idx, text, lambda n: empirical(n) and n["nexus"] not in ("glossary", "bft-archive"), top=10):
         owner = str(n["owner"] or "").strip()
         if owner:
             owners.setdefault(owner, {"owner": owner, "zones": [], "nodes": []})["nodes"].append(n.title)
@@ -155,6 +215,7 @@ def brief(text: str) -> dict:
     return {
         "vault": {"name": str((cx.config.get("company") or "") or cx.root.name), "nodes": len(cx.nodes), "demo": MEMORY.demo},
         "people": people, "processes": processes, "domains": domains, "landscape": landscape,
+        "areas": areas, "glossary": glossary(cx, text), "precedents": precedents,
     }
 
 
