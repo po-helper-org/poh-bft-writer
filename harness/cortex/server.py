@@ -126,9 +126,17 @@ def hits(idx, text: str, keep, top: int = TOP, nexus: str | None = None):
     return [n for s, n in found if s >= best * 0.25][:top]
 
 
+# Владелец-заглушка импорта (bft_memory.py: «не сказано, чей») — не владелец и не зона влияния.
+PLACEHOLDER_OWNERS = {"bft-creator"}
+
+
+def real_owner(owner):
+    return None if owner is None or str(owner).strip() in PLACEHOLDER_OWNERS else owner
+
+
 def anchor(tool, cx, node) -> dict:
     a = tool.anchors(cx, node)
-    return {"node_id": a["node_id"], "title": a["title"], "owner": a["owner"], "cp": a["effective_cp"],
+    return {"node_id": a["node_id"], "title": a["title"], "owner": real_owner(a["owner"]), "cp": a["effective_cp"],
             "ripeness": a["ripeness"], "sources": [str(s) for s in a["sources"]][:3], "summary": summary_of(node),
             "aliases": as_list(node["aliases"]), "draft": node["status"] == "draft"}
 
@@ -204,7 +212,7 @@ def brief(text: str) -> dict:
     # Зоны влияния: владельцы найденного знания (как `cortex who`) + зоны людей.
     owners: dict[str, dict] = {}
     for n in hits(idx, text, lambda n: empirical(n) and n["nexus"] not in ("glossary", "bft-archive"), top=10):
-        owner = str(n["owner"] or "").strip()
+        owner = str(real_owner(n["owner"]) or "").strip()
         if owner:
             owners.setdefault(owner, {"owner": owner, "zones": [], "nodes": []})["nodes"].append(n.title)
     for p in people:

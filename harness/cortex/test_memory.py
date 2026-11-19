@@ -127,6 +127,8 @@ class VaultTest(unittest.TestCase):
         self.assertEqual([p["node_id"] for p in brief["precedents"]], ["bft-bft-vk"])
         self.assertIn("премодерация", brief["precedents"][0]["summary"])
         self.assertEqual(brief["processes"], [], "оглавления и методология шаблона — не процессы")
+        self.assertTrue(all(p["owner"] is None for p in brief["precedents"]), "владелец-заглушка импорта не показывается")
+        self.assertEqual(brief["domains"], [], "bft-creator — не зона влияния")
         self.assertEqual(server.brief("вкусный кофе")["glossary"], [], "«вк» внутри слова — не термин ПК")
 
 

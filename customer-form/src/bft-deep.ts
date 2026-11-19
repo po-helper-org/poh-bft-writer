@@ -514,20 +514,35 @@ export function sourcesForModel(sourcesMd: string): string {
   }).join('\n')
 }
 
-/** Один вызов модели: текст ответа целиком. */
+/**
+ * Один вызов модели: текст ответа целиком. Пустой ответ (модель ушла в
+ * рассуждения до лимита, поток оборвался) переспрашивается один раз; ошибка
+ * говорит, почему пусто: причина завершения, объём рассуждений, расход токенов.
+ */
 export async function generate(llm: LlmLike, route: DeepRoute, prompt: { system: string; user: string }, signal: AbortSignal, maxTokens = 32_000): Promise<string> {
-  const call = await llm.prepareCall({ ...route, maxTokens }, signal)
-  let text = ''
-  for await (const chunk of call.stream({
-    ...call.config,
-    system: prompt.system,
-    messages: [{ role: 'user', content: [{ type: 'text', text: prompt.user }] }],
-    signal,
-  })) {
-    if (chunk.type === 'text-delta' && chunk.text) text += chunk.text
+  let why = ''
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    const call = await llm.prepareCall({ ...route, maxTokens }, signal)
+    let text = ''
+    let reasoning = 0
+    let finish: unknown
+    let usage: unknown
+    for await (const chunk of call.stream({
+      ...call.config,
+      system: prompt.system,
+      messages: [{ role: 'user', content: [{ type: 'text', text: prompt.user }] }],
+      signal,
+    })) {
+      if (chunk.type === 'text-delta' && chunk.text) text += chunk.text
+      else if (chunk.type === 'reasoning-delta' && chunk.text) reasoning += chunk.text.length
+      else if (chunk.type === 'finish') finish = chunk.reason
+      else if (chunk.type === 'usage') usage = (chunk as { usage?: unknown }).usage
+    }
+    if (text.trim()) return text
+    why = `finish: ${JSON.stringify(finish ?? null)}, рассуждений ${reasoning} знаков, токены ${JSON.stringify(usage ?? null)}`
+    console.error(`[customer-form] ${route.provider}/${route.model}: пустой ответ (попытка ${attempt}; ${why})`)
   }
-  if (!text.trim()) throw new Error('модель вернула пустой ответ')
-  return text
+  throw new Error(`модель вернула пустой ответ (${why})`)
 }
 
 function python(script: string, args: string[]): Promise<{ code: number; out: string }> {

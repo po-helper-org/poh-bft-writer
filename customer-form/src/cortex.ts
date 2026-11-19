@@ -59,7 +59,7 @@ export async function cortexBrief(text: string, url = process.env.CORTEX_URL): P
 }
 
 /**
- * Только узлы по теме запроса (план C4): процесс или система остаётся, если в
+ * Только узлы по теме запроса (план C4; люди без своих узлов — от трёх терминов в роли и зонах): процесс или система остаётся, если в
  * её названии не меньше двух непроцессных терминов запроса (или один — и ещё
  * минимум два в названии и описании вместе). Люди — владельцы оставшихся
  * узлов или те, чьи зоны и роль про тему; «Зоны влияния» — заново, только из
@@ -85,7 +85,7 @@ export function relevantBrief(brief: CortexBrief, query: string): CortexBrief {
     .filter((d) => d.nodes.length > 0)
   const domainOwners = new Set(domains.map((d) => d.owner))
   const people = brief.people.filter((p) => owners.has(p.name) || owners.has(p.node_id) || domainOwners.has(p.name)
-    || countTerms([p.role, ...p.zones, ...p.contact_for].join('\n'), list) >= 2)
+    || countTerms([p.role, ...p.zones, ...p.contact_for].join('\n'), list) >= 3)
   return {
     ...brief, people, processes, domains, landscape,
     ...(brief.areas ? { areas: brief.areas.filter(relevant) } : {}),
