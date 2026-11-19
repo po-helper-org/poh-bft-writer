@@ -167,6 +167,9 @@ services:
       PORTAL_MODEL: ${PORTAL_MODEL:-}
       # Разбор материалов заказчика: голос (m4a…) → текст, документы → Markdown.
       INGEST_URL: http://context-ingest:8090
+      # Ссылки Google (ADR-0017): без ключа — открытый экспорт; ключ Drive API
+      # (необязательно) — список папок через API. Значение задаёт владелец в .env.
+      GOOGLE_DRIVE_API_KEY: ${GOOGLE_DRIVE_API_KEY:-}
       # Кортекс (ADR-0011): bft-fast дораскрывает запрос — контуры проверки и зоны влияния.
       CORTEX_URL: http://cortex:8095
       # Источник данных atlassian — шлюз источников (ADR-0015): MCP ровно с
