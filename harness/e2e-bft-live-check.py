@@ -50,8 +50,8 @@ def names(lines: list[str]) -> list[str]:
         m = re.match(r"- \*\*(.+?)\*\*", line)
         if not m:
             continue
-        name = re.split(r"\s+[—–-]\s+|:\s", m.group(1), maxsplit=1)[0].strip()
-        name = re.sub(r"^БФТ$", "", name)
+        title = re.sub(r"^БФТ:\s*", "", m.group(1))
+        name = re.split(r"\s+[—–-]\s+|:\s", title, maxsplit=1)[0].strip()
         if len(name) >= 2:
             out.append(name)
     return out
@@ -75,8 +75,11 @@ def main(run_dir: str) -> int:
     sources = read(art / "sources.md")
     deep_md = read(root / "live-deep.md") or read(art / f"{run.get('slug', '')}.md")
     state = json.loads(read(art / "deep.json") or "{}")
-    primary = read(art / "primary.json")
-    words = "\n".join([run.get("request", ""), primary, read(art / "intake.json")])
+    # Слова заказчика: обращение, поля документа fast и intake. В primary.json есть и ответ
+    # Кортекса (brief, where) — это память, а не заказчик: их не берём.
+    primary = json.loads(read(art / "primary.json") or "{}")
+    customer = {k: primary.get(k) for k in ("args", "howToDemo", "checklist")}
+    words = "\n".join([run.get("request", ""), json.dumps(customer, ensure_ascii=False), read(art / "intake.json")])
 
     checks: list[tuple[str, bool, str]] = []
     def check(name: str, ok: bool, detail: str) -> None:
