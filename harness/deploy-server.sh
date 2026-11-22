@@ -12,7 +12,9 @@
 #     который ведёт автодеплой main.
 #  2. Значения из server.env (адрес портала, имена хоста, источник данных, подсеть
 #     docker) — в harness/.env на сервере, идемпотентно и без вывода значений.
-#  3. Память организации (Кортекс) — клон poh-cortex на сервере, только чтение.
+#  3. Память организации (Кортекс) — разово: память bft-creator (п. 7) или клон
+#     poh-cortex при первой выкладке; дальше выкладка её не трогает и образ
+#     Кортекса не пересобирает.
 #  4. Образ портала собирается на сервере (x86_64), стек поднимается start.sh
 #     с docker-compose.server.yml: портал 127.0.0.1:3082, трекер 127.0.0.1:3084.
 #  5. nginx (/bft/ за Authentik, /bft-sources/mcp — шлюз источников) — разовый шаг
@@ -114,18 +116,26 @@ ssh "$HOST" "umask 077 && cd ~/$REMOTE/harness && touch .env && chmod 600 .env &
 ssh "$HOST" "bash -s" <<EOF
 set -euo pipefail
 cd ~/$REMOTE
-# Память организации: свой клон poh-cortex (только чтение в контейнере).
-if [ -d .cortex-vault/.git ]; then git -C .cortex-vault pull -q --ff-only || echo "⚠ poh-cortex не обновился"
-else git clone -q https://github.com/po-helper-org/poh-cortex .cortex-vault; fi
+touch harness/.env && chmod 600 harness/.env
+# Память организации настраивается разово: память bft-creator (install-bft-memory.sh)
+# пишет CORTEX_VAULT сама. Только если памяти ещё нет — разовый клон poh-cortex;
+# выкладка его не обновляет.
+if ! grep -q '^CORTEX_VAULT=' harness/.env; then
+  [ -d .cortex-vault/.git ] || git clone -q https://github.com/po-helper-org/poh-cortex .cortex-vault
+  printf 'CORTEX_VAULT=%s\n' "\$HOME/$REMOTE/.cortex-vault" >> harness/.env
+fi
 cd harness
-touch .env && chmod 600 .env
-# Память bft-creator (install-bft-memory.sh) сама пишет CORTEX_VAULT; иначе — клон poh-cortex.
-grep -q '^CORTEX_VAULT=' .env || printf 'CORTEX_VAULT=%s\n' "\$HOME/$REMOTE/.cortex-vault" >> .env
 echo "▸ Сборка образа портала…"
 docker build --network host -q -f harness-web/Dockerfile -t poh-harness-web:local .. > /dev/null
 export COMPOSE_FILE=docker-compose.yml:docker-compose.server.yml COMPOSE_PROJECT_NAME=poh-bft-portal
 export TRACKER_SEED_URL=http://127.0.0.1:3084/api/v1 PORTAL_PUBLIC_URL='$PUBLIC_URL'
-./start.sh --no-open
+# Образы Кортекса и разбора материалов — разовые (первая настройка); выкладка их
+# не пересобирает. Пересобрать вручную: docker compose build cortex.
+export COMPOSE_BAKE=false
+for svc in cortex:poh-cortex context-ingest:poh-context-ingest; do
+  docker image inspect "\${svc#*:}:local" > /dev/null 2>&1 || { echo "▸ первая сборка \${svc%%:*}"; docker compose build -q "\${svc%%:*}"; }
+done
+./start.sh --no-open --no-build
 docker compose up -d --force-recreate customer-web > /dev/null
 for i in \$(seq 1 60); do [ "\$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3082/)" = 200 ] && break; sleep 2; done
 echo "▸ портал 127.0.0.1:3082 → \$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3082/)"

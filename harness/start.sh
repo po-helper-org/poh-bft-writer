@@ -7,10 +7,12 @@
 #   ./start.sh --demo         # профиль demo: LLM-двойник без ключа (коробка)
 #   ./start.sh --debug        # + temporal-ui :8233 (коробка)
 #   ./start.sh --no-open      # не открывать браузер
+#   ./start.sh --no-build     # не пересобирать образы (берутся готовые)
 set -euo pipefail
 cd "$(dirname "$0")"
 
 PROFILE_ARGS=()
+BUILD_ARG=--build
 NO_OPEN=0
 LEGACY=0
 for arg in "$@"; do
@@ -19,6 +21,7 @@ for arg in "$@"; do
     --demo)  PROFILE_ARGS+=(--profile demo) ;;
     --debug) PROFILE_ARGS+=(--profile debug) ;;
     --no-open) NO_OPEN=1 ;;
+    --no-build) BUILD_ARG=--no-build ;;
     *) echo "Неизвестный аргумент: $arg" >&2; exit 2 ;;
   esac
 done
@@ -78,7 +81,9 @@ fi
 
 # ── 2. Подъём ──────────────────────────────────────────────────────────────────
 echo "▸ Поднимаю систему…"
-docker compose ${PROFILE_ARGS[@]+"${PROFILE_ARGS[@]}"} up -d --build
+# --no-build (выкладка на сервер): Кортекс и разбор материалов — разовые образы,
+# собираются при первой настройке и дальше не трогаются.
+docker compose ${PROFILE_ARGS[@]+"${PROFILE_ARGS[@]}"} up -d "$BUILD_ARG"
 
 # ── 3. Ждём health портала ───────────────────────────────────────────────────
 echo "▸ Жду здоровья сервисов…"
