@@ -1,0 +1,10 @@
+{
+  "schema_version": "1.0.0",
+  "goal": "Выгрузка заказов в CSV для бухгалтерии",
+  "brief": "Бухгалтер раз в неделю вручную копирует заказы в таблицу — уходит 3 часа.",
+  "external_refs": {
+    "root_card": "t_demo01",
+    "room": "!demo:example.org"
+  },
+  "idempotency_key": "t_demo01:1"
+}

@@ -1,73 +1,20 @@
 /**
- * Карточка раздела «Требования» в настройках харнесса (вкладка «Плагины»): сторона разметки.
+ * Страница раздела «Требования» в «Настройках → Плагины» харнесса: сторона разметки.
  *
- * Собственная вёрстка, а не переиспользование карточки харнесса, потому что переиспользовать
- * нечего: `PluginCard`/`ValueField` живут внутри @deepseek-ai/dsh-client-ui-settings-plugins и
- * значением оттуда не экспортируются — слот на то и keyed, что «карточку рисует сам плагин».
- * Геометрия и токены сняты с того эталона один в один (см. Panel.styles.ts, блок карточки):
- * карточка стоит в одном списке с соседними и обязана быть от них неотличимой.
- *
- * Пока хост не отдаёт пространство имён `bft`, карточка не рисует ничего: полоса, которой
- * нельзя пользоваться, хуже отсутствия полосы.
+ * Ядро 0.2: страница — вкладка в слоте `settings.plugins.tab`; карточки в общем списке
+ * плагинов (слот `settings.plugin.item` ядра 0.1.2) больше нет.
  */
-// Type-only: даёт слияние SlotMap с записью 'settings.plugin.item'.
-import type {} from '@deepseek-ai/dsh-client-ui-settings-plugins/client'
-import { useEffect, useRef, useState } from 'react'
-import { IconChevronDownOutline14 } from './icons.js'
+// Type-only: даёт слияние SlotMap с записью 'settings.plugins.tab'.
+import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { BftLocaleKey } from './locales.js'
 import { panelClassNames as css } from './Panel.styles.js'
 import type { BftFieldState, BftSettingsCardFace, BftSettingsField } from './settings-card.js'
 
 export type BftSettingsCardProps =
-  PropsRuntime<'settings.plugin.item'> &
+  PropsRuntime<'settings.plugins.tab'> &
   PropsLocale<'bft.requirements'> &
   InjectFace<BftSettingsCardFace>
-
-export function SettingsCard(props: BftSettingsCardProps) {
-  const { t } = props
-  const state = props.useBftSettingsCard(snapshot => snapshot)
-  const [open, setOpen] = useState(false)
-  const saveStarted = useRef(false)
-
-  // Схлопываем карточку только после того, как запись подтвердилась: отказ должен остаться
-  // на экране вместе с несохранёнными правками, иначе PO увидит закрытую карточку и решит,
-  // что всё сохранилось.
-  useEffect(() => {
-    if (state.saving) {
-      saveStarted.current = true
-      return
-    }
-    if (!saveStarted.current) return
-    saveStarted.current = false
-    if (!state.dirty && !state.failed) setOpen(false)
-  }, [state.dirty, state.failed, state.saving])
-
-  if (!state.available) return null
-
-  const disabled = !state.writable
-  const chevron = `${css.cardChevron}${open ? ` ${css.cardChevronOpen}` : ''}`
-
-  return (
-    <li className={`${css.card}${open ? ` ${css.cardOpen}` : ''}`}>
-      <button
-        type="button"
-        className={css.cardHeader}
-        aria-expanded={open}
-        aria-label={`${t(open ? 'settingsCollapse' : 'settingsExpand')}: ${t('settingsTitle')}`}
-        onClick={() => { setOpen(!open) }}
-      >
-        <span className={css.cardHeadText}>
-          <span className={css.cardName}>{t('settingsTitle')}</span>
-          <span className={css.cardDescription}>{t('settingsDescription')}</span>
-        </span>
-        {state.dirty && <span className={css.cardPending}>{t('settingsUnsaved')}</span>}
-        <IconChevronDownOutline14 className={chevron} />
-      </button>
-      {open && <SettingsBody {...props} />}
-    </li>
-  )
-}
 
 function Field({ id, field, state, label, hint, t, disabled, multiline, onEdit, onReset }: {
   id: string
@@ -134,8 +81,7 @@ function Field({ id, field, state, label, hint, t, disabled, multiline, onEdit, 
 }
 
 /**
- * Поля и кнопки формы — общие для карточки (ядро 0.1.2, слот `settings.plugin.item`) и страницы
- * раздела «Плагины» (ядро 0.1.7, слот `plugins.item`).
+ * Поля и кнопки формы страницы раздела.
  */
 function SettingsBody(props: Pick<BftSettingsCardProps, 't' | 'useBftSettingsCard' | 'edit' | 'resetField' | 'discard' | 'save'>) {
   const { t } = props
@@ -202,14 +148,12 @@ function SettingsBody(props: Pick<BftSettingsCardProps, 't' | 'useBftSettingsCar
 }
 
 /**
- * Страница «Требования» в «Настройках → Плагины» ядра 0.1.7: одна строка-описание в списке
- * (`view: 'summary'`), форма — когда страницу открыли. Пока хост не отдаёт запись
+ * Вкладка «Требования» в «Настройках → Плагины». Пока хост не отдаёт запись
  * `bft-requirements`, регистрации нет вовсе (см. whileServed в client/index.tsx).
  */
-export function SettingsPage(props: Omit<BftSettingsCardProps, keyof PropsRuntime<'settings.plugin.item'>> & { view?: string }) {
+export function SettingsPage(props: BftSettingsCardProps) {
   const { t } = props
   const state = props.useBftSettingsCard(snapshot => snapshot)
-  if (props.view === 'summary') return <>{t('settingsDescription')}</>
   if (!state.available) return <p className={css.cardReadOnly} role="status">{t('settingsUnavailable')}</p>
   return <SettingsBody {...props} />
 }

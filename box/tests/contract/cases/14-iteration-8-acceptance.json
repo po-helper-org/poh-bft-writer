@@ -1,0 +1,117 @@
+{
+  "schema_version": "1.0.0",
+  "initiative_id": "ini-0001",
+  "iteration_id": "it-0008",
+  "number": 8,
+  "status": "ready",
+  "state": "acceptance",
+  "trigger": "requested",
+  "created_at": "2026-10-23T12:00:00Z",
+  "goal": "Выгрузка заказов в CSV для бухгалтерии",
+  "team": "team-a",
+  "external_refs": {
+    "root_card": "t_demo01",
+    "room": "!demo:example.org"
+  },
+  "summary": "Все проверки зелёные. Пакет на приёмке.",
+  "package": {
+    "version": 3,
+    "documents": [
+      {
+        "kind": "bft",
+        "title": "БФТ: выгрузка заказов в CSV",
+        "format": "markdown",
+        "content": "# БФТ: Выгрузка заказов в CSV\n\n## Проблема\nБухгалтер вручную копирует заказы в таблицу раз в неделю.\n\n## Открытые вопросы\n- Какие поля нужны в файле? [УТОЧНИТЬ]\n"
+      },
+      {
+        "kind": "raci",
+        "title": "Матрица ответственности",
+        "format": "markdown",
+        "content": "| Работа | R | A | C | I |\n|---|---|---|---|---|\n| Требования | Аналитик | PO | Бухгалтерия | Разработка |\n"
+      },
+      {
+        "kind": "blueprint",
+        "title": "BluePrint-карта",
+        "format": "markdown",
+        "content": "| Слой | Шаг |\n|---|---|\n| Путь клиента | Бухгалтер выбирает период |\n| Фронт | Кнопка «Экспорт в CSV» |\n"
+      },
+      {
+        "kind": "epic",
+        "title": "Эпик",
+        "format": "markdown",
+        "content": "Тема: Выгрузка заказов в CSV. Ссылка на БФТ — после публикации исполнителем."
+      }
+    ]
+  },
+  "checks": [
+    {
+      "id": "G01",
+      "title": "Нет утверждений без якоря",
+      "status": "green",
+      "evidence": "Закрыто: см. пакет v3 (G01)."
+    },
+    {
+      "id": "G04",
+      "title": "Границы заданы",
+      "status": "green",
+      "evidence": "Закрыто: см. пакет v3 (G04)."
+    },
+    {
+      "id": "G05",
+      "title": "НФТ измеримы",
+      "status": "green",
+      "evidence": "Закрыто: см. пакет v3 (G05)."
+    },
+    {
+      "id": "G06",
+      "title": "Есть негативные сценарии",
+      "status": "green",
+      "evidence": "Закрыто: см. пакет v3 (G06)."
+    },
+    {
+      "id": "G07",
+      "title": "Открытые вопросы собраны",
+      "status": "green",
+      "evidence": "Закрыто: см. пакет v3 (G07)."
+    },
+    {
+      "id": "G09",
+      "title": "Изменение в UJM описано",
+      "status": "green",
+      "evidence": "Закрыто: см. пакет v3 (G09)."
+    },
+    {
+      "id": "P-RACI",
+      "title": "Матрица ответственности заполнена",
+      "status": "green",
+      "evidence": "Закрыто: см. пакет v3 (P-RACI)."
+    },
+    {
+      "id": "P-EPIC",
+      "title": "Эпик связан с БФТ",
+      "status": "green",
+      "evidence": "Закрыто: см. пакет v3 (P-EPIC)."
+    },
+    {
+      "id": "P-BP",
+      "title": "BluePrint-карта инициативы есть",
+      "status": "green",
+      "evidence": "Закрыто: см. пакет v3 (P-BP)."
+    }
+  ],
+  "directives": [
+    {
+      "id": "dir-011",
+      "kind": "accept_package",
+      "to": {
+        "role": "po",
+        "po_can_answer": true
+      },
+      "text": "Принять пакет v3 или вернуть с замечаниями.",
+      "closes": [],
+      "expected": "decision",
+      "due": "2026-10-24T12:00:00Z",
+      "state": "open"
+    }
+  ]
+}

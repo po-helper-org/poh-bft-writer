@@ -1,0 +1,40 @@
+# Шлюз источников БФТ-портала: Jira и Confluence только на чтение (ADR-0015).
+# Пользовательский сервис systemd (systemctl --user). Ставит и обновляет
+# harness/deploy/install-sources-gateway.sh — он же подставляет @PYTHON_RO_PATHS@.
+# Домашний каталог процессу не виден (tmpfs): открыты только код и окружения шлюза
+# (только чтение), его конфигурация (только чтение) и каталог состояния.
+
+[Unit]
+Description=BFT portal sources gateway (Jira/Confluence read-only MCP)
+
+[Service]
+Type=simple
+EnvironmentFile=%h/.config/bft-sources-gateway/env
+Environment=BFT_GW_TOKEN_SHA256_FILE=%h/.config/bft-sources-gateway/token.sha256
+Environment=BFT_GW_CHILD_COMMAND=%h/.local/share/bft-sources-gateway/atlassian-venv/bin/mcp-atlassian
+Environment=BFT_GW_CHILD_CWD=%h/.local/state/bft-sources-gateway
+Environment=PYTHONDONTWRITEBYTECODE=1
+WorkingDirectory=%h/.local/state/bft-sources-gateway
+ExecStart=%h/.local/share/bft-sources-gateway/venv/bin/python %h/.local/share/bft-sources-gateway/app/bft_sources_gateway.py
+Restart=on-failure
+RestartSec=3
+
+# Ограничения процесса. Блок между маркерами sandbox снимает
+# install-sources-gateway.sh --relaxed-sandbox (если ядро не даёт user namespaces).
+UMask=0077
+NoNewPrivileges=yes
+# sandbox:begin
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=tmpfs
+BindReadOnlyPaths=%h/.local/share/bft-sources-gateway %h/.config/bft-sources-gateway @PYTHON_RO_PATHS@
+BindPaths=%h/.local/state/bft-sources-gateway
+# sandbox:end
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryMax=512M
+TasksMax=64
+
+[Install]
+WantedBy=default.target

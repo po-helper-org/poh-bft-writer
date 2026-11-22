@@ -14,6 +14,9 @@ BROKEN_FAST="skills/bft-writer/scripts/fixtures/broken_fast_document.md"
 EXPECTED_CODES=(BD003 HD002 HD003 HD004 HD006 CT006 TB001 TB002 TB003 DP001 CN001 CN002 CN006 LK001 LK002 MK001 LN001 LN002 SR001 SR002)
 # Коды стадии fast: на deep они не срабатывают по определению, нужна своя фикстура.
 EXPECTED_FAST_CODES=(BD001 CN010 HD004 HD007 HD008)
+# Граф трассировки, якоря, риски и высота (stage: deep; план качества C2, C5, C6, C7).
+BROKEN_TRACE="skills/bft-writer/scripts/fixtures/broken_trace_document.md"
+EXPECTED_TRACE_CODES=(TR001 TR002 TR003 TR004 RK002 AN001 AN002 AN003 AN004 DP006)
 
 fails=0
 
@@ -59,6 +62,20 @@ for code in "${EXPECTED_FAST_CODES[@]}"; do
     echo "ok    код $code поднят (fast)"
   else
     echo "FAIL  код $code не поднят на fast-фикстуре"
+    fails=$((fails + 1))
+  fi
+done
+
+trace_out=$(python3 "$LINT" "$BROKEN_TRACE" 2>&1)
+if [ $? -eq 0 ]; then
+  echo "FAIL  broken-trace $BROKEN_TRACE — линтер вернул 0 на заведомо сломанном документе"
+  fails=$((fails + 1))
+fi
+for code in "${EXPECTED_TRACE_CODES[@]}"; do
+  if echo "$trace_out" | grep -q " $code "; then
+    echo "ok    код $code поднят (трассировка/якоря)"
+  else
+    echo "FAIL  код $code не поднят на фикстуре трассировки"
     fails=$((fails + 1))
   fi
 done

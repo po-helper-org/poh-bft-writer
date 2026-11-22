@@ -1,0 +1,45 @@
+# Портал заказчика на сервере (ADR-0014): $PORTAL_PUBLIC_URL (например https://portal.example.org/bft/)
+# за входом Authentik (nginx → 127.0.0.1:3082, префикс /bft срезается).
+# Адрес, имена хоста и подсеть — в harness/.env сервера (их переносит deploy-server.sh
+# из локального harness/deploy/server.env). Поверх docker-compose.yml — так его подключает deploy-server.sh:
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.server.yml COMPOSE_PROJECT_NAME=poh-bft-portal
+# Наружу (только 127.0.0.1 сервера) — портал и трекер для сида; порты
+# 3080/3081/3456 на сервере заняты другими сервисами. Источник данных — шлюз
+# источников на хосте (ADR-0015): контейнер ходит к нему через публичный адрес
+# DATA_SOURCES_URL_ATLASSIAN (nginx /bft-sources/mcp), токен — в .env сервера.
+services:
+  customer-web:
+    environment:
+      PORTAL_PUBLIC_URL: ${PORTAL_PUBLIC_URL:?задайте PORTAL_PUBLIC_URL (harness/deploy/server.env)}
+      DSH_TRUSTED_HOSTS: ${PORTAL_TRUSTED_HOSTS:?задайте PORTAL_TRUSTED_HOSTS (harness/deploy/server.env)}
+      # Трекер наружу не публикуется: ссылок на него заказчику не показываем.
+      TRACKER_PUBLIC_URL: ${TRACKER_PUBLIC_URL:-}
+      # Администратор — по учётке Authentik (/bft/admin), пароль не принимается.
+      # ADMIN_PASSWORD остаётся секретом куки администратора.
+      ADMIN_LOGIN: sso
+      ADMIN_SSO_GROUPS: ${ADMIN_SSO_GROUPS:-authentik Admins}
+      ADMIN_SSO_USERS: ${ADMIN_SSO_USERS:-}
+    ports: !override
+      - "127.0.0.1:3082:3080"
+
+  tracker:
+    ports: !override
+      - "127.0.0.1:3084:3456"
+
+  # На сервере у docker сеть bridge выключена ("bridge": "none" в daemon.json):
+  # сборке нужен выход в интернет через сеть хоста.
+  cortex:
+    build:
+      network: host
+  context-ingest:
+    build:
+      network: host
+
+# Пулы адресов docker на сервере могут быть исчерпаны: подсеть задана явно —
+# PORTAL_SUBNET, задать под свой сервер (свободная маленькая сеть, не пересекается
+# с остальными сетями docker хоста).
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: ${PORTAL_SUBNET:-172.31.244.0/27}
