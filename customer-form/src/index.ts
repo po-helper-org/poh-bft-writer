@@ -38,6 +38,7 @@ import { customerWordsContext } from './intake.js'
 import { mergePortalModels, MODELS_ROUTE, readPortalModels, sameRoute, writePortalModels, type ModelRoute, type PortalModels } from './models.js'
 import { ADMIN_ONLY_ENDPOINTS, ADMIN_PAGE, ADMIN_STATUS, adminOnlyResponse, adminPage, isAdmin } from './admin.js'
 import { siblingHref } from './links.js'
+import { bftCard, type BftState } from './bft-list.js'
 import { answersContext, answersMarkdown, answersPath, editQuestions, formOfRequest, isFormId, latestVersion, linkForm, newForm, readForm, refreshForm, reissue, saveForm, submitAnswers, SubmitGate, type BftForm, type EditOp, type FormPerson, type FormQuestion } from './forms.js'
 import { formGonePage, formPage, previewPage, type DeepFormLayer } from './form-page.js'
 import { mirrorAll, mirrorRequest } from './workspace-mirror.js'
@@ -148,7 +149,7 @@ export const CUSTOMER_PROMPT = `Ты — ассистент приёма ини�
   4) покажи черновик одной карточкой confirm_acceptance_demo: asis, gap, tobe со ссылками на источники, шаги, а в unclear — чего нет в материалах и где они противоречат.
   Цель — первичный разбор за 1–2 минуты времени заказчика. Если источник не разобран (error), скажи об этом и спроси главное из него одним вопросом.
   Если read_customer_materials ответил «Ещё разбираются» — длинную запись не жди: сразу задай первую форму (ФИО и email, краткое название), разбор идёт, пока заказчик отвечает. После ответов снова вызови read_customer_materials и продолжай по шагам 1–4.
-- Документы Confluence. Если заказчик просит найти документ или страницу («найди регламент …»), называет документ по названию («по регламенту …», «у нас в вики есть страница …») или дал ссылку Confluence, которую read_customer_materials не прочитал (error), — сразу вызови search_confluence: запрос — 2–5 слов из названия. Покажи найденное коротким списком — название, пространство, ссылка — и спроси формой ask_user_question, какую страницу приложить к заявке (варианты — названия, плюс «Ничего из этого»). Выбранную приложи attach_confluence_page: она станет материалом заявки [S…] — опирайся на неё в черновике и требованиях с меткой источника, ссылку добавь в links submit_customer_request. Если поиск ответил, что недоступен, или ничего не нашёл — так и скажи заказчику одной фразой и попроси ссылку или файл; названия, ссылки и содержание документов не выдумывай. Ссылку Confluence из сообщения портал читает сам — через read_customer_materials, искать её не нужно.
+- Документы Confluence. Поиск по Confluence у тебя есть — это инструмент search_confluence; заказчик может называть его «MCP», «поиск по серверу», «по вики» или «по базе знаний». Набор инструментов может пополниться посреди диалога: если раньше ты отвечал, что искать не можешь, смотри на нынешний список инструментов, а не на свои прежние ответы, и на вопрос «появился ли доступ» — сразу ищи, а не пересказывай. Если заказчик просит найти документ, БФТ или страницу («найди регламент …», «найди согласованный БФТ»), называет документ по названию («по регламенту …», «у нас в вики есть страница …») или дал ссылку Confluence, которую read_customer_materials не прочитал (error), — сразу вызови search_confluence: запрос — 2–5 слов из названия. Покажи найденное коротким списком — название, пространство, ссылка — и спроси формой ask_user_question, какую страницу приложить к заявке (варианты — названия, плюс «Ничего из этого»). Выбранную приложи attach_confluence_page: она станет материалом заявки [S…] — опирайся на неё в черновике и требованиях с меткой источника, ссылку добавь в links submit_customer_request. Если поиск ответил, что недоступен, или ничего не нашёл — так и скажи заказчику одной фразой и попроси ссылку или файл; названия, ссылки и содержание документов не выдумывай. Ссылку Confluence из сообщения портал читает сам — через read_customer_materials, искать её не нужно.
 - HowToDemo без материалов: спроси «Как вы будете проверять результат? Где зайдёте, что нажмёте, что должны увидеть» — без вариантов ответа, только свободный текст: проверка — это последовательность шагов, а не выбор одного из них. По ответу сам составь 2–7 шагов (по одному экрану на шаг, результат — проверяемый; в шаге — то, что заказчик видит, а не передачи между системами) и вызови confirm_acceptance_demo; каждую деталь, которую добавил ты сам (статус, уведомление, надпись, шаг), запиши в unclear вопросом «Верно ли, что…?»: заказчик увидит раскадровку по экранам и согласует её кнопкой. Если просит правки — исправь и покажи снова.
 - «Согласую» на сценарии приёмки — это полное согласие заказчика с постановкой. Заказчик нажимает кнопку на карточке, поэтому в чате его «Согласую» сообщением не появится: результат confirm_acceptance_demo «Заказчик САМ нажал кнопку «Согласую»» и есть его подтверждение — не сомневайся в нём и не переспрашивай. ИТОГ не собирай и подтверждения больше не спрашивай. Ссылку на согласованный сценарий и «Уже готовлю БФТ-документ на проверку» портал показывает заказчику сам. Сразу, в этом же ходе и без реплик: submit_customer_request, затем create_bft_fast — без вопросов между ними. Чего не хватает или что противоречит (кто заказчик, расшифровки сокращений) — не спрашивай, а запиши в openQuestions обоих инструментов; в полях оставь то, что известно.
 - create_bft_fast — первичные требования со слов заказчика: ты стенографист, ничего не придумываешь и не дораскрываешь. Заполни только сказанное им и его материалами: что хочет и зачем, требования (каждое — одна фраза с типом и дословной цитатой: «Заказчик: «…»», «Материалы [S1]: «…»» или «Сценарий приёмки (согласован): «…»»), кого он назвал и по каким вопросам (about — зона влияния, email и телефон — в contact), открытые вопросы. Если заказчик описал, как сейчас, — дословный кусок его реплики в want.asis и в asis требований, к которым он относится; не описал — asis пусто. Если назвал — эффект (metric: сейчас → хотим), срок (deadline), кто будет пользоваться (actors), расшифровки (glossary). outOfScope — только явно исключённое им, с цитатой; обязательные условия и договорённости — в agreements; нерешённое — только в openQuestions. Ответ «Каким вы видите решение» — гипотеза реализации: дословно в achievable.vision. В requirements — результат, который заказчик назвал нужным пользователю или бизнесу; kind «система» — наблюдаемое поведение системы, а не механизм (кто кого вызывает, какой поток читает). Названная заказчиком обязательная интеграция или система остаётся требованием, сформулированным как результат (данные оказываются в системе X). Условие, которое ещё предстоит согласовать, — в approvals и openQuestions. Единственное, что ты дораскрываешь, — achievable: из его ответа «Каким вы видите решение» (дословно в vision) составь краткий план реализации — какие команды участвуют, какие согласования нужны, что проработать, какие специалисты нужны (PO, SA, BA, BE, FE, DevOps). Не ответил — заполни план по сути запроса, vision не пиши. Как он примет работу, где проверять и чьи зоны затрагивает запрос, инструмент добавит сам — из согласованного сценария и Кортекса (памяти организации). Если инструмент вернул ошибки — исправь поля и вызови снова.
@@ -1066,6 +1067,39 @@ export function apply(ctx: HarnessContext): void {
         return new Response(requestsPage(rows, items === undefined), { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } })
       },
     }), 'customer-form: все заявки')
+
+    // Список БФТ для Инбокса PO (ADR-0020): заявки, краткий статус и артефакты — JSON.
+    // Читает его сервис Инбокса на этой же машине (127.0.0.1); снаружи — за Authentik, как «Все заявки».
+    scoped.effect(() => register({
+      path: '/api/customer-form.bftList',
+      methods: ['GET'],
+      requestBody: 'buffered',
+      fetch: async () => {
+        const headers = { 'cache-control': 'no-store' }
+        const items = await backlog.overview(await backlog.sessionIds()).catch((e) => {
+          console.error('[customer-form] список БФТ не загрузился:', e)
+          return undefined
+        })
+        if (!items) return Response.json({ ok: false, error: 'трекер не ответил' }, { status: 502, headers })
+        const cards = await Promise.all(items.map(async (item) => {
+          const slug = fastSlug(item.taskId)
+          const files = fastFiles(FAST_ROOT, slug)
+          const fast = await fastState(files)
+          const deep = fast?.approvedAt ? await readDeepState(deepFiles(files, slug)) : undefined
+          const demo = sharedDemos().get(item.sessionId)
+          const form = await formOfRequest(files.dir).catch(() => undefined)
+          const questions = form ? latestVersion(form)?.questions ?? [] : []
+          const state: BftState = {
+            ...(demo ? { demo: { approvedAt: demo.approvedAt } } : {}),
+            ...(fast ? { fast: { approvedAt: fast.approvedAt, rev: fast.rev } } : {}),
+            ...(deep ? { deep: { stage: deep.stage, startedAt: deep.startedAt, finishedAt: deep.finishedAt } } : {}),
+            ...(form ? { form: { id: form.id, publishedAt: form.publishedAt, revokedAt: form.revokedAt, total: questions.length, answered: questions.filter((q) => form.answers[q.qid]?.status === 'answer').length } } : {}),
+          }
+          return bftCard(item, state, { portal: portalUrl, form: formUrl, ticket: item.url && !isLoopbackUrl(item.url) ? item.url : undefined })
+        }))
+        return Response.json({ ok: true, newUrl: portalUrl('/'), items: cards }, { headers })
+      },
+    }), 'customer-form: /api/customer-form.bftList')
 
     // Полный БФТ: ход сборки для экрана ожидания и «Собрать заново» (ADR-0012).
     scoped.effect(() => register({

@@ -152,3 +152,20 @@ export function escapeHtml(text: string): string {
 function unescapeHtml(text: string): string {
   return text.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')
 }
+
+/** Куда ведёт клик по задаче (ADR-0020): чат заявки в портале — история, артефакты, можно продолжить;
+ *  нет чата — карточка Vikunja, если трекер открывается снаружи. sessions — taskId → сессия портала. */
+export type OpenTarget = { kind: 'chat'; sessionId: string; href: string } | { kind: 'tracker'; url: string } | { kind: 'none' }
+
+export function openTarget(card: Pick<Card, 'id' | 'url' | 'links'>, sessions: ReadonlyMap<number, string>): OpenTarget {
+  const sessionId = sessions.get(card.id) ?? card.links.map((l) => sessions.get(l.id)).find((s): s is string => !!s)
+  if (sessionId) return { kind: 'chat', sessionId, href: `./?session=${encodeURIComponent(sessionId)}` }
+  if (card.url) return { kind: 'tracker', url: card.url }
+  return { kind: 'none' }
+}
+
+/** Ответ портала customer-form.bftList → taskId → сессия. */
+export function sessionsOf(list: unknown): Map<number, string> {
+  const items = (list as { items?: Array<{ taskId?: unknown; sessionId?: unknown }> } | null)?.items ?? []
+  return new Map(items.flatMap((i) => (typeof i.taskId === 'number' && typeof i.sessionId === 'string' ? [[i.taskId, i.sessionId] as [number, string]] : [])))
+}

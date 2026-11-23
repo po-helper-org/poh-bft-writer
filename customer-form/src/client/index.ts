@@ -441,6 +441,22 @@ export function apply(ctx: ClientContext): void {
       const path = res.ok ? res.value?.path : undefined
       if (!path) throw new Error('узел не отдал путь workspace')
       const workspace = await workspaces.create({ path })
+      // Ссылка на чат заявки (?session=<id>, Инбокс PO, ADR-0020) — открываем этот чат, нового не заводим.
+      const linked = new URLSearchParams(location.search).get('session')
+      if (linked && /^[\w-]{6,80}$/.test(linked)) {
+        activeSessionId = linked
+        rememberSession(linked)
+        // Список сессий на старте догружается: до этого openSession — «unknown session». Ждём, как create ниже.
+        for (let attempt = 0; ; attempt++) {
+          try {
+            await Promise.resolve(uiWorkspace.openSession(linked))
+            return
+          } catch (e) {
+            if (attempt >= 60) throw e
+            await new Promise((resolve) => setTimeout(resolve, 250))
+          }
+        }
+      }
       // Каждый вход — СВОЯ новая сессия. Штатные пути dsh web однопользовательские:
       // восстановление и openWorkspace переиспользуют пустую сессию, и два
       // заказчика, открывших портал одновременно, писали бы в один чат.

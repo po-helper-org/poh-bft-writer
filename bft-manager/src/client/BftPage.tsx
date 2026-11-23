@@ -7,14 +7,15 @@
  *    сколько висит в статусе (SLA), ответственный, прикреплённые БФТ.
  *  - Вкладка «Доска БФТ» — канбан задач «Проработка БФТ»: дни в статусе,
  *    ответственный, запросы, .html-шаблон. Перенос карточки — смена статуса.
- *  - Клик по задаче — карточка в Vikunja (новая вкладка).
+ *  - Клик по задаче — чат заявки в портале (история, артефакты, продолжить с того же места, ADR-0020);
+ *    задача без чата — карточка в Vikunja (новая вкладка), если трекер открывается снаружи.
  *
  * Компоненты — примитивы DSH UI; данные — узел bft-manager поверх REST Vikunja.
  */
 import { useCallback, useEffect, useMemo, useState, type DragEvent, type MouseEvent, type ReactElement } from 'react'
 import { Button, Input, Menu, Modal, Pill, SegmentedControl, SegmentedTabs, Tag, type MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
-  ageLabel, BFT_STATUSES, FINAL_STATUSES, REQUEST_STATUSES, slaTone, STATUS_NEEDS_ASSIGNEE,
+  ageLabel, BFT_STATUSES, FINAL_STATUSES, openTarget, REQUEST_STATUSES, sessionsOf, slaTone, STATUS_NEEDS_ASSIGNEE,
   type Board, type BoardKind, type Card, type MoveRequest, type MoveResult, type Overview, type Person,
 } from '../model.js'
 import { IconBack, IconBoard, IconChat, IconDoc, IconExternal, IconMenu, IconMore, IconRefresh, IconSearch, IconUser } from './icons.js'
@@ -76,7 +77,12 @@ function BftMenu({ onOpen }: { onOpen(): void }): ReactElement {
         align="start"
         items={items}
         onSelect={(id) => { setOpen(false); if (id === 'bft') onOpen() }}
-        anchor={<Button variant="toolbar" size="sm" icon={<IconMenu size={16} />} aria-label="Меню" title="Меню" onClick={() => setOpen((v) => !v)} />}
+        anchor={<Button
+          variant="toolbar" size="sm" aria-label="Меню" title="Меню: новая заявка, управление БФТ" onClick={() => setOpen((v) => !v)}
+          // Заказчику «Меню» стоит на месте кнопки сайдбара — иконка панели; администратору оно справа,
+          // рядом с кнопкой правой панели dsh, — там иконка доски, чтобы не двоилось (styles.ts).
+          icon={<><span className="bm-ico bm-ico--panel"><IconMenu size={16} /></span><span className="bm-ico bm-ico--board"><IconBoard size={16} /></span></>}
+        />}
       />
     </div>
   )
@@ -98,11 +104,27 @@ function BftPage({ call, tab, onTab, onClose }: { call: Call; tab: Tab; onTab(ta
     try { localStorage.setItem(OWNER_KEY, value) } catch { /* приватное окно — фильтр просто не запомнится */ }
   }
 
+  // Заявки портала (taskId → сессия): клик по задаче открывает её чат (ADR-0020).
+  const [sessions, setSessions] = useState<Map<number, string>>(() => new Map())
+  const loadSessions = useCallback(async () => {
+    try {
+      const res = await fetch(new URL('api/customer-form.bftList', document.baseURI), { cache: 'no-store' })
+      if (res.ok) setSessions(sessionsOf(await res.json()))
+    } catch { /* портал не ответил — клик откроет Vikunja, как раньше */ }
+  }, [])
+  const open = useCallback((card: Pick<Card, 'id' | 'url' | 'links'>) => {
+    const target = openTarget(card, sessions)
+    if (target.kind === 'chat') location.assign(new URL(target.href, document.baseURI).toString())
+    else if (target.kind === 'tracker') window.open(target.url, '_blank', 'noopener')
+    else setBanner(`У задачи #${card.id} нет чата в портале: её завели не через диалог заказчика.`)
+  }, [sessions])
+
   const refresh = useCallback(async () => {
+    void loadSessions()
     const res = await call<Overview>('bft-manager.overview')
     if (res.ok) { setLoad({ phase: 'ready', data: res.value }); setBanner('') }
     else setLoad((prev) => prev.phase === 'ready' ? (setBanner(res.message), prev) : { phase: 'error', message: res.message })
-  }, [call])
+  }, [call, loadSessions])
 
   useEffect(() => {
     void refresh()
@@ -156,8 +178,8 @@ function BftPage({ call, tab, onTab, onClose }: { call: Call; tab: Tab; onTab(ta
       <div className="bm-body" id={tab === 'board' ? 'bm-panel-board' : 'bm-panel-requests'} role="tabpanel">
         {load.phase === 'loading' ? <div className="bm-empty">Загружаю беклог из Vikunja…</div> : null}
         {load.phase === 'error' ? <div className="bm-empty">Не удалось загрузить доски: {load.message}</div> : null}
-        {data && tab === 'requests' ? <RequestsList board={data.requests} match={match} onMove={(card, status) => requestMove('requests', card, status)} /> : null}
-        {data && tab === 'board' ? <BftBoard board={data.bft} match={match} onMove={(card, status) => requestMove('bft', card, status)} /> : null}
+        {data && tab === 'requests' ? <RequestsList board={data.requests} match={match} onOpen={open} onMove={(card, status) => requestMove('requests', card, status)} /> : null}
+        {data && tab === 'board' ? <BftBoard board={data.bft} match={match} onOpen={open} onMove={(card, status) => requestMove('bft', card, status)} /> : null}
       </div>
       {pending && data ? (
         <AwaitPoDialog
@@ -263,9 +285,7 @@ function StatusMenu({ statuses, current, onSelect }: { statuses: readonly string
 }
 
 // Без публичного трекера (TRACKER_PUBLIC_URL='') url пуст — открывать нечего.
-const openTask = (card: { url: string }) => { if (card.url) window.open(card.url, '_blank', 'noopener') }
-
-function RequestsList({ board, match, onMove }: { board: Board; match(card: Card): boolean; onMove(card: Card, status: string): void }): ReactElement {
+function RequestsList({ board, match, onOpen, onMove }: { board: Board; match(card: Card): boolean; onOpen(card: Pick<Card, 'id' | 'url' | 'links'>): void; onMove(card: Card, status: string): void }): ReactElement {
   const [status, setStatus] = useState<string>('active')
   const all = board.columns.flatMap((c) => c.cards)
   const active = all.filter((c) => !FINAL_STATUSES.includes(c.status))
@@ -288,14 +308,14 @@ function RequestsList({ board, match, onMove }: { board: Board; match(card: Card
         </div>
         {shown.length === 0 ? <div className="bm-empty">Запросов с такими условиями нет.</div> : null}
         {shown.map((card) => (
-          <div key={card.id} className="bm-row" data-request={card.id} onClick={() => openTask(card)} title={card.url ? 'Открыть в Vikunja' : undefined}>
+          <div key={card.id} className="bm-row" data-request={card.id} onClick={() => onOpen(card)} title="Открыть чат заявки">
             <div className="bm-name"><b>{card.title}</b><span className="bm-muted">#{card.id} · создан {new Date(card.created).toLocaleDateString('ru-RU')}</span></div>
             <div className="bm-cell-wide"><Tag tone={statusTone(card.status)}>{card.status}</Tag></div>
             <div className="bm-cell-wide"><SlaTag card={card} /></div>
             <div className="bm-cell-wide"><PersonLabel person={card.assignee} /></div>
             <div className="bm-links bm-cell-wide">
               {card.links.length ? card.links.map((l) => (
-                <span key={l.id} title={`${l.title}${l.status ? ` — ${l.status}` : ''}`} onClick={(e) => { e.stopPropagation(); openTask({ url: card.url.replace(/\/tasks\/\d+$/, `/tasks/${l.id}`) }) }}>
+                <span key={l.id} title={`${l.title}${l.status ? ` — ${l.status}` : ''}`} onClick={(e) => { e.stopPropagation(); onOpen({ id: l.id, links: [], url: card.url ? card.url.replace(/\/tasks\/\d+$/, `/tasks/${l.id}`) : '' }) }}>
                   <Tag tone="outline">#{l.id}{l.status ? ` · ${l.status}` : ''}</Tag>
                 </span>
               )) : <span className="bm-muted">—</span>}
@@ -308,7 +328,7 @@ function RequestsList({ board, match, onMove }: { board: Board; match(card: Card
   )
 }
 
-function BftBoard({ board, match, onMove }: { board: Board; match(card: Card): boolean; onMove(card: Card, status: string): void }): ReactElement {
+function BftBoard({ board, match, onOpen, onMove }: { board: Board; match(card: Card): boolean; onOpen(card: Pick<Card, 'id' | 'url' | 'links'>): void; onMove(card: Card, status: string): void }): ReactElement {
   const [over, setOver] = useState<number | null>(null)
   const cards = new Map(board.columns.flatMap((c) => c.cards.map((card) => [card.id, card] as const)))
   const statuses = board.columns.map((c) => c.title)
@@ -344,8 +364,8 @@ function BftBoard({ board, match, onMove }: { board: Board; match(card: Card): b
                   data-tone={slaTone(card.status, card.since)}
                   draggable
                   onDragStart={(e) => { e.dataTransfer.setData('text/bft-card', String(card.id)); e.dataTransfer.effectAllowed = 'move' }}
-                  onClick={() => openTask(card)}
-                  title={card.url ? 'Открыть в Vikunja' : undefined}
+                  onClick={() => onOpen(card)}
+                  title="Открыть чат заявки"
                 >
                   <div className="bm-card-title">{card.title.replace(/^Проработка БФТ:\s*/, '')}</div>
                   <div className="bm-card-meta">
