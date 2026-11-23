@@ -86,7 +86,7 @@ status: applied — внесено; already — в документе уже т�
 - Замечание PO — источник факта наравне со словами заказчика: «подтверждаю» к [УТОЧНИТЬ] — убери маркер и оставь утверждение; ответ на вопрос — впиши его вместо маркера.
 - «Открытый вопрос» в замечании — маркер [УТОЧНИТЬ у {адресат}: {вопрос}?] в той ячейке или строке, к которой он относится; адресат — из замечания, иначе тот, кто может ответить (заказчик, команда, PO).
 - «Убрать» — удали фрагмент; если это ячейка таблицы, оставь ячейку с короткой формулировкой или «—», число колонок не меняй.
-- Риски — строками таблицы «Риски» (риск | вероятность | влияние | митигация). Вероятность и влияние — только с источником («подтверждено {кем} {дата}») или [УТОЧНИТЬ у PO: …?]; сам не оценивай.
+- Риски — строками таблицы «Риски» (риск | вероятность | влияние | митигация). Риск, названный PO, — законная строка: название риска — словами замечания PO (основа для проверки «слова PO»), без ссылки на находку. Вероятность и влияние — только с источником («подтверждено {кем} {дата}») или [УТОЧНИТЬ у PO: …?]; сам не оценивай. Не переноси риск PO в «Зависимости» и не сворачивай раздел.
 - Не выдумывай фактов сверх замечания. В ячейках — одна короткая формулировка, без HTML и эмодзи.
 
 Правила канона, по которым собран документ (для справки — форма разделов и маркеров):
@@ -198,6 +198,11 @@ export function newRevision(remarks: Remark[], author?: string): Revision {
   return { id: randomUUID(), kind: 'revise', at: new Date().toISOString(), ...(author ? { author: author.slice(0, REVISE_LIMITS.author) } : {}), remarks, stage: 'writing', progress: { chars: 0, round: 1 } }
 }
 
+/** Замечания PO как источник для проверок (риски, статусы): прошлые внесённые и текущие. */
+export function poWords(list: readonly Revision[], current: readonly Remark[] = []): string[] {
+  return [...list.filter((r) => r.kind === 'revise' && r.stage === 'ready').flatMap((r) => r.remarks), ...current].map((r) => r.text)
+}
+
 export interface ReviseInput {
   llm: LlmLike
   route: DeepRoute
@@ -251,7 +256,8 @@ export async function reviseDeep(input: ReviseInput): Promise<Revision> {
   const sourcesMd = await readFile(join(fast.dir, 'sources.md'), 'utf8').catch(() => '')
   const intake = await readIntake(fast)
   const primary = await readFile(fast.primary, 'utf8').then((t) => JSON.parse(t) as unknown, () => undefined)
-  const ctx = checkContext({ fastMd, sourcesMd, anchor: await anchorOf(fast, slug), ...(golden ? { golden } : {}), ...(intake ? { intake } : {}), ...(primary ? { primary } : {}) })
+  const po = poWords(await readRevisions(fast), revision.remarks)
+  const ctx = checkContext({ fastMd, sourcesMd, po, anchor: await anchorOf(fast, slug), ...(golden ? { golden } : {}), ...(intake ? { intake } : {}), ...(primary ? { primary } : {}) })
   const verify = async (doc: string): Promise<QualityFinding[]> => {
     await writeFile(candidate, doc, 'utf8')
     const lint = await lintDoc(lintScript, candidate)

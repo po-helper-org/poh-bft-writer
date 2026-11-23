@@ -589,6 +589,8 @@ export interface DeepInput {
   reconMs?: number
   attempts?: number
   timeoutMs?: number
+  /** Замечания PO (ИИ-агент правок, ADR-0021) — источник рисков и статусов для проверок. */
+  po?: string[]
 }
 
 
@@ -649,7 +651,7 @@ export async function buildDeep(input: DeepInput): Promise<DeepState> {
     const intake = await readIntake(input.fast)
     const anchor = await anchorOf(input.fast, input.slug)
     const primary = await readFile(input.fast.primary, 'utf8').then((t) => JSON.parse(t) as unknown, () => undefined)
-    const ctx = checkContext({ fastMd, sourcesMd: input.sourcesMd ?? '', anchor, golden: goldenCanon(golden), ...(intake ? { intake } : {}), ...(primary ? { primary } : {}) })
+    const ctx = checkContext({ fastMd, sourcesMd: input.sourcesMd ?? '', anchor, golden: goldenCanon(golden), ...(input.po?.length ? { po: input.po } : {}), ...(intake ? { intake } : {}), ...(primary ? { primary } : {}) })
     const max = input.attempts ?? 3
     let previous: PreviousAttempt | undefined
     for (attempt = 1; attempt <= max; attempt++) {

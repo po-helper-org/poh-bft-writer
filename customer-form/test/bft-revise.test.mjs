@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { applyEdits, mergeResults, newErrors, newRevision, normalizeRemarks, parseEdits, revisePrompt, reviseDeep, revisionsContext, undoRevision } from '../lib-test/bft-revise.js'
 import { withAgent } from '../lib-test/agent-page.js'
+import { check, checkContext } from '../lib-test/canon-check.js'
 
 const SKILLS = resolve(import.meta.dirname, '../../skills')
 const GOLDEN = join(SKILLS, 'bft-deep-swarm/examples/golden_deep_document.md')
@@ -136,4 +137,12 @@ test('колонка агента: перед </body>, адреса и ключ 
   assert.match(page, /"store":"bft-comments-zayavka-1"/)
   assert.ok(!page.includes('s</script><b>'))
   assert.match(page, /Отправить ИИ-агенту/)
+})
+
+test('риск, названный PO, — законная строка «Рисков» (RK003); без замечания PO — нет', { skip: !existsSync(GOLDEN) }, async () => {
+  const golden = await readFile(GOLDEN, 'utf8')
+  const doc = golden.replace(RISK_ROW, `${RISK_ROW}\n${NEW_RISK}`)
+  const rk = (po) => check(doc, checkContext({ fastMd: golden, primary: { args: {} }, ...(po ? { po } : {}) })).errors.filter((f) => f.code === 'RK003' && /Фичефриз/.test(f.message))
+  assert.equal(rk().length, 1, 'без слов PO строка риска без источника')
+  assert.equal(rk(['Открытый риск: фичефриз перед новым годом сдвигает выпуск']).length, 0)
 })

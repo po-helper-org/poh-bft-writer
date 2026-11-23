@@ -40,7 +40,7 @@ import { ADMIN_ONLY_ENDPOINTS, ADMIN_PAGE, ADMIN_STATUS, adminOnlyResponse, admi
 import { siblingHref } from './links.js'
 import { bftCard, type BftState } from './bft-list.js'
 import { withAgent } from './agent-page.js'
-import { newRevision, normalizeRemarks, readRevisions, reviseDeep, revisionsContext, saveRevisions, undoRevision, type Revision } from './bft-revise.js'
+import { newRevision, normalizeRemarks, poWords, readRevisions, reviseDeep, revisionsContext, saveRevisions, undoRevision, type Revision } from './bft-revise.js'
 import { answersContext, answersMarkdown, answersPath, editQuestions, formOfRequest, formTitle, isFormId, latestVersion, linkForm, newForm, readForm, refreshForm, reissue, saveForm, submitAnswers, SubmitGate, type BftForm, type EditOp, type FormPerson, type FormQuestion } from './forms.js'
 import { formGonePage, formPage, previewPage, type DeepFormLayer } from './form-page.js'
 import { mirrorAll, mirrorRequest } from './workspace-mirror.js'
@@ -387,7 +387,8 @@ export function apply(ctx: HarnessContext): void {
     // Ответы из формы вопросов (ADR-0018) — рядом со словами заказчика: они закрывают свои [УТОЧНИТЬ].
     const answers = answersContext(await formOfRequest(fast.dir))
     // Правки PO через ИИ-агента (ADR-0021) — чтобы пересборка их не потеряла.
-    const revisions = revisionsContext(await readRevisions(fast))
+    const revisionList = await readRevisions(fast)
+    const revisions = revisionsContext(revisionList)
     const state = await buildDeep({
       startedAt, llm: runtime.llm, route: runtime.route(), skillsPath: SKILLS_PATH, fast, slug, request, sources: sourcesStatus,
       context: [
@@ -397,7 +398,7 @@ export function apply(ctx: HarnessContext): void {
         context ? `Карта контекста (память организации — указатель, не фактбаза):\n${context}` : '',
         sources ? `Корпоративные источники (Jira/Confluence — указатель со ссылками, не фактбаза):\n${sourcesForModel(sources)}` : '',
       ].filter(Boolean).join('\n\n'),
-      sourcesMd: sources, contextMd: context, ...(reconMs !== undefined ? { reconMs } : {}),
+      sourcesMd: sources, contextMd: context, ...(reconMs !== undefined ? { reconMs } : {}), po: poWords(revisionList),
     })
     return { state, sources, sourcesPath, context, reconMs }
   }

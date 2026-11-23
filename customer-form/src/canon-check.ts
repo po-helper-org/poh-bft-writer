@@ -111,6 +111,8 @@ export interface CheckContext {
   anchor?: string
   fastMd: string
   sourcesMd: string
+  /** Замечания PO (ИИ-агент правок, ADR-0021): источник риска и статуса «Зависимостей» наравне со словами заказчика. */
+  po?: string[]
 }
 
 const CRITICAL_HEAD = '### Критичные требования (скелет на цитатах)'
@@ -186,7 +188,7 @@ export function parseSources(sourcesMd: string): SourceFinding[] {
   return out
 }
 
-export function checkContext(input: { fastMd: string; sourcesMd?: string; intake?: Intake; anchor?: string; primary?: unknown; golden?: string }): CheckContext {
+export function checkContext(input: { fastMd: string; sourcesMd?: string; intake?: Intake; anchor?: string; primary?: unknown; golden?: string; po?: string[] }): CheckContext {
   const sourcesMd = input.sourcesMd ?? ''
   return {
     skeleton: parseSkeleton(input.fastMd),
@@ -195,6 +197,7 @@ export function checkContext(input: { fastMd: string; sourcesMd?: string; intake
     ...(input.primary && typeof input.primary === 'object' ? { primary: input.primary as PrimaryLike } : {}),
     ...(input.golden ? { golden: input.golden } : {}),
     ...(input.anchor ? { anchor: input.anchor } : {}),
+    ...(input.po?.length ? { po: input.po } : {}),
     fastMd: input.fastMd,
     sourcesMd,
   }
@@ -889,7 +892,7 @@ export const risksFix: Fix = {
     const fake = { header } as CanonTable
     const [pCol, iCol, mCol] = [columnOf(fake, 'Вероятность'), columnOf(fake, 'Влияние'), columnOf(fake, 'Митигац')]
     const items = workItems(ctx)
-    const said = customerStrings(ctx)
+    const said = [...customerStrings(ctx), ...(ctx.po ?? [])]
     const rows: string[][] = []
     let changed = false
     for (const row of table?.rows ?? []) {
@@ -991,7 +994,7 @@ export const dependenciesFix: Fix = {
     if (!portal(ctx)) return
     const table = sectionOf(parsed, 'Зависимости')?.tables[0]
     if (!table) return
-    const said = customerStrings(ctx)
+    const said = [...customerStrings(ctx), ...(ctx.po ?? [])]
     for (const row of table.rows) {
       for (let i = 1; i < row.cells.length; i++) {
         const cell = row.cells[i] ?? ''
@@ -2384,7 +2387,7 @@ const riskSourceRule: Rule = {
     if (!portal(ctx)) return []
     const risks = sectionLike(canonSections(doc), /^Риски/)
     const items = workItems(ctx)
-    const said = customerStrings(ctx)
+    const said = [...customerStrings(ctx), ...(ctx.po ?? [])]
     return (risks?.tables ?? []).flatMap((t) => t.rows.filter((r) => {
       const good = [...r.cells.join(' ').matchAll(MD_LINK)].some((m) => { const f = findingOf(m[2]!, ctx.findings); return !!f && riskWorthy(f, ctx.findings) })
       const name = unmark(r.cells[0] ?? '')
@@ -2399,7 +2402,7 @@ const provenanceRule: Rule = {
   run(doc, ctx) {
     if (!portal(ctx)) return []
     const deps = sectionLike(canonSections(doc), /^Зависимости/)
-    const said = customerStrings(ctx)
+    const said = [...customerStrings(ctx), ...(ctx.po ?? [])]
     return (deps?.tables ?? []).flatMap((t) => t.rows.filter((r) => r.cells.slice(1).some((c) => clausesOf(c).some((x) => unsourcedClaim(x, said))))
       .map((r) => ({ message: `«${unmark(r.cells[0] ?? '').slice(0, 40)}»: статус без источника — «в работе», «подтверждено», «согласовано» пишется только со ссылкой или словами заказчика, иначе [УТОЧНИТЬ у {команда}: статус?]`, ...at(r.line, deps!.title) })))
   },
