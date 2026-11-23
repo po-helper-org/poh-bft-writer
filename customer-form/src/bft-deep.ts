@@ -275,7 +275,7 @@ export function goldenCanon(golden: string): string {
   return cleanCanon(golden)
 }
 
-const RULES = `Ты — аналитик, который доводит первичные требования (bft-fast) до полного БФТ по корпоративному канону.
+export const RULES = `Ты — аналитик, который доводит первичные требования (bft-fast) до полного БФТ по корпоративному канону.
 
 Напиши ТОЛЬКО канон — markdown, начиная строкой «${CANON_HEAD}». Шапку, frontmatter и блок «Продолжить / уточнить БФТ» не пиши: их добавит система.
 
@@ -558,7 +558,7 @@ export async function generate(llm: LlmLike, route: DeepRoute, prompt: { system:
   throw new Error(`модель вернула пустой ответ (${why})`)
 }
 
-function python(script: string, args: string[]): Promise<{ code: number; out: string }> {
+export function python(script: string, args: string[]): Promise<{ code: number; out: string }> {
   return new Promise((resolve) => {
     execFile('python3', [script, ...args], { timeout: 60_000, maxBuffer: 4 << 20 }, (error, stdout, stderr) => {
       const code = error ? (typeof (error as { code?: unknown }).code === 'number' ? (error as { code: number }).code : 127) : 0
@@ -593,7 +593,7 @@ export interface DeepInput {
 
 
 /** Замечания bft-lint.py (--format json); не разобрался вывод — одна ошибка с текстом. */
-async function lintDoc(script: string, path: string): Promise<{ findings: QualityFinding[]; raw: string }> {
+export async function lintDoc(script: string, path: string): Promise<{ findings: QualityFinding[]; raw: string }> {
   const lint = await python(script, ['--format', 'json', path])
   try {
     const report = JSON.parse(lint.out) as Record<string, QualityFinding[]>

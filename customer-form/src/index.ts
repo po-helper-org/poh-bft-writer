@@ -39,6 +39,8 @@ import { mergePortalModels, MODELS_ROUTE, readPortalModels, sameRoute, writePort
 import { ADMIN_ONLY_ENDPOINTS, ADMIN_PAGE, ADMIN_STATUS, adminOnlyResponse, adminPage, isAdmin } from './admin.js'
 import { siblingHref } from './links.js'
 import { bftCard, type BftState } from './bft-list.js'
+import { withAgent } from './agent-page.js'
+import { newRevision, normalizeRemarks, readRevisions, reviseDeep, revisionsContext, saveRevisions, undoRevision, type Revision } from './bft-revise.js'
 import { answersContext, answersMarkdown, answersPath, editQuestions, formOfRequest, formTitle, isFormId, latestVersion, linkForm, newForm, readForm, refreshForm, reissue, saveForm, submitAnswers, SubmitGate, type BftForm, type EditOp, type FormPerson, type FormQuestion } from './forms.js'
 import { formGonePage, formPage, previewPage, type DeepFormLayer } from './form-page.js'
 import { mirrorAll, mirrorRequest } from './workspace-mirror.js'
@@ -384,11 +386,14 @@ export function apply(ctx: HarnessContext): void {
     const words = customerWordsContext(primary, await readIntake(fast))
     // Ответы из формы вопросов (ADR-0018) — рядом со словами заказчика: они закрывают свои [УТОЧНИТЬ].
     const answers = answersContext(await formOfRequest(fast.dir))
+    // Правки PO через ИИ-агента (ADR-0021) — чтобы пересборка их не потеряла.
+    const revisions = revisionsContext(await readRevisions(fast))
     const state = await buildDeep({
       startedAt, llm: runtime.llm, route: runtime.route(), skillsPath: SKILLS_PATH, fast, slug, request, sources: sourcesStatus,
       context: [
         words,
         answers,
+        revisions,
         context ? `Карта контекста (память организации — указатель, не фактбаза):\n${context}` : '',
         sources ? `Корпоративные источники (Jira/Confluence — указатель со ссылками, не фактбаза):\n${sourcesForModel(sources)}` : '',
       ].filter(Boolean).join('\n\n'),
@@ -397,6 +402,8 @@ export function apply(ctx: HarnessContext): void {
     return { state, sources, sourcesPath, context, reconMs }
   }
   const deepRunning = new Set<string>()
+  /** ИИ-агент правок (ADR-0021): одна правка на заявку за раз. */
+  const reviseRunning = new Set<string>()
   /** Собрать полный БФТ в фоне; повторный вызов во время сборки ничего не делает. */
   const startDeep = (ticket: Ticket, sessionId: string): boolean => {
     const slug = fastSlug(ticket.taskId)
@@ -490,7 +497,7 @@ export function apply(ctx: HarnessContext): void {
     rebuildTimers.set(form.slug, setTimeout(() => {
       rebuildTimers.delete(form.slug)
       void (async () => {
-        if (deepRunning.has(form.slug)) return scheduleRebuild(form)
+        if (deepRunning.has(form.slug) || reviseRunning.has(form.slug)) return scheduleRebuild(form)
         const fresh = await readForm(form.id)
         const doc = await deepDocOf(form.slug)
         const last = fresh?.lastSubmitAt
@@ -845,7 +852,12 @@ export function apply(ctx: HarnessContext): void {
           const deepHtml = await readFile(deepFiles(files, slug).html, 'utf8').catch(() => undefined)
           if (deepHtml) {
             const layer = await deepFormLayer(slug, sessionId).catch((e) => { console.error('[customer-form] слой формы вопросов:', e); return undefined })
-            return new Response(customerDeepPage(deepHtml, sessionId, fastUrl, deep.questions, layer), { headers })
+            // ИИ-агент правок (ADR-0021): колонка справа — замечания со страницы сразу в документ.
+            const page = withAgent(customerDeepPage(deepHtml, sessionId, fastUrl, deep.questions, layer), {
+              sessionId, store: `bft-comments-${slug}`, deepAt: deep.finishedAt ?? null,
+              reviseUrl: siblingHref('/api/customer-form.bftRevise'), statusUrl: siblingHref('/api/customer-form.bftReviseStatus'), undoUrl: siblingHref('/api/customer-form.bftReviseUndo'),
+            })
+            return new Response(page, { headers })
           }
         }
         // Заказчику (rev21) — тот же документ: How to demo таблицей, зоны и контакты, без полей для PO.
@@ -1126,6 +1138,115 @@ export function apply(ctx: HarnessContext): void {
         return startDeep(ticket, sessionId) ? Response.json({ ok: true }) : Response.json({ error: 'модель портала недоступна' }, { status: 503 })
       },
     }), 'customer-form: /api/customer-form.bftDeepRetry')
+
+    // ИИ-агент правок полного БФТ (ADR-0021): замечания со страницы документа → точечные правки → проверка → страница.
+    const reviseLocks = new Map<string, Promise<unknown>>()
+    /** Журнал правок заявки — под замком: ход агента и новые запросы пишут его одновременно. */
+    const withRevisions = <T>(slug: string, fn: (list: Revision[]) => Promise<{ list?: Revision[]; value: T }>): Promise<T> => {
+      const fast = fastFiles(FAST_ROOT, slug)
+      const run = (reviseLocks.get(slug) ?? Promise.resolve()).then(async () => {
+        const out = await fn(await readRevisions(fast))
+        if (out.list) await saveRevisions(fast, out.list)
+        return out.value
+      })
+      reviseLocks.set(slug, run.catch(() => undefined))
+      return run
+    }
+    const patchRevision = (slug: string, id: string, patch: Partial<Revision>) =>
+      withRevisions(slug, async (list) => ({ list: list.map((r) => (r.id === id ? { ...r, ...patch, ...(patch.progress ? { progress: { ...r.progress, ...patch.progress } } : {}) } : r)), value: undefined }))
+    const revisable = async (sessionId: string) => {
+      const ticket = sessionId ? await backlog.find(sessionId).catch(() => undefined) : undefined
+      if (!ticket) return { error: 'заявка не найдена', status: 404 } as const
+      const slug = fastSlug(ticket.taskId)
+      const fast = fastFiles(FAST_ROOT, slug)
+      const deep = await readDeepState(deepFiles(fast, slug))
+      return { ticket, slug, fast, deep } as const
+    }
+    scoped.effect(() => register({
+      path: '/api/customer-form.bftRevise',
+      methods: ['POST'],
+      requestBody: 'buffered',
+      fetch: async (request: Request) => {
+        const body = (await request.json().catch(() => ({}))) as { sessionId?: unknown; remarks?: unknown; author?: unknown }
+        const got = await revisable(typeof body.sessionId === 'string' ? body.sessionId : '')
+        if ('error' in got) return Response.json({ error: got.error }, { status: got.status })
+        const { ticket, slug, fast, deep } = got
+        if (deep?.stage !== 'ready') return Response.json({ error: deep?.stage === 'building' ? 'полный БФТ ещё собирается' : 'полного БФТ ещё нет' }, { status: 409 })
+        if (deepRunning.has(slug)) return Response.json({ error: 'полный БФТ пересобирается — дождитесь сборки' }, { status: 409 })
+        if (reviseRunning.has(slug)) return Response.json({ error: 'агент ещё вносит прошлые замечания — дождитесь, новые отправьте следом' }, { status: 409 })
+        if (!deepRuntime) return Response.json({ error: 'модель портала недоступна' }, { status: 503 })
+        const remarks = normalizeRemarks(body.remarks)
+        if (typeof remarks === 'string') return Response.json({ error: remarks }, { status: 400 })
+        const author = typeof body.author === 'string' ? body.author.trim() : ''
+        const revision = newRevision(remarks, author || undefined)
+        const runtime = deepRuntime
+        reviseRunning.add(slug)
+        await withRevisions(slug, async (list) => ({ list: [...list, revision], value: undefined }))
+        void (async () => {
+          let done: Revision
+          try {
+            done = await reviseDeep({
+              llm: runtime.llm, route: runtime.route(), skillsPath: SKILLS_PATH, fast, slug, revision,
+              onProgress: (update) => patchRevision(slug, revision.id, update),
+            })
+          } catch (e) {
+            console.error(`[customer-form] ИИ-агент правок ${slug}:`, e)
+            done = { ...revision, stage: 'failed', error: (e as Error).message.slice(0, 1500), finishedAt: new Date().toISOString() }
+          }
+          await patchRevision(slug, revision.id, done)
+          if (done.stage === 'ready' && done.edits) void mirrorRequest(ticket.taskId, typeof body.sessionId === 'string' ? body.sessionId : '')
+        })().catch((e) => console.error('[customer-form] ИИ-агент правок упал:', e)).finally(() => reviseRunning.delete(slug))
+        return Response.json({ ok: true, id: revision.id })
+      },
+    }), 'customer-form: /api/customer-form.bftRevise')
+
+    scoped.effect(() => register({
+      path: '/api/customer-form.bftReviseStatus',
+      methods: ['GET'],
+      requestBody: 'buffered',
+      fetch: async (request: Request) => {
+        const got = await revisable(new URL(request.url).searchParams.get('session') ?? '')
+        if ('error' in got) return Response.json({ error: got.error }, { status: got.status })
+        const list = await readRevisions(got.fast)
+        // Правка, оборванная рестартом, — не «пишет вечно».
+        const items = list.map((r) => (r.stage === 'writing' || r.stage === 'checking') && !reviseRunning.has(got.slug)
+          ? { ...r, stage: 'failed' as const, error: 'прервано перезапуском портала — отправьте замечания ещё раз' } : r)
+        return Response.json({
+          ok: true, running: reviseRunning.has(got.slug), deep: got.deep?.stage ?? null, deepAt: got.deep?.finishedAt ?? null,
+          items: items.slice(-20).reverse().map(({ backup, ...r }) => ({ ...r, undoable: !!backup })),
+        }, { headers: { 'cache-control': 'no-store' } })
+      },
+    }), 'customer-form: /api/customer-form.bftReviseStatus')
+
+    scoped.effect(() => register({
+      path: '/api/customer-form.bftReviseUndo',
+      methods: ['POST'],
+      requestBody: 'buffered',
+      fetch: async (request: Request) => {
+        const body = (await request.json().catch(() => ({}))) as { sessionId?: unknown; id?: unknown; author?: unknown }
+        const got = await revisable(typeof body.sessionId === 'string' ? body.sessionId : '')
+        if ('error' in got) return Response.json({ error: got.error }, { status: got.status })
+        if (reviseRunning.has(got.slug) || deepRunning.has(got.slug)) return Response.json({ error: 'документ сейчас меняется — дождитесь' }, { status: 409 })
+        const list = await readRevisions(got.fast)
+        // Откатить можно только последнюю внесённую правку: под ней — ровно её копия.
+        const last = [...list].reverse().find((r) => r.stage === 'ready' && (r.edits ?? 0) > 0 && r.kind === 'revise')
+        const undone = new Set(list.filter((r) => r.kind === 'undo').map((r) => r.undoOf))
+        if (!last || last.id !== body.id || undone.has(last.id)) return Response.json({ error: 'откатить можно только последнюю правку агента' }, { status: 409 })
+        reviseRunning.add(got.slug)
+        try {
+          await undoRevision(SKILLS_PATH, got.fast, got.slug, last)
+          const author = typeof body.author === 'string' ? body.author.trim().slice(0, 120) : ''
+          const undo: Revision = { ...newRevision([], author || undefined), kind: 'undo', stage: 'ready', undoOf: last.id, finishedAt: new Date().toISOString() }
+          delete undo.progress
+          await withRevisions(got.slug, async (items) => ({ list: [...items.map((r) => (r.id === last.id ? (({ backup: _b, ...rest }) => rest)(r) : r)), undo], value: undefined }))
+          return Response.json({ ok: true })
+        } catch (e) {
+          return Response.json({ error: (e as Error).message }, { status: 500 })
+        } finally {
+          reviseRunning.delete(got.slug)
+        }
+      },
+    }), 'customer-form: /api/customer-form.bftReviseUndo')
 
     // Скачать документ БФТ: doc=fast|deep, format=md|docx|pdf (ADR-0012, шаг 5).
     scoped.effect(() => register({
