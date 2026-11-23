@@ -42,48 +42,85 @@ const forWhom = (addressee: string) => (addressee === UNASSIGNED ? addressee : `
 
 // ---- форма ----
 
+// Вид — как у привычных онлайн-форм: сиреневая подложка, шапка-карточка с цветной полосой, разделы,
+// карточка на вопрос, ответ — подчёркнутое поле «Мой ответ». Светлая тема, без внешних шрифтов и скриптов.
 const FORM_PAGE_STYLE = `<style>
-:root{ --fg:#141414; --muted:#6b6b6b; --line:#e2dfd8; --bg:#fbfaf7; --card:#fff; --accent:#1f5f99; --ok:#2f7d32; --warn:#9a5b00; }
-@media (prefers-color-scheme:dark){ :root:not([data-theme="light"]){ --fg:#ececec; --muted:#a0a0a0; --line:#34322e; --bg:#141414; --card:#1c1c1c; --accent:#7fb2e5; --ok:#7cc47f; --warn:#e0a54a; } }
+:root{ --bg:#f0ebf8; --card:#fff; --fg:#202124; --muted:#5f6368; --line:#dadce0; --accent:#673ab7; --accent-soft:#f3eefb; --ok:#188038; --warn:#b06000; --err:#d93025; color-scheme:light; }
 *{ box-sizing:border-box; }
-body{ margin:0; background:var(--bg); color:var(--fg); font:16px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
-.wrap{ max-width:820px; margin:0 auto; padding:2rem 16px 7rem; }
-.kicker{ font:.72rem/1.3 ui-monospace,Menlo,monospace; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); }
-h1{ font-size:1.55rem; line-height:1.25; margin:.35rem 0 .5rem; }
-.meta{ color:var(--muted); font-size:.9rem; margin:0 0 1rem; }
-.intro{ background:var(--card); border:1px solid var(--line); border-radius:10px; padding:.9rem 1rem; margin:0 0 1.2rem; }
-.intro p{ margin:.2rem 0; }
-.preview{ display:inline-block; margin:.2rem 0 1.2rem; font-weight:600; color:var(--accent); }
-.who{ display:flex; flex-wrap:wrap; gap:.5rem; align-items:center; margin:0 0 1.6rem; }
-.who input{ flex:1 1 260px; }
-input[type=text], textarea{ width:100%; font:inherit; color:inherit; background:var(--card); border:1px solid var(--line); border-radius:8px; padding:.55rem .7rem; }
-textarea{ min-height:4.5rem; resize:vertical; }
-textarea:focus, input:focus{ outline:2px solid var(--accent); outline-offset:1px; }
-.side{ margin:2rem 0 .6rem; padding:.35rem 0; border-bottom:2px solid var(--fg); display:flex; justify-content:space-between; align-items:baseline; gap:1rem; }
-.side h2{ margin:0; font-size:1.2rem; }
-.side .count{ color:var(--muted); font-size:.85rem; white-space:nowrap; }
-.side.teams{ border-bottom-color:var(--muted); }
-.group{ margin:1.3rem 0 .4rem; font-size:.95rem; color:var(--muted); font-weight:600; }
-.sub{ margin:1.2rem 0 .3rem; font-size:.85rem; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; }
-.q{ background:var(--card); border:1px solid var(--line); border-radius:10px; padding:.8rem 1rem .9rem; margin:.6rem 0; scroll-margin-top:1rem; }
-.q:target{ outline:2px solid var(--accent); }
-.q-text{ margin:0 0 .3rem; font-weight:600; }
-.q-where{ color:var(--muted); font-size:.82rem; margin:0 0 .5rem; }
-.q-row{ display:flex; flex-wrap:wrap; gap:.4rem 1rem; align-items:center; margin-top:.45rem; font-size:.9rem; }
-.q-row label{ display:inline-flex; gap:.35rem; align-items:center; cursor:pointer; color:var(--muted); }
-.state{ font-size:.82rem; color:var(--ok); }
+html{ background:var(--bg); }
+body{ margin:0; background:var(--bg); color:var(--fg); font:14px/1.5 Roboto,"Helvetica Neue",Arial,sans-serif; }
+.wrap{ max-width:770px; margin:0 auto; padding:12px 16px 48px; }
+.tools{ display:flex; justify-content:flex-end; margin:0 0 12px; }
+.card{ background:var(--card); border:1px solid var(--line); border-radius:8px; padding:24px; margin:0 0 12px; }
+.head{ border-top:10px solid var(--accent); padding-top:22px; }
+h1{ font-size:32px; line-height:1.25; font-weight:400; margin:0 0 12px; }
+.head p{ margin:0 0 8px; font-size:14px; }
+.meta{ color:var(--muted); font-size:12px; margin:12px 0 0; }
+.preview{ color:var(--accent); font-weight:500; text-decoration:none; }
+.preview:hover{ text-decoration:underline; }
+.head .hr{ border:0; border-top:1px solid var(--line); margin:16px -24px 12px; }
+.req{ color:var(--err); font-size:14px; }
+.side{ margin:24px 0 12px; }
+.side .tab{ display:inline-block; background:var(--accent); color:#fff; font-size:14px; font-weight:500; padding:8px 16px 10px; border-radius:8px 8px 0 0; margin-bottom:-6px; position:relative; }
+.side .card{ margin:0; border-top-left-radius:0; }
+.side h2{ margin:0 0 6px; font-size:24px; font-weight:400; }
+.side p{ margin:0; color:var(--muted); }
+.count{ color:var(--muted); font-size:12px; }
+.group{ font-size:18px; font-weight:400; margin:0; }
+.group-card{ padding:16px 24px; border-left:6px solid var(--accent); }
+.sub{ margin:20px 4px 8px; font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; }
+.q{ scroll-margin-top:12px; transition:box-shadow .15s; }
+.q:target, .q:focus-within{ border-left:6px solid #4285f4; padding-left:19px; }
+.q-text{ margin:0 0 4px; font-size:16px; line-height:1.5; }
+.q-where{ color:var(--muted); font-size:12px; margin:0 0 12px; }
+input[type=text], textarea{ display:block; width:100%; font:inherit; font-size:14px; color:inherit; background:transparent; border:0; border-bottom:1px solid var(--line); border-radius:0; padding:8px 0 6px; }
+input[type=text]{ max-width:50%; min-width:260px; }
+textarea{ resize:none; overflow:hidden; min-height:32px; line-height:1.5; }
+input[type=text]:focus, textarea:focus{ outline:none; border-bottom:2px solid var(--accent); padding-bottom:5px; }
+::placeholder{ color:#70757a; }
+.q-row{ display:flex; flex-wrap:wrap; gap:8px 16px; align-items:center; margin-top:16px; font-size:14px; }
+.q-row label{ display:inline-flex; gap:10px; align-items:center; cursor:pointer; }
+input[type=checkbox]{ width:18px; height:18px; margin:0; accent-color:var(--accent); }
+.state{ font-size:12px; color:var(--ok); }
 .state.unk{ color:var(--warn); }
-.q.unknown textarea{ opacity:.55; }
-.done{ margin-top:2.2rem; }
-.done summary{ cursor:pointer; color:var(--muted); }
-.done li{ margin:.4rem 0; }
-.bar{ position:fixed; left:0; right:0; bottom:0; background:var(--card); border-top:1px solid var(--line); padding:.7rem 16px; }
-.bar .in{ max-width:820px; margin:0 auto; display:flex; gap:1rem; align-items:center; flex-wrap:wrap; }
+.q.unknown textarea{ color:var(--muted); }
+.empty{ color:var(--muted); margin:0; }
+.done summary{ cursor:pointer; font-size:16px; }
+.done ul{ padding-left:18px; margin:12px 0 0; }
+.done li{ margin:8px 0; }
+.submit{ display:flex; flex-wrap:wrap; gap:12px 16px; align-items:center; margin:24px 0 8px; }
 button{ font:inherit; cursor:pointer; }
-.send{ background:var(--accent); color:#fff; border:0; border-radius:8px; padding:.6rem 1.2rem; font-weight:600; }
-.send[disabled]{ opacity:.5; cursor:default; }
-#status{ color:var(--muted); font-size:.92rem; }
-.empty{ color:var(--muted); }
+.btn{ background:var(--accent); color:#fff; border:0; border-radius:4px; padding:9px 24px; font-size:14px; font-weight:500; letter-spacing:.25px; }
+.btn:hover{ box-shadow:0 1px 2px rgba(60,64,67,.3),0 1px 3px 1px rgba(60,64,67,.15); }
+.btn[disabled]{ background:#c7b8e2; box-shadow:none; cursor:default; }
+.btn-line{ background:#fff; color:var(--accent); border:1px solid var(--line); border-radius:4px; padding:8px 16px; font-size:14px; font-weight:500; display:inline-flex; gap:8px; align-items:center; }
+.btn-line:hover{ background:var(--accent-soft); }
+#status{ color:var(--muted); }
+.foot{ color:var(--muted); font-size:12px; text-align:center; margin:24px 0 0; }
+/* «Подготовить письма» — панель справа */
+.scrim{ position:fixed; inset:0; background:rgba(32,33,36,.4); z-index:20; }
+.drawer{ position:fixed; top:0; right:0; bottom:0; width:min(520px,100%); background:#fff; z-index:21; display:flex; flex-direction:column; box-shadow:0 8px 10px 1px rgba(0,0,0,.14),0 3px 14px 2px rgba(0,0,0,.12); }
+.drawer[hidden], .scrim[hidden]{ display:none; }
+.dr-head{ display:flex; align-items:center; gap:12px; padding:16px 20px; border-bottom:1px solid var(--line); }
+.dr-head b{ font-size:18px; font-weight:400; flex:1; }
+.dr-x{ background:none; border:0; font-size:22px; line-height:1; color:var(--muted); padding:4px 8px; border-radius:50%; }
+.dr-x:hover{ background:#f1f3f4; }
+.dr-body{ flex:1; overflow:auto; padding:16px 20px; background:#f8f9fa; }
+.dr-note{ color:var(--muted); margin:0 0 12px; }
+.letter{ background:#fff; border:1px solid var(--line); border-radius:8px; padding:12px 16px 16px; margin:0 0 12px; }
+.letter .lt{ display:flex; justify-content:space-between; gap:8px; font-size:12px; color:var(--muted); margin:0 0 4px; }
+.letter .lt b{ color:var(--accent); font-weight:500; }
+.letter label{ display:flex; align-items:baseline; gap:8px; border-bottom:1px solid var(--line); }
+.letter label span{ flex:none; width:56px; color:var(--muted); font-size:13px; }
+.letter input{ border:0 !important; max-width:none; min-width:0; padding:8px 0; }
+.letter input.bad{ color:var(--err); }
+.letter textarea{ border:0; min-height:200px; resize:vertical; overflow:auto; padding-top:10px; font-size:13px; }
+.letter textarea:focus{ border:0; padding-bottom:6px; }
+.dr-foot{ display:flex; flex-wrap:wrap; gap:8px 12px; align-items:center; padding:12px 20px; border-top:1px solid var(--line); }
+.dr-foot small{ color:var(--muted); flex:1 1 200px; }
+.dr-foot .err{ color:var(--err); }
+.dr-reset{ background:none; border:0; color:var(--accent); font-weight:500; padding:8px; }
+@media (max-width:600px){ h1{ font-size:24px; } .card{ padding:20px 16px; } .head .hr{ margin:16px -16px 12px; } input[type=text]{ max-width:none; min-width:0; } }
 </style>`
 
 function questionCard(q: FormQuestion, n: number, answer: FormAnswer | undefined): string {
@@ -92,10 +129,10 @@ function questionCard(q: FormQuestion, n: number, answer: FormAnswer | undefined
   const state = answer
     ? `<span class="state${unknown ? ' unk' : ''}">${unknown ? 'Отмечено «не знаю»' : 'Ответ сохранён'} · ${esc(when(answer.at))}${answer.author ? ` · ${esc(answer.author)}` : ''}</span>`
     : ''
-  return `<div class="q${unknown ? ' unknown' : ''}" id="q-${esc(q.qid)}" data-qid="${esc(q.qid)}">
+  return `<div class="card q${unknown ? ' unknown' : ''}" id="q-${esc(q.qid)}" data-qid="${esc(q.qid)}">
 <p class="q-text">${n}. ${esc(q.text)}</p>
 ${q.refs.length ? `<p class="q-where">Где в БФТ: ${esc(refText(q.refs))}</p>` : ''}
-<textarea aria-label="Ответ на вопрос ${n}" placeholder="Ваш ответ" maxlength="4000" data-initial="${esc(value)}">${esc(value)}</textarea>
+<textarea rows="1" aria-label="Ответ на вопрос ${n}" placeholder="Мой ответ" maxlength="4000" data-initial="${esc(value)}">${esc(value)}</textarea>
 <div class="q-row"><label><input type="checkbox" class="unk"${unknown ? ' checked' : ''} data-initial="${unknown ? '1' : ''}"> Не знаю / не ко мне</label>${state}</div>
 </div>`
 }
@@ -103,6 +140,19 @@ ${q.refs.length ? `<p class="q-where">Где в БФТ: ${esc(refText(q.refs))}<
 export interface FormPageOpts {
   previewHref: string
   answerHref: string
+}
+
+/** Данные для писем: вопросы по адресатам — корневое письмо заказчику, ответы в цепочке — командам. */
+export interface MailPlan {
+  title: string
+  slug: string
+  customer: string[]
+  teams: { addressee: string; items: string[] }[]
+}
+
+export function mailPlan(form: BftForm, version: FormVersion): MailPlan {
+  const { customer, teams } = arrange(version.questions)
+  return { title: form.title, slug: form.slug, customer: customer.map((q) => q.text), teams: teams.map((g) => ({ addressee: g.addressee, items: g.items.map((q) => q.text) })) }
 }
 
 /** Форма по ссылке-ключу. */
@@ -118,43 +168,54 @@ export function formPage(form: BftForm, version: FormVersion, opts: FormPageOpts
   const answeredHere = (list: FormQuestion[]) => list.filter((q) => form.answers[q.qid]).length
   const teamCount = teams.reduce((s, g) => s + g.items.length, 0)
   const teamList = teams.flatMap((g) => g.items)
-  const customerHtml = customer.length ? cards(customer) : '<p class="empty">Вопросов к заказчику нет.</p>'
+  const customerHtml = customer.length ? cards(customer) : '<div class="card"><p class="empty">Вопросов к заказчику нет.</p></div>'
   const teamsHtml = teams.length
-    ? teams.map((g) => `<p class="group">${esc(forWhom(g.addressee))}</p>${cards(g.items)}`).join('')
-    : '<p class="empty">Вопросов к командам нет.</p>'
+    ? teams.map((g) => `<div class="card group-card"><p class="group">${esc(forWhom(g.addressee))}</p><p class="count">Вопросов: ${g.items.length}</p></div>${cards(g.items)}`).join('')
+    : '<div class="card"><p class="empty">Вопросов к командам нет.</p></div>'
   const current = new Set(version.questions.map((q) => q.qid))
   const earlier = Object.values(form.answers).filter((a) => !current.has(a.qid))
   const earlierHtml = earlier.length
-    ? `<details class="done"><summary>Уже учтено в БФТ — ответов ${earlier.length}</summary><ul>${earlier.map((a) => `<li><b>${esc(a.question)}</b><br>${a.status === 'unknown' ? '<i>не знаю / не ко мне</i>' : esc(a.text)} <span class="state">· ${esc(when(a.at))}${a.author ? ` · ${esc(a.author)}` : ''}</span></li>`).join('')}</ul></details>`
+    ? `<details class="card done"><summary>Уже учтено в БФТ — ответов ${earlier.length}</summary><ul>${earlier.map((a) => `<li><b>${esc(a.question)}</b><br>${a.status === 'unknown' ? '<i>не знаю / не ко мне</i>' : esc(a.text)} <span class="state">· ${esc(when(a.at))}${a.author ? ` · ${esc(a.author)}` : ''}</span></li>`).join('')}</ul></details>`
     : ''
   const total = version.questions.length
   const answered = version.questions.filter((q) => form.answers[q.qid]).length
+  const sections = (customer.length ? 1 : 0) + (teams.length ? 1 : 0) || 1
+  const custNo = 1
+  const teamNo = customer.length ? 2 : 1
   return `<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex,nofollow"><link rel="icon" href="data:,">
-<title>Вопросы по БФТ</title>${FORM_PAGE_STYLE}</head><body><div class="wrap" data-bft-form="${esc(form.id)}">
-<div class="kicker">Вопросы по БФТ · заказчику и командам</div>
+<title>${esc(form.title)} — вопросы по БФТ</title>${FORM_PAGE_STYLE}</head><body><div class="wrap" data-bft-form="${esc(form.id)}">
+<div class="tools"><button class="btn-line" id="mailOpen" type="button" aria-haspopup="dialog">✉ Подготовить письма</button></div>
+<div class="card head">
 <h1>${esc(form.title)}</h1>
+<p>Ответьте на то, что знаете. Остальное оставьте пустым или отметьте «Не знаю / не ко мне».</p>
+<p>Отвечать можно частями: сохранённые ответы не пропадут. Через пару минут после отправки требования пересоберутся с вашими ответами.</p>
+<p><a class="preview" href="${esc(opts.previewHref)}" target="_blank" rel="noopener">Открыть БФТ целиком (только чтение)</a></p>
+<hr class="hr">
 <p class="meta">Версия формы ${version.v} · обновлена ${esc(when(version.at))} · вопросов ${total}, отвечено ${answered}</p>
-<a class="preview" href="${esc(opts.previewHref)}" target="_blank" rel="noopener">Открыть БФТ целиком (только чтение) →</a>
-<div class="intro"><p>Ответьте на то, что знаете. Остальное оставьте пустым или отметьте «Не знаю / не ко мне».</p>
-<p>Отвечать можно частями: сохранённые ответы не пропадут. Через пару минут после отправки БФТ пересоберётся с вашими ответами, а форма обновится.</p></div>
-<div class="who"><input type="text" id="author" maxlength="120" placeholder="Как вас подписать — имя, команда (необязательно)" autocomplete="name"></div>
-<div class="side"><h2>Вопросы заказчику</h2><span class="count">${answeredHere(customer)} из ${customer.length}</span></div>
-${customerHtml}
-<div class="side teams"><h2>Уточнения для команд</h2><span class="count">${answeredHere(teamList)} из ${teamCount}</span></div>
-${teamsHtml}
-${earlierHtml}
 </div>
-<div class="bar"><div class="in"><button class="send" id="send" type="button" disabled>Отправить ответы</button><span id="status">Изменений нет</span></div></div>
+<div class="card"><p class="q-text">Как вас подписать</p><p class="q-where">Имя и команда — необязательно</p>
+<input type="text" id="author" maxlength="120" placeholder="Мой ответ" autocomplete="name"></div>
+${customer.length || !teams.length ? `<div class="side"><span class="tab">Раздел ${custNo} из ${sections}</span><div class="card"><h2>Вопросы заказчику</h2><p class="count">Отвечено ${answeredHere(customer)} из ${customer.length}</p></div></div>
+${customerHtml}` : ''}
+${teams.length || !customer.length ? `<div class="side teams"><span class="tab">Раздел ${teamNo} из ${Math.max(sections, teamNo)}</span><div class="card"><h2>Уточнения для команд</h2><p class="count">Отвечено ${answeredHere(teamList)} из ${teamCount}</p></div></div>
+${teamsHtml}` : ''}
+${earlierHtml}
+<div class="submit"><button class="btn" id="send" type="button" disabled>Отправить ответы</button><span id="status">Изменений нет</span></div>
+<p class="foot">Форма собрана из бизнес-функциональных требований. Не отправляйте через неё пароли и персональные данные.</p>
+</div>
+${mailDrawer()}
 <script>(function(){
 var ANSWER=${jsonInScript(opts.answerHref)}, ID=${jsonInScript(form.id)};
 var send=document.getElementById('send'), status=document.getElementById('status'), author=document.getElementById('author');
 try{ author.value=localStorage.getItem('bft-form-author')||''; }catch(e){}
 function cards(){ return Array.prototype.slice.call(document.querySelectorAll('.q[data-qid]')); }
+function grow(t){ t.style.height='auto'; t.style.height=t.scrollHeight+'px'; }
+cards().forEach(function(c){ grow(c.querySelector('textarea')); });
 function changed(){ return cards().filter(function(c){ var t=c.querySelector('textarea'), u=c.querySelector('.unk'); return t.value.trim()!==t.getAttribute('data-initial').trim() || (u.checked?'1':'')!==u.getAttribute('data-initial'); }); }
 function refresh(){ var n=changed().length; send.disabled=!n; status.textContent=n?('Изменено ответов: '+n):'Изменений нет'; }
-document.addEventListener('input', refresh);
-document.addEventListener('change', function(e){ if(e.target.classList.contains('unk')) e.target.closest('.q').classList.toggle('unknown', e.target.checked); refresh(); });
+document.addEventListener('input', function(e){ if(e.target.closest && e.target.closest('.q')) { grow(e.target); refresh(); } });
+document.addEventListener('change', function(e){ if(e.target.classList.contains('unk')){ e.target.closest('.q').classList.toggle('unknown', e.target.checked); refresh(); } });
 window.addEventListener('beforeunload', function(e){ if(changed().length){ e.preventDefault(); e.returnValue=''; } });
 send.addEventListener('click', function(){
   var list=changed(); if(!list.length) return;
@@ -168,14 +229,104 @@ send.addEventListener('click', function(){
       list.forEach(function(c){ var t=c.querySelector('textarea'), u=c.querySelector('.unk'); t.setAttribute('data-initial', u.checked?'':t.value); u.setAttribute('data-initial', u.checked?'1':'');
         var s=c.querySelector('.state'); if(!s){ s=document.createElement('span'); c.querySelector('.q-row').appendChild(s); }
         s.className='state'+(u.checked?' unk':''); s.textContent=u.checked?'Отмечено «не знаю» · только что':'Ответ сохранён · только что'; });
-      refresh(); status.textContent='Сохранено ответов: '+res.j.saved+'. БФТ пересоберётся с ними через пару минут.';
+      refresh(); status.textContent='Сохранено ответов: '+res.j.saved+'. Требования пересоберутся с ними через пару минут.';
     })
     .catch(function(e){ send.disabled=false; status.textContent='Не сохранилось: '+e.message+'. Попробуйте ещё раз.'; });
 });
 refresh();
 })();</script>
+<script>${MAIL_SCRIPT.replace('__PLAN__', () => jsonInScript(mailPlan(form, version))).replace('__ID__', () => jsonInScript(form.id)).replace('__PREVIEW__', () => jsonInScript(opts.previewHref))}</script>
 </body></html>`
 }
+
+function mailDrawer(): string {
+  return `<div class="scrim" id="mailScrim" hidden></div>
+<aside class="drawer" id="mailDrawer" role="dialog" aria-modal="true" aria-labelledby="mailTitle" hidden>
+<div class="dr-head"><b id="mailTitle">Письма с вопросами</b><button class="dr-x" id="mailClose" type="button" aria-label="Закрыть">×</button></div>
+<div class="dr-body"><p class="dr-note">Первое письмо — корневое, остальные — ответы на него в той же цепочке: каждому адресату свои вопросы и ссылка на эту форму. Впишите адреса, поправьте текст и нажмите «Отправить» — скачается архив писем-черновиков (.eml), их откроет почтовый клиент.</p><div id="mailList"></div></div>
+<div class="dr-foot"><button class="btn" id="mailSend" type="button">Отправить</button><button class="dr-reset" id="mailReset" type="button">Сбросить текст</button><small id="mailStatus">Адреса — через запятую</small></div>
+</aside>`
+}
+
+/** Письма: тексты по адресатам, правка, .eml-цепочка (Message-ID / In-Reply-To / References) в .zip. */
+const MAIL_SCRIPT = `(function(){
+var PLAN=__PLAN__, ID=__ID__, PREVIEW=__PREVIEW__, KEY='bft-mail-'+ID;
+var drawer=document.getElementById('mailDrawer'), scrim=document.getElementById('mailScrim'), list=document.getElementById('mailList'), st=document.getElementById('mailStatus');
+var link=location.href.split('#')[0], preview=new URL(PREVIEW, location.href).toString();
+function plural(n,a,b,c){ var m=n%10, h=n%100; return n+' '+(m===1&&h!==11?a:m>=2&&m<=4&&(h<12||h>14)?b:c); }
+function numbered(items){ return items.map(function(t,i){ return (i+1)+'. '+t; }).join('\\n'); }
+function subject(){ return 'Вопросы по требованиям: '+PLAN.title; }
+function drafts(){
+  var out=[], s=subject();
+  var root=['Здравствуйте!','','Готовим бизнес-функциональные требования по заявке «'+PLAN.title+'». Чтобы закончить документ, нужны ответы на несколько вопросов.',''];
+  if(PLAN.customer.length) root=root.concat(['Вопросы к вам ('+plural(PLAN.customer.length,'вопрос','вопроса','вопросов')+'):', numbered(PLAN.customer), '']);
+  if(PLAN.teams.length) root=root.concat(['Вопросы к командам — ниже в этой цепочке, каждой отдельным письмом.','']);
+  root=root.concat(['Ответить можно в форме, без входа и регистрации:', link, '', 'Что не знаете — отметьте в форме «Не знаю / не ко мне».', 'Документ целиком (только чтение): '+preview, '', 'Спасибо!']);
+  out.push({ key:'root', label:'Корневое письмо · заказчику', to:'', cc:'', subject:s, body:root.join('\\n') });
+  PLAN.teams.forEach(function(g){
+    out.push({ key:'team:'+g.addressee, label:'Ответ в цепочке · '+g.addressee, to:'', cc:'', subject:'Re: '+s,
+      body:['Коллеги, добрый день!','','По заявке «'+PLAN.title+'» нужна ваша помощь — '+plural(g.items.length,'вопрос','вопроса','вопросов')+'. Адресат в требованиях: '+g.addressee+'.','',numbered(g.items),'','Ответить можно в той же форме — раздел «Уточнения для команд»:',link,'','Если вопрос не к вам — отметьте «Не знаю / не ко мне» или подскажите, кому переадресовать.','','Спасибо!'].join('\\n') });
+  });
+  return out;
+}
+function saved(){ try{ return JSON.parse(localStorage.getItem(KEY)||'{}'); }catch(e){ return {}; } }
+function letters(){ var s=saved(); return drafts().map(function(d){ var k=s[d.key]; return k?{ key:d.key, label:d.label, to:k.to||'', cc:k.cc||'', subject:k.subject||d.subject, body:k.body||d.body }:d; }); }
+function esc(t){ return String(t).replace(/[&<>"]/g,function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+function render(){
+  list.innerHTML=letters().map(function(l,i){ return '<section class="letter" data-key="'+esc(l.key)+'"><p class="lt"><b>'+(i?'Ответ '+i:'Письмо 1')+'</b><span>'+esc(l.label)+'</span></p>'
+    +'<label><span>Кому</span><input type="text" data-f="to" value="'+esc(l.to)+'" placeholder="адрес@компания.ru" autocomplete="email"></label>'
+    +'<label><span>Копия</span><input type="text" data-f="cc" value="'+esc(l.cc)+'" placeholder="необязательно"></label>'
+    +'<label><span>Тема</span><input type="text" data-f="subject" value="'+esc(l.subject)+'"></label>'
+    +'<textarea data-f="body" aria-label="Текст письма">'+esc(l.body)+'</textarea></section>'; }).join('');
+}
+function collect(){ return Array.prototype.map.call(list.querySelectorAll('.letter'), function(sec){ var o={ key:sec.getAttribute('data-key') }; sec.querySelectorAll('[data-f]').forEach(function(f){ o[f.getAttribute('data-f')]=f.value; }); return o; }); }
+function store(){ var s={}; collect().forEach(function(l){ s[l.key]={ to:l.to, cc:l.cc, subject:l.subject, body:l.body }; }); try{ localStorage.setItem(KEY, JSON.stringify(s)); }catch(e){} }
+function open(v){ drawer.hidden=scrim.hidden=!v; if(v){ render(); document.body.style.overflow='hidden'; } else document.body.style.overflow=''; }
+document.getElementById('mailOpen').addEventListener('click', function(){ open(true); });
+document.getElementById('mailClose').addEventListener('click', function(){ open(false); });
+scrim.addEventListener('click', function(){ open(false); });
+document.addEventListener('keydown', function(e){ if(e.key==='Escape' && !drawer.hidden) open(false); });
+list.addEventListener('input', function(e){ if(e.target.classList) e.target.classList.remove('bad'); store(); });
+document.getElementById('mailReset').addEventListener('click', function(){ var keep={}; collect().forEach(function(l){ keep[l.key]={ to:l.to, cc:l.cc }; }); try{ localStorage.setItem(KEY, JSON.stringify(keep)); }catch(e){} render(); st.textContent='Текст писем — как было, адреса сохранены'; st.className=''; });
+var EMAIL=/^[^@\\s,;<>]+@[^@\\s,;<>]+\\.[^@\\s,;<>]+$/;
+function addrs(v){ return v.split(/[,;\\s]+/).filter(Boolean); }
+function b64(s){ var b=new TextEncoder().encode(s), out=''; for(var i=0;i<b.length;i+=0x8000) out+=String.fromCharCode.apply(null, b.subarray(i,i+0x8000)); return btoa(out); }
+function word(s){ if(/^[\\x20-\\x7e]*$/.test(s)) return s; var parts=[], cur=''; Array.from(s).forEach(function(ch){ if(new TextEncoder().encode(cur+ch).length>42){ parts.push(cur); cur=''; } cur+=ch; }); if(cur) parts.push(cur); return parts.map(function(p){ return '=?UTF-8?B?'+b64(p)+'?='; }).join('\\r\\n '); }
+function eml(l, id, parent){
+  var h=['X-Unsent: 1','MIME-Version: 1.0','Date: '+new Date().toUTCString().replace('GMT','+0000'),'Message-ID: '+id];
+  if(addrs(l.to).length) h.push('To: '+addrs(l.to).join(', '));
+  if(addrs(l.cc).length) h.push('Cc: '+addrs(l.cc).join(', '));
+  if(parent){ h.push('In-Reply-To: '+parent, 'References: '+parent); }
+  h.push('Subject: '+word(l.subject),'Content-Type: text/plain; charset=utf-8','Content-Transfer-Encoding: base64','');
+  return h.join('\\r\\n')+'\\r\\n'+b64(l.body.replace(/\\r?\\n/g,'\\r\\n')).replace(/.{76}/g,'$&\\r\\n')+'\\r\\n';
+}
+var CRC=(function(){ var t=[]; for(var n=0;n<256;n++){ var c=n; for(var k=0;k<8;k++) c=c&1?0xEDB88320^(c>>>1):c>>>1; t[n]=c>>>0; } return t; })();
+function crc(b){ var c=0xFFFFFFFF; for(var i=0;i<b.length;i++) c=CRC[(c^b[i])&255]^(c>>>8); return (c^0xFFFFFFFF)>>>0; }
+function zip(files){
+  var enc=new TextEncoder(), parts=[], central=[], off=0;
+  function u16(v){ return [v&255,(v>>>8)&255]; } function u32(v){ return [v&255,(v>>>8)&255,(v>>>16)&255,(v>>>24)&255]; }
+  files.forEach(function(f){ var name=enc.encode(f.name), data=enc.encode(f.text), c=crc(data);
+    var head=[].concat([0x50,0x4b,3,4],u16(20),u16(0x0800),u16(0),u16(0),u16(0x21),u32(c),u32(data.length),u32(data.length),u16(name.length),u16(0));
+    parts.push(new Uint8Array(head), name, data);
+    central.push(new Uint8Array([].concat([0x50,0x4b,1,2],u16(20),u16(20),u16(0x0800),u16(0),u16(0),u16(0x21),u32(c),u32(data.length),u32(data.length),u16(name.length),u16(0),u16(0),u16(0),u16(0),u32(0),u32(off))), name);
+    off+=head.length+name.length+data.length; });
+  var size=central.reduce(function(s,p){ return s+p.length; },0);
+  return new Blob(parts.concat(central,[new Uint8Array([].concat([0x50,0x4b,5,6],u16(0),u16(0),u16(files.length),u16(files.length),u32(size),u32(off),u16(0)))]),{ type:'application/zip' });
+}
+document.getElementById('mailSend').addEventListener('click', function(){
+  var ls=collect(), bad=0;
+  list.querySelectorAll('input[data-f="to"],input[data-f="cc"]').forEach(function(f){ var ok=addrs(f.value).every(function(a){ return EMAIL.test(a); }); f.classList.toggle('bad', !ok); if(!ok) bad++; });
+  if(bad){ st.textContent='Проверьте адреса — выделены красным'; st.className='err'; return; }
+  var stamp=Date.now().toString(36), host='bft-form.local';
+  var rootId='<bft-'+ID.slice(0,8)+'-'+stamp+'-0@'+host+'>';
+  var files=ls.map(function(l,i){ var id=i?'<bft-'+ID.slice(0,8)+'-'+stamp+'-'+i+'@'+host+'>':rootId;
+    return { name:(i<9?'0':'')+(i+1)+(i?'-otvet':'-koren')+'.eml', text:eml(l, id, i?rootId:'') }; });
+  var a=document.createElement('a'); a.href=URL.createObjectURL(zip(files)); a.download=(PLAN.slug||'bft')+'-pisma.zip'; document.body.appendChild(a); a.click();
+  setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+  var empty=ls.filter(function(l){ return !addrs(l.to).length; }).length;
+  st.className=''; st.textContent='Скачано писем: '+files.length+(empty?(', без адресата: '+empty+' — впишете в почте'):'')+'. Откройте их по порядку: сначала корневое.';
+});
+})();`
 
 /** Ссылка не найдена или отозвана. */
 export function formGonePage(revoked: boolean): string {
