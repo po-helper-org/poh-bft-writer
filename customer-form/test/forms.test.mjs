@@ -1,7 +1,7 @@
 // Форма вопросов по БФТ (ADR-0018): вопросы из маркеров, стороны, стабильные qid, версии, ответы, страницы.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { answersContext, applyEdits, canonOf, deriveQuestions, editQuestions, latestVersion, newForm, questionForMarker, refreshForm, reissue, sideOf, submitAnswers, SubmitGate } from '../lib-test/forms.js'
+import { answersContext, applyEdits, formTitle, canonOf, deriveQuestions, editQuestions, latestVersion, newForm, questionForMarker, refreshForm, reissue, sideOf, submitAnswers, SubmitGate } from '../lib-test/forms.js'
 import { arrange, formPage, linkMarks, mailPlan, previewPage } from '../lib-test/form-page.js'
 
 const doc = (extra = '') => [
@@ -176,4 +176,16 @@ test('письма с вопросами: корневое — заказчик�
   // данные писем — JSON в скрипте, без адресов заказчика: адреса вписывает PO
   assert.match(html, /var PLAN=\{"title":"Отчёт по возвратам"/)
   assert.ok(!html.includes('@') || !/[\w.-]+@[\w-]+\.[a-z]{2,}/i.test(html.replace(/bft-form\.local|компания\.ru/g, '')))
+})
+
+test('заголовок формы — без «[БФТ]» и номера-слага заявки', () => {
+  assert.equal(formTitle('zayavka-1: Промокоды за покупку через TicketsCloud'), 'Промокоды за покупку через TicketsCloud')
+  assert.equal(formTitle('[БФТ] zayavka-12 — Отчёт'), 'Отчёт')
+  assert.equal(formTitle('zayavka-7'), 'zayavka-7')
+  const form = newForm({ slug: 'zayavka-7', sessionId: 's', title: 'zayavka-7: Отчёт по возвратам' })
+  refreshForm(form, { md: doc(), deepAt: 'd1', people })
+  const v = latestVersion(form)
+  const html = formPage(form, v, { previewHref: 'p', answerHref: 'a' })
+  assert.match(html, /<h1>Отчёт по возвратам<\/h1>/)
+  assert.equal(mailPlan(form, v).title, 'Отчёт по возвратам')
 })

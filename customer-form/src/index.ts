@@ -39,7 +39,7 @@ import { mergePortalModels, MODELS_ROUTE, readPortalModels, sameRoute, writePort
 import { ADMIN_ONLY_ENDPOINTS, ADMIN_PAGE, ADMIN_STATUS, adminOnlyResponse, adminPage, isAdmin } from './admin.js'
 import { siblingHref } from './links.js'
 import { bftCard, type BftState } from './bft-list.js'
-import { answersContext, answersMarkdown, answersPath, editQuestions, formOfRequest, isFormId, latestVersion, linkForm, newForm, readForm, refreshForm, reissue, saveForm, submitAnswers, SubmitGate, type BftForm, type EditOp, type FormPerson, type FormQuestion } from './forms.js'
+import { answersContext, answersMarkdown, answersPath, editQuestions, formOfRequest, formTitle, isFormId, latestVersion, linkForm, newForm, readForm, refreshForm, reissue, saveForm, submitAnswers, SubmitGate, type BftForm, type EditOp, type FormPerson, type FormQuestion } from './forms.js'
 import { formGonePage, formPage, previewPage, type DeepFormLayer } from './form-page.js'
 import { mirrorAll, mirrorRequest } from './workspace-mirror.js'
 import { approveFastRequest, portalHooks, releaseFastAsk } from './fast-approval.js'
@@ -446,7 +446,7 @@ export function apply(ctx: HarnessContext): void {
     const md = deep?.stage === 'ready' ? await readFile(deepFiles(files, slug).md, 'utf8').catch(() => '') : ''
     const primary = await readFile(files.primary, 'utf8').then((t) => JSON.parse(t) as PrimaryDoc, () => undefined)
     const people: FormPerson[] = primary?.args.people ?? []
-    const title = (/^# (.+)$/m.exec(md)?.[1] ?? slug).replace(/^\[БФТ\]\s*/, '').trim()
+    const title = formTitle(/^# (.+)$/m.exec(md)?.[1] ?? slug)
     return { files, deep, md, people, title }
   }
   type DeepDoc = Awaited<ReturnType<typeof deepDocOf>>

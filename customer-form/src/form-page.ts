@@ -10,7 +10,7 @@
  * Открытые страницы — noindex, без запросов к корню хоста.
  */
 import { deepPageBase } from './fast-page.js'
-import { questionForMarker, type BftForm, type FormAnswer, type FormQuestion, type FormVersion } from './forms.js'
+import { formTitle, questionForMarker, type BftForm, type FormAnswer, type FormQuestion, type FormVersion } from './forms.js'
 import { UNASSIGNED, type QuestionRef } from './questions.js'
 
 const esc = (s: unknown) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!))
@@ -152,7 +152,7 @@ export interface MailPlan {
 
 export function mailPlan(form: BftForm, version: FormVersion): MailPlan {
   const { customer, teams } = arrange(version.questions)
-  return { title: form.title, slug: form.slug, customer: customer.map((q) => q.text), teams: teams.map((g) => ({ addressee: g.addressee, items: g.items.map((q) => q.text) })) }
+  return { title: formTitle(form.title), slug: form.slug, customer: customer.map((q) => q.text), teams: teams.map((g) => ({ addressee: g.addressee, items: g.items.map((q) => q.text) })) }
 }
 
 /** Форма по ссылке-ключу. */
@@ -184,10 +184,10 @@ export function formPage(form: BftForm, version: FormVersion, opts: FormPageOpts
   const teamNo = customer.length ? 2 : 1
   return `<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex,nofollow"><link rel="icon" href="data:,">
-<title>${esc(form.title)} — вопросы по БФТ</title>${FORM_PAGE_STYLE}</head><body><div class="wrap" data-bft-form="${esc(form.id)}">
+<title>${esc(formTitle(form.title))} — вопросы по БФТ</title>${FORM_PAGE_STYLE}</head><body><div class="wrap" data-bft-form="${esc(form.id)}">
 <div class="tools"><button class="btn-line" id="mailOpen" type="button" aria-haspopup="dialog">✉ Подготовить письма</button></div>
 <div class="card head">
-<h1>${esc(form.title)}</h1>
+<h1>${esc(formTitle(form.title))}</h1>
 <p>Ответьте на то, что знаете. Остальное оставьте пустым или отметьте «Не знаю / не ко мне».</p>
 <p>Отвечать можно частями: сохранённые ответы не пропадут. Через пару минут после отправки требования пересоберутся с вашими ответами.</p>
 <p><a class="preview" href="${esc(opts.previewHref)}" target="_blank" rel="noopener">Открыть БФТ целиком (только чтение)</a></p>

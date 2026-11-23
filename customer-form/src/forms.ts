@@ -325,6 +325,12 @@ export async function saveForm(form: BftForm): Promise<void> {
 }
 
 /** Форма заявки (по ссылке из её папки). */
+/** Название заявки для людей: без служебного «[БФТ]» и номера-слага («zayavka-1: …»). */
+export function formTitle(title: string): string {
+  const clean = title.replace(/^\s*\[БФТ\]\s*/i, '').replace(/^zayavka-\d+\s*[:—–-]\s*/i, '').trim()
+  return clean || title.trim()
+}
+
 export async function formOfRequest(fastDir: string): Promise<BftForm | undefined> {
   const link = await readFile(linkPath(fastDir), 'utf8').then((t) => JSON.parse(t) as { id?: string }, () => undefined)
   return link?.id ? readForm(link.id) : undefined
