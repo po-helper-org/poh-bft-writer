@@ -77,7 +77,12 @@ function BftMenu({ onOpen }: { onOpen(): void }): ReactElement {
         align="start"
         items={items}
         onSelect={(id) => { setOpen(false); if (id === 'bft') onOpen() }}
-        anchor={<Button variant="toolbar" size="sm" icon={<IconMenu size={16} />} aria-label="Меню" title="Меню" onClick={() => setOpen((v) => !v)} />}
+        anchor={<Button
+          variant="toolbar" size="sm" aria-label="Меню" title="Меню: новая заявка, управление БФТ" onClick={() => setOpen((v) => !v)}
+          // Заказчику «Меню» стоит на месте кнопки сайдбара — иконка панели; администратору оно справа,
+          // рядом с кнопкой правой панели dsh, — там иконка доски, чтобы не двоилось (styles.ts).
+          icon={<><span className="bm-ico bm-ico--panel"><IconMenu size={16} /></span><span className="bm-ico bm-ico--board"><IconBoard size={16} /></span></>}
+        />}
       />
     </div>
   )
