@@ -446,8 +446,16 @@ export function apply(ctx: ClientContext): void {
       if (linked && /^[\w-]{6,80}$/.test(linked)) {
         activeSessionId = linked
         rememberSession(linked)
-        uiWorkspace.openSession(linked)
-        return
+        // Список сессий на старте догружается: до этого openSession — «unknown session». Ждём, как create ниже.
+        for (let attempt = 0; ; attempt++) {
+          try {
+            await Promise.resolve(uiWorkspace.openSession(linked))
+            return
+          } catch (e) {
+            if (attempt >= 60) throw e
+            await new Promise((resolve) => setTimeout(resolve, 250))
+          }
+        }
       }
       // Каждый вход — СВОЯ новая сессия. Штатные пути dsh web однопользовательские:
       // восстановление и openWorkspace переиспользуют пустую сессию, и два
