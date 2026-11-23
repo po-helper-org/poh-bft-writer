@@ -38,6 +38,7 @@ import { customerWordsContext } from './intake.js'
 import { mergePortalModels, MODELS_ROUTE, readPortalModels, sameRoute, writePortalModels, type ModelRoute, type PortalModels } from './models.js'
 import { ADMIN_ONLY_ENDPOINTS, ADMIN_PAGE, ADMIN_STATUS, adminOnlyResponse, adminPage, isAdmin } from './admin.js'
 import { siblingHref } from './links.js'
+import { bftCard, type BftState } from './bft-list.js'
 import { answersContext, answersMarkdown, answersPath, editQuestions, formOfRequest, isFormId, latestVersion, linkForm, newForm, readForm, refreshForm, reissue, saveForm, submitAnswers, SubmitGate, type BftForm, type EditOp, type FormPerson, type FormQuestion } from './forms.js'
 import { formGonePage, formPage, previewPage, type DeepFormLayer } from './form-page.js'
 import { mirrorAll, mirrorRequest } from './workspace-mirror.js'
@@ -1066,6 +1067,39 @@ export function apply(ctx: HarnessContext): void {
         return new Response(requestsPage(rows, items === undefined), { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } })
       },
     }), 'customer-form: все заявки')
+
+    // Список БФТ для Инбокса PO (ADR-0020): заявки, краткий статус и артефакты — JSON.
+    // Читает его сервис Инбокса на этой же машине (127.0.0.1); снаружи — за Authentik, как «Все заявки».
+    scoped.effect(() => register({
+      path: '/api/customer-form.bftList',
+      methods: ['GET'],
+      requestBody: 'buffered',
+      fetch: async () => {
+        const headers = { 'cache-control': 'no-store' }
+        const items = await backlog.overview(await backlog.sessionIds()).catch((e) => {
+          console.error('[customer-form] список БФТ не загрузился:', e)
+          return undefined
+        })
+        if (!items) return Response.json({ ok: false, error: 'трекер не ответил' }, { status: 502, headers })
+        const cards = await Promise.all(items.map(async (item) => {
+          const slug = fastSlug(item.taskId)
+          const files = fastFiles(FAST_ROOT, slug)
+          const fast = await fastState(files)
+          const deep = fast?.approvedAt ? await readDeepState(deepFiles(files, slug)) : undefined
+          const demo = sharedDemos().get(item.sessionId)
+          const form = await formOfRequest(files.dir).catch(() => undefined)
+          const questions = form ? latestVersion(form)?.questions ?? [] : []
+          const state: BftState = {
+            ...(demo ? { demo: { approvedAt: demo.approvedAt } } : {}),
+            ...(fast ? { fast: { approvedAt: fast.approvedAt, rev: fast.rev } } : {}),
+            ...(deep ? { deep: { stage: deep.stage, startedAt: deep.startedAt, finishedAt: deep.finishedAt } } : {}),
+            ...(form ? { form: { id: form.id, publishedAt: form.publishedAt, revokedAt: form.revokedAt, total: questions.length, answered: questions.filter((q) => form.answers[q.qid]?.status === 'answer').length } } : {}),
+          }
+          return bftCard(item, state, { portal: portalUrl, form: formUrl, ticket: item.url && !isLoopbackUrl(item.url) ? item.url : undefined })
+        }))
+        return Response.json({ ok: true, newUrl: portalUrl('/'), items: cards }, { headers })
+      },
+    }), 'customer-form: /api/customer-form.bftList')
 
     // Полный БФТ: ход сборки для экрана ожидания и «Собрать заново» (ADR-0012).
     scoped.effect(() => register({
