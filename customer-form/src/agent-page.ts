@@ -312,7 +312,7 @@ function script(cfg: AgentLayer): string {
         var ok = v.sections.length === ids.length;
         v.sections.forEach(function(b){ ok = replaceBlock(b.id, b.html) && ok; });
         if(window.bftReview) window.bftReview.refresh(v.docRev);
-        if(v.deepAt) seenAt = v.deepAt;
+        resync = true;
         window.scrollTo(0, y);
         return ok;
       })
@@ -331,7 +331,9 @@ function script(cfg: AgentLayer): string {
     renderPending();
   }
 
-  var running = false, timer = null, seenAt = CFG.deepAt, known = null;
+  // seenAt — версия документа, которую показывает страница; resync — после своей правки
+  // принять следующую версию сервера без плашки «Документ обновлён».
+  var running = false, timer = null, seenAt = CFG.deepAt, known = null, resync = false;
   function poll(now){
     clearTimeout(timer);
     var go = function(){
@@ -354,7 +356,8 @@ function script(cfg: AgentLayer): string {
           settleComments(done.filter(function(r){ return r.kind === "revise"; }));
           var changed = done.filter(function(r){ return r.stage === "ready" && (r.kind === "undo" || r.edits); }).reverse();
           if(!changed.length){
-            if(data.deepAt && seenAt && data.deepAt !== seenAt && !running) $("bftAgentFresh").style.display = "flex";
+            if(running || resync){ if(!running){ resync = false; seenAt = data.deepAt; } return; }
+            if(data.deepAt && seenAt && data.deepAt !== seenAt) $("bftAgentFresh").style.display = "flex";
             return;
           }
           if(changed.some(function(r){ return !r.sections; })){ reload(); return; }

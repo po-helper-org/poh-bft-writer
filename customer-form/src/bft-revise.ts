@@ -162,6 +162,10 @@ export function scopeFor(doc: string, remark: Remark): MdSection[] {
     const loose = sections.filter((s) => { const t = plain(s.title); return t && (t.includes(want) || want.includes(t)) })
     if (loose.length === 1) return loose
   }
+  // Своё указание текстом («В разделе «Риски» добавь…») — раздел, названный в тексте.
+  const said = ` ${plain(remark.text)} `
+  const named = sections.filter((s) => { const t = plain(s.title); return t.length >= 4 && said.includes(` ${t} `) })
+  if (named.length === 1) return named
   const needles = [remark.quote ? squash(remark.quote.replace(/…$/, '')).slice(0, 120) : '', row].filter((x) => x.length >= 3)
   for (const needle of needles) {
     const hits = sections.filter((s) => squash(doc.slice(s.start, s.end)).includes(needle))

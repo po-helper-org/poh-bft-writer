@@ -154,6 +154,7 @@ test('разделы: ## вне ```, раздел замечания — по з
   assert.deepEqual(title({ section: 'Функциональные требования* · ФТ-2', text: 'x' }), ['Функциональные требования'])
   assert.deepEqual(title({ section: 'Документ', quote: 'про витрину', text: 'x' }), ['Проблема которую решаем'])
   assert.deepEqual(title({ section: 'Документ', text: 'x' }), [])
+  assert.deepEqual(title({ section: 'Документ', text: 'В разделе «Риски» добавь риск' }), ['Риски'])
   assert.deepEqual(title({ section: 'Нет такого', text: 'x' }), [])
 })
 
