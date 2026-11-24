@@ -93,3 +93,28 @@
   workflow; ручной перенос в «Управлении БФТ» — событие в workflow.
 - Изменения кода workflow — через `continueAsNew` на границе раунда и
   `patched()` внутри раунда; тест повтора истории (replay) — обязательный в CI.
+
+## Сделано: шаг 0 (2026-11-24)
+
+- **`bft-flow/`** — workflow `BftLifecycle` (`bft-<taskId>`), чистая `reduce`
+  стадий (`src/reduce.ts`), queries `status` и `timeline`, атрибуты поиска
+  `BftStage`, `BftTaskId`, `BftRound`, `BftWaitingFor`, `BftUpdatedAt`.
+  Namespace `bft` (хранение закрытых циклов — `BFT_RETENTION_DAYS`, 365) и
+  атрибуты заводит сам воркер при старте. Бандл workflow — при сборке образа.
+  Тест цикла на dev-сервере Temporal: `BFT_FLOW_E2E=1 npm test`.
+- **Контур по умолчанию**: `temporal` (БД `temporal*` в общем postgres),
+  `temporal-ui`, `bft-flow`. Выкладка собирает `bft-flow` каждый раз.
+- **Портал — клиент**: новая заявка → `signalWithStart` её цикла
+  (`customer-form/src/lifecycle.ts`); заявки, заведённые раньше, догружаются при
+  старте (событие `registered` с постоянным eventId — без дублей);
+  `GET /api/customer-form.lifecycle?session=` — статус и хроника. Нет
+  `TEMPORAL_ADDRESS` или Temporal недоступен — портал работает как раньше.
+- **Temporal UI** — `/bft-temporal/` за Authentik, только группе
+  администраторов: `map $authentik_groups` (уровень http, `if` в location
+  сработал бы до входа), остальным — 403 портала. Ставит
+  `install-nginx-bft.sh` (шаг владельца с sudo).
+
+Отличия от спеки: одно событие `event` с полем `kind` вместо отдельного
+signal на каждый вид — портал и почтовый поллер шлют одно и то же, схема — в
+`bft-flow/src/events.ts`. Воркер активностей в портале появится на шаге 2,
+вместе с первой активностью: на шагах 0–1 цикл работу не запускает.
