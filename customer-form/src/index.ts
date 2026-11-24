@@ -44,6 +44,7 @@ import { accessPage, freshTokenBlock, loginPage, usersPage } from './access-page
 import { mcpHandler } from './mcp-server.js'
 import { bftMcp, MCP_INSTRUCTIONS } from './mcp-bft.js'
 import { bftCard, type BftState } from './bft-list.js'
+import { registerPlanRoutes, withPlan } from './plan-routes.js'
 import { withAgent } from './agent-page.js'
 import { newRevision, normalizeRemarks, poWords, readRevisions, reviseDeep, revisionsContext, saveRevisions, undoRevision, type Revision } from './bft-revise.js'
 import { answersContext, answersMarkdown, answersPath, editQuestions, formOfRequest, formTitle, isFormId, latestVersion, linkForm, newForm, readForm, refreshForm, reissue, saveForm, submitAnswers, SubmitGate, type BftForm, type EditOp, type FormPerson, type FormQuestion } from './forms.js'
@@ -882,7 +883,8 @@ export function apply(ctx: HarnessContext): void {
               sessionId, store: `bft-comments-${slug}`, deepAt: deep.finishedAt ?? null,
               reviseUrl: siblingHref('/api/customer-form.bftRevise'), statusUrl: siblingHref('/api/customer-form.bftReviseStatus'), undoUrl: siblingHref('/api/customer-form.bftReviseUndo'),
             })
-            return new Response(page, { headers })
+            // «Планирование» (ADR-0025): кнопка вверху, сохранённая заметка и доска — артефактом внизу.
+            return new Response(await withPlan(page, sessionId, files.dir), { headers })
           }
         }
         // Заказчику (rev21) — тот же документ: How to demo таблицей, зоны и контакты, без полей для PO.
@@ -1083,6 +1085,9 @@ export function apply(ctx: HarnessContext): void {
         return Response.json({ ok: true })
       },
     }), 'customer-form: /api/customer-form.e2e')
+
+    // «Планирование» (ADR-0025): заметка и доска декомпозиции из полного БФТ.
+    scoped.effect(() => { const offs = registerPlanRoutes(register, backlog); return () => offs.forEach((off) => off()) }, 'customer-form: планирование')
 
     // Все заявки (ADR-0012, шаг 7): статус заявки и документов, ссылки на документ и выгрузку.
     scoped.effect(() => register({
