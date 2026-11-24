@@ -5,7 +5,8 @@
 
 ## 0. Предусловия
 
-- Портал выложен (`harness/deploy-server.sh`), в контуре есть `temporal`, `bft-flow`.
+- Портал выложен (`harness/deploy-server.sh`), в контуре есть `temporal`, `bft-flow`,
+  `confluence-publisher` (в журнале: «исполняю bft-confluence»).
 - В `harness/deploy/server.env` — `CONFLUENCE_PUBLISH_URL` (база Confluence; для Cloud — с `/wiki`,
   тогда же `CONFLUENCE_PUBLISH_USER` — email), выложено.
 - Ключ с правом записи введён на сервере (ввод не печатается):

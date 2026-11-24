@@ -18,7 +18,7 @@ import type { ConfluenceHit, ConfluencePage, ConfluenceSource } from './confluen
 import { readCustomerPages } from './confluence.js'
 import {
   parentQueries, parsePageRef, publishWorkflowId, rankParents, readPublishState, sourcePages, updatePublishState,
-  type ConfluenceWriter, type ParentCandidate, type ParentRef, type PublishRequest, type PublishState,
+  type AncestorInfo, type ParentCandidate, type ParentRef, type PublishRequest, type PublishState,
 } from './confluence-publish.js'
 
 type Register = (route: { path: string; methods: string[]; requestBody: 'buffered'; fetch(request: Request): Promise<Response> }) => () => void
@@ -64,6 +64,16 @@ export class PublishFlow {
     return workflowId
   }
 
+  /** Родители страниц — у исполнителя публикации (workflow ConfluenceLookup, ~1 с); не вышло — пусто. */
+  async lookup(ids: string[]): Promise<AncestorInfo[]> {
+    if (!ids.length) return []
+    const client = await this.connect()
+    return client.workflow.execute<(ids: string[]) => Promise<AncestorInfo[]>>('ConfluenceLookup', {
+      workflowId: `confluence-lookup-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+      taskQueue: PUBLISH_TASK_QUEUE, args: [ids], workflowExecutionTimeout: '30 seconds',
+    })
+  }
+
   /** Ход: query `progress`; workflow ещё не начал шаг или воркер bft-flow недоступен — по describe. */
   async progress(workflowId: string): Promise<PublishProgress | { status: 'running' | 'failed' | 'done'; error?: string } | undefined> {
     const client = await this.connect()
@@ -87,7 +97,8 @@ export interface PublishRouteDeps {
   /** Папки всех заявок — для «сюда уже публиковали». */
   root: string
   confluence(): ConfluenceSource | undefined
-  writer(): ConfluenceWriter | undefined
+  /** Адрес Confluence для записи задан (сам ключ — только у исполнителя публикации). */
+  configured(): boolean
   flow: PublishFlow
   who?(request: Request): string | undefined
   /** Отправка началась — запись в хронику цикла заявки. */
@@ -134,7 +145,6 @@ export function registerConfluencePublish(register: Register, deps: PublishRoute
     for (const p of [...sourcePages(sourcesMd), ...(await readCustomerPages(req.dir)).map((p) => ({ id: p.id, title: p.title, url: p.url }))]) {
       candidates.push({ id: p.id, title: p.title, url: p.url, source: 'sources' })
     }
-    const writer = deps.writer()
     if (searchable && source) {
       const queries = parentQueries(req.title, req.systems)
       const results = await Promise.all(queries.map((q) => withTimeout(source.searchConfluence(q, 8), 15_000, [] as ConfluenceHit[]).then((hits) => ({ q, hits }))))
@@ -145,14 +155,14 @@ export function registerConfluencePublish(register: Register, deps: PublishRoute
           else candidates.push({ ...hitRef(h), source: 'search', rank, via: q })
         })
       }
-      // Похожий БФТ найден — его родитель и есть «где у вас лежат БФТ» (нужен ключ публикации: шлюз предков не отдаёт).
-      if (writer) {
-        const seen = new Set<string>()
-        for (const h of siblings.filter((h) => !seen.has(h.id) && seen.add(h.id)).slice(0, 5)) {
-          const page = await withTimeout(writer.getPage(h.id), 10_000, undefined)
-          const parent = page?.ancestors[page.ancestors.length - 1]
-          if (parent) candidates.push({ id: parent.id, title: parent.title, space: page.space.key, source: 'sibling', via: h.title })
-        }
+      // Похожий БФТ найден — его родитель и есть «где у вас лежат БФТ». Предков шлюз чтения не
+      // отдаёт: спрашиваем исполнителя публикации (у него ключ); нет ключа — без этой подсказки.
+      const seen = new Set<string>()
+      const uniq = siblings.filter((h) => !seen.has(h.id) && seen.add(h.id)).slice(0, 6)
+      const titles = new Map(uniq.map((h) => [h.id, h.title]))
+      const ancestors = deps.configured() && deps.flow.enabled ? await withTimeout(deps.flow.lookup(uniq.map((h) => h.id)), 12_000, [] as AncestorInfo[]) : []
+      for (const a of ancestors) {
+        if (a.parent) candidates.push({ id: a.parent.id, title: a.parent.title, ...(a.space ? { space: a.space } : {}), source: 'sibling', via: titles.get(a.id) ?? '' })
       }
     }
     const top = rankParents(candidates, { limit: 5, ...(state.pageId ? { exclude: [state.pageId] } : {}) })
@@ -164,12 +174,9 @@ export function registerConfluencePublish(register: Register, deps: PublishRoute
     if (!ref) return { results: [] }
     if ('tiny' in ref) return { results: [], message: 'Короткая ссылка «Поделиться» не содержит номера страницы. Откройте страницу и скопируйте адрес из строки браузера.' }
     const source = deps.confluence()
-    const writer = deps.writer()
     if ('pageId' in ref) {
       const page = source ? await source.readConfluencePage(ref.pageId).then(hitRef, () => undefined) : undefined
       if (page) return { results: [page] }
-      const w = writer ? await writer.getPage(ref.pageId).catch(() => undefined) : undefined
-      if (w) return { results: [{ id: w.id, title: w.title, space: w.space.key, url: w.url }] }
       return { results: [], message: 'Страница по этой ссылке не найдена или к ней нет доступа.' }
     }
     if (!source || !(await withTimeout(source.available(), 5_000, false))) return { results: [], message: 'Поиск по Confluence сейчас недоступен — вставьте ссылку на страницу.' }
@@ -194,7 +201,7 @@ export function registerConfluencePublish(register: Register, deps: PublishRoute
         const got = await suggestions(sessionId)
         if (!got) return json({ error: 'Заявка не найдена' }, 404)
         const body = {
-          configured: !!deps.writer() && deps.flow.enabled,
+          configured: deps.configured() && deps.flow.enabled,
           searchable: got.searchable,
           title: got.req.title,
           current: got.state.parent ?? null,
@@ -223,7 +230,7 @@ export function registerConfluencePublish(register: Register, deps: PublishRoute
         if (!req.ready) return json({ error: 'Полный БФТ ещё не собран — отправлять нечего.' }, 409)
         const id = String(body.parent?.id ?? '')
         if (!/^\d{1,20}$/.test(id)) return json({ error: 'Выберите родительскую страницу.' }, 400)
-        if (!deps.writer()) return json({ error: 'Публикация в Confluence не настроена: администратору — добавить ключ CONFLUENCE_PUBLISH_TOKEN (и адрес CONFLUENCE_PUBLISH_URL).' }, 409)
+        if (!deps.configured()) return json({ error: 'Публикация в Confluence не настроена: администратору — задать адрес CONFLUENCE_PUBLISH_URL и ключ CONFLUENCE_PUBLISH_TOKEN.' }, 409)
         if (!deps.flow.enabled) return json({ error: 'Отправка идёт через Temporal, а он не настроен (TEMPORAL_ADDRESS).' }, 409)
         const state = await readPublishState(req.dir)
         const current = await progressOf(state)

@@ -161,6 +161,26 @@ services:
       temporal: { condition: service_healthy }
     mem_limit: 384m
 
+  confluence-publisher:   # ADR-0028: отправка БФТ в Confluence — активности ConfluencePublish (очередь bft-confluence)
+    image: poh-harness-web:local
+    restart: unless-stopped
+    entrypoint: ["node", "/app/node_modules/customer-form/lib/confluence-worker.js"]
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_NAMESPACE: bft
+      DSH_HOME: /data
+      # Адрес Confluence (база REST, для Cloud — с /wiki) переносит deploy-server.sh из server.env;
+      # ключ с правом записи вводит владелец на сервере (harness/deploy/set-confluence-publish-key.sh).
+      # USER — только для Cloud (email владельца ключа). Нет адреса или ключа — отправка отказывает с причиной.
+      CONFLUENCE_PUBLISH_URL: ${CONFLUENCE_PUBLISH_URL:-}
+      CONFLUENCE_PUBLISH_TOKEN: ${CONFLUENCE_PUBLISH_TOKEN:-}
+      CONFLUENCE_PUBLISH_USER: ${CONFLUENCE_PUBLISH_USER:-}
+    volumes:
+      - customerdata:/data   # файлы заявок: полный БФТ, выгрузки, confluence-publish.json
+    depends_on:
+      temporal: { condition: service_healthy }
+    mem_limit: 768m   # pandoc + weasyprint + plantuml (java) на время одной отправки
+
   customer-web:   # ADR-0007: портал заказчика — dsh-экземпляр только с customer-form
     image: poh-harness-web:local
     restart: unless-stopped
@@ -219,13 +239,9 @@ services:
       # Temporal недоступен — портал работает как раньше, событие только в журнал (теневой режим).
       TEMPORAL_ADDRESS: ${BFT_TEMPORAL_ADDRESS-temporal:7233}
       TEMPORAL_NAMESPACE: bft
-      # «Отправить в Confluence» (ADR-0028): адрес Confluence (база REST, для Cloud — с /wiki) и ключ
-      # с правом записи. Адрес переносит deploy-server.sh из server.env, ключ вводит владелец на
-      # сервере (harness/deploy/set-confluence-publish-key.sh). USER — только для Cloud (email).
-      # Нет адреса или ключа — кнопка есть, отправка честно говорит, чего не хватает.
+      # «Отправить в Confluence» (ADR-0028): порталу — только адрес (кнопка знает, что запись
+      # настроена); ключ записи — у confluence-publisher, не у портала с агентами.
       CONFLUENCE_PUBLISH_URL: ${CONFLUENCE_PUBLISH_URL:-}
-      CONFLUENCE_PUBLISH_TOKEN: ${CONFLUENCE_PUBLISH_TOKEN:-}
-      CONFLUENCE_PUBLISH_USER: ${CONFLUENCE_PUBLISH_USER:-}
     depends_on:
       context-ingest: { condition: service_healthy }
     ports:
