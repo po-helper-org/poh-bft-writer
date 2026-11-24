@@ -56,7 +56,7 @@ import { inboxView } from './form-inbox.js'
 import { withAgent } from './agent-page.js'
 import { canUndo, dshModel, newRevision, normalizeRemarks, poWords, queueRemarks, readRevisions, reviewDue, reviseDeep, revisionsContext, saveRevisions, sinceReview, undoRevision, type Revision, type TextModel } from './bft-revise.js'
 import { docRevOf, pickBlocks } from './doc-sections.js'
-import { reviewAgentFromEnv, reviewAgentModel } from './review-agent.js'
+import { reviewAgentFrom, reviewAgentModel } from './review-agent.js'
 import { ProviderHealth } from './provider-health.js'
 import { answersContext, answersMarkdown, answersPath, editQuestions, formOfRequest, formTitle, isFormId, latestVersion, linkForm, newForm, readForm, refreshForm, reissue, saveForm, submitAnswers, SubmitGate, type BftForm, type EditOp, type FormPerson, type FormQuestion } from './forms.js'
 import { formGonePage, formPage, previewPage, type DeepFormLayer } from './form-page.js'
@@ -401,12 +401,14 @@ export function apply(ctx: HarnessContext): void {
     const fallback = dshModel(deepRuntime.llm, deepRuntime.route())
     const env = process.env.PORTAL_LOCAL_PROVIDER && process.env.PORTAL_LOCAL_MODEL ? { provider: process.env.PORTAL_LOCAL_PROVIDER, model: process.env.PORTAL_LOCAL_MODEL } : undefined
     const localRoute = portalModels.local ?? env ?? DEFAULT_LOCAL
-    const agent = reviewAgentFromEnv()
+    const agent = reviewAgentFrom(portalModels)
     const choice = portalModels.review
     const review = choice && choice.provider !== REVIEW_AGENT ? dshModel(deepRuntime.llm, choice, 32_000)
       : agent && (!choice || choice.provider === REVIEW_AGENT) ? reviewAgentModel(agent)
         : dshModel(deepRuntime.llm, deepRuntime.route(), 32_000)
-    return { local: dshModel(deepRuntime.llm, localRoute), review, fallback }
+    // Локальные правки тоже можно отдать агенту шлюза (выбор администратора).
+    const local = localRoute.provider === REVIEW_AGENT ? (agent ? reviewAgentModel(agent) : dshModel(deepRuntime.llm, env ?? DEFAULT_LOCAL)) : dshModel(deepRuntime.llm, localRoute)
+    return { local, review, fallback }
   }
   // Источники данных (плагин data-sources): Jira/Confluence перед полным БФТ.
   // Плагина нет или источник не подключён — полный БФТ собирается как раньше.
@@ -891,7 +893,7 @@ export function apply(ctx: HarnessContext): void {
           let body: unknown
           try { body = await request.json() } catch { return Response.json({ error: 'тело не JSON' }, { status: 400 }) }
           const before = portalModels.chat
-          portalModels = mergePortalModels(portalModels, body)
+          try { portalModels = mergePortalModels(portalModels, body) } catch (e) { return Response.json({ error: (e as Error).message }, { status: 400 }) }
           providerHealth.clear() // сменили модель или пополнили баланс — пробуем снова
           await writePortalModels(portalModels)
           try {
@@ -926,7 +928,11 @@ export function apply(ctx: HarnessContext): void {
           localDefault: process.env.PORTAL_LOCAL_PROVIDER && process.env.PORTAL_LOCAL_MODEL
             ? { provider: process.env.PORTAL_LOCAL_PROVIDER, model: process.env.PORTAL_LOCAL_MODEL } : DEFAULT_LOCAL,
           review: portalModels.review ?? null,
-          reviewAgent: reviewAgentFromEnv() ? { configured: true, model: reviewAgentFromEnv()!.model ?? null } : { configured: false, model: null },
+          reviewAgent: (() => {
+            const agent = reviewAgentFrom(portalModels)
+            // Ключ не отдаём — только адрес, модель и откуда подключение.
+            return agent ? { configured: true, model: agent.model ?? null, url: agent.url, source: agent.source } : { configured: false, model: null, url: null, source: null }
+          })(),
           // Провайдеры, у которых закончился баланс (последние 10 минут).
           exhausted: providerHealth.list(),
         }, { headers: { 'cache-control': 'no-store' } })
@@ -1094,7 +1100,7 @@ export function apply(ctx: HarnessContext): void {
             const page = withAgent(view, {
               sessionId, store: `bft-comments-${slug}`, deepAt: deep.finishedAt ?? null,
               reviseUrl: siblingHref('/api/customer-form.bftRevise'), statusUrl: siblingHref('/api/customer-form.bftReviseStatus'), undoUrl: siblingHref('/api/customer-form.bftReviseUndo'),
-              sectionUrl: siblingHref('/api/customer-form.bftReviseSection'), reviewUrl: siblingHref('/api/customer-form.bftReview'),
+              sectionUrl: siblingHref('/api/customer-form.bftReviseSection'), reviewUrl: siblingHref('/api/customer-form.bftReview'), settingsUrl: `${siblingHref(ADMIN_PAGE)}?to=settings`,
             })
             // «Планирование» (ADR-0025): кнопка вверху, сохранённая заметка и доска — артефактом внизу.
             // «Отправить в Confluence» (ADR-0028): вкладка в рейке и панель выбора страницы и хода отправки.
