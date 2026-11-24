@@ -133,7 +133,7 @@ export function registerPlanRoutes(register: Register, backlog: Backlog): Array<
         const got = await asset(f).catch(() => undefined)
         if (!got) return new Response('доска не собрана (customer-form/board)', { status: 503 })
         const gzip = /\bgzip\b/.test(request.headers.get('accept-encoding') ?? '')
-        return new Response(gzip ? got.gz : got.raw, {
+        return new Response(new Uint8Array(gzip ? got.gz : got.raw), {
           headers: {
             'content-type': f === 'board.js' ? 'text/javascript; charset=utf-8' : 'text/css; charset=utf-8',
             'cache-control': 'public, max-age=3600',
