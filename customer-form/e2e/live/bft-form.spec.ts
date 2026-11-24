@@ -33,20 +33,21 @@ test('форма вопросов: правка PO → ссылка → отве
 
   expect((await status()).stage, 'полный БФТ готов').toBe('ready')
   await page.goto(deepUrl)
-  const block = page.locator('#customer-questions')
-  await expect(block.getByRole('heading', { name: 'Что нужно для согласования' })).toBeVisible()
-  await expect(block.getByRole('heading', { name: 'Вопросы заказчику' })).toBeVisible()
-  await expect(block.getByRole('heading', { name: 'Уточнения для команд' })).toBeVisible()
-  const before = await block.locator('li.cs-q').count()
+  // Управление формой — в боковой панели (ADR-0026).
+  const block = page.locator('#csSidebar')
+  if (!(await block.isVisible())) await page.locator('#csSideToggle').click()
+  await expect(block.getByRole('heading', { name: /Вопросы/ })).toBeVisible()
+  await expect(block.getByText(/^Заказчику · \d+/)).toBeVisible()
+  const before = await block.locator('li.sb-q').count()
   console.log(`▸ вопросов на странице БФТ: ${before} (${sec()})`)
 
   // Шаг 2: свой вопрос PO.
   await block.locator('#csAddQ input[name=text]').fill(MY_QUESTION)
   await block.locator('#csAddQ button').click()
-  await expect(page.locator('#customer-questions li.cs-q', { hasText: MY_QUESTION })).toBeVisible({ timeout: 15_000 })
+  await expect(page.locator('#csSidebar li.sb-q', { hasText: MY_QUESTION })).toBeVisible({ timeout: 15_000 })
 
-  // Шаг 3: «Сформировать форму» внизу БФТ.
-  const share = page.locator('#customer-form-share')
+  // Шаг 3: «Сформировать форму» внизу боковой панели.
+  const share = page.locator('#csSidebar')
   if (await share.locator('#csCreate').count()) await share.locator('#csCreate').click()
   const linkInput = share.locator('#csFormUrl')
   await expect(linkInput).toBeVisible({ timeout: 15_000 })
@@ -112,6 +113,7 @@ test('форма вопросов: правка PO → ссылка → отве
 
   // Отзыв: старая ссылка больше не открывается.
   await page.goto(deepUrl)
+  if (!(await page.locator('#csSidebar').isVisible())) await page.locator('#csSideToggle').click()
   await page.locator('#csRevoke').click()
   await expect(page.locator('#csCreate')).toBeVisible({ timeout: 15_000 })
   const gone = await request.get(formUrl)

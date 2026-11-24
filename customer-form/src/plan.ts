@@ -218,6 +218,12 @@ border:1px solid rgba(127,127,127,.35);color:inherit;font:600 13px/1.2 system-ui
 
 /** Кнопка — сразу под заголовком документа (в потоке страницы: правый верх занят переключателем панели). */
 export function insertPlanButton(page: string, links: PlanLinks): string {
+  // Есть рейка боковой панели (ADR-0026) — «Планирование» вкладкой в ней.
+  const slot = page.indexOf('<!--cs-rail-plan-->')
+  if (slot >= 0) {
+    const tab = `<a class="cs-rail-tab plan" href="${escHtml(links.page)}" target="_blank" rel="noopener" title="Заметка и доска для декомпозиции с командой">▦ Планирование</a>`
+    return page.slice(0, slot) + tab + page.slice(slot + '<!--cs-rail-plan-->'.length)
+  }
   const main = page.indexOf('<main')
   const h1 = page.indexOf('</h1>', main < 0 ? 0 : main)
   if (h1 < 0) return appendBeforeBody(page, planButton(links))
