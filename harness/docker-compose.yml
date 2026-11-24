@@ -175,8 +175,14 @@ services:
       CONFLUENCE_PUBLISH_URL: ${CONFLUENCE_PUBLISH_URL:-}
       CONFLUENCE_PUBLISH_TOKEN: ${CONFLUENCE_PUBLISH_TOKEN:-}
       CONFLUENCE_PUBLISH_USER: ${CONFLUENCE_PUBLISH_USER:-}
+      CONFLUENCE_PUBLISHER_READY_FILE: /tmp/confluence-publisher.ready
     volumes:
       - customerdata:/data   # файлы заявок: полный БФТ, выгрузки, confluence-publish.json
+    healthcheck:   # метка пишется, когда воркер подключён к Temporal (start.sh ждёт healthy)
+      test: ["CMD-SHELL", "test -f /tmp/confluence-publisher.ready"]
+      interval: 10s
+      retries: 30
+      start_period: 10s
     depends_on:
       temporal: { condition: service_healthy }
     mem_limit: 768m   # pandoc + weasyprint + plantuml (java) на время одной отправки

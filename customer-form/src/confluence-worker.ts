@@ -6,6 +6,7 @@
  * Confluence там доступен только через VPN хоста, а из docker-сети портала — нет. Ключ записи
  * (`CONFLUENCE_PUBLISH_TOKEN`) есть только у этого процесса; файлы заявок — общий том /data.
  */
+import { rmSync, writeFileSync } from 'node:fs'
 import { NativeConnection, Worker } from '@temporalio/worker'
 import { FAST_ROOT, fastFiles } from './bft-fast.js'
 import { deepFiles, readDeepState } from './bft-deep.js'
@@ -18,7 +19,10 @@ const ADDRESS = (process.env.TEMPORAL_ADDRESS ?? '127.0.0.1:7233').trim()
 const NAMESPACE = (process.env.TEMPORAL_NAMESPACE ?? 'bft').trim()
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
+const READY = process.env.CONFLUENCE_PUBLISHER_READY_FILE
+
 async function main(): Promise<void> {
+  if (READY) rmSync(READY, { force: true })
   const config = publishConfigFromEnv()
   const writer = config ? new ConfluenceWriter(config) : undefined
   console.log(`[confluence-publisher] Confluence: ${config ? 'адрес и ключ заданы' : 'не настроен (CONFLUENCE_PUBLISH_URL / CONFLUENCE_PUBLISH_TOKEN) — отправки будут честно отказывать'}`)
@@ -33,7 +37,10 @@ async function main(): Promise<void> {
       const connection = await NativeConnection.connect({ address: ADDRESS })
       const worker = await Worker.create({ connection, namespace: NAMESPACE, taskQueue: CONFLUENCE_TASK_QUEUE, activities, maxConcurrentActivityTaskExecutions: 2 })
       console.log(`[confluence-publisher] исполняю ${CONFLUENCE_TASK_QUEUE} (${ADDRESS}, namespace ${NAMESPACE})`)
+      // Метка готовности для healthcheck: подключён к Temporal и опрашивает очередь.
+      if (READY) writeFileSync(READY, new Date().toISOString())
       await worker.run()
+      if (READY) rmSync(READY, { force: true })
       await connection.close().catch(() => undefined)
     } catch (e) {
       if (attempt % 10 === 1) console.log(`[confluence-publisher] Temporal ${ADDRESS}: ${(e as Error).message} — повтор через 5 с`)
