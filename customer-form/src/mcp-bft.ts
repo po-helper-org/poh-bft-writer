@@ -359,7 +359,9 @@ export function bftMcp(deps: BftMcpDeps): { tools: McpTool[]; prompts: McpPrompt
         const startedAt = new Date().toISOString()
         const run: McpDeepRun = { input: prepared.input, sourcesPath: prepared.sourcesPath, startedAt, attempts: 0, trail: { lintErrorsByAttempt: [], checkErrorsByAttempt: [], warnings: [], fixes: [] } }
         await writeFile(deepRunPath(files.dir), JSON.stringify(run), 'utf8')
-        await saveDeepState(deepFiles(files, fastSlug(ticket.taskId)), { stage: 'building', startedAt })
+        // Готовый документ остаётся у заказчика, пока новый канон не принят; первый — «собирается».
+        const current = await readDeepState(deepFiles(files, fastSlug(ticket.taskId)))
+        if (current?.stage !== 'ready') await saveDeepState(deepFiles(files, fastSlug(ticket.taskId)), { stage: 'building', startedAt })
         const prompt = judge.prompt()
         const found = prepared.input.sources
         return [
@@ -375,14 +377,18 @@ export function bftMcp(deps: BftMcpDeps): { tools: McpTool[]; prompts: McpPrompt
       inputSchema: withRequest({ canon: { type: 'string', required: true, description: 'Канон полного БФТ (markdown) целиком' } }),
       async call(args, caller) {
         const { ticket, files, slug } = await own(args, caller)
-        const run = await readFile(deepRunPath(files.dir), 'utf8').then((t) => JSON.parse(t) as McpDeepRun, () => undefined)
+        const run = await readFile(deepRunPath(files.dir), 'utf8').then((t) => JSON.parse(t) as McpDeepRun & { acceptedAt?: string }, () => undefined)
         if (!run) throw new Error('Сначала bft_prepare_full_bft — задание на полный БФТ.')
+        if (run.acceptedAt) throw new Error('Канон по этому заданию уже принят. Новая версия (правки, ответы формы) — сначала bft_prepare_full_bft.')
         const canon = str(args.canon)
         if (canon.trim().length < 500) throw new Error('canon — полный текст канона по заданию (markdown), не короче 500 знаков.')
         const judge = await deepJudge(run.input)
         run.attempts += 1
         // С третьей сдачи пробел покрытия и строка plantuml уходят в замечания, а не держат документ (как у модели портала).
+        // Проверка пишет документ на место принятого: не прошла — принятый возвращается как был.
+        const accepted = (await readDeepState(judge.files))?.stage === 'ready' ? await readFile(judge.files.md, 'utf8').catch(() => undefined) : undefined
         const verdict = await judge.judge(canon, run.attempts >= 3)
+        if (!verdict.ok && accepted !== undefined) await writeFile(judge.files.md, accepted, 'utf8')
         run.trail.lintErrorsByAttempt.push(verdict.lintErrors)
         run.trail.checkErrorsByAttempt.push(verdict.checkErrors)
         run.trail.warnings = verdict.warnings
@@ -390,7 +396,7 @@ export function bftMcp(deps: BftMcpDeps): { tools: McpTool[]; prompts: McpPrompt
         if (!verdict.ok) {
           run.previous = verdict.previous
           await writeFile(deepRunPath(files.dir), JSON.stringify(run), 'utf8')
-          if (run.attempts >= 6) {
+          if (run.attempts >= 6 && accepted === undefined) {
             await failDeep(run.input, judge.files, judge.fastMd, run.trail, run.attempts, run.startedAt, verdict.previous.errors)
             throw new Error(`Канон не прошёл проверку за ${run.attempts} сдач — сборка отмечена неудачной. Начни заново с bft_prepare_full_bft.\n\nОшибки:\n${verdict.previous.errors}`)
           }
