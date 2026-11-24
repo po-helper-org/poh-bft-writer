@@ -17,7 +17,7 @@
 
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { copyFile, mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { join, posix } from 'node:path'
 import { Backlog, moscowTime, sharedBacklog, ticketRegistered, type Ticket } from './host.js'
 import { sharedMaterials, type Material, type Materials, type WebLike } from './materials.js'
@@ -46,6 +46,7 @@ import { bftMcp, MCP_INSTRUCTIONS } from './mcp-bft.js'
 import { bftCard, type BftState } from './bft-list.js'
 import { registerPlanRoutes, withPlan } from './plan-routes.js'
 import { registeredEvent, sharedLifecycle } from './lifecycle.js'
+import { startPortalWorker, type RebuildRequest, type RebuildResult } from './lifecycle-worker.js'
 import { historyEvents, isoUtc, type RequestSnapshot } from './lifecycle-history.js'
 import { lifecyclePage } from './lifecycle-page.js'
 import { withAgent } from './agent-page.js'
@@ -256,6 +257,10 @@ export function apply(ctx: HarnessContext): void {
   // Жизненный цикл БФТ (ADR-0022): новая заявка → её workflow; заявки, заведённые раньше, —
   // догружаются при старте (eventId «registered» постоянный — повтор не задваивается).
   const lifecycle = sharedLifecycle()
+  /** Пауза после последнего ответа формы до пересборки БФТ: отвечают пачкой — собираем один раз (таймер — в цикле, шаг 2). */
+  const FORM_REBUILD_MS = Number(process.env.FORM_REBUILD_MS ?? 120_000)
+  /** Свести с циклом сразу (не ждать сверки раз в минуту) — например, после ответов формы. */
+  let syncLifecycleNow: (sessionIds: string[]) => Promise<void> = async () => {}
   if (lifecycle.enabled) {
     backlog.onRegistered = (sessionId, ticket, text) => {
       const at = new Date().toISOString()
@@ -278,7 +283,7 @@ export function apply(ctx: HarnessContext): void {
       const demo = sharedDemos().get(item.sessionId)
       const demoApprovedAt = demo?.approvedAt ?? ticket?.demoApprovedAt
       return {
-        taskId: item.taskId, title: item.title, created: item.created, now: new Date().toISOString(),
+        taskId: item.taskId, title: item.title, created: item.created, now: new Date().toISOString(), rebuildAfterMs: FORM_REBUILD_MS,
         ...(item.status ? { status: item.status } : {}),
         ...(demo ? { demo: { rev: demo.rev, ...(demoApprovedAt ? { approvedAt: demoApprovedAt } : {}) } } : {}),
         ...(fast && builtAt ? { fast: { rev: fast.rev, builtAt, ...(fast.approvedAt ? { approvedAt: fast.approvedAt } : {}) } } : {}),
@@ -293,25 +298,30 @@ export function apply(ctx: HarnessContext): void {
           ...(r.finishedAt ? { finishedAt: r.finishedAt } : {}), ...(r.edits !== undefined ? { edits: r.edits } : {}), ...(r.error ? { error: r.error } : {}) })),
       }
     }
+    const deliver = async (sessionIds: string[]) => {
+      const items = await backlog.overview(sessionIds)
+      let delivered = 0
+      for (const item of items) {
+        const created = isoUtc(item.created) || new Date().toISOString()
+        const request = { taskId: item.taskId, slug: fastSlug(item.taskId), sessionId: item.sessionId, title: item.title, createdAt: created }
+        const events = [registeredEvent(created, item.title), ...historyEvents(await snapshotOf(item))]
+        for (const event of events) {
+          const key = `${item.taskId}:${event.eventId}`
+          if (sent.has(key)) continue
+          if (!(await lifecycle.record(request, event))) break // Temporal недоступен — дошлём на следующем заходе
+          sent.add(key)
+          delivered++
+        }
+      }
+      return { items: items.length, delivered }
+    }
+    syncLifecycleNow = (sessionIds) => deliver(sessionIds).then(() => undefined, (e) => console.error('[customer-form] жизненный цикл: событие заявки не отправлено:', e))
     const syncLifecycle = async () => {
       if (syncing) return
       syncing = true
       try {
-        const items = await backlog.overview(await backlog.sessionIds())
-        let delivered = 0
-        for (const item of items) {
-          const created = isoUtc(item.created) || new Date().toISOString()
-          const request = { taskId: item.taskId, slug: fastSlug(item.taskId), sessionId: item.sessionId, title: item.title, createdAt: created }
-          const events = [registeredEvent(created, item.title), ...historyEvents(await snapshotOf(item))]
-          for (const event of events) {
-            const key = `${item.taskId}:${event.eventId}`
-            if (sent.has(key)) continue
-            if (!(await lifecycle.record(request, event))) break // Temporal недоступен — дошлём на следующем заходе
-            sent.add(key)
-            delivered++
-          }
-        }
-        if (delivered) console.log(`[customer-form] жизненный цикл: заявок ${items.length}, новых событий ${delivered}`)
+        const { items, delivered } = await deliver(await backlog.sessionIds())
+        if (delivered) console.log(`[customer-form] жизненный цикл: заявок ${items}, новых событий ${delivered}`)
       } catch (e) {
         console.error('[customer-form] жизненный цикл: сверка заявок не прошла:', e)
       } finally {
@@ -556,9 +566,6 @@ export function apply(ctx: HarnessContext): void {
     return run
   }
   const formGate = new SubmitGate()
-  /** Пауза после последнего ответа до пересборки БФТ: отвечают пачкой — собираем один раз. */
-  const FORM_REBUILD_MS = Number(process.env.FORM_REBUILD_MS ?? 120_000)
-  const rebuildTimers = new Map<string, ReturnType<typeof setTimeout>>()
   /** Ссылка формы для PO: короткий открытый адрес за nginx (BFT_FORM_PUBLIC=1) или маршрут портала. */
   const formUrl = (id: string): string => {
     const pretty = process.env.BFT_FORM_PUBLIC === '1' ? publicPortalUrl(`/form?id=${id}`) : undefined
@@ -618,35 +625,29 @@ export function apply(ctx: HarnessContext): void {
       }
     })
   }
-  /** Ответы пришли — пересобрать полный БФТ через паузу; идёт сборка — дождаться и собрать ещё раз. */
-  const scheduleRebuild = (form: BftForm) => {
-    clearTimeout(rebuildTimers.get(form.slug))
-    rebuildTimers.set(form.slug, setTimeout(() => {
-      rebuildTimers.delete(form.slug)
-      void (async () => {
-        if (deepRunning.has(form.slug) || reviseRunning.has(form.slug)) return scheduleRebuild(form)
-        const fresh = await readForm(form.id)
-        const doc = await deepDocOf(form.slug)
-        const last = fresh?.lastSubmitAt
-        // Ответы уже учтены сборкой, начатой после них, — повторять не нужно.
-        if (!last || (doc.deep?.startedAt && doc.deep.startedAt > last)) return
-        const ticket = await backlog.find(form.sessionId).catch(() => undefined)
-        if (!ticket) return console.error(`[customer-form] форма ${form.slug}: заявка не найдена — БФТ не пересобран`)
-        console.error(`[customer-form] форма ${form.slug}: ответы — пересобираю полный БФТ`)
-        startDeep(ticket, form.sessionId)
-      })().catch((e) => console.error('[customer-form] пересборка по ответам формы упала:', e))
-    }, FORM_REBUILD_MS))
+  /**
+   * Пересборка по ответам формы (ADR-0022, шаг 2): паузу после ответов отсчитывает цикл
+   * заявки (таймер Temporal — переживает рестарт портала) и зовёт эту активность. Идёт
+   * сборка или правка — ошибка: Temporal повторит позже (тогда соберём ещё раз).
+   */
+  const rebuildFromAnswers = async (req: RebuildRequest): Promise<RebuildResult> => {
+    const slug = fastSlug(req.taskId)
+    if (deepRunning.has(slug) || reviseRunning.has(slug)) throw new Error('идёт сборка или правка полного БФТ — повторю позже')
+    const doc = await deepDocOf(slug)
+    const form = await formOfRequest(doc.files.dir)
+    const last = form?.lastSubmitAt
+    if (!last) return { started: false, reason: 'ответов в форме нет' }
+    // Ответы уже учтены сборкой, начатой после них, — повторять не нужно.
+    if (doc.deep?.startedAt && doc.deep.startedAt > last) return { started: false, reason: 'ответы уже учтены сборкой' }
+    const ticket = await backlog.find(req.sessionId)
+    if (!ticket) return { started: false, reason: 'заявка не найдена в трекере' }
+    console.error(`[customer-form] форма ${slug}: ответы — пересобираю полный БФТ (по циклу заявки)`)
+    return startDeep(ticket, req.sessionId) ? { started: true } : { started: false, reason: 'модель портала недоступна или заявку собирает внешний агент' }
   }
-  // Пересборка по ответам и после рестарта: форма с ответами новее сборки.
-  void (async () => {
-    const root = join(process.env.DSH_HOME ?? '/data', 'bft-forms')
-    for (const name of await readdir(root).catch(() => [] as string[])) {
-      const form = await readForm(name.replace(/\.json$/, ''))
-      if (!form || form.revokedAt || !form.lastSubmitAt) continue
-      const deep = await readDeepState(deepFiles(fastFiles(FAST_ROOT, form.slug), form.slug))
-      if (deep?.stage !== 'building' && (!deep?.startedAt || deep.startedAt < form.lastSubmitAt)) scheduleRebuild(form)
-    }
-  })().catch(() => undefined)
+  if (lifecycle.enabled) {
+    const stopWorker = startPortalWorker({ rebuildFromAnswers })
+    ctx.effect(() => () => void stopWorker(), 'customer-form: активности жизненного цикла (bft-portal)')
+  }
 
   // Тот же запуск — согласованию из формы чата (confirm_bft_fast, fast-approval.ts).
   ctx.effect(() => {
@@ -1068,7 +1069,8 @@ export function apply(ctx: HarnessContext): void {
           if ('saved' in res && res.saved) {
             await saveForm(form)
             await writeFile(answersPath(opened.doc.files.dir), answersMarkdown(form), 'utf8')
-            scheduleRebuild(form)
+            // Ответы → событие цикла сразу; паузу до пересборки отсчитывает цикл.
+            void syncLifecycleNow([form.sessionId])
             const taskId = Number(/^zayavka-(\d+)$/.exec(form.slug)?.[1])
             if (taskId) void mirrorRequest(taskId, form.sessionId)
           }

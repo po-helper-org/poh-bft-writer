@@ -26,7 +26,7 @@ const ACTOR_LABEL: Record<string, string> = { customer: 'заказчик', po: 
 export interface LifecyclePageData {
   title: string
   taskId: number
-  status: { stage: string; waitingFor: string[]; round: number; events: number; updatedAt: string; questions?: { total: number; answered: number; unknown?: number } }
+  status: { stage: string; waitingFor: string[]; round: number; events: number; updatedAt: string; questions?: { total: number; answered: number; unknown?: number }; rebuild?: { dueAt: string; lastSubmitAt: string } }
   timeline: Array<{ at: string; kind: string; actor: string; summary: string; stage: string }>
   /** Ссылка на историю цикла в Temporal UI — только администратору. */
   temporalHref?: string
@@ -46,6 +46,7 @@ export function lifecyclePage(d: LifecyclePageData): string {
     ['Ждём', s.waitingFor.length ? s.waitingFor.map(WAIT_LABEL).join(', ') : '—'],
     ['Раунд согласования', s.round ? String(s.round) : '—'],
     ['Вопросы формы', s.questions ? `отвечено ${s.questions.answered} из ${s.questions.total}${s.questions.unknown ? `, «не знаю» — ${s.questions.unknown}` : ''}` : '—'],
+    ['Пересборка по ответам', s.rebuild ? `ждёт, около ${when(s.rebuild.dueAt)}` : '—'],
     ['Событий', String(s.events)],
     ['Обновлено', when(s.updatedAt)],
   ].map(([k, v]) => `<div><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join('')

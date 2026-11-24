@@ -11,6 +11,8 @@
  */
 
 export const TASK_QUEUE = 'bft-flow'
+/** Очередь активностей портала: модель, файлы заявки, трекер (воркер — сам портал). */
+export const PORTAL_TASK_QUEUE = 'bft-portal'
 export const NAMESPACE_DEFAULT = 'bft'
 export const WORKFLOW_TYPE = 'BftLifecycle'
 export const workflowIdOf = (taskId: number): string => `bft-${taskId}`
@@ -36,6 +38,7 @@ export type EventKind =
   | 'deepStarted' | 'deepReady' | 'deepFailed'
   | 'formPublished' | 'formEdited' | 'formAnswered' | 'formRevoked'
   | 'reviseApplied'     // точечные правки ИИ-агента (ADR-0021)
+  | 'rebuildRequested'  // цикл попросил портал пересобрать полный БФТ по ответам формы (шаг 2)
   | 'mailSent' | 'mailDelivered' | 'mailBounced' | 'mailReplied'
   | 'trackerMoved'      // перенос колонки в «Управлении БФТ»
   | 'validated' | 'handedOff' | 'cancelled'
@@ -62,6 +65,8 @@ export interface BftEvent {
     to?: string
     /** deepFailed, mailBounced: причина. */
     error?: string
+    /** formAnswered: через сколько после ответа пересобрать полный БФТ (пауза — отвечают пачкой). */
+    rebuildAfterMs?: number
     [key: string]: unknown
   }
 }
@@ -92,12 +97,24 @@ export interface LifecycleState {
   artifacts: { brief?: ArtifactRef; deep?: ArtifactRef; form?: ArtifactRef }
   /** Форма вопросов опубликована и не отозвана: кого она ждёт. */
   formOpen?: { addressees: string[] }
+  /** Ждёт пересборка по ответам формы: последний учтённый ответ и когда пересобрать. */
+  rebuild?: RebuildPending
   /** Последние записи хроники (не больше TIMELINE_MAX). */
   timeline: TimelineEntry[]
   /** eventId последних событий — повтор не применяется. */
   seen: string[]
   events: number
   updatedAt: string
+}
+
+export interface RebuildPending { lastSubmitAt: string; dueAt: string }
+
+/** Активности портала (очередь bft-portal). */
+export interface RebuildRequest { taskId: number; slug: string; sessionId: string; lastSubmitAt: string }
+export interface RebuildResult { started: boolean; reason?: string }
+export interface PortalActivities {
+  /** Пересобрать полный БФТ по ответам формы. Идёт сборка — ошибка (Temporal повторит). */
+  rebuildFromAnswers(request: RebuildRequest): Promise<RebuildResult>
 }
 
 export interface LifecycleStatus {
@@ -109,6 +126,7 @@ export interface LifecycleStatus {
   round: number
   questions?: LifecycleState['questions']
   artifacts: LifecycleState['artifacts']
+  rebuild?: RebuildPending
   events: number
   createdAt: string
   updatedAt: string

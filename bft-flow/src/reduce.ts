@@ -2,7 +2,7 @@
  * Состояние цикла из событий — чистая функция без Temporal (тестируется отдельно,
  * workflow только применяет её). Правила стадий — спека, раздел «Стадии».
  */
-import { TERMINAL_STAGES, type BftEvent, type LifecycleInput, type LifecycleState, type LifecycleStatus, type Stage, type Wait } from './events.js'
+import { TERMINAL_STAGES, type BftEvent, type LifecycleInput, type LifecycleState, type LifecycleStatus, type RebuildPending, type Stage, type Wait } from './events.js'
 
 export const TIMELINE_MAX = 200
 export const SEEN_MAX = 500
@@ -22,6 +22,7 @@ const SUMMARY: Partial<Record<BftEvent['kind'], string>> = {
   formAnswered: 'Получены ответы формы',
   formRevoked: 'Ссылка формы отозвана',
   reviseApplied: 'ИИ-агент внёс правки',
+  rebuildRequested: 'Пересборка полного БФТ по ответам формы',
   mailSent: 'Письмо отправлено',
   mailDelivered: 'Письмо доставлено',
   mailBounced: 'Письмо не доставлено',
@@ -69,6 +70,9 @@ function transition(state: LifecycleState, event: BftEvent): { stage: Stage; wai
       return { stage: 'agreement', waitingFor: state.formOpen ? formWaits(state.formOpen.addressees) : ['po'], round: state.round + 1 }
     case 'deepFailed':
       return { stage: 'deep_failed', waitingFor: ['po'] }
+    case 'rebuildRequested':
+      // Портал начал сборку; не начал (ответы уже учтены, модели нет) — стадия прежняя.
+      return event.data?.started === true ? { stage: 'rebuilding', waitingFor: ['model'] } : undefined
     case 'formPublished':
       return state.stage === 'agreement' ? { stage: 'agreement', waitingFor: formWaits(event.data?.addressees ?? []) } : undefined
     case 'formRevoked':
@@ -82,6 +86,25 @@ function transition(state: LifecycleState, event: BftEvent): { stage: Stage; wai
     default:
       return undefined
   }
+}
+
+/**
+ * Пересборка по ответам формы (шаг 2): ответ с паузой — пересборка ждёт до ответа + пауза
+ * (новый ответ сдвигает её); сборка, начатая после последнего ответа, или запрос пересборки
+ * по нему — снимают ожидание.
+ */
+function nextRebuild(state: LifecycleState, event: BftEvent): RebuildPending | undefined {
+  const pending = state.rebuild
+  const after = event.data?.rebuildAfterMs
+  if (event.kind === 'formAnswered' && typeof after === 'number' && after >= 0) {
+    const t = Date.parse(event.at)
+    if (Number.isNaN(t) || (pending && pending.lastSubmitAt >= event.at)) return pending
+    return { lastSubmitAt: event.at, dueAt: new Date(t + after).toISOString() }
+  }
+  if (!pending) return undefined
+  if (event.kind === 'deepStarted' && event.at >= pending.lastSubmitAt) return undefined
+  if (event.kind === 'rebuildRequested' && typeof event.data?.lastSubmitAt === 'string' && event.data.lastSubmitAt >= pending.lastSubmitAt) return undefined
+  return pending
 }
 
 /** Применить событие. Повтор (тот же eventId) и события после закрытия цикла — без изменений. */
@@ -99,9 +122,11 @@ export function reduce(state: LifecycleState, event: BftEvent): LifecycleState {
   const entry = { at: event.at, kind: event.kind, actor: event.actor.kind, summary: event.summary ?? SUMMARY[event.kind] ?? event.kind, stage }
   const formOpen = event.kind === 'formPublished' ? { addressees: event.data?.addressees ?? [] }
     : event.kind === 'formRevoked' ? undefined : state.formOpen
+  const rebuild = nextRebuild(state, event)
   return {
     ...state,
     ...(formOpen ? { formOpen } : { formOpen: undefined }),
+    rebuild,
     stage,
     waitingFor: next?.waitingFor ?? state.waitingFor,
     round: next?.round ?? state.round,
@@ -115,6 +140,6 @@ export function reduce(state: LifecycleState, event: BftEvent): LifecycleState {
 }
 
 export function statusOf(state: LifecycleState): LifecycleStatus {
-  const { taskId, slug, title, stage, waitingFor, round, questions, artifacts, events, createdAt, updatedAt } = state
-  return { taskId, slug, title, stage, waitingFor, round, ...(questions ? { questions } : {}), artifacts, events, createdAt, updatedAt }
+  const { taskId, slug, title, stage, waitingFor, round, questions, artifacts, rebuild, events, createdAt, updatedAt } = state
+  return { taskId, slug, title, stage, waitingFor, round, ...(questions ? { questions } : {}), artifacts, ...(rebuild ? { rebuild } : {}), events, createdAt, updatedAt }
 }

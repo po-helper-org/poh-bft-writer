@@ -34,6 +34,10 @@ test('полный путь по файлам: порядок по времен�
   const [first, second] = events.filter((e) => e.kind === 'formAnswered')
   assert.deepEqual(first.data.questions, { total: 12, answered: 1, unknown: 1 })
   assert.deepEqual(second.data.questions, { total: 12, answered: 2, unknown: 1 })
+  assert.equal(first.data.rebuildAfterMs, undefined, 'без паузы — цикл пересборку не ставит')
+  const timed = historyEvents({ ...s, rebuildAfterMs: 120_000 }).filter((e) => e.kind === 'formAnswered')
+  assert.deepEqual(timed.map((e) => e.data.rebuildAfterMs), [120_000, 120_000])
+  assert.deepEqual(timed.map((e) => e.eventId), [first.eventId, second.eventId], 'пауза не меняет eventId')
   assert.match(events.find((e) => e.kind === 'reviseApplied').summary, /внесено 3/)
   // Повторный снимок — те же события: цикл их отбросит.
   assert.deepEqual(historyEvents(s).map((e) => e.eventId), events.map((e) => e.eventId))

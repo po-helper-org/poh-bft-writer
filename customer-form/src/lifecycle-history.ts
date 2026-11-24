@@ -36,6 +36,8 @@ export interface RequestSnapshot {
   revisions?: Array<{ id: string; kind: string; at: string; stage: string; finishedAt?: string; edits?: number; error?: string }>
   /** Время снимка — для событий без своего времени (перенос в трекере). */
   now: string
+  /** Пауза после ответа формы до пересборки полного БФТ — её отсчитывает цикл (шаг 2). */
+  rebuildAfterMs?: number
 }
 
 const system = { kind: 'system' as const }
@@ -83,7 +85,7 @@ export function historyEvents(s: RequestSnapshot): LifecycleEvent[] {
       const answered = upTo.filter((a) => a.status === 'answer').length
       const unknown = upTo.filter((a) => a.status === 'unknown').length
       const here = f.answers.filter((a) => a.at === at).length
-      push({ eventId: `form:answers:${f.id}:${at}`, at, actor: { kind: 'customer' }, kind: 'formAnswered', summary: `Ответы формы: +${here}, всего отвечено ${answered} из ${f.total}`, data: { questions: { total: f.total, answered, unknown } } })
+      push({ eventId: `form:answers:${f.id}:${at}`, at, actor: { kind: 'customer' }, kind: 'formAnswered', summary: `Ответы формы: +${here}, всего отвечено ${answered} из ${f.total}`, data: { questions: { total: f.total, answered, unknown }, ...(s.rebuildAfterMs !== undefined ? { rebuildAfterMs: s.rebuildAfterMs } : {}) } })
     }
     if (f.revokedAt) push({ eventId: `form:revoked:${f.id}`, at: f.revokedAt, actor: po, kind: 'formRevoked' })
   }

@@ -58,3 +58,28 @@ test('форма опубликована до пересборки — посл
   assert.deepEqual(s.waitingFor, ['po'])
   assert.equal(s.formOpen, undefined)
 })
+
+test('шаг 2: ответ формы ставит пересборку через паузу, новый ответ сдвигает, сборка снимает', () => {
+  const at = (m) => `2026-11-20T10:${String(m).padStart(2, '0')}:00.000Z`
+  const e = (id, kind, m, data) => ({ eventId: id, at: at(m), actor: { kind: 'customer' }, kind, ...(data ? { data } : {}) })
+  let s = run(ev('briefApproved'), ev('deepReady'))
+  s = reduce(s, e('a1', 'formAnswered', 1, { rebuildAfterMs: 120_000 }))
+  assert.deepEqual(s.rebuild, { lastSubmitAt: at(1), dueAt: at(3) })
+  s = reduce(s, e('a2', 'formAnswered', 2, { rebuildAfterMs: 120_000 }))
+  assert.deepEqual(s.rebuild, { lastSubmitAt: at(2), dueAt: at(4) })
+  // Старый ответ (догрузка истории не по порядку) не откатывает ожидание.
+  assert.deepEqual(reduce(s, e('a0', 'formAnswered', 0, { rebuildAfterMs: 120_000 })).rebuild, s.rebuild)
+  // Ответы без паузы (старый портал) пересборку не ставят.
+  assert.equal(reduce(run(ev('deepReady')), e('x', 'formAnswered', 5)).rebuild, undefined)
+  // Сборка до последнего ответа не снимает, после — снимает.
+  assert.ok(reduce(s, e('d1', 'deepStarted', 1)).rebuild)
+  assert.equal(reduce(s, e('d2', 'deepStarted', 3)).rebuild, undefined)
+  // Запрос пересборки по последнему ответу снимает; начал портал сборку — стадия «пересборка».
+  const asked = reduce(s, e('r1', 'rebuildRequested', 5, { lastSubmitAt: at(2), started: true }))
+  assert.equal(asked.rebuild, undefined)
+  assert.equal(asked.stage, 'rebuilding')
+  const skipped = reduce(s, e('r2', 'rebuildRequested', 5, { lastSubmitAt: at(2), started: false }))
+  assert.equal(skipped.rebuild, undefined)
+  assert.equal(skipped.stage, 'agreement')
+  assert.equal(statusOf(s).rebuild.dueAt, at(4))
+})
