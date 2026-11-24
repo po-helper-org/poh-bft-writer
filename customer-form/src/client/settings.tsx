@@ -25,6 +25,8 @@ interface ModelsState {
   localDefault?: Route
   review?: Route | null
   reviewAgent?: { configured: boolean; model: string | null }
+  /** Провайдеры, у которых закончился баланс (последние минуты). */
+  exhausted?: { provider: string; at: string }[]
 }
 
 /** Псевдо-провайдер: полное ревью делает внешний агент полного ревью (models.ts). */
@@ -54,6 +56,7 @@ const s: Record<string, CSSProperties> = {
   button: { font: 'inherit', fontSize: 14, fontWeight: 500, padding: '7px 16px', borderRadius: 8, border: '1px solid currentColor', background: 'transparent', color: 'inherit', cursor: 'pointer' },
   ok: { fontSize: 13, color: '#16a34a' },
   error: { fontSize: 13, color: '#dc2626' },
+  warn: { fontSize: 13, lineHeight: 1.5, padding: '10px 12px', borderRadius: 8, border: '1px solid color-mix(in srgb, #d97706 45%, transparent)', background: 'color-mix(in srgb, #d97706 10%, transparent)' },
 }
 
 function ModelSelect(props: { id: string; value: string; catalog: Catalog; empty: string; onChange(value: string): void; disabled?: boolean; extra?: { value: string; label: string } }): ReactElement {
@@ -138,6 +141,12 @@ export function PortalSettings(props: { call: Rpc }): ReactElement {
         <h2 style={s.title}>Портал</h2>
         <p style={s.lead}>Модели портала заказчика. В списке — провайдеры, у которых есть ключ: ключ задаётся в разделе «Модели».</p>
       </div>
+      {!!state.exhausted?.length && (
+        <div role="alert" style={s.warn} data-portal-exhausted>
+          <strong>Закончился баланс: {state.exhausted.map((m) => `${catalog.groups.find((g) => g.id === m.provider)?.name ?? m.provider} (с ${new Date(m.at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })})`).join(', ')}.</strong>{' '}
+          Правки ИИ-агента идут через запасную модель, сборка полного БФТ на этом провайдере не пройдёт. Пополните баланс у провайдера или выберите модель другого провайдера и сохраните — после «Сохранить» портал попробует снова.
+        </div>
+      )}
       <div style={s.row}>
         <label style={s.label} htmlFor="portal-chat-model">Модель чата заказчика</label>
         <ModelSelect id="portal-chat-model" value={chat} catalog={catalog} empty={`По ключам окружения (${label(catalog, state.profile)})`} onChange={setChat} />

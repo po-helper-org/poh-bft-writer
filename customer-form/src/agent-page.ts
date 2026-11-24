@@ -58,6 +58,7 @@ const STYLE = `<style id="bft-agent-style">
 @keyframes bftSpin{to{transform:rotate(360deg)}}
 #bftAgent .ag-link{border:0;background:none;padding:0;margin-top:6px;color:var(--ag-mute);font:inherit;font-size:12px;text-decoration:underline;cursor:pointer}
 #bftAgent .ag-err{color:var(--ag-err);font-size:12px;white-space:pre-wrap;margin-top:6px}
+#bftAgent .ag-note{color:var(--ag-q);font-size:12px;margin-top:6px}
 #bftAgent footer{border-top:1px solid var(--ag-line);padding:10px 14px 12px}
 #bftAgent .ag-pend{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;padding:6px 6px 6px 10px;border-radius:8px;background:var(--ag-soft)}
 #bftAgent .ag-pend[hidden]{display:none}
@@ -270,6 +271,7 @@ function script(cfg: AgentLayer): string {
         items = (r.remarks || []).map(function(m, i){ return resultItem((r.results || []).filter(function(x){ return x.n === i + 1; })[0], m.text, m.section); }).join("");
       }
       return '<div class="ag-rev">' + top + items + live(r) + (r.error ? '<div class="ag-err">' + esc(r.error) + "</div>" : "")
+        + (r.notice && !r.error ? '<div class="ag-note">' + esc(r.notice) + "</div>" : "")
         + (r.model && !active(r) ? '<div class="ag-model">' + esc(r.model) + "</div>" : "")
         + (r.undoable ? '<button type="button" class="ag-link" data-undo="' + esc(r.id) + '">Откатить</button>' : "") + "</div>";
     }).join("") : '<p class="ag-empty">Выделите текст в документе или нажмите точку у [УТОЧНИТЬ] — замечание появится внизу. Или напишите, что поправить: каждое замечание — отдельная правка своего раздела, документ меняется на месте.</p>';
