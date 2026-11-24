@@ -360,6 +360,8 @@ function script(cfg: AgentLayer): string {
             if(data.deepAt && seenAt && data.deepAt !== seenAt) $("bftAgentFresh").style.display = "flex";
             return;
           }
+          // Своя правка: новую версию принять сразу — параллельный опрос не должен счесть её чужой.
+          seenAt = data.deepAt; resync = true;
           if(changed.some(function(r){ return !r.sections; })){ reload(); return; }
           var ids = [];
           changed.forEach(function(r){ r.sections.forEach(function(id){ if(ids.indexOf(id) < 0) ids.push(id); }); });
