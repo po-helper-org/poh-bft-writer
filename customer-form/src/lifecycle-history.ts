@@ -17,7 +17,7 @@ export interface RequestSnapshot {
   title: string
   /** ISO-время создания задачи в трекере. */
   created: string
-  /** Колонка доски «Запросы». */
+  /** Колонка доски «Запросы» (в события не идёт: её сверяет с циклом trackerObservedEvent, шаг 4). */
   status?: string
   /** Сценарий приёмки: ревизия, согласован ли. */
   demo?: { rev: number; approvedAt?: string }
@@ -44,13 +44,19 @@ const system = { kind: 'system' as const }
 const customer = { kind: 'customer' as const }
 const po = { kind: 'po' as const }
 
-/** Колонки трекера, перенос в которые не новость (заявка в них рождается). */
-const INITIAL_STATUSES = ['Создан']
-
 /** Время — в UTC ISO: трекер отдаёт со смещением (+03:00), файлы — в UTC; сравниваем строки. */
 export function isoUtc(at: string | undefined): string {
   const t = at ? Date.parse(at) : NaN
   return Number.isNaN(t) ? '' : new Date(t).toISOString()
+}
+
+/**
+ * Колонка трекера, как её видит портал (шаг 4) — только если цикл знает другую. Время —
+ * момент чтения трекера: снимок, сделанный до переноса циклом, цикл отбросит как устаревший.
+ */
+export function trackerObservedEvent(status: string, observedAt: string, cycleColumn: string | undefined): LifecycleEvent | undefined {
+  if (!status || status === cycleColumn) return undefined
+  return { eventId: `tracker:seen:${status}:${observedAt}`, at: observedAt, actor: po, kind: 'trackerObserved', summary: `В трекере: «${status}»`, data: { to: status } }
 }
 
 export function historyEvents(s: RequestSnapshot): LifecycleEvent[] {
@@ -97,9 +103,6 @@ export function historyEvents(s: RequestSnapshot): LifecycleEvent[] {
       kind: r.stage === 'ready' ? 'reviseApplied' : 'note',
       summary: r.stage === 'ready' ? `${what}: внесено ${r.edits ?? 0}` : `${what} не внесены${r.error ? `: ${r.error.slice(0, 120)}` : ''}`,
     })
-  }
-  if (s.status && !INITIAL_STATUSES.includes(s.status)) {
-    push({ eventId: `tracker:${s.status}`, at: s.now, actor: po, kind: 'trackerMoved', summary: `В трекере: «${s.status}»`, data: { to: s.status } })
   }
   // Цикл применяет события по порядку прихода — отправляем в порядке времени.
   return out.sort((a, b) => a.at.localeCompare(b.at))

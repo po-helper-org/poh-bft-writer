@@ -46,8 +46,8 @@ import { bftMcp, MCP_INSTRUCTIONS } from './mcp-bft.js'
 import { bftCard, type BftState } from './bft-list.js'
 import { registerPlanRoutes, withPlan } from './plan-routes.js'
 import { registeredEvent, sharedLifecycle } from './lifecycle.js'
-import { startPortalWorker, type DeepBuildRequest, type DeepBuildResult, type RebuildRequest, type RebuildResult } from './lifecycle-worker.js'
-import { historyEvents, isoUtc, type RequestSnapshot } from './lifecycle-history.js'
+import { AUTO_COLUMNS, startPortalWorker, type MoveTicketRequest, type MoveTicketResult, type DeepBuildRequest, type DeepBuildResult, type RebuildRequest, type RebuildResult } from './lifecycle-worker.js'
+import { historyEvents, isoUtc, trackerObservedEvent, type RequestSnapshot } from './lifecycle-history.js'
 import { lifecyclePage } from './lifecycle-page.js'
 import { withAgent } from './agent-page.js'
 import { canUndo, dshModel, newRevision, normalizeRemarks, poWords, queueRemarks, readRevisions, reviewDue, reviseDeep, revisionsContext, saveRevisions, sinceReview, undoRevision, type Revision, type TextModel } from './bft-revise.js'
@@ -300,6 +300,8 @@ export function apply(ctx: HarnessContext): void {
       }
     }
     const deliver = async (sessionIds: string[]) => {
+      // Момент чтения трекера — время наблюдения колонки (шаг 4): цикл сверяет его со своим переносом.
+      const observedAt = new Date().toISOString()
       const items = await backlog.overview(sessionIds)
       let delivered = 0
       for (const item of items) {
@@ -312,6 +314,12 @@ export function apply(ctx: HarnessContext): void {
           if (!(await lifecycle.record(request, event))) break // Temporal недоступен — дошлём на следующем заходе
           sent.add(key)
           delivered++
+        }
+        // Трекер — проекция цикла (шаг 4): колонка, которой цикл не знает (PO перенёс сам), — событием.
+        if (item.status) {
+          const cycle = await lifecycle.status(item.taskId)
+          const seen = cycle ? trackerObservedEvent(item.status, observedAt, typeof cycle.status.column === 'string' ? cycle.status.column : undefined) : undefined
+          if (seen && (await lifecycle.record(request, seen))) delivered++
         }
       }
       return { items: items.length, delivered }
@@ -712,8 +720,18 @@ export function apply(ctx: HarnessContext): void {
     console.error(`[customer-form] форма ${slug}: ответы — пересобираю полный БФТ (по циклу заявки)`)
     return startDeep(ticket, req.sessionId, 'answers') ? { started: true } : { started: false, reason: 'модель портала недоступна или заявку собирает внешний агент' }
   }
+  /** Активность цикла (шаг 4): перенос карточки между авто-колонками + строка в задачу. */
+  const escapeHtml = (t: string) => t.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!)
+  const moveTicket = async (req: MoveTicketRequest): Promise<MoveTicketResult> => {
+    const result = await backlog.moveRequest(req.taskId, req.to, AUTO_COLUMNS)
+    if (result.moved) {
+      await backlog.comment({ taskId: req.taskId, url: '' }, `<p>Статус: «${escapeHtml(req.from)}» → «${escapeHtml(req.to)}» — ${escapeHtml(req.reason)} (жизненный цикл заявки).</p>`)
+        .catch((e) => console.error(`[customer-form] трекер #${req.taskId}: комментарий о переносе не ушёл:`, e))
+    }
+    return result
+  }
   if (lifecycle.enabled) {
-    const stopWorker = startPortalWorker({ rebuildFromAnswers, buildDeep: buildDeepActivity })
+    const stopWorker = startPortalWorker({ rebuildFromAnswers, buildDeep: buildDeepActivity, moveTicket })
     ctx.effect(() => () => void stopWorker(), 'customer-form: активности жизненного цикла (bft-portal)')
   }
 

@@ -83,3 +83,23 @@ test('шаг 2: ответ формы ставит пересборку чере
   assert.equal(skipped.stage, 'agreement')
   assert.equal(statusOf(s).rebuild.dueAt, at(4))
 })
+
+test('шаг 4: колонка трекера — в состоянии; решения PO меняют стадию; устаревший снимок отброшен', () => {
+  const at = (m) => `2026-11-21T10:${String(m).padStart(2, '0')}:00.000Z`
+  const seen = (id, to, m, actor = 'po') => ({ eventId: id, at: at(m), actor: { kind: actor }, kind: 'trackerObserved', data: { to } })
+  let s = run(ev('briefApproved'), ev('deepReady'))
+  assert.equal(s.column, undefined)
+  s = reduce(s, seen('t1', 'Создан', 1))
+  assert.equal(s.column, 'Создан')
+  assert.equal(s.stage, 'agreement')
+  s = reduce(s, seen('t2', 'Проработка БФТ', 3, 'system'))
+  // Снимок портала, сделанный до переноса циклом, — не откатывает колонку.
+  assert.equal(reduce(s, seen('t3', 'Создан', 2)).column, 'Проработка БФТ')
+  const needsPo = reduce(s, seen('t4', 'Ожидает PO', 4))
+  assert.equal(needsPo.stage, 'agreement')
+  assert.deepEqual(needsPo.waitingFor, ['po'])
+  assert.equal(reduce(s, seen('t5', 'Оценка', 4)).stage, 'validated')
+  assert.equal(reduce(s, seen('t6', 'В работу: влёт этого квартала', 4)).stage, 'handed_off')
+  assert.equal(reduce(s, seen('t7', 'Отменено', 4)).stage, 'cancelled')
+  assert.equal(statusOf(s).column, 'Проработка БФТ')
+})

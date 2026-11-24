@@ -40,6 +40,7 @@ const RETRY_AFTER_MS = 30_000
 export class Lifecycle {
   private client?: Promise<Client>
   private failedAt = 0
+  private readonly closed = new Set<number>()
 
   constructor(
     readonly address = (process.env.TEMPORAL_ADDRESS ?? '').trim(),
@@ -81,6 +82,12 @@ export class Lifecycle {
       })
       return true
     } catch (e) {
+      // Цикл закрыт (отменён, передан в исполнение): события ему больше не нужны — не повторяем.
+      if ((e as Error).name === 'WorkflowExecutionAlreadyStartedError') {
+        if (!this.closed.has(request.taskId)) this.log(`[customer-form] жизненный цикл #${request.taskId}: цикл закрыт — события больше не шлём`)
+        this.closed.add(request.taskId)
+        return true
+      }
       this.log(`[customer-form] жизненный цикл #${request.taskId}: событие ${event.kind} не доставлено — ${(e as Error).message}`)
       return false
     }

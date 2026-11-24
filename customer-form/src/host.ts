@@ -317,6 +317,30 @@ export class Backlog {
     return views.find((v) => v.title === 'Запросы') ?? views.find((v) => v.view_kind === 'kanban')
   }
 
+  /**
+   * Перенести задачу в колонку доски «Запросы» (ADR-0022, шаг 4: так переносит цикл заявки).
+   * Задача стоит не в одной из `allowedFrom` (PO поставил сам) — не трогаем, отдаём, где она.
+   */
+  async moveRequest(taskId: number, to: string, allowedFrom: readonly string[]): Promise<{ moved: boolean; column: string }> {
+    const view = await this.requestsView()
+    if (!view) throw new Error('трекер: вида «Запросы» нет')
+    const statuses = await this.statuses()
+    const current = statuses.get(taskId) ?? statuses.get(0) ?? ''
+    if (current === to) return { moved: false, column: to }
+    if (!allowedFrom.includes(current)) return { moved: false, column: current }
+    const pid = await this.projectId()
+    const headers = await this.vkHeaders()
+    const res = await this.fetchImpl(`${this.cfg.trackerUrl}/projects/${pid}/views/${view.id}/buckets`, { headers })
+    const buckets = (await res.json()) as { id: number; title: string }[]
+    const target = Array.isArray(buckets) ? buckets.find((b) => b.title === to) : undefined
+    if (!target) throw new Error(`трекер: колонки «${to}» на доске «Запросы» нет`)
+    const moved = await this.fetchImpl(`${this.cfg.trackerUrl}/projects/${pid}/views/${view.id}/buckets/${target.id}/tasks`, {
+      method: 'POST', headers, body: JSON.stringify({ task_id: taskId }),
+    })
+    if (!moved.ok) throw new Error(`трекер: перенос в «${to}» ${moved.status}`)
+    return { moved: true, column: to }
+  }
+
   /** Задача → колонка доски «Запросы»; ключ 0 — первая колонка (новые). */
   private async statuses(): Promise<Map<number, string>> {
     const view = await this.requestsView()

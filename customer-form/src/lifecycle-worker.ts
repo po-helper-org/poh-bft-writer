@@ -12,11 +12,16 @@ export interface RebuildRequest { taskId: number; slug: string; sessionId: strin
 export interface RebuildResult { started: boolean; reason?: string }
 export interface DeepBuildRequest { taskId: number; slug: string; sessionId: string; startedAt: string; reason: string; lastSubmitAt?: string }
 export interface DeepBuildResult { stage: 'ready' | 'failed' | 'skipped'; startedAt: string; finishedAt?: string; error?: string; reason?: string }
+export interface MoveTicketRequest { taskId: number; to: string; from: string; reason: string }
+export interface MoveTicketResult { moved: boolean; column: string }
+/** Колонки, между которыми переносит цикл (bft-flow/src/events.ts → AUTO_COLUMNS). */
+export const AUTO_COLUMNS: readonly string[] = ['Создан', 'Проработка БФТ']
 /** Копия bft-flow/src/events.ts → PortalActivities. */
 export interface PortalActivities {
   /** Шаг 2: для историй, начатых до шага 3. */
   rebuildFromAnswers(request: RebuildRequest): Promise<RebuildResult>
   buildDeep(request: DeepBuildRequest): Promise<DeepBuildResult>
+  moveTicket(request: MoveTicketRequest): Promise<MoveTicketResult>
 }
 
 const RETRY_MS = 30_000

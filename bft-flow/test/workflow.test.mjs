@@ -76,6 +76,7 @@ test('шаг 2–3: пауза после ответов — таймер цик
       assert.equal(status.build, undefined)
       const timeline = await handle.query('timeline')
       assert.match(timeline.at(-1).summary, /не собирали: ответы уже учтены/)
+      assert.equal(status.stage, 'agreement', 'портал не собирал — стадия прежняя, не «пересборка»')
       await handle.signal('event', { eventId: 'c', at: '2026-11-25T10:00:00Z', actor: { kind: 'po' }, kind: 'cancelled' })
       await handle.result()
     }))
@@ -132,6 +133,50 @@ test('шаг 3: сборку ведёт цикл — DeepBuild, ответы в�
       assert.deepEqual(children.sort(), ['bft-9-deep-1', 'bft-9-deep-2'])
       await handle.signal('event', { eventId: 'c', at: '2026-11-30T10:00:00Z', actor: { kind: 'po' }, kind: 'cancelled' })
       await handle.result()
+    }))
+  } finally {
+    await env.teardown()
+  }
+})
+
+test('шаг 4: трекер — проекция: цикл переносит между авто-колонками, решения PO не трогает', { skip: process.env.BFT_FLOW_E2E !== '1', timeout: 180_000 }, async () => {
+  const env = await TestWorkflowEnvironment.createLocal()
+  try {
+    await ensureSearchAttributes(env.connection, 'default', () => {})
+    const moves = []
+    const portal = await Worker.create({
+      connection: env.nativeConnection, taskQueue: 'bft-portal',
+      activities: {
+        async rebuildFromAnswers() { throw new Error('не нужно') },
+        async buildDeep(req) { return { stage: 'skipped', startedAt: req.startedAt, reason: 'тест' } },
+        async moveTicket(req) { moves.push(req); return { moved: true, column: req.to } },
+      },
+    })
+    const flow = await Worker.create({ connection: env.nativeConnection, taskQueue: 'bft-flow', workflowsPath: new URL('../lib/workflows.js', import.meta.url).pathname })
+    await portal.runUntil(flow.runUntil(async () => {
+      const client = env.client
+      const input = { taskId: 10, slug: 'zayavka-10', sessionId: 's-10', title: 'Касса', createdAt: '2026-11-19T10:00:00Z' }
+      const send = (event) => client.workflow.signalWithStart('BftLifecycle', { workflowId: 'bft-10', taskQueue: 'bft-flow', args: [input], signal: 'event', signalArgs: [event] })
+      const now = () => new Date().toISOString()
+      const until = async (check) => { for (let i = 0; i < 100; i++) { const s = await handle.query('status'); if (check(s)) return s; await new Promise((r) => setTimeout(r, 100)) } return handle.query('status') }
+      // Колонка ещё неизвестна — цикл не трогает трекер (так ведут себя все истории до шага 4).
+      const handle = await send({ eventId: 'ready', at: '2026-11-19T10:05:00Z', actor: { kind: 'system' }, kind: 'deepReady' })
+      await new Promise((r) => setTimeout(r, 500))
+      assert.equal(moves.length, 0)
+      await send({ eventId: 'seen-1', at: now(), actor: { kind: 'po' }, kind: 'trackerObserved', data: { to: 'Создан' } })
+      let status = await until((s) => s.column === 'Проработка БФТ')
+      assert.equal(status.column, 'Проработка БФТ')
+      assert.deepEqual(moves.map((m) => [m.from, m.to]), [['Создан', 'Проработка БФТ']])
+      // PO поставил «Ожидает PO» — его решение: цикл ждёт PO и карточку не уводит.
+      await send({ eventId: 'seen-2', at: now(), actor: { kind: 'po' }, kind: 'trackerObserved', data: { to: 'Ожидает PO' } })
+      status = await until((s) => s.column === 'Ожидает PO')
+      await new Promise((r) => setTimeout(r, 500))
+      assert.deepEqual(status.waitingFor, ['po'])
+      assert.equal(moves.length, 1)
+      // «Отменено» на доске — цикл закрывается.
+      await send({ eventId: 'seen-3', at: now(), actor: { kind: 'po' }, kind: 'trackerObserved', data: { to: 'Отменено' } })
+      const result = await handle.result()
+      assert.equal(result.stage, 'cancelled')
     }))
   } finally {
     await env.teardown()

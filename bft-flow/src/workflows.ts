@@ -15,7 +15,7 @@ import {
   proxyActivities, setHandler, upsertSearchAttributes, workflowInfo,
 } from '@temporalio/workflow'
 import {
-  PORTAL_TASK_QUEUE, type BftEvent, type DeepBuildRequest, type DeepBuildResult, type LifecycleInput,
+  AUTO_COLUMNS, PORTAL_TASK_QUEUE, columnFor, type BftEvent, type DeepBuildRequest, type DeepBuildResult, type LifecycleInput,
   type LifecycleState, type LifecycleStatus, type PortalActivities, type RebuildPending, type TimelineEntry,
 } from './events.js'
 import { initialState, isTerminal, reduce, statusOf } from './reduce.js'
@@ -43,6 +43,20 @@ const builder = proxyActivities<PortalActivities>({
   heartbeatTimeout: '2 minutes',
   retry: { initialInterval: '1 minute', backoffCoefficient: 3, maximumAttempts: 3 },
 })
+
+// Перенос карточки в трекере (шаг 4): быстрый вызов, трекер может быть недоступен — повторяем сутки.
+const tracker = proxyActivities<PortalActivities>({
+  taskQueue: PORTAL_TASK_QUEUE,
+  startToCloseTimeout: '1 minute',
+  scheduleToCloseTimeout: '1 day',
+  retry: { initialInterval: '30 seconds', backoffCoefficient: 2, maximumInterval: '10 minutes' },
+})
+
+const MOVE_REASON: Record<string, string> = {
+  deep: 'собирается полный БФТ', deep_failed: 'полный БФТ не собран — ждём PO', agreement: 'полный БФТ на согласовании',
+  rebuilding: 'пересборка по ответам', intake: 'диалог с заказчиком', scenario: 'сценарий приёмки на согласовании',
+  brief: 'собираются первичные требования', brief_review: 'первичные требования на проверке',
+}
 
 /** Сборка полного БФТ — отдельный workflow: видна в Temporal UI сама по себе, со своими повторами. */
 export async function DeepBuild(request: DeepBuildRequest): Promise<DeepBuildResult> {
@@ -101,6 +115,39 @@ export async function BftLifecycle(input: LifecycleInput): Promise<LifecycleStat
   ])
   publish()
 
+  /** Перенос карточки в пути; перенос, который не удался, — не повторяем, пока стадия та же. */
+  let moving = false
+  let failedMove: string | undefined
+  /**
+   * Трекер — проекция (шаг 4): цикл переносит карточку между AUTO_COLUMNS, когда стадия
+   * требует другой колонки. Колонка, поставленная PO (не из AUTO_COLUMNS), — его решение.
+   * Пока колонка циклу неизвестна (до первого trackerObserved — все истории до шага 4), молчит.
+   */
+  const project = () => {
+    const from = state.column
+    if (moving || from === undefined || !AUTO_COLUMNS.includes(from)) return
+    const to = columnFor(state.stage)
+    if (!to || to === from || to === failedMove) return
+    moving = true
+    tracker.moveTicket({ taskId: state.taskId, to, from, reason: MOVE_REASON[state.stage] ?? state.stage }).then(
+      (result) => {
+        moving = false
+        failedMove = undefined
+        const at = new Date().toISOString()
+        queue.push({
+          eventId: `tracker:auto:${result.column}:${at}`, at, actor: system, kind: 'trackerObserved', data: { to: result.column },
+          summary: result.moved ? `Цикл перенёс заявку в трекере: «${from}» → «${result.column}»` : `В трекере: «${result.column}»`,
+        })
+      },
+      (e: unknown) => {
+        moving = false
+        failedMove = to
+        const at = new Date().toISOString()
+        queue.push({ eventId: `tracker:failed:${to}:${at}`, at, actor: system, kind: 'note', summary: `Не удалось перенести заявку в «${to}»: ${causeOf(e).slice(0, 160)}` })
+      },
+    )
+  }
+
   const requestRebuild = (pending: RebuildPending) => {
     requesting = true
     portal.rebuildFromAnswers({ taskId: state.taskId, slug: state.slug, sessionId: state.sessionId, lastSubmitAt: pending.lastSubmitAt }).then(
@@ -137,7 +184,10 @@ export async function BftLifecycle(input: LifecycleInput): Promise<LifecycleStat
         // Шаг 3: собирает цикл; идёт сборка — ещё одна после неё (ответы она могла не учесть).
         const queued = !!state.build
         build('answers', undefined, pending.lastSubmitAt)
-        queue.push(rebuildEvent(pending, { started: true }, queued ? 'Ответы формы — пересборка после текущей сборки' : 'Ответы формы — цикл пересобирает полный БФТ'))
+        // Стадию «пересборка» ставит начало сборки (deepStarted), не просьба: портал может и не собирать
+        // (ответы уже учтены). До этой развилки просьба ставила стадию сразу — так и повторяем.
+        const started = !patched('rebuild-stage-on-start')
+        queue.push(rebuildEvent(pending, { started }, queued ? 'Ответы формы — пересборка после текущей сборки' : 'Ответы формы — цикл пересобирает полный БФТ'))
       } else requestRebuild(pending)
     }
     while (finished.length) {
@@ -157,8 +207,10 @@ export async function BftLifecycle(input: LifecycleInput): Promise<LifecycleStat
         if (event.kind === 'deepRequested' && !before.build) build(String(event.data?.reason ?? 'retry'), typeof event.data?.startedAt === 'string' ? event.data.startedAt : undefined)
       }
       if (state.stage !== before.stage || state.round !== before.round || state.waitingFor.join() !== before.waitingFor.join() || state.updatedAt !== before.updatedAt) publish()
+      if (state.stage !== before.stage || state.column !== before.column) failedMove = undefined
     }
-    if (!isTerminal(state.stage) && !requesting && !state.build && (inRun >= EVENTS_PER_RUN || workflowInfo().continueAsNewSuggested)) {
+    if (!isTerminal(state.stage)) project()
+    if (!isTerminal(state.stage) && !requesting && !moving && !state.build && (inRun >= EVENTS_PER_RUN || workflowInfo().continueAsNewSuggested)) {
       await condition(allHandlersFinished)
       if (!queue.length && !finished.length) await continueAsNew<typeof BftLifecycle>({ ...input, carry: state })
     }

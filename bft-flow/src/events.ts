@@ -41,7 +41,8 @@ export type EventKind =
   | 'reviseApplied'     // точечные правки ИИ-агента (ADR-0021)
   | 'rebuildRequested'  // цикл попросил портал пересобрать полный БФТ по ответам формы (шаг 2)
   | 'mailSent' | 'mailDelivered' | 'mailBounced' | 'mailReplied'
-  | 'trackerMoved'      // перенос колонки в «Управлении БФТ»
+  | 'trackerMoved'      // перенос колонки в «Управлении БФТ» (теневой режим, шаг 1)
+  | 'trackerObserved'   // колонка задачи в трекере, как её видит портал или поставил цикл (шаг 4)
   | 'validated' | 'handedOff' | 'cancelled'
   | 'note'              // произвольная запись в хронику
 
@@ -104,6 +105,9 @@ export interface LifecycleState {
   build?: { reason: string; startedAt: string; queued?: { reason: string; lastSubmitAt?: string } }
   /** Сколько сборок запускал цикл — номер в id дочернего workflow. */
   builds?: number
+  /** Колонка доски «Запросы» и с какого момента она известна циклу (шаг 4). */
+  column?: string
+  columnAt?: string
   /** Последние записи хроники (не больше TIMELINE_MAX). */
   timeline: TimelineEntry[]
   /** eventId последних событий — повтор не применяется. */
@@ -137,11 +141,35 @@ export interface DeepBuildResult {
   reason?: string
 }
 
+/**
+ * Трекер — проекция цикла (шаг 4). Цикл сам переносит карточку только между колонками,
+ * которые следуют из работы над документом; остальные — решения PO, цикл их принимает.
+ */
+export const AUTO_COLUMNS: readonly string[] = ['Создан', 'Проработка БФТ']
+export const COLUMN_CANCELLED = 'Отменено'
+export const COLUMN_ESTIMATE = 'Оценка'
+export const COLUMN_NEEDS_PO = 'Ожидает PO'
+export const COLUMN_TO_WORK_PREFIX = 'В работу'
+
+/** Колонка, в которой карточке быть на этой стадии; undefined — решает PO. */
+export function columnFor(stage: Stage): string | undefined {
+  switch (stage) {
+    case 'intake': case 'scenario': case 'brief': case 'brief_review': return 'Создан'
+    case 'deep': case 'deep_failed': case 'agreement': case 'rebuilding': return 'Проработка БФТ'
+    default: return undefined
+  }
+}
+
+export interface MoveTicketRequest { taskId: number; to: string; from: string; reason: string }
+export interface MoveTicketResult { moved: boolean; /** Колонка после вызова (PO мог уже перенести сам). */ column: string }
+
 export interface PortalActivities {
   /** Шаг 2 (оставлена для историй, начатых до шага 3): пересобрать по ответам формы. */
   rebuildFromAnswers(request: RebuildRequest): Promise<RebuildResult>
   /** Собрать полный БФТ; пульс раз в 20 с — рестарт портала посреди сборки → повтор. */
   buildDeep(request: DeepBuildRequest): Promise<DeepBuildResult>
+  /** Перенести карточку в колонку, если она сейчас в одной из AUTO_COLUMNS (иначе — не трогать). */
+  moveTicket(request: MoveTicketRequest): Promise<MoveTicketResult>
 }
 
 export interface LifecycleStatus {
@@ -155,6 +183,7 @@ export interface LifecycleStatus {
   artifacts: LifecycleState['artifacts']
   rebuild?: RebuildPending
   build?: LifecycleState['build']
+  column?: string
   events: number
   createdAt: string
   updatedAt: string

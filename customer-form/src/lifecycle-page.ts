@@ -27,7 +27,7 @@ const ACTOR_LABEL: Record<string, string> = { customer: 'заказчик', po: 
 export interface LifecyclePageData {
   title: string
   taskId: number
-  status: { stage: string; waitingFor: string[]; round: number; events: number; updatedAt: string; questions?: { total: number; answered: number; unknown?: number }; rebuild?: { dueAt: string; lastSubmitAt: string }; build?: { reason: string; startedAt: string; queued?: { reason: string } } }
+  status: { stage: string; waitingFor: string[]; round: number; events: number; updatedAt: string; questions?: { total: number; answered: number; unknown?: number }; rebuild?: { dueAt: string; lastSubmitAt: string }; build?: { reason: string; startedAt: string; queued?: { reason: string } }; column?: string }
   timeline: Array<{ at: string; kind: string; actor: string; summary: string; stage: string }>
   /** Ссылка на историю цикла в Temporal UI — только администратору. */
   temporalHref?: string
@@ -45,6 +45,7 @@ export function lifecyclePage(d: LifecyclePageData): string {
   const facts = [
     ['Стадия', STAGE_LABEL[s.stage] ?? s.stage],
     ['Ждём', s.waitingFor.length ? s.waitingFor.map(WAIT_LABEL).join(', ') : '—'],
+    ['Колонка в трекере', s.column ?? '—'],
     ['Раунд согласования', s.round ? String(s.round) : '—'],
     ['Вопросы формы', s.questions ? `отвечено ${s.questions.answered} из ${s.questions.total}${s.questions.unknown ? `, «не знаю» — ${s.questions.unknown}` : ''}` : '—'],
     ['Сборка полного БФТ', s.build ? `идёт с ${when(s.build.startedAt)} (${REASON[s.build.reason] ?? s.build.reason})${s.build.queued ? `, следом ещё одна (${REASON[s.build.queued.reason] ?? s.build.queued.reason})` : ''}` : '—'],

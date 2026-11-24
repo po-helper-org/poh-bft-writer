@@ -2,7 +2,7 @@
  * Состояние цикла из событий — чистая функция без Temporal (тестируется отдельно,
  * workflow только применяет её). Правила стадий — спека, раздел «Стадии».
  */
-import { TERMINAL_STAGES, type BftEvent, type LifecycleInput, type LifecycleState, type LifecycleStatus, type RebuildPending, type Stage, type Wait } from './events.js'
+import { COLUMN_CANCELLED, COLUMN_ESTIMATE, COLUMN_NEEDS_PO, COLUMN_TO_WORK_PREFIX, TERMINAL_STAGES, type BftEvent, type LifecycleInput, type LifecycleState, type LifecycleStatus, type RebuildPending, type Stage, type Wait } from './events.js'
 
 export const TIMELINE_MAX = 200
 export const SEEN_MAX = 500
@@ -29,6 +29,7 @@ const SUMMARY: Partial<Record<BftEvent['kind'], string>> = {
   mailBounced: 'Письмо не доставлено',
   mailReplied: 'Ответ письмом',
   trackerMoved: 'Заявку перенесли в трекере',
+  trackerObserved: 'Колонка в трекере',
   validated: 'БФТ согласован',
   handedOff: 'БФТ передан в исполнение',
   cancelled: 'Заявка отменена',
@@ -78,6 +79,15 @@ function transition(state: LifecycleState, event: BftEvent): { stage: Stage; wai
       return state.stage === 'agreement' ? { stage: 'agreement', waitingFor: formWaits(event.data?.addressees ?? []) } : undefined
     case 'formRevoked':
       return state.stage === 'agreement' ? { stage: 'agreement', waitingFor: ['po'] } : undefined
+    case 'trackerObserved': {
+      // Решения PO на доске (цикл сам в эти колонки не переносит).
+      const to = String(event.data?.to ?? '')
+      if (to === COLUMN_CANCELLED) return { stage: 'cancelled', waitingFor: [] }
+      if (to.startsWith(COLUMN_TO_WORK_PREFIX)) return { stage: 'handed_off', waitingFor: [] }
+      if (to === COLUMN_ESTIMATE) return { stage: 'validated', waitingFor: ['po'] }
+      if (to === COLUMN_NEEDS_PO) return { stage: state.stage, waitingFor: ['po'] }
+      return undefined
+    }
     case 'validated':
       return { stage: 'validated', waitingFor: ['po'] }
     case 'handedOff':
@@ -111,6 +121,8 @@ function nextRebuild(state: LifecycleState, event: BftEvent): RebuildPending | u
 /** Применить событие. Повтор (тот же eventId) и события после закрытия цикла — без изменений. */
 export function reduce(state: LifecycleState, event: BftEvent): LifecycleState {
   if (state.seen.includes(event.eventId) || isTerminal(state.stage)) return state
+  // Колонку видели раньше, чем её поставили (снимок портала отстал от переноса циклом) — устаревшее.
+  if (event.kind === 'trackerObserved' && state.columnAt && event.at < state.columnAt) return state
   const next = transition(state, event)
   const stage = next?.stage ?? state.stage
   const artifact = event.data?.artifact
@@ -124,8 +136,10 @@ export function reduce(state: LifecycleState, event: BftEvent): LifecycleState {
   const formOpen = event.kind === 'formPublished' ? { addressees: event.data?.addressees ?? [] }
     : event.kind === 'formRevoked' ? undefined : state.formOpen
   const rebuild = nextRebuild(state, event)
+  const column = event.kind === 'trackerObserved' && typeof event.data?.to === 'string' ? { column: event.data.to, columnAt: event.at } : {}
   return {
     ...state,
+    ...column,
     ...(formOpen ? { formOpen } : { formOpen: undefined }),
     rebuild,
     stage,
@@ -141,6 +155,6 @@ export function reduce(state: LifecycleState, event: BftEvent): LifecycleState {
 }
 
 export function statusOf(state: LifecycleState): LifecycleStatus {
-  const { taskId, slug, title, stage, waitingFor, round, questions, artifacts, rebuild, build, events, createdAt, updatedAt } = state
-  return { taskId, slug, title, stage, waitingFor, round, ...(questions ? { questions } : {}), artifacts, ...(rebuild ? { rebuild } : {}), ...(build ? { build } : {}), events, createdAt, updatedAt }
+  const { taskId, slug, title, stage, waitingFor, round, questions, artifacts, rebuild, build, column, events, createdAt, updatedAt } = state
+  return { taskId, slug, title, stage, waitingFor, round, ...(questions ? { questions } : {}), artifacts, ...(rebuild ? { rebuild } : {}), ...(build ? { build } : {}), ...(column ? { column } : {}), events, createdAt, updatedAt }
 }

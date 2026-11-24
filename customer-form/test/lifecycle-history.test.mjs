@@ -1,7 +1,7 @@
 // Теневой режим жизненного цикла (ADR-0022, шаг 1): события заявки из её файлов.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { historyEvents } from '../lib-test/lifecycle-history.js'
+import { historyEvents, trackerObservedEvent } from '../lib-test/lifecycle-history.js'
 
 const base = { taskId: 7, title: 'Поток заказов', created: '2026-11-19T09:00:00Z', now: '2026-11-24T12:00:00Z' }
 
@@ -26,10 +26,10 @@ test('полный путь по файлам: порядок по времен�
     status: 'Проработка БФТ',
   }
   const events = historyEvents(s)
-  assert.deepEqual(events.map((e) => e.kind), ['scenarioApproved', 'briefBuilt', 'briefApproved', 'deepStarted', 'deepReady', 'formPublished', 'formAnswered', 'formAnswered', 'reviseApplied', 'trackerMoved'])
+  assert.deepEqual(events.map((e) => e.kind), ['scenarioApproved', 'briefBuilt', 'briefApproved', 'deepStarted', 'deepReady', 'formPublished', 'formAnswered', 'formAnswered', 'reviseApplied'])
   assert.deepEqual(events.map((e) => e.eventId), [
     'scenario:approved', 'brief:built:abc', 'brief:approved:abc', 'deep:started:2026-11-19T09:41:00Z', 'deep:ready:2026-11-19T09:41:00Z',
-    'form:published:f1', 'form:answers:f1:2026-11-21T08:00:00Z', 'form:answers:f1:2026-11-22T08:00:00Z', 'revise:r1:ready', 'tracker:Проработка БФТ',
+    'form:published:f1', 'form:answers:f1:2026-11-21T08:00:00Z', 'form:answers:f1:2026-11-22T08:00:00Z', 'revise:r1:ready',
   ])
   const [first, second] = events.filter((e) => e.kind === 'formAnswered')
   assert.deepEqual(first.data.questions, { total: 12, answered: 1, unknown: 1 })
@@ -70,4 +70,14 @@ test('время — в UTC: смещение трекера (+03:00) и пра�
   assert.deepEqual(events.map((e) => e.kind), ['briefBuilt', 'briefApproved', 'deepStarted', 'deepReady', 'reviseApplied'])
   assert.equal(events[0].at, '2026-11-19T08:25:00.000Z')
   assert.equal(events.find((e) => e.kind === 'deepReady').at, '2026-11-23T14:50:00.000Z')
+})
+
+test('шаг 4: колонку трекера — циклу, только если он знает другую; время — чтения трекера', () => {
+  assert.equal(trackerObservedEvent('Создан', '2026-11-24T12:00:00Z', 'Создан'), undefined)
+  const first = trackerObservedEvent('Создан', '2026-11-24T12:00:00Z', undefined)
+  assert.equal(first.kind, 'trackerObserved')
+  assert.deepEqual(first.data, { to: 'Создан' })
+  const moved = trackerObservedEvent('Ожидает PO', '2026-11-24T12:01:00Z', 'Проработка БФТ')
+  assert.equal(moved.eventId, 'tracker:seen:Ожидает PO:2026-11-24T12:01:00Z')
+  assert.equal(moved.actor.kind, 'po')
 })
