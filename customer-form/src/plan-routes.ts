@@ -91,7 +91,10 @@ export function registerPlanRoutes(register: Register, backlog: Backlog): Array<
         const sessionId = new URL(request.url).searchParams.get('session') ?? ''
         const req = await requestOf(backlog, sessionId)
         if (!req) return Response.json({ ok: false, error: 'заявка не найдена' }, { status: 404 })
-        const input = validatePlan(await request.json().catch(() => undefined))
+        // Автор — кто вошёл в портал (Authentik передаёт имя заголовком); из тела не берём.
+        const by = (request.headers.get('x-authentik-username') ?? '').trim()
+        const body = (await request.json().catch(() => undefined)) as Record<string, unknown> | undefined
+        const input = validatePlan({ ...(body ?? {}), by })
         if ('error' in input) return Response.json({ ok: false, error: input.error }, { status: 400 })
         try {
           const meta = await savePlan(req.dir, input, req.title)

@@ -268,43 +268,40 @@ export function planPage(v: PlanPageInput): string {
 .top h1{font-size:15px;margin:0;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0}
 .top a.back{color:var(--muted);text-decoration:none;white-space:nowrap}.top a.back:hover{color:var(--fg)}
 .st{color:var(--muted);font-size:12px;white-space:nowrap}
-.top input{width:170px;padding:6px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:inherit;font:inherit}
 button.save{padding:7px 16px;border:0;border-radius:8px;background:var(--accent);color:#fff;font:600 13px system-ui,sans-serif;cursor:pointer}
 button.save:disabled{opacity:.6;cursor:default}
 .wrap{display:grid;grid-template-columns:minmax(300px,34%) 1fr;height:calc(100% - 52px)}
 .note{display:flex;flex-direction:column;border-right:1px solid var(--line);background:var(--panel);min-height:0}
-.note .hint{padding:8px 16px;color:var(--muted);font-size:12px;border-bottom:1px solid var(--line)}
 textarea{flex:1;width:100%;border:0;outline:0;resize:none;padding:16px 18px 40px;background:transparent;color:inherit;font:15px/1.65 ui-sans-serif,system-ui,sans-serif;tab-size:2}
 #board{min-height:0;position:relative}
-.done{display:none;gap:12px;align-items:center;font-size:13px}.done.on{display:flex}.done a{color:var(--accent);font-weight:600;text-decoration:none}
-@media (max-width:820px){.wrap{grid-template-columns:1fr;grid-template-rows:40% 60%}.note{border-right:0;border-bottom:1px solid var(--line)}.top input{display:none}}
+.zip{display:none;color:var(--muted);font-size:13px;text-decoration:none}.zip.on{display:inline}.zip:hover{color:var(--fg)}
+.st.dirty::before{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;background:#f59e0b;margin-right:6px;vertical-align:1px}
+@media (max-width:820px){.wrap{grid-template-columns:1fr;grid-template-rows:40% 60%}.note{border-right:0;border-bottom:1px solid var(--line)}}
 </style></head><body>
 <header class="top">
   <a class="back" href="${escHtml(v.bftUrl)}">‹ БФТ</a>
   <h1>Планирование · ${escHtml(v.title)}</h1>
-  <span class="done" id="done"><a href="${escHtml(v.links.zip)}" download>Скачать .zip</a></span>
   <span class="st" id="st"></span>
-  <input id="by" placeholder="Кто сохраняет" maxlength="120" autocomplete="name">
-  <button class="save" id="save" type="button">Сохранить</button>
+  <a class="zip" id="done" href="${escHtml(v.links.zip)}" download title="Скачать .zip">.zip</a>
+  <button class="save" id="save" type="button" title="Ctrl/⌘ + S">Сохранить</button>
 </header>
 <div class="wrap">
-  <section class="note"><div class="hint">Заметка: пишите под заголовками, «- » — пункт списка. Черновик хранится в браузере до сохранения.</div>
-    <textarea id="note" spellcheck="true" aria-label="Заметка планирования"></textarea></section>
+  <section class="note"><textarea id="note" spellcheck="true" aria-label="Заметка планирования"></textarea></section>
   <section id="board" aria-label="Доска"></section>
 </div>
 <script>window.PLAN=${jsonInScript({ scene: cfg.scene })};window.EXCALIDRAW_ASSET_PATH=location.origin+"/";</script>
 <script src="${escHtml(v.assetUrl('board.js'))}"></script>
 <script>(function(){
 var CFG=${jsonInScript(cfg)};
-var note=document.getElementById("note"),st=document.getElementById("st"),btn=document.getElementById("save"),by=document.getElementById("by"),done=document.getElementById("done");
+var note=document.getElementById("note"),st=document.getElementById("st"),btn=document.getElementById("save"),done=document.getElementById("done");
 var draft=null;try{draft=JSON.parse(localStorage.getItem(CFG.draftKey)||"null")}catch(e){}
 note.value=draft&&draft.rev===CFG.rev&&typeof draft.note==="string"?draft.note:CFG.note;
-try{by.value=localStorage.getItem("bft-plan:by")||""}catch(e){}
 var dirty=false;
-function mark(t){st.textContent=t}
-mark(CFG.savedAt?"Сохранено "+new Date(CFG.savedAt).toLocaleString("ru-RU",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"}):"Ещё не сохранено");
+function when(iso){return new Date(iso).toLocaleTimeString("ru-RU",{hour:"2-digit",minute:"2-digit"})}
+function mark(t,d){st.textContent=t;st.classList.toggle("dirty",!!d)}
+mark(CFG.savedAt?"Сохранено в "+when(CFG.savedAt):"");
 if(CFG.savedAt)done.classList.add("on");
-function changed(){dirty=true;mark("Есть несохранённые правки");try{localStorage.setItem(CFG.draftKey,JSON.stringify({rev:CFG.rev,note:note.value}))}catch(e){}}
+function changed(){dirty=true;mark("Не сохранено",true);try{localStorage.setItem(CFG.draftKey,JSON.stringify({rev:CFG.rev,note:note.value}))}catch(e){}}
 note.addEventListener("input",changed);
 note.addEventListener("keydown",function(e){
   if(e.key==="Tab"){e.preventDefault();var s=note.selectionStart;note.setRangeText("  ",s,note.selectionEnd,"end");changed();return}
@@ -313,19 +310,18 @@ note.addEventListener("keydown",function(e){
   if((e.metaKey||e.ctrlKey)&&e.key==="s"){e.preventDefault();save()}
 });
 document.addEventListener("keydown",function(e){if((e.metaKey||e.ctrlKey)&&e.key==="s"){e.preventDefault();save()}});
-var first=true;window.planBoard=window.planBoard||{};window.planBoard.onChange=function(){if(first){first=false;return}if(!dirty){dirty=true;mark("Есть несохранённые правки")}};
+var first=true;window.planBoard=window.planBoard||{};window.planBoard.onChange=function(){if(first){first=false;return}if(!dirty){dirty=true;mark("Не сохранено",true)}};
 window.addEventListener("beforeunload",function(e){if(dirty){e.preventDefault();e.returnValue=""}});
 async function save(){
   if(btn.disabled)return;btn.disabled=true;mark("Сохраняю…");
   try{
     var b=window.planBoard||{},scene=b.scene?b.scene():"",svg=b.svg&&!(b.empty&&b.empty())?await b.svg():"";
-    try{localStorage.setItem("bft-plan:by",by.value)}catch(e){}
-    var r=await fetch(CFG.saveUrl,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({note:note.value,scene:scene,svg:svg,by:by.value})});
+    var r=await fetch(CFG.saveUrl,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({note:note.value,scene:scene,svg:svg})});
     var out=await r.json().catch(function(){return{}});
     if(!r.ok||!out.ok)throw new Error(out.error||("ошибка "+r.status));
     CFG.rev=out.rev;dirty=false;try{localStorage.removeItem(CFG.draftKey)}catch(e){}
-    mark("Сохранено · версия "+out.rev+(out.pdf?"":" (PDF доски не собран)"));done.classList.add("on");
-  }catch(e){mark("Не сохранилось: "+e.message)}
+    mark("Сохранено в "+when(out.savedAt));done.classList.add("on");
+  }catch(e){mark("Не сохранилось: "+e.message,true)}
   finally{btn.disabled=false}
 }
 btn.addEventListener("click",save);
