@@ -18,7 +18,7 @@ import type { AcceptanceDemo } from './demo.js'
 import { userFlowMermaid } from './demo-page.js'
 import { FAVICON_TAG } from './links.js'
 import { questionsHtml, type OpenQuestion } from './questions.js'
-import { appendToMain, deepFormBlock, deepFormFooter, FORM_STYLE, linkMarks, type DeepFormLayer } from './form-page.js'
+import { deepFormSidebar, FORM_STYLE, linkMarks, tagMarks, type DeepFormLayer } from './form-page.js'
 
 export interface CustomerLayer {
   sessionId: string
@@ -235,12 +235,15 @@ const DEEP_STYLE = `<style id="customer-deep-style">
  */
 export function customerDeepPage(html: string, sessionId: string, fastUrl: string, questions?: readonly OpenQuestion[], form?: DeepFormLayer): string {
   const top = `<p class="cs-kicker">Полный БФТ · по согласованным первичным требованиям · <a href="${esc(fastUrl)}">первичные требования</a></p>`
-  // Форма вопросов (ADR-0018): вопросы с правкой PO вместо списка, пометки — ссылками в форму, внизу — «Сформировать форму».
-  const block = form ? deepFormBlock(form) : questions ? questionsHtml(questions) : ''
+  // Форма вопросов (ADR-0018, ADR-0026): всё управление — в боковой панели, пометки [УТОЧНИТЬ] — к вопросам.
+  const block = form ? '' : questions ? questionsHtml(questions) : ''
   let page = deepPageBase(html, { top, afterH1: downloadLinks(sessionId, 'deep'), block, downloadId: 'customer-download-deep' })
   if (form) {
     if (form.link) page = linkMarks(page, form.questions, (qid) => `${form.link}#q-${qid}`)
-    page = appendToMain(page, deepFormFooter(form))
+    page = tagMarks(page, form.questions)
+    const at = page.lastIndexOf('</body>')
+    const side = deepFormSidebar(form)
+    page = at < 0 ? page + side : page.slice(0, at) + side + page.slice(at)
   }
   return page
 }
