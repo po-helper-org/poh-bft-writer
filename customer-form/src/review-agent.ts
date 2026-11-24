@@ -8,6 +8,7 @@
  * Агент должен быть без инструментов: в документе — текст заказчика.
  */
 import type { TextModel } from './bft-revise.js'
+import type { PortalModels } from './models.js'
 
 export interface ReviewAgent { url: string; key: string; model?: string }
 
@@ -17,6 +18,13 @@ export function reviewAgentFromEnv(env: NodeJS.ProcessEnv = process.env): Review
   if (!url || !key || !/^https?:\/\//.test(url)) return undefined
   const model = env.BFT_REVIEW_AGENT_MODEL?.trim()
   return { url, key, ...(model ? { model } : {}) }
+}
+
+/** Подключение: из «Настройки → Портал», иначе из окружения. */
+export function reviewAgentFrom(models: PortalModels, env: NodeJS.ProcessEnv = process.env): (ReviewAgent & { source: 'settings' | 'env' }) | undefined {
+  if (models.agent) return { ...models.agent, source: 'settings' }
+  const fromEnv = reviewAgentFromEnv(env)
+  return fromEnv ? { ...fromEnv, source: 'env' } : undefined
 }
 
 /** Текст ответа Responses API: output_text или части output_text в сообщениях. */
@@ -33,6 +41,7 @@ export function responseText(body: unknown): string {
 export function reviewAgentModel(agent: ReviewAgent, fetchImpl: typeof fetch = fetch): TextModel {
   return {
     label: 'агент полного ревью',
+    provider: 'шлюз агентов',
     complete: async (prompt, signal, onChars) => {
       const res = await fetchImpl(agent.url, {
         method: 'POST',

@@ -131,6 +131,11 @@ function ssoUser(request: Request): { name: string; admin: boolean } | undefined
   return { name, admin: allowedUsers.includes(name.toLowerCase()) || groups.some((g) => allowedGroups.includes(g)) }
 }
 
+/** Куда после входа: «Настройки» из колонки ИИ-агента (?to=settings) — сразу «Настройки → Портал». */
+export function afterLogin(request: Request): string {
+  return new URL(request.url).searchParams.get('to') === 'settings' ? `${PORTAL_ROOT_HREF}?settings=portal` : PORTAL_ROOT_HREF
+}
+
 async function ssoPage(request: Request, head: string): Promise<Response> {
   const user = ssoUser(request)
   if (request.method === 'POST') {
@@ -147,8 +152,9 @@ async function ssoPage(request: Request, head: string): Promise<Response> {
     return page(`${head}<p class="warn">Учётка «${esc(user.name)}» — не администратор портала.</p><p>Администратор — член группы Authentik из <code>ADMIN_SSO_GROUPS</code> или пользователь из <code>ADMIN_SSO_USERS</code>.</p><div class="row"><a class="btn ghost" href="${PORTAL_ROOT_HREF}">Вернуться в портал</a></div>`, 403)
   }
   if (wantLogin && !isAdmin(request)) {
-    return new Response(null, { status: 303, headers: { location: PORTAL_ROOT_HREF, 'set-cookie': setCookie(token(), COOKIE_DAYS * 86400) } })
+    return new Response(null, { status: 303, headers: { location: afterLogin(request), 'set-cookie': setCookie(token(), COOKIE_DAYS * 86400) } })
   }
+  if (isAdmin(request) && afterLogin(request) !== PORTAL_ROOT_HREF) return new Response(null, { status: 303, headers: { location: afterLogin(request) } })
   if (isAdmin(request)) {
     return page(`${head}<p>Вы вошли как «${esc(user.name)}». В портале открыт полный интерфейс: «Ещё → Настройки» — ключи провайдеров («Модели»), «Портал», «Источники данных», плагины.</p>
 <div class="row"><a class="btn" href="${PORTAL_ROOT_HREF}">Открыть портал</a><form method="post"><button class="ghost" name="logout" value="1">Выйти из режима администратора</button></form></div>`)
@@ -169,12 +175,13 @@ export async function adminPage(request: Request): Promise<Response> {
       return new Response(null, { status: 303, headers: { location: siblingHref(ADMIN_PAGE), 'set-cookie': setCookie('', 0) } })
     }
     if (same(form.get('password') ?? '', password())) {
-      return new Response(null, { status: 303, headers: { location: PORTAL_ROOT_HREF, 'set-cookie': setCookie(token(), COOKIE_DAYS * 86400) } })
+      return new Response(null, { status: 303, headers: { location: afterLogin(request), 'set-cookie': setCookie(token(), COOKIE_DAYS * 86400) } })
     }
     // Подбор пароля — не быстрее раза в секунду на запрос.
     await new Promise((resolve) => setTimeout(resolve, 1000))
     return page(`${head}${loginForm('Неверный пароль.')}`, 401)
   }
+  if (isAdmin(request) && afterLogin(request) !== PORTAL_ROOT_HREF) return new Response(null, { status: 303, headers: { location: afterLogin(request) } })
   if (isAdmin(request)) {
     return page(`${head}<p>Вы вошли. В портале открыт полный интерфейс: «Ещё → Настройки» — ключи провайдеров («Модели») и плагины («Встроенные плагины»), «Плагины» — каталог.</p>
 <div class="row"><a class="btn" href="${PORTAL_ROOT_HREF}">Открыть портал</a><form method="post"><button class="ghost" name="logout" value="1">Выйти</button></form></div>`)

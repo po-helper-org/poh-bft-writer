@@ -45,6 +45,9 @@ import { mcpHandler } from './mcp-server.js'
 import { bftMcp, MCP_INSTRUCTIONS } from './mcp-bft.js'
 import { bftCard, type BftState } from './bft-list.js'
 import { registerPlanRoutes, withPlan } from './plan-routes.js'
+import { ConfluenceWriter, plantumlPng, publishActivities, publishConfigFromEnv, type PublishRequest } from './confluence-publish.js'
+import { PublishFlow, registerConfluencePublish } from './confluence-publish-routes.js'
+import { withConfluence } from './confluence-publish-page.js'
 import { registeredEvent, sharedLifecycle } from './lifecycle.js'
 import { startPortalWorker, type DeepBuildRequest, type DeepBuildResult, type RebuildRequest, type RebuildResult } from './lifecycle-worker.js'
 import { historyEvents, isoUtc, type RequestSnapshot } from './lifecycle-history.js'
@@ -53,7 +56,7 @@ import { inboxView } from './form-inbox.js'
 import { withAgent } from './agent-page.js'
 import { canUndo, dshModel, newRevision, normalizeRemarks, poWords, queueRemarks, readRevisions, reviewDue, reviseDeep, revisionsContext, saveRevisions, sinceReview, undoRevision, type Revision, type TextModel } from './bft-revise.js'
 import { docRevOf, pickBlocks } from './doc-sections.js'
-import { reviewAgentFromEnv, reviewAgentModel } from './review-agent.js'
+import { reviewAgentFrom, reviewAgentModel } from './review-agent.js'
 import { ProviderHealth } from './provider-health.js'
 import { answersContext, answersMarkdown, answersPath, editQuestions, formOfRequest, formTitle, isFormId, latestVersion, linkForm, newForm, readForm, refreshForm, reissue, saveForm, submitAnswers, SubmitGate, type BftForm, type EditOp, type FormPerson, type FormQuestion } from './forms.js'
 import { formGonePage, formPage, previewPage, type DeepFormLayer } from './form-page.js'
@@ -398,12 +401,14 @@ export function apply(ctx: HarnessContext): void {
     const fallback = dshModel(deepRuntime.llm, deepRuntime.route())
     const env = process.env.PORTAL_LOCAL_PROVIDER && process.env.PORTAL_LOCAL_MODEL ? { provider: process.env.PORTAL_LOCAL_PROVIDER, model: process.env.PORTAL_LOCAL_MODEL } : undefined
     const localRoute = portalModels.local ?? env ?? DEFAULT_LOCAL
-    const agent = reviewAgentFromEnv()
+    const agent = reviewAgentFrom(portalModels)
     const choice = portalModels.review
     const review = choice && choice.provider !== REVIEW_AGENT ? dshModel(deepRuntime.llm, choice, 32_000)
       : agent && (!choice || choice.provider === REVIEW_AGENT) ? reviewAgentModel(agent)
         : dshModel(deepRuntime.llm, deepRuntime.route(), 32_000)
-    return { local: dshModel(deepRuntime.llm, localRoute), review, fallback }
+    // Локальные правки тоже можно отдать агенту шлюза (выбор администратора).
+    const local = localRoute.provider === REVIEW_AGENT ? (agent ? reviewAgentModel(agent) : dshModel(deepRuntime.llm, env ?? DEFAULT_LOCAL)) : dshModel(deepRuntime.llm, localRoute)
+    return { local, review, fallback }
   }
   // Источники данных (плагин data-sources): Jira/Confluence перед полным БФТ.
   // Плагина нет или источник не подключён — полный БФТ собирается как раньше.
@@ -717,8 +722,35 @@ export function apply(ctx: HarnessContext): void {
     console.error(`[customer-form] форма ${slug}: ответы — пересобираю полный БФТ (по циклу заявки)`)
     return startDeep(ticket, req.sessionId, 'answers') ? { started: true } : { started: false, reason: 'модель портала недоступна или заявку собирает внешний агент' }
   }
+  /**
+   * Отправка в Confluence (ADR-0028): ключ публикации — только здесь и только из окружения.
+   * Активности workflow ConfluencePublish исполняет портал вместе с активностями цикла.
+   */
+  let writerCache: { key: string; writer: ConfluenceWriter } | undefined
+  const confluenceWriter = (): ConfluenceWriter | undefined => {
+    const cfg = publishConfigFromEnv()
+    if (!cfg) return undefined
+    const key = `${cfg.baseUrl}|${cfg.user ?? ''}|${cfg.token.length}`
+    if (writerCache?.key !== key) writerCache = { key, writer: new ConfluenceWriter(cfg) }
+    return writerCache.writer
+  }
+  const announcePublish = async (req: PublishRequest, mode: string, url: string) => {
+    const ticket = await backlog.find(req.sessionId).catch(() => undefined)
+    const safe = url.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!))
+    if (ticket) await backlog.comment(ticket, `<p><strong>📘 БФТ опубликован в Confluence</strong>${mode === 'update' ? ' (страница обновлена)' : ''}: <a href="${safe}">${safe}</a> (портал${req.by ? `, ${req.by}` : ''})</p>`).catch(() => undefined)
+    const at = new Date().toISOString()
+    if (lifecycle.enabled) await lifecycle.record({ taskId: req.taskId, slug: req.slug, sessionId: req.sessionId, createdAt: at },
+      { eventId: `confluence:published:${req.run}`, at, actor: { kind: 'system' }, kind: 'note', summary: `БФТ опубликован в Confluence: ${url}`, data: { url, run: req.run } })
+  }
+  const confluenceActivities = publishActivities({
+    files: (slug) => { const f = fastFiles(FAST_ROOT, slug); return { dir: f.dir, md: deepFiles(f, slug).md } },
+    writer: confluenceWriter,
+    exportDoc: async (slug, md, format) => exportDocument(md, format, (await readDeepState(deepFiles(fastFiles(FAST_ROOT, slug), slug)))?.questions),
+    renderPng: plantumlPng,
+    announce: (req, page, url) => announcePublish(req, page.mode, url),
+  })
   if (lifecycle.enabled) {
-    const stopWorker = startPortalWorker({ rebuildFromAnswers, buildDeep: buildDeepActivity })
+    const stopWorker = startPortalWorker({ rebuildFromAnswers, buildDeep: buildDeepActivity, ...confluenceActivities })
     ctx.effect(() => () => void stopWorker(), 'customer-form: активности жизненного цикла (bft-portal)')
   }
 
@@ -861,7 +893,7 @@ export function apply(ctx: HarnessContext): void {
           let body: unknown
           try { body = await request.json() } catch { return Response.json({ error: 'тело не JSON' }, { status: 400 }) }
           const before = portalModels.chat
-          portalModels = mergePortalModels(portalModels, body)
+          try { portalModels = mergePortalModels(portalModels, body) } catch (e) { return Response.json({ error: (e as Error).message }, { status: 400 }) }
           providerHealth.clear() // сменили модель или пополнили баланс — пробуем снова
           await writePortalModels(portalModels)
           try {
@@ -896,7 +928,11 @@ export function apply(ctx: HarnessContext): void {
           localDefault: process.env.PORTAL_LOCAL_PROVIDER && process.env.PORTAL_LOCAL_MODEL
             ? { provider: process.env.PORTAL_LOCAL_PROVIDER, model: process.env.PORTAL_LOCAL_MODEL } : DEFAULT_LOCAL,
           review: portalModels.review ?? null,
-          reviewAgent: reviewAgentFromEnv() ? { configured: true, model: reviewAgentFromEnv()!.model ?? null } : { configured: false, model: null },
+          reviewAgent: (() => {
+            const agent = reviewAgentFrom(portalModels)
+            // Ключ не отдаём — только адрес, модель и откуда подключение.
+            return agent ? { configured: true, model: agent.model ?? null, url: agent.url, source: agent.source } : { configured: false, model: null, url: null, source: null }
+          })(),
           // Провайдеры, у которых закончился баланс (последние 10 минут).
           exhausted: providerHealth.list(),
         }, { headers: { 'cache-control': 'no-store' } })
@@ -1064,10 +1100,11 @@ export function apply(ctx: HarnessContext): void {
             const page = withAgent(view, {
               sessionId, store: `bft-comments-${slug}`, deepAt: deep.finishedAt ?? null,
               reviseUrl: siblingHref('/api/customer-form.bftRevise'), statusUrl: siblingHref('/api/customer-form.bftReviseStatus'), undoUrl: siblingHref('/api/customer-form.bftReviseUndo'),
-              sectionUrl: siblingHref('/api/customer-form.bftReviseSection'), reviewUrl: siblingHref('/api/customer-form.bftReview'),
+              sectionUrl: siblingHref('/api/customer-form.bftReviseSection'), reviewUrl: siblingHref('/api/customer-form.bftReview'), settingsUrl: `${siblingHref(ADMIN_PAGE)}?to=settings`,
             })
             // «Планирование» (ADR-0025): кнопка вверху, сохранённая заметка и доска — артефактом внизу.
-            return new Response(await withPlan(page, sessionId, files.dir), { headers })
+            // «Отправить в Confluence» (ADR-0028): вкладка в рейке и панель выбора страницы и хода отправки.
+            return new Response(withConfluence(await withPlan(page, sessionId, files.dir), sessionId), { headers })
           }
         }
         // Заказчику (rev21) — тот же документ: How to demo таблицей, зоны и контакты, без полей для PO.
@@ -1418,6 +1455,35 @@ export function apply(ctx: HarnessContext): void {
     const users = new Users()
     const mcpTokens = new McpTokens()
     const mode = authMode()
+    // «Отправить в Confluence» (ADR-0028): выбор родительской страницы, старт и ход workflow.
+    const publishFlow = new PublishFlow()
+    scoped.effect(() => {
+      const offs = registerConfluencePublish(register, {
+        root: FAST_ROOT,
+        confluence: () => materials.confluence,
+        writer: confluenceWriter,
+        flow: publishFlow,
+        who: (request) => whoIs(request, users, mode),
+        request: async (sessionId) => {
+          const ticket = sessionId ? await backlog.find(sessionId).catch(() => undefined) : undefined
+          if (!ticket) return undefined
+          const slug = fastSlug(ticket.taskId)
+          const files = fastFiles(FAST_ROOT, slug)
+          const deep = deepFiles(files, slug)
+          const ready = (await readDeepState(deep))?.stage === 'ready'
+          const md = await readFile(deep.md, 'utf8').catch(() => '')
+          const fastMd = await readFile(files.md, 'utf8').catch(() => '')
+          const title = /^# (.+)$/m.exec(md.replace(/^---\n[\s\S]*?\n---\n/, ''))?.[1]?.trim() ?? `Заявка #${ticket.taskId}`
+          return { taskId: ticket.taskId, slug, dir: files.dir, md: deep.md, ready, title, systems: fastMd ? reconSubject(fastMd).systems : [] }
+        },
+        started: async (req) => {
+          const at = new Date().toISOString()
+          if (lifecycle.enabled) await lifecycle.record({ taskId: req.taskId, slug: req.slug, sessionId: req.sessionId, createdAt: at },
+            { eventId: `confluence:started:${req.run}`, at, actor: { kind: 'po', ...(req.by ? { name: req.by } : {}) }, kind: 'note', summary: `Отправка в Confluence подстраницей «${req.parent.title}» (Temporal: bft-${req.taskId}-confluence-${req.run})` })
+        },
+      })
+      return () => offs.forEach((off) => off())
+    }, 'customer-form: отправка в Confluence')
     const MCP_ROUTE = '/api/customer-form.mcp'
     const ACCESS_ROUTE = '/api/customer-form.mcpAccess'
     const LOGIN_ROUTE = '/api/customer-form.login'
