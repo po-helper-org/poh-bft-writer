@@ -10,7 +10,7 @@ import { FAST_ROOT, fastFiles, fastSlug } from './bft-fast.js'
 import { deepFiles } from './bft-deep.js'
 import { formTitle } from './forms.js'
 import { appendToMain } from './form-page.js'
-import { planArtifact, planButton, planFiles, planPage, readPlan, savePlan, validatePlan, type PlanLinks } from './plan.js'
+import { insertPlanButton, planArtifact, planFiles, planPage, readPlan, savePlan, validatePlan, type PlanLinks } from './plan.js'
 
 type Register = (route: { path: string; methods: string[]; requestBody: 'buffered'; fetch(request: Request): Promise<Response> }) => () => void
 
@@ -44,9 +44,7 @@ async function requestOf(backlog: Backlog, sessionId: string) {
 export async function withPlan(page: string, sessionId: string, requestDir: string): Promise<string> {
   const links = planLinks(sessionId)
   const art = planArtifact(await readPlan(requestDir).catch(() => undefined), links)
-  const withArt = art ? appendToMain(page, art) : page
-  const at = withArt.lastIndexOf('</body>')
-  return at < 0 ? withArt + planButton(links) : withArt.slice(0, at) + planButton(links) + withArt.slice(at)
+  return insertPlanButton(art ? appendToMain(page, art) : page, links)
 }
 
 const BOARD_DIR = new URL('../board/dist/', import.meta.url)
