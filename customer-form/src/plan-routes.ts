@@ -10,12 +10,13 @@ import { FAST_ROOT, fastFiles, fastSlug } from './bft-fast.js'
 import { deepFiles } from './bft-deep.js'
 import { formTitle } from './forms.js'
 import { appendToMain } from './form-page.js'
-import { insertPlanButton, planArtifact, planFiles, planPage, readPlan, savePlan, validatePlan, type PlanLinks } from './plan.js'
+import { insertPlanButton, planArtifact, planFiles, planPage, readPlan, saveNote, savePlan, validatePlan, type PlanLinks } from './plan.js'
 
 type Register = (route: { path: string; methods: string[]; requestBody: 'buffered'; fetch(request: Request): Promise<Response> }) => () => void
 
 export const PLAN_ROUTE = '/api/customer-form.plan'
 const SAVE_ROUTE = '/api/customer-form.planSave'
+const NOTE_ROUTE = '/api/customer-form.planNote'
 const FILE_ROUTE = '/api/customer-form.planFile'
 const ASSET_ROUTE = '/api/customer-form.planAsset'
 
@@ -27,6 +28,7 @@ export function planLinks(sessionId: string): PlanLinks {
     zip: `customer-form.planFile?session=${s}&f=zip`,
     pdf: `customer-form.planFile?session=${s}&f=pdf`,
     note: `customer-form.planFile?session=${s}&f=note`,
+    noteSave: `customer-form.planNote?session=${s}`,
   }
 }
 
@@ -43,8 +45,9 @@ async function requestOf(backlog: Backlog, sessionId: string) {
 /** Страница полного БФТ + кнопка «Планирование» и артефакт, если сохранён. */
 export async function withPlan(page: string, sessionId: string, requestDir: string): Promise<string> {
   const links = planLinks(sessionId)
-  const art = planArtifact(await readPlan(requestDir).catch(() => undefined), links)
-  return insertPlanButton(art ? appendToMain(page, art) : page, links)
+  const plan = await readPlan(requestDir).catch(() => undefined)
+  const art = planArtifact(plan, links)
+  return insertPlanButton(art ? appendToMain(page, art) : page, links, plan)
 }
 
 const BOARD_DIR = new URL('../board/dist/', import.meta.url)
@@ -103,6 +106,24 @@ export function registerPlanRoutes(register: Register, backlog: Backlog): Array<
         } catch (e) {
           console.error('[customer-form] планирование не сохранилось:', e)
           return Response.json({ ok: false, error: (e as Error).message }, { status: 500 })
+        }
+      },
+    }),
+    register({
+      path: NOTE_ROUTE,
+      methods: ['POST'],
+      requestBody: 'buffered',
+      fetch: async (request) => {
+        const sessionId = new URL(request.url).searchParams.get('session') ?? ''
+        const req = await requestOf(backlog, sessionId)
+        if (!req) return Response.json({ ok: false, error: 'заявка не найдена' }, { status: 404 })
+        const body = (await request.json().catch(() => undefined)) as { note?: unknown } | undefined
+        if (typeof body?.note !== 'string') return Response.json({ ok: false, error: 'нет текста заметки' }, { status: 400 })
+        try {
+          const meta = await saveNote(req.dir, body.note, req.title, (request.headers.get('x-authentik-username') ?? '').trim().slice(0, 120) || undefined)
+          return Response.json({ ok: true, savedAt: meta.noteAt })
+        } catch (e) {
+          return Response.json({ ok: false, error: (e as Error).message }, { status: 400 })
         }
       },
     }),

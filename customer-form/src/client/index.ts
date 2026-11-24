@@ -492,7 +492,7 @@ function openPortalSettingsFromLink(): void {
   const rest = params.toString()
   history.replaceState(history.state, '', `${location.pathname}${rest ? `?${rest}` : ''}${location.hash}`)
   const byText = (root: ParentNode, text: string) =>
-    [...root.querySelectorAll<HTMLElement>('button,[role="tab"],[role="menuitem"]')].find((b) => b.textContent?.trim() === text || b.getAttribute('aria-label') === text)
+    Array.from(root.querySelectorAll<HTMLElement>('button,[role="tab"],[role="menuitem"]')).find((b) => b.textContent?.trim() === text || b.getAttribute('aria-label') === text)
   const started = Date.now()
   let opened = false
   let pressed = false

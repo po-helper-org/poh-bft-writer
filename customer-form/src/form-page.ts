@@ -425,7 +425,7 @@ export const RAIL_PLAN_SLOT = '<!--cs-rail-plan-->'
 
 const SIDEBAR_STYLE = `<style id="customer-sidebar-style">
 .rail, #navDrawer, #uncDrawer{ display:none !important; }
-:root{ --sb-w:min(380px, 92vw); }
+:root{ --sb-w:min(340px, 92vw); }
 .cs-rail{ position:fixed; left:0; top:50%; transform:translateY(-50%); z-index:57; display:flex; flex-direction:column; gap:6px; align-items:flex-start; transition:left .12s ease; }
 body.cs-sb-open .cs-rail{ left:var(--sb-w); }
 .cs-rail-tab{ writing-mode:vertical-rl; transform:rotate(180deg); border:none; cursor:pointer; color:#fff; text-decoration:none;
@@ -434,17 +434,18 @@ body.cs-sb-open .cs-rail{ left:var(--sb-w); }
 .cs-rail-tab.q{ background:#e00000; }
 .cs-rail-tab.plan{ background:var(--fg); color:var(--bg); }
 .cs-sb{ position:fixed; left:0; top:0; bottom:0; width:var(--sb-w); z-index:58; display:none; flex-direction:column;
-  background:var(--bg); border-right:1px solid var(--fg); box-shadow:3px 0 0 var(--line-soft); font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif; }
-body.cs-sb-open .cs-sb{ display:flex; }
+  background:var(--bg); border-right:1px solid var(--fg); box-shadow:3px 0 0 var(--line-soft); font:13px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif; }
+body.cs-sb-open .cs-sb.on{ display:flex; }
 @media (min-width:1180px){ body.cs-sb-open{ padding-left:var(--sb-w); } }
-.cs-sb-head{ display:flex; align-items:center; justify-content:space-between; gap:.5rem; padding:.9rem 1rem .6rem; border-bottom:1px solid var(--line-soft); }
-.cs-sb-head h4{ margin:0; font-size:.95rem; }
-.cs-sb-head .cs-sb-sub{ color:var(--muted); font-size:.8rem; font-weight:400; margin-left:.35rem; }
-.cs-sb-x{ background:none; border:1px solid var(--line-soft); color:var(--fg); cursor:pointer; font-size:1rem; line-height:1; padding:.1rem .5rem; border-radius:4px; }
-.cs-sb-body{ flex:1; overflow-y:auto; padding:.4rem 1rem 1rem; }
-.cs-sb-group{ margin:.9rem 0 .3rem; font-size:.72rem; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); }
+.cs-sb-head{ display:flex; align-items:center; justify-content:space-between; gap:.5rem; padding:.55rem .8rem; border-bottom:1px solid var(--line-soft); }
+.cs-sb-head h4{ margin:0; font-size:.9rem; }
+.cs-sb-head .cs-sb-sub{ color:var(--muted); font-size:.76rem; font-weight:400; margin-left:.35rem; }
+.cs-sb-x{ background:none; border:0; color:var(--muted); cursor:pointer; font-size:1.1rem; line-height:1; padding:.1rem .3rem; border-radius:4px; }
+.cs-sb-x:hover{ color:var(--fg); background:var(--mark); }
+.cs-sb-body{ flex:1; overflow-y:auto; padding:.2rem .8rem .8rem; }
+.cs-sb-group{ margin:.7rem 0 .2rem; font-size:.68rem; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); }
 .cs-sb ul{ list-style:none; margin:0; padding:0; }
-.sb-q{ position:relative; padding:.5rem .4rem .5rem .6rem; margin:0 -.4rem 0 -.6rem; border-left:3px solid transparent; border-bottom:1px solid var(--line-soft); }
+.sb-q{ position:relative; padding:.35rem .3rem .35rem .5rem; margin:0 -.3rem 0 -.5rem; border-left:3px solid transparent; border-bottom:1px solid var(--line-soft); }
 .sb-q:hover{ background:var(--mark); }
 .sb-q.done{ border-left-color:#2f7d32; }
 .sb-q.unk{ border-left-color:#c98500; }
@@ -456,18 +457,20 @@ body.cs-sb-open .cs-sb{ display:flex; }
 .sb-tools{ display:none; gap:.25rem; margin-top:.3rem; }
 .sb-q:hover .sb-tools, .sb-q:focus-within .sb-tools{ display:flex; }
 .sb-tools button, .cs-sb-add button, .cs-sb-foot .sb-mini{ font:inherit; font-size:.76rem; border:1px solid var(--line-soft); background:var(--bg); color:inherit; border-radius:5px; padding:.05rem .45rem; cursor:pointer; }
-.cs-sb-empty{ color:var(--muted); font-size:.85rem; margin:.3rem 0; }
-.cs-sb-add{ display:flex; flex-direction:column; gap:.35rem; margin:1rem 0 .4rem; }
-.cs-sb-add input{ font:inherit; font-size:.85rem; padding:.35rem .5rem; border:1px solid var(--line-soft); background:transparent; color:inherit; border-radius:6px; }
-.cs-sb-add .row{ display:flex; gap:.35rem; } .cs-sb-add .row input{ flex:1; min-width:0; }
-.cs-sb details{ margin-top:.8rem; color:var(--muted); font-size:.82rem; }
-.cs-sb-foot{ border-top:1px solid var(--line-soft); padding:.8rem 1rem 1rem; background:var(--bg); }
-.cs-sb-main{ display:block; width:100%; font:600 .92rem/1.2 system-ui,sans-serif; padding:.6rem .8rem; border:1px solid var(--fg); border-radius:8px; background:var(--fg); color:var(--bg); cursor:pointer; }
-.cs-sb-main:disabled{ opacity:.5; cursor:wait; }
-.cs-sb-foot input{ width:100%; font:inherit; font-size:.78rem; padding:.3rem .45rem; margin:0 0 .45rem; border:1px solid var(--line-soft); background:transparent; color:var(--muted); border-radius:6px; }
-.cs-sb-links{ display:flex; gap:.6rem; justify-content:center; margin-top:.5rem; font-size:.8rem; }
+.cs-sb-empty{ color:var(--muted); font-size:.8rem; margin:.15rem 0; }
+.cs-sb-add{ display:flex; gap:.3rem; margin:.7rem 0 .3rem; }
+.cs-sb-add input{ font:inherit; font-size:.8rem; padding:.28rem .45rem; border:1px solid var(--line-soft); background:transparent; color:inherit; border-radius:5px; min-width:0; }
+.cs-sb-add input[name=text]{ flex:1; }
+.cs-sb-add input[name=addressee]{ width:6.5rem; flex:none; color:var(--muted); }
+.cs-sb-add button{ font-size:.9rem; line-height:1; padding:0 .55rem; }
+.cs-sb details{ margin-top:.5rem; color:var(--muted); font-size:.78rem; }
+.cs-sb-foot{ border-top:1px solid var(--line-soft); padding:.55rem .8rem .65rem; background:var(--bg); }
+.cs-sb-main{ display:block; width:100%; font:600 .82rem/1.2 system-ui,sans-serif; padding:.42rem .7rem; border:1px solid var(--fg); border-radius:6px; background:var(--fg); color:var(--bg); cursor:pointer; }
+.cs-sb-main:disabled{ opacity:.35; cursor:default; }
+.cs-sb-foot input{ width:100%; font:inherit; font-size:.74rem; padding:.25rem .4rem; margin:0 0 .35rem; border:1px solid var(--line-soft); background:transparent; color:var(--muted); border-radius:6px; }
+.cs-sb-links{ display:flex; gap:.6rem; justify-content:center; margin-top:.35rem; font-size:.76rem; }
 .cs-sb-links a, .cs-sb-links button{ color:var(--muted); background:none; border:0; padding:0; font:inherit; cursor:pointer; text-decoration:underline; }
-.cs-sb-note{ margin:.45rem 0 0; color:var(--muted); font-size:.76rem; text-align:center; }
+.cs-sb-note{ margin:.3rem 0 0; color:var(--muted); font-size:.7rem; text-align:center; }
 .cs-flash{ outline:2px solid #e00000 !important; outline-offset:2px; }
 @media print{ .cs-rail, .cs-sb{ display:none !important; } body.cs-sb-open{ padding-left:0; } }
 </style>`
@@ -501,19 +504,24 @@ export function deepFormSidebar(form: DeepFormLayer): string {
     ? `<input id="csFormUrl" readonly value="${esc(form.link)}" aria-label="Ссылка на форму">
 <button type="button" class="cs-sb-main" id="csCopy">Скопировать ссылку</button>
 <div class="cs-sb-links"><a href="${esc(form.link)}" target="_blank" rel="noopener">Открыть форму</a><button type="button" id="csRevoke">Отозвать ссылку</button></div>
-<p class="cs-sb-note">Открывается без входа в портал · версия ${form.version ?? 1}. Ответы встраиваются в БФТ.</p>`
-    : `<button type="button" class="cs-sb-main" id="csCreate"${total ? '' : ' disabled'}>Сформировать форму</button>
-<p class="cs-sb-note">Ссылка для заказчика и команд: открывают без входа в портал и отвечают, ответы встраиваются в БФТ.</p>`
+<p class="cs-sb-note">Версия ${form.version ?? 1}</p>`
+    : `<button type="button" class="cs-sb-main" id="csCreate"${total ? '' : ' disabled'}>Сформировать форму</button>`
   const script = `<script id="customer-form-js">(function(){
 var API=${jsonInScript(form.api)}, SID=${jsonInScript(form.sessionId)}, KEY="bft-sidebar";
 function post(url, body){ return fetch(url,{ method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify(Object.assign({ sessionId:SID }, body||{})) }).then(function(r){ return r.json().then(function(j){ if(!r.ok) throw new Error(j&&j.error||('ошибка '+r.status)); return j; }); }); }
 function fail(e){ alert('Не получилось: '+e.message); }
 function edit(body){ return post(API.edit, body).then(function(){ location.reload(); }, fail); }
-function setOpen(open){ document.body.classList.toggle('cs-sb-open', open); try{ localStorage.setItem(KEY, open?'1':'0'); }catch(e){} var t=document.getElementById('csSideToggle'); if(t) t.setAttribute('aria-expanded', open?'true':'false'); }
-var saved=null; try{ saved=localStorage.getItem(KEY); }catch(e){}
-setOpen(saved===null ? window.innerWidth>=1180 : saved==='1');
-document.getElementById('csSideToggle').addEventListener('click', function(){ setOpen(!document.body.classList.contains('cs-sb-open')); });
-document.getElementById('csSideClose').addEventListener('click', function(){ setOpen(false); });
+/** Слева одна панель за раз: «Вопросы» (csSidebar) или «Планирование» (csPlanSide, ставит plan.ts). */
+function show(id){ var p=id&&document.getElementById(id); if(!p) id=''; document.querySelectorAll('.cs-sb').forEach(function(x){ x.classList.toggle('on', x.id===id); }); document.body.classList.toggle('cs-sb-open', !!id);
+  document.querySelectorAll('.cs-rail [data-panel]').forEach(function(t){ t.setAttribute('aria-expanded', t.getAttribute('data-panel')===id?'true':'false'); });
+  try{ localStorage.setItem(KEY, id||'0'); }catch(e){} if(p) p.dispatchEvent(new Event('cs-open')); }
+function setOpen(open){ show(open?'csSidebar':''); }
+window.csPanel=show;
+document.addEventListener('click', function(e){ var t=e.target.closest('.cs-rail [data-panel]'); if(t){ e.preventDefault(); var id=t.getAttribute('data-panel'); show(document.getElementById(id)&&document.getElementById(id).classList.contains('on')&&document.body.classList.contains('cs-sb-open')?'':id); return; } if(e.target.closest('[data-close-panel]')) show(''); });
+function restore(){ var saved=null; try{ saved=localStorage.getItem(KEY); }catch(e){}
+  if(location.hash==='#plan') saved='csPlanSide'; else if(saved==='1') saved='csSidebar';
+  show(saved===null ? (window.innerWidth>=1180?'csSidebar':'') : saved==='0'?'':saved); }
+if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', restore); else setTimeout(restore, 0);
 document.addEventListener('keydown', function(e){ if(e.key==='Escape' && window.innerWidth<1180) setOpen(false); });
 function norm(s){ return String(s||'').replace(/\s+/g,' ').trim().toLowerCase(); }
 /** Куда вести вопрос: его пометка; нет — строка требования (ФТ-N); нет — заголовок раздела. */
@@ -547,11 +555,11 @@ if(copy) copy.addEventListener('click', function(){ url.select(); (navigator.cli
 var revoke=document.getElementById('csRevoke');
 if(revoke) revoke.addEventListener('click', function(){ if(confirm('Отозвать ссылку? Она перестанет открываться у всех, кому её отправили.')) post(API.revoke).then(function(){ location.reload(); }, fail); });
 })();</script>`
-  return `${SIDEBAR_STYLE}<nav class="cs-rail" aria-label="Панели БФТ"><button type="button" class="cs-rail-tab q" id="csSideToggle" aria-controls="csSidebar">⟩ Вопросы (${answered}/${total})</button>${RAIL_PLAN_SLOT}</nav>
+  return `${SIDEBAR_STYLE}<nav class="cs-rail" aria-label="Панели БФТ"><button type="button" class="cs-rail-tab q" id="csSideToggle" data-panel="csSidebar" aria-controls="csSidebar">⟩ Вопросы (${answered}/${total})</button>${RAIL_PLAN_SLOT}</nav>
 <aside class="cs-sb" id="csSidebar" aria-label="Вопросы по БФТ">
-<div class="cs-sb-head"><h4>Вопросы<span class="cs-sb-sub">${total ? `отвечено ${answered} из ${total} · заказчику ${customerCount}, командам ${total - customerCount}` : 'пока нет'}</span></h4><button type="button" class="cs-sb-x" id="csSideClose" title="Скрыть панель">×</button></div>
+<div class="cs-sb-head"><h4>Вопросы<span class="cs-sb-sub">${total ? `отвечено ${answered} из ${total} · заказчику ${customerCount}, командам ${total - customerCount}` : 'пока нет'}</span></h4><button type="button" class="cs-sb-x" id="csSideClose" data-close-panel title="Скрыть панель">×</button></div>
 <div class="cs-sb-body">${form.api.inbox ? inboxBlock(form.api.inbox, form.sessionId) : ''}${groups}
-<form class="cs-sb-add" id="csAddQ"><input name="text" placeholder="Свой вопрос — что нужно узнать?" maxlength="500" required><div class="row"><input name="addressee" placeholder="У кого" maxlength="120" value="заказчика"><button type="submit">Добавить</button></div></form>
+<form class="cs-sb-add" id="csAddQ"><input name="text" placeholder="Свой вопрос…" maxlength="500" required><input name="addressee" placeholder="у кого" title="У кого спросить" maxlength="120" value="заказчика"><button type="submit" title="Добавить вопрос">+</button></form>
 ${removed}</div>
 <div class="cs-sb-foot">${foot}</div>
 </aside>${script}`
