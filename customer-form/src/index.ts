@@ -45,6 +45,7 @@ import { mcpHandler } from './mcp-server.js'
 import { bftMcp, MCP_INSTRUCTIONS } from './mcp-bft.js'
 import { bftCard, type BftState } from './bft-list.js'
 import { registerPlanRoutes, withPlan } from './plan-routes.js'
+import { registeredEvent, sharedLifecycle } from './lifecycle.js'
 import { withAgent } from './agent-page.js'
 import { canUndo, dshModel, newRevision, normalizeRemarks, poWords, queueRemarks, readRevisions, reviewDue, reviseDeep, revisionsContext, saveRevisions, sinceReview, undoRevision, type Revision, type TextModel } from './bft-revise.js'
 import { docRevOf, pickBlocks } from './doc-sections.js'
@@ -250,6 +251,27 @@ export function apply(ctx: HarnessContext): void {
   mkdir(workspacePath, { recursive: true }).catch(() => undefined)
 
   const backlog = sharedBacklog()
+  // Жизненный цикл БФТ (ADR-0022): новая заявка → её workflow; заявки, заведённые раньше, —
+  // догружаются при старте (eventId «registered» постоянный — повтор не задваивается).
+  const lifecycle = sharedLifecycle()
+  if (lifecycle.enabled) {
+    backlog.onRegistered = (sessionId, ticket, text) => {
+      const at = new Date().toISOString()
+      const title = text.trim().split('\n')[0].slice(0, 80) || undefined
+      void lifecycle.record({ taskId: ticket.taskId, slug: fastSlug(ticket.taskId), sessionId, ...(title ? { title } : {}), createdAt: at }, registeredEvent(at, title))
+    }
+    setTimeout(() => {
+      void (async () => {
+        const items = await backlog.overview(await backlog.sessionIds())
+        let delivered = 0
+        for (const item of items) {
+          const at = item.created || new Date().toISOString()
+          if (await lifecycle.record({ taskId: item.taskId, slug: fastSlug(item.taskId), sessionId: item.sessionId, title: item.title, createdAt: at }, registeredEvent(at, item.title))) delivered++
+        }
+        if (items.length) console.log(`[customer-form] жизненный цикл: заявок ${items.length}, в Temporal ${delivered}`)
+      })().catch((e) => console.error('[customer-form] жизненный цикл: догрузка заявок не прошла:', e))
+    }, 20_000)
+  }
   // «Файлы рабочей области»: папка на каждую заявку (workspace-mirror.ts) — и для
   // заявок, заведённых до зеркала.
   void (async () => {
@@ -1176,6 +1198,34 @@ export function apply(ctx: HarnessContext): void {
         return Response.json({ ok: true, newUrl: portalUrl('/'), items: cards }, { headers })
       },
     }), 'customer-form: /api/customer-form.bftList')
+
+    // Жизненный цикл заявки (ADR-0022): стадия, ожидания и хроника из workflow Temporal.
+    // За входом портала, как «Все заявки»; цикла нет или Temporal недоступен — 404/503.
+    scoped.effect(() => register({
+      path: '/api/customer-form.lifecycle',
+      methods: ['GET'],
+      requestBody: 'buffered',
+      fetch: async (request: Request) => {
+        const headers = { 'cache-control': 'no-store' }
+        if (!lifecycle.enabled) return Response.json({ ok: false, error: 'жизненный цикл выключен' }, { status: 503, headers })
+        const sessionId = new URL(request.url).searchParams.get('session') ?? ''
+        const ticket = sessionId ? await backlog.find(sessionId).catch(() => undefined) : undefined
+        if (!ticket) return Response.json({ ok: false, error: 'нет такой заявки' }, { status: 404, headers })
+        const got = await lifecycle.status(ticket.taskId)
+        if (!got) return Response.json({ ok: false, error: 'цикл заявки не найден или Temporal недоступен' }, { status: 503, headers })
+        return Response.json({ ok: true, ...got }, { headers })
+      },
+    }), 'customer-form: /api/customer-form.lifecycle')
+
+    // Temporal UI (ADR-0022) — только администраторам: nginx ведёт сюда всех остальных
+    // (map $bft_temporal_upstream, bft-temporal-map.nginx.conf).
+    scoped.effect(() => register({
+      path: '/api/customer-form.temporalForbidden',
+      methods: ['GET', 'POST'],
+      requestBody: 'buffered',
+      fetch: async () => new Response('Temporal UI — только администраторам портала БФТ (группа ADMIN_SSO_GROUPS в Authentik).\n',
+        { status: 403, headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' } }),
+    }), 'customer-form: /api/customer-form.temporalForbidden')
 
     // ── MCP «Система БФТ» для внешних ИИ-агентов (ADR-0023) ─────────────────────────────
     // Тексты пишет модель агента (его токены); знания, шаблоны, проверки и хранение — портала.

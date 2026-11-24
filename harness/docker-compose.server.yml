@@ -28,6 +28,17 @@ services:
     ports: !override
       - "127.0.0.1:3084:3456"
 
+  # Temporal UI (ADR-0022): nginx /bft-temporal/ → 127.0.0.1:3088, только группе администраторов
+  # Authentik (bft-portal.nginx.conf + bft-temporal-map.nginx.conf, install-nginx-bft.sh).
+  temporal-ui:
+    environment:
+      TEMPORAL_UI_PUBLIC_PATH: /bft-temporal
+    ports: !override
+      - "127.0.0.1:3088:8080"
+  bft-flow:
+    build:
+      network: host
+
   # На сервере у docker сеть bridge выключена ("bridge": "none" в daemon.json):
   # сборке нужен выход в интернет через сеть хоста.
   cortex:

@@ -1,6 +1,7 @@
 # Автономная система БФТ: docker compose up -d — и работает (ADR-0002).
 # Минимальный контур (ADR-0012): портал, трекер (+postgres), разбор материалов,
-# Кортекс. Коробка, Matrix и harness-web — профиль legacy:
+# Кортекс; жизненный цикл БФТ (ADR-0022) — Temporal + bft-flow + Temporal UI.
+# Коробка, Matrix и harness-web — профиль legacy:
 #   docker compose --profile legacy up -d
 # Полоса А (Т2): 5 сервисов. Трекер добавит Т10, Matrix/Element — Т11.
 # Контексты сборки — корень репозитория: образам нужны plugin/, skills/, box/.
@@ -54,8 +55,7 @@ services:
       retries: 20
     mem_limit: 256m
 
-  temporal:
-    profiles: [legacy]   # минимальный контур (ADR-0012): вне запуска по умолчанию
+  temporal:   # ADR-0022: жизненный цикл БФТ — один workflow на заявку; БД temporal* в общем postgres
     image: temporalio/auto-setup:1.27.2
     restart: unless-stopped
     depends_on:
@@ -132,15 +132,34 @@ services:
       start_period: 20s
     mem_limit: 1536m
 
-  temporal-ui:
-    image: temporalio/ui:2.36.1
-    profiles: [debug]
+  temporal-ui:   # хроника циклов БФТ для администратора (ADR-0022); на сервере — /bft-temporal/ за Authentik
+    image: temporalio/ui:2.57.0
     restart: unless-stopped
     depends_on: [temporal]
     environment:
       TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_DEFAULT_NAMESPACE: bft
+      TEMPORAL_UI_PUBLIC_PATH: ${TEMPORAL_UI_PUBLIC_PATH:-}
     ports: ["${BOX_BIND:-127.0.0.1}:8233:8080"]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080$${TEMPORAL_UI_PUBLIC_PATH}/ || exit 1"]
+      interval: 10s
+      retries: 30
+      start_period: 15s
     mem_limit: 128m
+
+  bft-flow:   # ADR-0022: воркер цикла БФТ — код workflow, очередь bft-flow; namespace bft создаёт сам
+    build:
+      context: ../bft-flow
+    image: poh-bft-flow:local
+    restart: unless-stopped
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_NAMESPACE: bft
+      BFT_RETENTION_DAYS: ${BFT_RETENTION_DAYS:-365}
+    depends_on:
+      temporal: { condition: service_healthy }
+    mem_limit: 384m
 
   customer-web:   # ADR-0007: портал заказчика — dsh-экземпляр только с customer-form
     image: poh-harness-web:local
@@ -196,6 +215,10 @@ services:
       BFT_REVIEW_AGENT_URL: ${BFT_REVIEW_AGENT_URL:-}
       BFT_REVIEW_AGENT_KEY: ${BFT_REVIEW_AGENT_KEY:-}
       BFT_REVIEW_AGENT_MODEL: ${BFT_REVIEW_AGENT_MODEL:-}
+      # Жизненный цикл БФТ (ADR-0022): портал шлёт события в workflow заявки. Пусто — без цикла;
+      # Temporal недоступен — портал работает как раньше, событие только в журнал (теневой режим).
+      TEMPORAL_ADDRESS: ${BFT_TEMPORAL_ADDRESS-temporal:7233}
+      TEMPORAL_NAMESPACE: bft
     depends_on:
       context-ingest: { condition: service_healthy }
     ports:

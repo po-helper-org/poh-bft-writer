@@ -164,6 +164,9 @@ export class Backlog {
   }
   private readonly failCreate = new Set<string>()
 
+  /** Заявка только что заведена (жизненный цикл, ADR-0022). Наблюдатель, не участник: ошибки глотаются. */
+  onRegistered?: (sessionId: string, ticket: Ticket, text: string) => void
+
   async find(sessionId: string): Promise<Ticket | undefined> {
     return (await this.tickets)[sessionId]
   }
@@ -177,6 +180,7 @@ export class Backlog {
       if (known) return known
       const ticket = await this.submit(text)
       await this.save(sessionId, ticket)
+      try { this.onRegistered?.(sessionId, ticket, text) } catch { /* наблюдатель не роняет заявку */ }
       return ticket
     })()
     this.pending.set(sessionId, job)

@@ -1,0 +1,29 @@
+{
+  "name": "bft-flow",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Жизненный цикл БФТ на Temporal (ADR-0022): один долгий workflow на заявку — код цикла и воркер",
+  "license": "MIT",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": { "types": "./lib/index.d.ts", "default": "./lib/index.js" }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node scripts/bundle.mjs",
+    "test": "tsc -p tsconfig.json && node --test test/*.test.mjs",
+    "start": "node lib/worker.js"
+  },
+  "dependencies": {
+    "@temporalio/client": "1.25.0",
+    "@temporalio/common": "1.25.0",
+    "@temporalio/worker": "1.25.0",
+    "@temporalio/workflow": "1.25.0"
+  },
+  "devDependencies": {
+    "@temporalio/testing": "1.25.0",
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2"
+  }
+}

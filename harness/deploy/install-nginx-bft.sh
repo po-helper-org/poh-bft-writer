@@ -17,6 +17,8 @@
 # Агент полного ревью (ADR-0024): location = /bft-review/v1/responses → BFT_REVIEW_AGENT_UPSTREAM
 # из harness/.env (адрес метода ответа одного агента на loopback хоста); пусто — блок не ставится.
 # Проверка: POST без ключа — 401 от шлюза агентов.
+# Temporal UI жизненного цикла БФТ (ADR-0022): /bft-temporal/ за Authentik, только группе
+# администраторов — map на уровне http (bft-temporal-map.nginx.conf → conf.d).
 set -euo pipefail
 
 DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -28,6 +30,7 @@ fi
 [ -n "$NAME" ] || { echo "Не задан хост портала: PORTAL_HOST=<хост> или PORTAL_TRUSTED_HOSTS в $ENV_FILE"; exit 1; }
 VHOST=/etc/nginx/sites-available/$NAME.conf
 SNIP=/etc/nginx/snippets/poh-bft-portal.conf
+MAP=/etc/nginx/conf.d/poh-bft-temporal-map.conf
 WIDGET_INCLUDE='include /etc/nginx/snippets/poh-widget-bft.conf;'
 PORTAL_INCLUDE='include /etc/nginx/snippets/poh-bft-portal.conf;'
 
@@ -37,10 +40,13 @@ BAK="$VHOST.bak-bft-portal-$(date +%Y%m%d%H%M%S)"
 sudo cp -a "$VHOST" "$BAK"
 OLD_SNIP=""
 if sudo test -f "$SNIP"; then OLD_SNIP=$(mktemp); sudo cp "$SNIP" "$OLD_SNIP"; fi
+OLD_MAP=""
+if sudo test -f "$MAP"; then OLD_MAP=$(mktemp); sudo cp "$MAP" "$OLD_MAP"; fi
 
 restore() {
   sudo cp -a "$BAK" "$VHOST"
   if [ -n "$OLD_SNIP" ]; then sudo cp "$OLD_SNIP" "$SNIP"; else sudo rm -f "$SNIP"; fi
+  if [ -n "$OLD_MAP" ]; then sudo cp "$OLD_MAP" "$MAP"; else sudo rm -f "$MAP"; fi
 }
 
 if [ "${1:-}" = --rollback ]; then
@@ -59,6 +65,8 @@ else
   fi
   sudo install -m 644 "$RENDERED" "$SNIP"
   rm -f "$RENDERED"
+  # map для /bft-temporal/ (сниппет на него ссылается) — уровень http.
+  sudo install -m 644 "$DIR/bft-temporal-map.nginx.conf" "$MAP"
   # Виджет занимал /bft/ — его include комментируем (дубль location не пройдёт nginx -t).
   sudo sed -i -E "s|^([[:space:]]*)${WIDGET_INCLUDE//./\\.}.*$|\1# ${WIDGET_INCLUDE} # poh-bft-portal: /bft/ отдан порталу|" "$VHOST"
   if ! sudo grep -qE "^[[:space:]]*${PORTAL_INCLUDE//./\\.}" "$VHOST"; then
@@ -70,6 +78,7 @@ fi
 if OUT=$(sudo nginx -t 2>&1); then
   sudo systemctl reload nginx
   [ -n "$OLD_SNIP" ] && rm -f "$OLD_SNIP"
+  [ -n "$OLD_MAP" ] && rm -f "$OLD_MAP"
   echo "ok: nginx перезагружен (копия vhost: $BAK)"
 else
   echo "$OUT"
@@ -85,3 +94,5 @@ printf "внутри   127.0.0.1:3082 -> %s (ждём 200 — портал жи�
 printf "снаружи  %s/bft/form  -> %s (ждём 404 — форма открыта без входа, ключа нет)\n" "$HOST" "$(curl -s -m 15 -o /dev/null -w '%{http_code}' "$HOST/bft/form")"
 printf "снаружи  %s/bft/mcp   -> %s (ждём 401 — MCP открыт без входа, токена нет)\n" "$HOST" "$(curl -s -m 15 -o /dev/null -w '%{http_code}' -X POST "$HOST/bft/mcp")"
 [ -z "${UPSTREAM:-}" ] || printf "снаружи  %s/bft-review/v1/responses -> %s (ждём 401 — агент ревью, ключа нет)\n" "$HOST" "$(curl -s -m 15 -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -d '{}' "$HOST/bft-review/v1/responses")"
+printf "снаружи  %s/bft-temporal/ -> %s (ждём 302 на вход Authentik; после входа — UI администраторам, 403 остальным)\n" "$HOST" "$(curl -s -m 15 -o /dev/null -w '%{http_code}' "$HOST/bft-temporal/")"
+printf "внутри   127.0.0.1:3088  -> %s (ждём 200 — Temporal UI жив)\n" "$(curl -s -m 15 -o /dev/null -w '%{http_code}' http://127.0.0.1:3088/bft-temporal/)"

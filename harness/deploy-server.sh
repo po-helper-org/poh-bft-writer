@@ -16,7 +16,9 @@
 #     poh-cortex при первой выкладке; дальше выкладка её не трогает и образ
 #     Кортекса не пересобирает.
 #  4. Образ портала собирается на сервере (x86_64), стек поднимается start.sh
-#     с docker-compose.server.yml: портал 127.0.0.1:3082, трекер 127.0.0.1:3084.
+#     с docker-compose.server.yml: портал 127.0.0.1:3082, трекер 127.0.0.1:3084,
+#     Temporal UI 127.0.0.1:3088 (жизненный цикл БФТ, ADR-0022; воркер bft-flow
+#     собирается каждую выкладку).
 #  5. nginx (/bft/ за Authentik, /bft-sources/mcp — шлюз источников) — разовый шаг
 #     владельца с sudo:
 #       bash ~/$DEPLOY_DIR/harness/deploy/install-nginx-bft.sh
@@ -67,7 +69,7 @@ REV=$(git rev-parse --short HEAD)
 # На сервер уходит только git archive HEAD: незакоммиченное и неотслеживаемое
 # (новые файлы!) туда не попадёт — сервер соберёт старый код. Поэтому стоп, а не
 # предупреждение; --untracked-files=all — чтобы видеть и новые файлы.
-DIRTY=$(git status --porcelain --untracked-files=all -- customer-form data-sources bft-manager speech-ru skills \
+DIRTY=$(git status --porcelain --untracked-files=all -- customer-form data-sources bft-manager speech-ru skills bft-flow \
   harness/harness-web harness/profile harness/docker-compose.yml harness/docker-compose.server.yml \
   harness/start.sh harness/deploy harness/deploy-server.sh harness/sources-gateway)
 if [ -n "$DIRTY" ]; then
@@ -136,8 +138,11 @@ export COMPOSE_BAKE=false
 for svc in cortex:poh-cortex context-ingest:poh-context-ingest; do
   docker image inspect "\${svc#*:}:local" > /dev/null 2>&1 || { echo "▸ первая сборка \${svc%%:*}"; docker compose build -q "\${svc%%:*}"; }
 done
+# Воркер жизненного цикла БФТ (ADR-0022) — код меняется с репозиторием: собирается каждую выкладку.
+echo "▸ Сборка воркера жизненного цикла…"
+docker compose build -q bft-flow
 ./start.sh --no-open --no-build
-docker compose up -d --force-recreate customer-web > /dev/null
+docker compose up -d --force-recreate customer-web bft-flow > /dev/null
 for i in \$(seq 1 60); do [ "\$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3082/)" = 200 ] && break; sleep 2; done
 echo "▸ портал 127.0.0.1:3082 → \$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3082/)"
 EOF
