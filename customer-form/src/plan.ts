@@ -275,11 +275,8 @@ export function planSidebar(plan: SavedPlan | undefined, links: PlanLinks): stri
   const cfg = { saveUrl: links.noteSave, savedAt: plan?.meta.noteAt ?? plan?.meta.savedAt ?? null }
   return `<style id="plan-side-style">
 #csPlanSide .cs-sb-body{ display:flex; flex-direction:column; padding:0; }
-#csPlanNote{ flex:1; width:100%; border:0; outline:0; resize:none; padding:.6rem .8rem 1.2rem; background:transparent; color:inherit; font:13px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif; tab-size:2; }
-#csPlanSide .cs-sb-main{ text-align:center; text-decoration:none; }
+#csPlanNote{ flex:1; width:100%; box-sizing:border-box; border:0; outline:0; resize:none; padding:12px 16px 24px; background:transparent; color:inherit; font:14px/20px var(--sb-font, system-ui, sans-serif); tab-size:2; }
 #csPlanSide .cs-sb-main:visited{ color:var(--bg); }
-#csPlanSide .cs-sb-alt{ display:block; margin-top:.35rem; padding:.36rem .7rem; border:1px solid var(--line-soft); border-radius:6px; text-align:center; font:600 .78rem/1.2 system-ui,sans-serif; color:inherit; text-decoration:none; }
-#csPlanSide .cs-sb-alt:hover{ border-color:var(--fg); }
 #csPlanSt.dirty::before{ content:""; display:inline-block; width:6px; height:6px; border-radius:50%; background:#f59e0b; margin-right:5px; vertical-align:1px; }
 </style>
 <aside class="cs-sb" id="csPlanSide" aria-label="Планирование">

@@ -17,22 +17,32 @@ const DEEP = '<html><body><div class="rail"><button id="navToggle">☰ Соде�
 test('панель: вопросы по сторонам, ответ, счётчик, без ссылки — «Сформировать форму»', () => {
   const html = deepFormSidebar(layer())
   assert.match(html, /⟩ Вопросы \(1\/2\)/)
-  assert.match(html, /Заказчику · 1/)
-  assert.match(html, /Спросить у Команда платежей · 1/)
+  assert.match(html, /Заказчику<span class="cs-cnt">1<\/span>/)
+  assert.match(html, /Команда платежей<span class="cs-cnt">1<\/span>/)
   assert.match(html, /class="sb-q done" data-qid="a"/)
-  assert.match(html, /✓ 3 в месяц — Аня/)
+  assert.match(html, /aria-label="Отвечен"/)
+  assert.match(html, /Отвечено <b>1 из 2<\/b>/)
+  assert.match(html, /3 в месяц <span class="who">· Аня<\/span>/)
   assert.match(html, /id="csCreate"/)
   assert.ok(!html.includes('id="csCopy"'))
-  assert.match(html, /Убраны из формы — 1/)
+  assert.match(html, /Убраны из формы · 1/)
+  assert.ok(!html.includes('alert('), 'ошибки — строкой в панели, не alert')
   assert.match(html, /\.rail, #navDrawer, #uncDrawer\{ display:none/, 'вкладки навыка скрыты')
 })
 
 test('панель: ссылка выдана — «Скопировать ссылку», открыть, отозвать', () => {
   const html = deepFormSidebar(layer('https://x/form?id=1'))
-  assert.match(html, /id="csCopy">Скопировать ссылку/)
+  assert.match(html, /id="csCopy">Копировать/)
   assert.match(html, /id="csFormUrl" readonly value="https:\/\/x\/form\?id=1"/)
   assert.match(html, /id="csRevoke"/)
   assert.ok(!html.includes('id="csCreate"'))
+})
+
+test('панель без вопросов: пустое состояние, форма добавления открыта, подвала нет', () => {
+  const html = deepFormSidebar({ ...layer(), questions: [], answers: {} })
+  assert.match(html, /Вопросов пока нет/)
+  assert.match(html, /<form class="cs-sb-add" id="csAddQ">/)
+  assert.ok(!html.includes('id="csCreate"') && !html.includes('cs-sb-foot"'))
 })
 
 test('пометка [УТОЧНИТЬ] получает data-qid своего вопроса', () => {
