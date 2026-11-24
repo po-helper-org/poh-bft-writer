@@ -19,6 +19,7 @@ import { check, checkContext, formatFinding } from './canon-check.js'
 import { canonOf } from './forms.js'
 import { changedBlocks } from './doc-sections.js'
 import { collectQuestions } from './questions.js'
+import { balanceMessage, isBalanceError, type ProviderHealth } from './provider-health.js'
 
 /** ref — метка замечания на странице (ts комментария): по ней страница закрывает внесённое. */
 export interface Remark { section: string; quote?: string; text: string; ref?: string }
@@ -54,6 +55,8 @@ export interface Revision {
   model?: string
   /** Что видела модель: раздел(ы) или весь документ. */
   scope?: string
+  /** Пометка для колонки: например, у основной модели закончился баланс и правила запасная. */
+  notice?: string
 }
 
 export const REVISE_LIMITS = { remarks: 30, text: 2000, quote: 500, section: 200, author: 120, ref: 64, history: 200 }
@@ -390,6 +393,8 @@ export function poWords(list: readonly Revision[], current: readonly Remark[] = 
 /** Модель для правки: dsh (провайдер портала) или внешний агент полного ревью. */
 export interface TextModel {
   label: string
+  /** Провайдер — для отметки «закончился баланс» (ProviderHealth). */
+  provider?: string
   complete(prompt: { system: string; user: string }, signal: AbortSignal, onChars: (n: number) => void): Promise<string>
 }
 
@@ -397,6 +402,7 @@ export interface TextModel {
 export function dshModel(llm: LlmLike, route: DeepRoute, maxTokens = 16_000): TextModel {
   return {
     label: `${route.provider} · ${route.model}`,
+    provider: route.provider,
     complete: (prompt, signal, onChars) => {
       const counting: LlmLike = {
         prepareCall: async (config, s) => {
@@ -422,6 +428,8 @@ export interface ReviseInput {
   /** Модель правки; fallback — если она не ответила (нет ключа, провайдер лёг). */
   model: TextModel
   fallback?: TextModel
+  /** Отметки «закончился баланс»: помеченного провайдера пропускаем сразу на запасную. */
+  health?: ProviderHealth
   skillsPath: string
   fast: FastFiles
   slug: string
@@ -478,7 +486,18 @@ export async function reviseDeep(input: ReviseInput): Promise<Revision> {
   const changes: Edit[] = []
   let doc = original
   let edits = 0
+  const health = input.health
   let model = input.model
+  let notice: string | undefined
+  const switchToFallback = (why: string): boolean => {
+    const fb = input.fallback
+    if (!fb || model === fb || health?.isExhausted(fb.provider)) return false
+    notice = `${why} — правила запасная модель ${fb.label}`
+    model = fb
+    return true
+  }
+  if (health?.isExhausted(model.provider)) switchToFallback(`У ${model.provider} закончился баланс`)
+  if (health?.isExhausted(model.provider)) throw new Error(balanceMessage(model.provider!))
   let scopeLabel = 'весь документ'
   let retry: { failed: string[]; errors: string[] } | undefined
   const max = input.rounds ?? 2
@@ -493,15 +512,28 @@ export async function reviseDeep(input: ReviseInput): Promise<Revision> {
       last = n
       void input.onProgress({ progress: { chars: n, round } })
     }
+    const ask = async (m: TextModel): Promise<string> => {
+      try {
+        const out = await m.complete(prompt, signal, onChars)
+        if (m.provider) health?.clear(m.provider)
+        return out
+      } catch (e) {
+        if (signal.aborted || !isBalanceError(e) || !m.provider) throw e
+        health?.exhausted(m.provider)
+        throw Object.assign(new Error(balanceMessage(m.provider)), { balance: m.provider, cause: e })
+      }
+    }
     let text: string
     try {
-      text = await model.complete(prompt, signal, onChars)
+      text = await ask(model)
     } catch (e) {
-      if (signal.aborted || !input.fallback || model === input.fallback) throw e
-      console.error(`[customer-form] ИИ-агент правок: ${model.label} не ответила, беру ${input.fallback.label}:`, (e as Error).message)
-      model = input.fallback
-      await input.onProgress({ model: model.label })
-      text = await model.complete(prompt, signal, onChars)
+      if (signal.aborted) throw e
+      const failed = model
+      const balance = (e as { balance?: string }).balance
+      if (!switchToFallback(balance ? `У ${balance} закончился баланс` : `${failed.label} не ответила`)) throw e
+      console.error(`[customer-form] ИИ-агент правок: ${failed.label} не ответила, беру ${model.label}:`, (e as Error).message)
+      await input.onProgress({ model: model.label, notice: notice! })
+      text = await ask(model)
     }
     const parsed = parseEdits(text)
     rounds.push(parsed.results)
@@ -519,7 +551,7 @@ export async function reviseDeep(input: ReviseInput): Promise<Revision> {
     retry = { failed: applied.failed, errors: fresh.map(formatFinding) }
   }
   const results = review ? ([...rounds].reverse().find((r) => r.length) ?? []) : mergeResults(revision.remarks.length, rounds)
-  const done = { ...revision, model: model.label, scope: scopeLabel, results }
+  const done = { ...revision, model: model.label, scope: scopeLabel, results, ...(notice ? { notice } : {}) }
   if (doc === original) return { ...done, stage: 'ready', edits: 0, finishedAt: new Date().toISOString() }
   // Прежняя версия — в копию (откат), новая — на место, страница ревью — заново.
   const backup = join(backupDir(fast), `${revision.id}.md`)

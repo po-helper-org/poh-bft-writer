@@ -53,6 +53,7 @@ import { withAgent } from './agent-page.js'
 import { canUndo, dshModel, newRevision, normalizeRemarks, poWords, queueRemarks, readRevisions, reviewDue, reviseDeep, revisionsContext, saveRevisions, sinceReview, undoRevision, type Revision, type TextModel } from './bft-revise.js'
 import { docRevOf, pickBlocks } from './doc-sections.js'
 import { reviewAgentFromEnv, reviewAgentModel } from './review-agent.js'
+import { ProviderHealth } from './provider-health.js'
 import { answersContext, answersMarkdown, answersPath, editQuestions, formOfRequest, formTitle, isFormId, latestVersion, linkForm, newForm, readForm, refreshForm, reissue, saveForm, submitAnswers, SubmitGate, type BftForm, type EditOp, type FormPerson, type FormQuestion } from './forms.js'
 import { formGonePage, formPage, previewPage, type DeepFormLayer } from './form-page.js'
 import { mirrorAll, mirrorRequest } from './workspace-mirror.js'
@@ -353,6 +354,8 @@ export function apply(ctx: HarnessContext): void {
   // Портал» хранится в томе. Чат — модель dsh по умолчанию; полный БФТ —
   // PORTAL_DEEP_PROVIDER/MODEL → выбор администратора → модель чата.
   let portalModels: PortalModels = {}
+  // «Закончился баланс» у провайдера (ADR-0024): правки сразу идут на запасную модель, настройки предупреждают.
+  const providerHealth = new ProviderHealth()
   const modelsLoaded = readPortalModels().then((stored) => { portalModels = stored })
   let defaults: DefaultModelLike | undefined
   let deepRuntime: { llm: LlmLike; route(): DeepRoute } | undefined
@@ -466,7 +469,7 @@ export function apply(ctx: HarnessContext): void {
   const runDeep = async (fast: FastFiles, slug: string, request: string, runtime: DeepRuntime, startedAt: string,
     recon: { mode: 'live' } | { mode: 'fixture'; markdown: string }) => {
     const prepared = await deepContextInput(fast, slug, request, recon.mode === 'live' ? { mode: 'live', plan: runtime } : recon)
-    const state = await buildDeep({ ...prepared.input, startedAt, llm: runtime.llm, route: runtime.route() })
+    const state = await buildDeep({ ...prepared.input, startedAt, llm: runtime.llm, route: runtime.route(), onBalance: (p) => providerHealth.exhausted(p) })
     return { state, sources: prepared.sources, sourcesPath: prepared.sourcesPath, context: prepared.context, reconMs: prepared.reconMs }
   }
   /**
@@ -789,6 +792,7 @@ export function apply(ctx: HarnessContext): void {
           try { body = await request.json() } catch { return Response.json({ error: 'тело не JSON' }, { status: 400 }) }
           const before = portalModels.chat
           portalModels = mergePortalModels(portalModels, body)
+          providerHealth.clear() // сменили модель или пополнили баланс — пробуем снова
           await writePortalModels(portalModels)
           try {
             // Модель чата трогаем, только если её выбор изменился: сброс — назад к профилю.
@@ -823,6 +827,8 @@ export function apply(ctx: HarnessContext): void {
             ? { provider: process.env.PORTAL_LOCAL_PROVIDER, model: process.env.PORTAL_LOCAL_MODEL } : DEFAULT_LOCAL,
           review: portalModels.review ?? null,
           reviewAgent: reviewAgentFromEnv() ? { configured: true, model: reviewAgentFromEnv()!.model ?? null } : { configured: false, model: null },
+          // Провайдеры, у которых закончился баланс (последние 10 минут).
+          exhausted: providerHealth.list(),
         }, { headers: { 'cache-control': 'no-store' } })
       },
     }), 'customer-form: модели портала')
@@ -1506,7 +1512,7 @@ export function apply(ctx: HarnessContext): void {
           let done: Revision
           try {
             done = await reviseDeep({
-              model: review ? models.review : models.local, fallback: models.fallback,
+              model: review ? models.review : models.local, fallback: models.fallback, health: providerHealth,
               skillsPath: SKILLS_PATH, fast, slug, revision: next, ...(review ? { since: sinceReview(list) } : {}),
               onProgress: (update) => patchRevision(slug, next.id, update),
             })

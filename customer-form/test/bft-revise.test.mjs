@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { applyEdits, applyScoped, canUndo, dshModel, mdSections, mergeResults, newErrors, newRevision, normalizeRemarks, parseEdits, queueRemarks, reviewDue, reviewPrompt, revisePrompt, reviseDeep, revisionsContext, scopeFor, sinceReview, undoRevision } from '../lib-test/bft-revise.js'
 import { withAgent } from '../lib-test/agent-page.js'
+import { ProviderHealth } from '../lib-test/provider-health.js'
 import { check, checkContext } from '../lib-test/canon-check.js'
 
 const SKILLS = resolve(import.meta.dirname, '../../skills')
@@ -218,6 +219,37 @@ test('модель не ответила — правит запасная', { s
   const done = await reviseDeep({ model: broken, fallback: spare, skillsPath: SKILLS, fast, slug: 'golden', revision: newRevision([{ section: 'Риски', text: 'фичефриз' }]), onProgress: async () => {} })
   assert.equal(done.stage, 'ready', done.error)
   assert.equal(done.model, 'deep · m')
+})
+
+test('закончился баланс — правит запасная, пометка в колонке, провайдер пропускается до сброса', { skip: !existsSync(GOLDEN) }, async () => {
+  const fast = await request()
+  const health = new ProviderHealth()
+  let calls = 0
+  const broke = { label: 'requesty · haiku', provider: 'requesty', complete: async () => { calls++; throw Object.assign(new Error('Insufficient balance'), { statusCode: 402 }) } }
+  const reply = `${edit(RISK_ROW, `${RISK_ROW}\n${NEW_RISK}`)}\n@@@ ОТЧЁТ\n[{"n":1,"status":"applied","note":"ok"}]`
+  const spare = () => dshModel(fakeLlm([reply]), { provider: 'zai', model: 'glm' })
+  const one = await reviseDeep({ model: broke, fallback: spare(), health, skillsPath: SKILLS, fast, slug: 'golden', revision: newRevision([{ section: 'Риски', text: 'фичефриз' }]), onProgress: async () => {} })
+  assert.equal(one.stage, 'ready', one.error)
+  assert.equal(one.model, 'zai · glm')
+  assert.match(one.notice, /У requesty закончился баланс — правила запасная модель zai · glm/)
+  assert.ok(health.isExhausted('requesty'))
+  // Следующая правка — сразу на запасную, к пустому провайдеру не идём.
+  const fast2 = await request()
+  const two = await reviseDeep({ model: broke, fallback: spare(), health, skillsPath: SKILLS, fast: fast2, slug: 'golden', revision: newRevision([{ section: 'Риски', text: 'фичефриз' }]), onProgress: async () => {} })
+  assert.equal(two.stage, 'ready', two.error)
+  assert.equal(calls, 1, 'второй раз не звонили')
+  assert.equal(health.list()[0].provider, 'requesty')
+})
+
+test('баланс кончился и у запасной — понятная ошибка, документ не тронут', { skip: !existsSync(GOLDEN) }, async () => {
+  const fast = await request()
+  const before = await readFile(join(fast.dir, 'golden.md'), 'utf8')
+  const empty = (provider) => ({ label: provider, provider, complete: async () => { throw new Error(`HTTP 402: {"error":"payment required"}`) } })
+  await assert.rejects(
+    reviseDeep({ model: empty('requesty'), fallback: empty('zai'), health: new ProviderHealth(), skillsPath: SKILLS, fast, slug: 'golden', revision: newRevision([{ section: 'Риски', text: 'фичефриз' }]), onProgress: async () => {} }),
+    /У провайдера zai закончился баланс.*Настройки → Портал/,
+  )
+  assert.equal(await readFile(join(fast.dir, 'golden.md'), 'utf8'), before)
 })
 
 test('риск, названный PO, — законная строка «Рисков» (RK003); без замечания PO — нет', { skip: !existsSync(GOLDEN) }, async () => {

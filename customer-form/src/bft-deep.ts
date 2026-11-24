@@ -19,6 +19,7 @@
  *    WARN и метрики — в отчёт о качестве (deep.json quality);
  *  - страница ревью — bft-html-export.py (`<slug>.html` рядом с `-fast.html`).
  */
+import { balanceMessage, isBalanceError } from './provider-health.js'
 import { execFile } from 'node:child_process'
 import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -572,6 +573,8 @@ export interface DeepInput {
   startedAt?: string
   llm: LlmLike
   route: DeepRoute
+  /** У провайдера закончился баланс — сообщить порталу (отметка для настроек и ИИ-агента правок). */
+  onBalance?: (provider: string) => void
   skillsPath: string
   fast: FastFiles
   slug: string
@@ -743,6 +746,10 @@ export async function buildDeep(input: DeepInput): Promise<DeepState> {
     }
     throw new Error(`канон не прошёл проверку (bft-lint.py и проверки портала) за ${max} попытки:\n${previous?.errors ?? ''}`)
   } catch (e) {
+    if (isBalanceError(e)) {
+      input.onBalance?.(input.route.provider)
+      return failDeep(input, files, fastMd, trail, attempt, startedAt, balanceMessage(input.route.provider))
+    }
     return failDeep(input, files, fastMd, trail, attempt, startedAt, (e as Error).message)
   }
 }

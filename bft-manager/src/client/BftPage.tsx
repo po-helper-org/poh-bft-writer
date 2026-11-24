@@ -2,7 +2,7 @@
  * «Управление БФТ» — страница PO (ADR-0009).
  *
  *  - BftMenu — кнопка в левом верхнем углу главной: «Новая заявка» /
- *    «Управление БФТ». Страница адресуема: #bft (запросы), #bft/board (доска).
+ *    «Управление БФТ» / «Доступ для ИИ-агентов» (личные токены MCP, ADR-0023). Страница адресуема: #bft (запросы), #bft/board (доска).
  *  - Вкладка «Входящие запросы» — беклог корневых задач: название, статус,
  *    сколько висит в статусе (SLA), ответственный, прикреплённые БФТ.
  *  - Вкладка «Доска БФТ» — канбан задач «Проработка БФТ»: дни в статусе,
@@ -15,10 +15,10 @@
 import { useCallback, useEffect, useMemo, useState, type DragEvent, type MouseEvent, type ReactElement } from 'react'
 import { Button, Input, Menu, Modal, Pill, SegmentedControl, SegmentedTabs, Tag, type MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
-  ageLabel, BFT_STATUSES, FINAL_STATUSES, openTarget, REQUEST_STATUSES, sessionsOf, slaTone, STATUS_NEEDS_ASSIGNEE,
+  ACCESS_PATH, ageLabel, BFT_STATUSES, FINAL_STATUSES, openTarget, REQUEST_STATUSES, sessionsOf, slaTone, STATUS_NEEDS_ASSIGNEE,
   type Board, type BoardKind, type Card, type MoveRequest, type MoveResult, type Overview, type Person,
 } from '../model.js'
-import { IconBack, IconBoard, IconChat, IconDoc, IconExternal, IconMenu, IconMore, IconRefresh, IconSearch, IconUser } from './icons.js'
+import { IconBack, IconBoard, IconChat, IconDoc, IconExternal, IconLink, IconMenu, IconMore, IconRefresh, IconSearch, IconUser } from './icons.js'
 
 export type Call = <T>(endpoint: string, payload?: unknown) => Promise<{ ok: true; value: T } | { ok: false; message: string }>
 
@@ -68,6 +68,7 @@ function BftMenu({ onOpen }: { onOpen(): void }): ReactElement {
   const items: MenuEntry[] = [
     { id: 'chat', label: 'Новая заявка', icon: <IconChat size={16} /> },
     { id: 'bft', label: 'Управление БФТ', icon: <IconBoard size={16} /> },
+    { id: 'access', label: 'Доступ для ИИ-агентов', icon: <IconLink size={16} /> },
   ]
   return (
     <div className="bm-trigger" data-bft-menu>
@@ -76,9 +77,14 @@ function BftMenu({ onOpen }: { onOpen(): void }): ReactElement {
         onClose={() => setOpen(false)}
         align="start"
         items={items}
-        onSelect={(id) => { setOpen(false); if (id === 'bft') onOpen() }}
+        onSelect={(id) => {
+          setOpen(false)
+          if (id === 'bft') onOpen()
+          // Страница портала (customer-form), не вкладка dsh: личные токены MCP.
+          if (id === 'access') location.assign(new URL(ACCESS_PATH, document.baseURI).toString())
+        }}
         anchor={<Button
-          variant="toolbar" size="sm" aria-label="Меню" title="Меню: новая заявка, управление БФТ" onClick={() => setOpen((v) => !v)}
+          variant="toolbar" size="sm" aria-label="Меню" title="Меню: новая заявка, управление БФТ, доступ для ИИ-агентов" onClick={() => setOpen((v) => !v)}
           // Заказчику «Меню» стоит на месте кнопки сайдбара — иконка панели; администратору оно справа,
           // рядом с кнопкой правой панели dsh, — там иконка доски, чтобы не двоилось (styles.ts).
           icon={<><span className="bm-ico bm-ico--panel"><IconMenu size={16} /></span><span className="bm-ico bm-ico--board"><IconBoard size={16} /></span></>}
