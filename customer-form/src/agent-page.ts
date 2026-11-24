@@ -18,69 +18,72 @@ export interface AgentLayer {
 }
 
 const STYLE = `<style id="bft-agent-style">
-#bftAgentBtn{position:fixed;right:18px;bottom:18px;z-index:60;display:flex;align-items:center;gap:8px;padding:11px 16px;border-radius:999px;border:0;
-  background:#111;color:#fff;font:600 14px/1 system-ui,-apple-system,sans-serif;box-shadow:0 6px 20px rgba(0,0,0,.25);cursor:pointer}
-#bftAgentBtn .dot{width:8px;height:8px;border-radius:50%;background:#22c55e;display:none}
+#bftAgentBtn,#bftAgent,#bftAgentFresh{--ag-fg:#111;--ag-mute:#8a8a8a;--ag-line:#ececec;--ag-bg:#fff;--ag-soft:#f6f6f4;--ag-ok:#15803d;--ag-q:#a16207;--ag-err:#b91c1c;
+  font:13px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;color:var(--ag-fg)}
+@media (prefers-color-scheme:dark){#bftAgentBtn,#bftAgent,#bftAgentFresh{--ag-fg:#ececec;--ag-mute:#8d8d8d;--ag-line:#2a2a2a;--ag-bg:#161616;--ag-soft:#1f1f1f;--ag-ok:#4ade80;--ag-q:#facc15;--ag-err:#f87171}}
+#bftAgentBtn{position:fixed;right:16px;bottom:16px;z-index:60;display:flex;align-items:center;gap:6px;height:34px;padding:0 12px;border-radius:17px;
+  border:1px solid var(--ag-line);background:var(--ag-bg);box-shadow:0 2px 10px rgba(0,0,0,.08);cursor:pointer;font-weight:500}
+#bftAgentBtn svg{width:15px;height:15px}
+#bftAgentBtn .dot{width:6px;height:6px;border-radius:50%;background:var(--ag-ok);display:none}
 #bftAgentBtn.busy .dot{display:block;animation:bftPulse 1s infinite}
-@keyframes bftPulse{50%{opacity:.3}}
-#bftAgent{position:fixed;top:0;right:0;bottom:0;z-index:61;width:min(440px,100vw);background:#fff;color:#111;border-left:1px solid #e4e1da;
-  box-shadow:-10px 0 30px rgba(0,0,0,.12);display:flex;flex-direction:column;font:14px/1.45 system-ui,-apple-system,sans-serif;transform:translateX(105%);transition:transform .2s}
-#bftAgent.open{transform:none}
-#bftAgent header{display:flex;align-items:flex-start;gap:10px;padding:16px 16px 10px;border-bottom:1px solid #eee}
-#bftAgent header b{font-size:16px}
-#bftAgent header small{display:block;color:#777;font-size:12px;margin-top:2px}
-#bftAgent header button{margin-left:auto;border:0;background:none;font-size:20px;line-height:1;cursor:pointer;color:#555}
-#bftAgent .ag-body{flex:1;overflow:auto;padding:12px 16px 16px}
-#bftAgent .ag-box{border:1px solid #e7e5e0;border-radius:12px;padding:12px;margin-bottom:12px;background:#fafaf8}
-#bftAgent .ag-box h5{margin:0 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:#777}
-#bftAgent textarea,#bftAgent input{width:100%;box-sizing:border-box;border:1px solid #d9d6cf;border-radius:10px;padding:9px 10px;font:inherit;background:#fff;color:inherit}
-#bftAgent textarea{min-height:84px;resize:vertical}
-#bftAgent .ag-row{display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap}
-#bftAgent .ag-send{border:0;border-radius:10px;padding:9px 14px;background:#111;color:#fff;font-weight:600;cursor:pointer}
-#bftAgent .ag-send:disabled{opacity:.4;cursor:default}
-#bftAgent .ag-ghost{border:1px solid #d9d6cf;border-radius:10px;padding:7px 12px;background:#fff;cursor:pointer;font:inherit;font-size:13px}
-#bftAgent .ag-note{color:#777;font-size:12px}
-#bftAgent .ag-err{color:#b91c1c;font-size:13px;white-space:pre-wrap}
-#bftAgent .ag-rev{border:1px solid #e7e5e0;border-radius:12px;padding:10px 12px;margin-bottom:10px}
-#bftAgent .ag-rev .ag-top{display:flex;justify-content:space-between;gap:8px;font-size:12px;color:#777}
-#bftAgent .ag-chip{border-radius:999px;padding:1px 8px;font-size:12px;font-weight:600;white-space:nowrap}
-#bftAgent .ag-chip.run{background:#fef3c7;color:#92400e}#bftAgent .ag-chip.ok{background:#dcfce7;color:#166534}
-#bftAgent .ag-chip.err{background:#fee2e2;color:#991b1b}#bftAgent .ag-chip.undo{background:#e5e7eb;color:#374151}
-#bftAgent ol{margin:8px 0 0;padding-left:20px}
-#bftAgent li{margin:4px 0}
-#bftAgent li .ag-res{display:block;font-size:12px;color:#555}
-#bftAgent li .ag-res.applied{color:#166534}#bftAgent li .ag-res.question{color:#92400e}#bftAgent li .ag-res.skipped{color:#991b1b}
-#bftAgent .ag-live{display:flex;align-items:center;gap:8px;margin-top:6px;font-size:13px}
-#bftAgent .ag-spin{width:14px;height:14px;border:2px solid #ddd;border-top-color:#111;border-radius:50%;animation:bftSpin .8s linear infinite}
+@keyframes bftPulse{50%{opacity:.25}}
+#bftAgent{position:fixed;top:0;right:0;bottom:0;z-index:61;width:min(360px,100vw);background:var(--ag-bg);border-left:1px solid var(--ag-line);
+  display:flex;flex-direction:column;transform:translateX(102%);transition:transform .18s ease}
+#bftAgent.open{transform:none;box-shadow:-8px 0 24px rgba(0,0,0,.06)}
+#bftAgent header{display:flex;align-items:center;justify-content:space-between;height:44px;padding:0 8px 0 14px;border-bottom:1px solid var(--ag-line);font-weight:600}
+#bftAgent header button{width:28px;height:28px;border:0;border-radius:6px;background:none;color:var(--ag-mute);font-size:18px;line-height:1;cursor:pointer}
+#bftAgent header button:hover{background:var(--ag-soft)}
+#bftAgent .ag-body{flex:1;overflow:auto;padding:4px 14px}
+#bftAgent .ag-empty{color:var(--ag-mute);padding:14px 0}
+#bftAgent .ag-rev{padding:10px 0;border-bottom:1px solid var(--ag-line)}
+#bftAgent .ag-rev:last-child{border-bottom:0}
+#bftAgent .ag-top{display:flex;justify-content:space-between;gap:8px;color:var(--ag-mute);font-size:12px}
+#bftAgent .ag-state{font-weight:500}
+#bftAgent .ag-state.run{color:var(--ag-q)}#bftAgent .ag-state.ok{color:var(--ag-ok)}#bftAgent .ag-state.err{color:var(--ag-err)}
+#bftAgent .ag-item{display:flex;gap:6px;margin-top:6px}
+#bftAgent .ag-ico{flex:none;width:14px;text-align:center;color:var(--ag-mute)}
+#bftAgent .ag-ico.applied{color:var(--ag-ok)}#bftAgent .ag-ico.question{color:var(--ag-q)}#bftAgent .ag-ico.skipped{color:var(--ag-err)}
+#bftAgent .ag-txt{min-width:0}
+#bftAgent .ag-txt small{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;color:var(--ag-mute);font-size:12px}
+#bftAgent .ag-txt small:hover{-webkit-line-clamp:unset}
+#bftAgent .ag-sec{color:var(--ag-mute)}
+#bftAgent .ag-live{display:flex;align-items:center;gap:6px;margin-top:6px;color:var(--ag-mute)}
+#bftAgent .ag-spin{width:11px;height:11px;border:1.5px solid var(--ag-line);border-top-color:var(--ag-fg);border-radius:50%;animation:bftSpin .8s linear infinite}
 @keyframes bftSpin{to{transform:rotate(360deg)}}
-#bftAgentFresh{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:62;background:#111;color:#fff;border-radius:999px;padding:10px 16px;font:600 14px system-ui,sans-serif;display:none;gap:10px;align-items:center}
-#bftAgentFresh button{border:0;border-radius:999px;padding:5px 12px;font:inherit;cursor:pointer}
-@media (prefers-color-scheme:dark){
-  #bftAgent{background:#151515;color:#eee;border-color:#333}#bftAgent header{border-color:#2a2a2a}
-  #bftAgent .ag-box{background:#1c1c1c;border-color:#333}#bftAgent .ag-rev{border-color:#333}
-  #bftAgent textarea,#bftAgent input,#bftAgent .ag-ghost{background:#111;border-color:#3a3a3a;color:#eee}
-  #bftAgent .ag-send{background:#eee;color:#111}#bftAgentBtn{background:#eee;color:#111}
-  #bftAgent li .ag-res{color:#bbb}
-}
+#bftAgent .ag-link{border:0;background:none;padding:0;margin-top:6px;color:var(--ag-mute);font:inherit;font-size:12px;text-decoration:underline;cursor:pointer}
+#bftAgent .ag-err{color:var(--ag-err);font-size:12px;white-space:pre-wrap;margin-top:6px}
+#bftAgent footer{border-top:1px solid var(--ag-line);padding:10px 14px 12px}
+#bftAgent .ag-pend{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;padding:6px 6px 6px 10px;border-radius:8px;background:var(--ag-soft)}
+#bftAgent .ag-pend[hidden]{display:none}
+#bftAgent .ag-pend details{min-width:0}
+#bftAgent .ag-pend summary{cursor:pointer;list-style:none}
+#bftAgent .ag-pend summary::-webkit-details-marker{display:none}
+#bftAgent .ag-pend ol{margin:6px 0 0;padding-left:16px;color:var(--ag-mute);font-size:12px}
+#bftAgent .ag-btn{flex:none;height:26px;padding:0 10px;border:0;border-radius:6px;background:var(--ag-fg);color:var(--ag-bg);font:inherit;font-weight:500;cursor:pointer}
+#bftAgent .ag-btn:disabled{opacity:.35;cursor:default}
+#bftAgent input{width:100%;box-sizing:border-box;height:30px;margin-bottom:8px;padding:0 10px;border:1px solid var(--ag-line);border-radius:8px;background:var(--ag-bg);color:inherit;font:inherit}
+#bftAgent .ag-compose{display:flex;align-items:flex-end;gap:6px;padding:6px 6px 6px 10px;border:1px solid var(--ag-line);border-radius:10px}
+#bftAgent .ag-compose:focus-within{border-color:var(--ag-mute)}
+#bftAgent textarea{flex:1;min-height:20px;max-height:140px;border:0;outline:0;resize:none;padding:3px 0;background:none;color:inherit;font:inherit}
+#bftAgent .ag-send{flex:none;width:28px;height:28px;border:0;border-radius:50%;background:var(--ag-fg);color:var(--ag-bg);cursor:pointer;display:grid;place-items:center}
+#bftAgent .ag-send svg{width:14px;height:14px}
+#bftAgent .ag-msg{color:var(--ag-err);font-size:12px;margin-top:6px}
+#bftAgentFresh{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:62;display:none;align-items:center;gap:10px;height:34px;padding:0 6px 0 14px;
+  border-radius:17px;background:var(--ag-fg);color:var(--ag-bg);box-shadow:0 2px 10px rgba(0,0,0,.15)}
+#bftAgentFresh button{height:24px;padding:0 10px;border:0;border-radius:12px;background:var(--ag-bg);color:var(--ag-fg);font:inherit;cursor:pointer}
 @media print{#bftAgentBtn,#bftAgent,#bftAgentFresh{display:none!important}}
 </style>`
 
-const MARKUP = `<button type="button" id="bftAgentBtn" aria-controls="bftAgent" aria-expanded="false"><span class="dot"></span>🤖 ИИ-агент</button>
+const MARKUP = `<button type="button" id="bftAgentBtn" aria-controls="bftAgent" aria-expanded="false"><svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 1l1.6 4.4L14 7l-4.4 1.6L8 13l-1.6-4.4L2 7l4.4-1.6z"/></svg>ИИ-агент<span class="dot"></span></button>
 <aside id="bftAgent" aria-label="ИИ-агент правок документа" aria-hidden="true">
-  <header><div><b>🤖 ИИ-агент</b><small>Правит этот документ по вашим замечаниям и проверяет шаблон</small></div><button type="button" id="agClose" aria-label="Закрыть">×</button></header>
-  <div class="ag-body">
-    <div class="ag-box" id="agWho" hidden><h5>Как вас подписать</h5><input id="agAuthor" maxlength="120" placeholder="Имя и фамилия — видно в журнале правок"></div>
-    <div class="ag-box"><h5>Замечания со страницы</h5>
-      <div id="agPending" class="ag-note">Выделите текст в документе или нажмите на точку у [УТОЧНИТЬ] — замечание появится здесь.</div>
-      <div class="ag-row"><button type="button" class="ag-send" id="agSendComments" disabled>Отправить замечания</button></div>
-    </div>
-    <div class="ag-box"><h5>Своё указание</h5>
-      <textarea id="agText" placeholder="Что поправить: «в Рисках добавь фичефриз перед новым годом», «ФТ-2 — данные по контракту у команды GDS»…"></textarea>
-      <div class="ag-row"><button type="button" class="ag-send" id="agSendText">Отправить агенту</button><span class="ag-note">Ctrl+Enter</span></div>
-    </div>
-    <div id="agMsg" class="ag-err" hidden></div>
-    <div id="agList"></div>
-  </div>
+  <header><span>ИИ-агент</span><button type="button" id="agClose" aria-label="Закрыть">×</button></header>
+  <div class="ag-body"><div id="agList"></div></div>
+  <footer>
+    <div class="ag-pend" id="agPendBox" hidden><details><summary id="agPending"></summary><ol id="agPendList"></ol></details><button type="button" class="ag-btn" id="agSendComments">Отправить</button></div>
+    <input id="agAuthor" maxlength="120" placeholder="Ваше имя — для журнала правок" hidden>
+    <div class="ag-compose"><textarea id="agText" rows="1" placeholder="Что поправить в документе…"></textarea><button type="button" class="ag-send" id="agSendText" aria-label="Отправить"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13V3M3.5 7.5L8 3l4.5 4.5"/></svg></button></div>
+    <div class="ag-msg" id="agMsg" hidden></div>
+  </footer>
 </aside>
 <div id="bftAgentFresh" role="status"><span>Документ обновлён</span><button type="button" id="agReload">Показать</button></div>`
 
@@ -125,24 +128,25 @@ function script(cfg: AgentLayer): string {
 
   var author = $("agAuthor");
   author.value = get(WHO_KEY, "");
-  $("agWho").hidden = !!author.value;
+  author.hidden = !!author.value;
   author.addEventListener("change", function(){ put(WHO_KEY, author.value.trim()); });
 
   function message(text){ var m = $("agMsg"); m.textContent = text || ""; m.hidden = !text; }
   function renderPending(){
-    var list = pending(), box = $("agPending"), send = $("agSendComments");
-    send.disabled = !list.length || running;
-    send.textContent = list.length ? "Отправить замечания (" + list.length + ")" : "Отправить замечания";
-    box.innerHTML = list.length
-      ? "<ol>" + list.map(function(c){ return "<li><b>[" + esc(c.section) + "]</b>" + (c.quote ? " «" + esc(c.quote.slice(0, 80)) + (c.quote.length > 80 ? "…" : "") + "»" : "") + " — " + esc(c.text) + "</li>"; }).join("") + "</ol>"
-      : "Выделите текст в документе или нажмите на точку у [УТОЧНИТЬ] — замечание появится здесь.";
+    var list = pending(), send = $("agSendComments");
+    $("agPendBox").hidden = !list.length;
+    send.disabled = running;
+    var n = list.length, word = n % 10 === 1 && n % 100 !== 11 ? "замечание" : (n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? "замечания" : "замечаний");
+    $("agPending").textContent = n + " " + word + " со страницы";
+    $("agPendList").innerHTML = list.map(function(c){ return "<li>" + esc(c.section) + " — " + esc(c.text) + "</li>"; }).join("");
   }
+
   window.addEventListener("storage", function(e){ if(e.key === CFG.store) renderPending(); });
   setInterval(function(){ if(drawer.classList.contains("open")) renderPending(); }, 2000);
 
   function send(remarks, onSent){
     var who = author.value.trim();
-    if(!who){ $("agWho").hidden = false; author.focus(); message("Подпишитесь — имя попадёт в журнал правок."); return; }
+    if(!who){ author.hidden = false; author.focus(); message("Укажите имя — оно попадёт в журнал правок."); return; }
     put(WHO_KEY, who);
     message("");
     fetch(CFG.reviseUrl, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sessionId: CFG.sessionId, remarks: remarks, author: who }) })
@@ -166,7 +170,8 @@ function script(cfg: AgentLayer): string {
     send([{ section: "Документ", text: t }], function(){ $("agText").value = ""; });
   }
   $("agSendText").addEventListener("click", sendText);
-  $("agText").addEventListener("keydown", function(e){ if(e.key === "Enter" && (e.ctrlKey || e.metaKey)) sendText(); });
+  $("agText").addEventListener("keydown", function(e){ if(e.key === "Enter" && !e.shiftKey){ e.preventDefault(); sendText(); } });
+  $("agText").addEventListener("input", function(){ this.style.height = "auto"; this.style.height = Math.min(this.scrollHeight, 140) + "px"; });
 
   // «Комментарии» страницы ревью: вместо «Скопировать промт» — сразу агенту.
   function hijackCopy(){
@@ -177,17 +182,17 @@ function script(cfg: AgentLayer): string {
     var out = $("promptOut"); if(out){ out.style.display = "none"; var h = out.previousElementSibling; if(h && h.tagName === "H4") h.textContent = "Замечания уйдут ИИ-агенту — он поправит документ"; }
   }
 
-  var STATUS = { applied: ["✓ внесено", "applied"], already: ["= уже так", "already"], question: ["? открытый вопрос", "question"], skipped: ["✗ не внесено", "skipped"] };
-  function chip(r){
-    if(r.kind === "undo") return '<span class="ag-chip undo">откат</span>';
-    if(r.stage === "writing") return '<span class="ag-chip run">пишет правки</span>';
-    if(r.stage === "checking") return '<span class="ag-chip run">проверяет</span>';
-    if(r.stage === "failed") return '<span class="ag-chip err">не вышло</span>';
-    return '<span class="ag-chip ok">' + (r.edits ? "правок: " + r.edits : "без правок") + '</span>';
+  var ICON = { applied: "✓", already: "=", question: "?", skipped: "✗" };
+  var LABEL = { applied: "внесено", already: "уже так", question: "открытый вопрос", skipped: "не внесено" };
+  function state(r){
+    if(r.kind === "undo") return '<span class="ag-state">откат</span>';
+    if(r.stage === "writing" || r.stage === "checking") return '<span class="ag-state run">в работе</span>';
+    if(r.stage === "failed") return '<span class="ag-state err">не вышло</span>';
+    return '<span class="ag-state ok">' + (r.edits ? "правок: " + r.edits : "без правок") + "</span>";
   }
   function live(r){
-    if(r.stage === "writing") return '<div class="ag-live"><span class="ag-spin"></span>Пишет правки' + (r.progress && r.progress.chars ? " · " + r.progress.chars + " знаков" : "") + (r.progress && r.progress.round > 1 ? " · круг " + r.progress.round + " (добирает)" : "") + "</div>";
-    if(r.stage === "checking") return '<div class="ag-live"><span class="ag-spin"></span>Проверяет шаблон: bft-lint и проверки портала' + (r.progress && r.progress.note ? " · " + esc(r.progress.note) : "") + "</div>";
+    if(r.stage === "writing") return '<div class="ag-live"><span class="ag-spin"></span>пишет правки' + (r.progress && r.progress.chars ? " · " + r.progress.chars + " зн." : "") + (r.progress && r.progress.round > 1 ? " · круг " + r.progress.round : "") + "</div>";
+    if(r.stage === "checking") return '<div class="ag-live"><span class="ag-spin"></span>проверяет шаблон</div>';
     return "";
   }
   var lastUndoable = null;
@@ -195,15 +200,17 @@ function script(cfg: AgentLayer): string {
     lastUndoable = null;
     for(var i = 0; i < data.items.length; i++){ var it = data.items[i]; if(it.kind === "revise" && it.stage === "ready" && it.edits){ if(it.undoable) lastUndoable = it.id; break; } }
     $("agList").innerHTML = data.items.length ? data.items.map(function(r){
-      if(r.kind === "undo") return '<div class="ag-rev"><div class="ag-top"><span>' + esc(when(r.at)) + (r.author ? " · " + esc(r.author) : "") + "</span>" + chip(r) + "</div><div>Возвращена версия до правки агента.</div></div>";
+      var top = '<div class="ag-top"><span>' + esc(when(r.at)) + (r.author ? " · " + esc(r.author) : "") + "</span>" + state(r) + "</div>";
+      if(r.kind === "undo") return '<div class="ag-rev">' + top + '<div class="ag-item"><span class="ag-ico">↺</span><span class="ag-txt">Возвращена версия до правки</span></div></div>';
       var items = (r.remarks || []).map(function(m, i){
-        var res = (r.results || []).filter(function(x){ return x.n === i + 1; })[0], st = res && STATUS[res.status];
-        return "<li><b>[" + esc(m.section) + "]</b> " + esc(m.text) + (st ? '<span class="ag-res ' + st[1] + '">' + st[0] + (res.note ? " — " + esc(res.note) : "") + "</span>" : "") + "</li>";
+        var res = (r.results || []).filter(function(x){ return x.n === i + 1; })[0];
+        var ico = res ? ICON[res.status] : "·", cls = res ? res.status : "";
+        var note = res ? LABEL[res.status] + (res.note ? " — " + res.note : "") : "";
+        return '<div class="ag-item"><span class="ag-ico ' + cls + '">' + ico + '</span><span class="ag-txt">' + (m.section && m.section !== "Документ" ? '<span class="ag-sec">' + esc(m.section) + " · </span>" : "") + esc(m.text) + (note ? "<small>" + esc(note) + "</small>" : "") + "</span></div>";
       }).join("");
-      return '<div class="ag-rev"><div class="ag-top"><span>' + esc(when(r.at)) + (r.author ? " · " + esc(r.author) : "") + "</span>" + chip(r) + "</div>"
-        + live(r) + (r.error ? '<div class="ag-err">' + esc(r.error) + "</div>" : "") + "<ol>" + items + "</ol>"
-        + (r.id === lastUndoable ? '<div class="ag-row"><button type="button" class="ag-ghost" data-undo="' + esc(r.id) + '">Вернуть версию до этой правки</button></div>' : "") + "</div>";
-    }).join("") : '<p class="ag-note">Правок пока не было. Отправьте замечания — агент внесёт их в документ за минуту-две и покажет, что сделал.</p>';
+      return '<div class="ag-rev">' + top + items + live(r) + (r.error ? '<div class="ag-err">' + esc(r.error) + "</div>" : "")
+        + (r.id === lastUndoable ? '<button type="button" class="ag-link" data-undo="' + esc(r.id) + '">Откатить эту правку</button>' : "") + "</div>";
+    }).join("") : '<p class="ag-empty">Выделите текст в документе или нажмите точку у [УТОЧНИТЬ] — замечание появится внизу. Или напишите, что поправить: агент внесёт правку и проверит шаблон.</p>';
   }
   $("agList").addEventListener("click", function(e){
     var b = e.target.closest("[data-undo]"); if(!b) return;
