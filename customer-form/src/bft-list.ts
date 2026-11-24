@@ -10,7 +10,7 @@ export type BftStage = 'dialog' | 'demo' | 'fast-review' | 'fast-approved' | 'de
 export interface BftDownload { format: 'md' | 'docx' | 'pdf'; url: string }
 
 export interface BftArtifact {
-  kind: 'demo' | 'fast' | 'deep' | 'form' | 'ticket'
+  kind: 'demo' | 'fast' | 'deep' | 'form' | 'ticket' | 'lifecycle'
   label: string
   url: string
   /** Короткая пометка рядом с артефактом: «согласованы», «ответов 3 из 12». */
@@ -51,6 +51,8 @@ export interface BftUrls {
   form(id: string): string
   /** Адрес задачи трекера, если он открывается снаружи. */
   ticket?: string | undefined
+  /** Страница «Жизненный цикл» (ADR-0022), если цикл включён. */
+  lifecycle?: string | undefined
 }
 
 const STAGE_LABEL: Record<BftStage, string> = {
@@ -95,6 +97,7 @@ export function bftCard(item: RequestSummary, state: BftState, urls: BftUrls): B
   const form = state.form?.publishedAt && !state.form.revokedAt ? state.form : undefined
   if (form) artifacts.push({ kind: 'form', label: 'Форма вопросов согласования', url: urls.form(form.id), note: `ответов ${form.answered} из ${form.total}` })
   if (urls.ticket) artifacts.push({ kind: 'ticket', label: `Заявка #${item.taskId} в трекере`, url: urls.ticket })
+  if (urls.lifecycle) artifacts.push({ kind: 'lifecycle', label: 'Жизненный цикл заявки', url: urls.lifecycle, note: 'хроника событий' })
   const times = [item.created, state.deep?.finishedAt, state.deep?.startedAt, state.fast?.approvedAt, state.demo?.approvedAt].filter((t): t is string => !!t)
   return {
     sessionId: item.sessionId,

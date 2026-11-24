@@ -17,7 +17,7 @@
 
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { copyFile, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { join, posix } from 'node:path'
 import { Backlog, moscowTime, sharedBacklog, ticketRegistered, type Ticket } from './host.js'
 import { sharedMaterials, type Material, type Materials, type WebLike } from './materials.js'
@@ -46,6 +46,8 @@ import { bftMcp, MCP_INSTRUCTIONS } from './mcp-bft.js'
 import { bftCard, type BftState } from './bft-list.js'
 import { registerPlanRoutes, withPlan } from './plan-routes.js'
 import { registeredEvent, sharedLifecycle } from './lifecycle.js'
+import { historyEvents, type RequestSnapshot } from './lifecycle-history.js'
+import { lifecyclePage } from './lifecycle-page.js'
 import { withAgent } from './agent-page.js'
 import { canUndo, dshModel, newRevision, normalizeRemarks, poWords, queueRemarks, readRevisions, reviewDue, reviseDeep, revisionsContext, saveRevisions, sinceReview, undoRevision, type Revision, type TextModel } from './bft-revise.js'
 import { docRevOf, pickBlocks } from './doc-sections.js'
@@ -260,17 +262,65 @@ export function apply(ctx: HarnessContext): void {
       const title = text.trim().split('\n')[0].slice(0, 80) || undefined
       void lifecycle.record({ taskId: ticket.taskId, slug: fastSlug(ticket.taskId), sessionId, ...(title ? { title } : {}), createdAt: at }, registeredEvent(at, title))
     }
-    setTimeout(() => {
-      void (async () => {
+    // Теневой режим (шаг 1): сверка файлов заявок с циклом — история старых заявок и все
+    // живые изменения одним путём (lifecycle-history.ts). eventId постоянные: повтор цикл
+    // отбрасывает; отправленное в этом процессе второй раз не шлётся.
+    const sent = new Set<string>()
+    let syncing = false
+    const snapshotOf = async (item: { sessionId: string; taskId: number; title: string; created: string; status?: string | undefined }): Promise<RequestSnapshot> => {
+      const slug = fastSlug(item.taskId)
+      const files = fastFiles(FAST_ROOT, slug)
+      const [fast, deep, form, revisions, ticket] = await Promise.all([
+        fastState(files), readDeepState(deepFiles(files, slug)), formOfRequest(files.dir).catch(() => undefined),
+        readRevisions(files).catch(() => []), backlog.find(item.sessionId).catch(() => undefined),
+      ])
+      const builtAt = fast ? await stat(files.md).then((st) => st.mtime.toISOString(), () => undefined) : undefined
+      const demo = sharedDemos().get(item.sessionId)
+      const demoApprovedAt = demo?.approvedAt ?? ticket?.demoApprovedAt
+      return {
+        taskId: item.taskId, title: item.title, created: item.created, now: new Date().toISOString(),
+        ...(item.status ? { status: item.status } : {}),
+        ...(demo ? { demo: { rev: demo.rev, ...(demoApprovedAt ? { approvedAt: demoApprovedAt } : {}) } } : {}),
+        ...(fast && builtAt ? { fast: { rev: fast.rev, builtAt, ...(fast.approvedAt ? { approvedAt: fast.approvedAt } : {}) } } : {}),
+        ...(deep ? { deep: { stage: deep.stage, startedAt: deep.startedAt, ...(deep.finishedAt ? { finishedAt: deep.finishedAt } : {}), ...(deep.error ? { error: deep.error } : {}) } } : {}),
+        ...(form ? { form: {
+          id: form.id, createdAt: form.createdAt,
+          ...(form.publishedAt ? { publishedAt: form.publishedAt } : {}), ...(form.revokedAt ? { revokedAt: form.revokedAt } : {}),
+          total: latestVersion(form)?.questions.length ?? 0,
+          answers: Object.values(form.answers).map((a) => ({ at: a.at, status: a.status })),
+        } } : {}),
+        revisions: revisions.map((r) => ({ id: r.id, kind: r.kind, at: r.at, stage: r.stage,
+          ...(r.finishedAt ? { finishedAt: r.finishedAt } : {}), ...(r.edits !== undefined ? { edits: r.edits } : {}), ...(r.error ? { error: r.error } : {}) })),
+      }
+    }
+    const syncLifecycle = async () => {
+      if (syncing) return
+      syncing = true
+      try {
         const items = await backlog.overview(await backlog.sessionIds())
         let delivered = 0
         for (const item of items) {
-          const at = item.created || new Date().toISOString()
-          if (await lifecycle.record({ taskId: item.taskId, slug: fastSlug(item.taskId), sessionId: item.sessionId, title: item.title, createdAt: at }, registeredEvent(at, item.title))) delivered++
+          const created = item.created || new Date().toISOString()
+          const request = { taskId: item.taskId, slug: fastSlug(item.taskId), sessionId: item.sessionId, title: item.title, createdAt: created }
+          const events = [registeredEvent(created, item.title), ...historyEvents(await snapshotOf(item))]
+          for (const event of events) {
+            const key = `${item.taskId}:${event.eventId}`
+            if (sent.has(key)) continue
+            if (!(await lifecycle.record(request, event))) break // Temporal недоступен — дошлём на следующем заходе
+            sent.add(key)
+            delivered++
+          }
         }
-        if (items.length) console.log(`[customer-form] жизненный цикл: заявок ${items.length}, в Temporal ${delivered}`)
-      })().catch((e) => console.error('[customer-form] жизненный цикл: догрузка заявок не прошла:', e))
-    }, 20_000)
+        if (delivered) console.log(`[customer-form] жизненный цикл: заявок ${items.length}, новых событий ${delivered}`)
+      } catch (e) {
+        console.error('[customer-form] жизненный цикл: сверка заявок не прошла:', e)
+      } finally {
+        syncing = false
+      }
+    }
+    setTimeout(() => void syncLifecycle(), 20_000)
+    const syncTimer = setInterval(() => void syncLifecycle(), 60_000)
+    ctx.effect(() => () => clearInterval(syncTimer), 'customer-form: сверка жизненного цикла')
   }
   // «Файлы рабочей области»: папка на каждую заявку (workspace-mirror.ts) — и для
   // заявок, заведённых до зеркала.
@@ -1193,7 +1243,7 @@ export function apply(ctx: HarnessContext): void {
             ...(deep ? { deep: { stage: deep.stage, startedAt: deep.startedAt, finishedAt: deep.finishedAt } } : {}),
             ...(form ? { form: { id: form.id, publishedAt: form.publishedAt, revokedAt: form.revokedAt, total: questions.length, answered: questions.filter((q) => form.answers[q.qid]?.status === 'answer').length } } : {}),
           }
-          return bftCard(item, state, { portal: portalUrl, form: formUrl, ticket: item.url && !isLoopbackUrl(item.url) ? item.url : undefined })
+          return bftCard(item, state, { portal: portalUrl, form: formUrl, ticket: item.url && !isLoopbackUrl(item.url) ? item.url : undefined, lifecycle: lifecycle.enabled ? portalUrl(`/api/customer-form.lifecyclePage?session=${encodeURIComponent(item.sessionId)}`) : undefined })
         }))
         return Response.json({ ok: true, newUrl: portalUrl('/'), items: cards }, { headers })
       },
@@ -1216,6 +1266,34 @@ export function apply(ctx: HarnessContext): void {
         return Response.json({ ok: true, ...got }, { headers })
       },
     }), 'customer-form: /api/customer-form.lifecycle')
+
+    // Страница «Жизненный цикл» заявки (ADR-0022): стадия, ожидания и хроника. Администратору —
+    // ссылка на историю цикла в Temporal UI (BFT_TEMPORAL_UI_URL; на сервере — /bft-temporal).
+    const temporalUi = (): string | undefined => {
+      const explicit = (process.env.BFT_TEMPORAL_UI_URL ?? '').trim().replace(/\/+$/, '')
+      if (explicit) return explicit
+      const base = (process.env.PORTAL_PUBLIC_URL ?? '').trim()
+      try { return base && !isLoopbackUrl(base) ? `${new URL(base).origin}/bft-temporal` : undefined } catch { return undefined }
+    }
+    scoped.effect(() => register({
+      path: '/api/customer-form.lifecyclePage',
+      methods: ['GET'],
+      requestBody: 'buffered',
+      fetch: async (request: Request) => {
+        const html = (body: string, status = 200) => new Response(body, { status, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } })
+        const sessionId = new URL(request.url).searchParams.get('session') ?? ''
+        const ticket = sessionId ? await backlog.find(sessionId).catch(() => undefined) : undefined
+        if (!ticket) return html('<!doctype html><meta charset="utf-8"><p style="font:14px sans-serif;padding:16px">Нет такой заявки.</p>', 404)
+        const got = lifecycle.enabled ? await lifecycle.status(ticket.taskId) : undefined
+        if (!got) return html('<!doctype html><meta charset="utf-8"><p style="font:14px sans-serif;padding:16px">Жизненный цикл заявки недоступен: Temporal выключен или ещё не получил её события — обновите через минуту.</p>', 503)
+        const ui = isAdmin(request) ? temporalUi() : undefined
+        return html(lifecyclePage({
+          title: String((got.status as { title?: unknown }).title ?? `Заявка #${ticket.taskId}`), taskId: ticket.taskId,
+          status: got.status as never, timeline: got.timeline as never, backHref: 'customer-form.requests',
+          ...(ui ? { temporalHref: `${ui}/namespaces/bft/workflows/bft-${ticket.taskId}` } : {}),
+        }))
+      },
+    }), 'customer-form: /api/customer-form.lifecyclePage')
 
     // Temporal UI (ADR-0022) — только администраторам: nginx ведёт сюда всех остальных
     // (map $bft_temporal_upstream, bft-temporal-map.nginx.conf).
