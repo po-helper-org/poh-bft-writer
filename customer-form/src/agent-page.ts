@@ -19,6 +19,8 @@ export interface AgentLayer {
   sectionUrl: string
   /** Поставить полное ревью согласованности. */
   reviewUrl: string
+  /** «Настройки» в шапке колонки: вход администратора → «Настройки → Портал». */
+  settingsUrl?: string
   /** deep.json finishedAt на момент отдачи страницы: изменился — документ обновили. */
   deepAt: string | null
 }
@@ -38,7 +40,9 @@ const STYLE = `<style id="bft-agent-style">
 #bftAgent.open{transform:none;box-shadow:-8px 0 24px rgba(0,0,0,.06)}
 #bftAgent header{display:flex;align-items:center;justify-content:space-between;height:44px;padding:0 8px 0 14px;border-bottom:1px solid var(--ag-line);font-weight:600}
 #bftAgent header button{width:28px;height:28px;border:0;border-radius:6px;background:none;color:var(--ag-mute);font-size:18px;line-height:1;cursor:pointer}
-#bftAgent header button:hover{background:var(--ag-soft)}
+#bftAgent header button:hover,#bftAgent header a:hover{background:var(--ag-soft)}
+#bftAgent header .ag-head{display:flex;align-items:center;gap:2px}
+#bftAgent header a{display:inline-flex;align-items:center;height:28px;padding:0 8px;border-radius:6px;color:var(--ag-mute);font-weight:400;font-size:12px;text-decoration:none}
 #bftAgent .ag-body{flex:1;overflow:auto;padding:4px 14px}
 #bftAgent .ag-empty{color:var(--ag-mute);padding:14px 0}
 #bftAgent .ag-rev{padding:10px 0;border-bottom:1px solid var(--ag-line)}
@@ -102,12 +106,10 @@ const STYLE = `<style id="bft-agent-style">
 
 const MARKUP = `<button type="button" id="bftAgentBtn" aria-controls="bftAgent" aria-expanded="false"><svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 1l1.6 4.4L14 7l-4.4 1.6L8 13l-1.6-4.4L2 7l4.4-1.6z"/></svg>ИИ-агент<span class="dot"></span></button>
 <aside id="bftAgent" aria-label="ИИ-агент правок документа" aria-hidden="true">
-  <header><span>ИИ-агент</span><button type="button" id="agClose" aria-label="Закрыть">×</button></header>
+  <header><span>ИИ-агент</span><span class="ag-head"><a id="agSettings" href="#" target="_blank" rel="noopener" hidden>Настройки</a><button type="button" id="agClose" aria-label="Закрыть">×</button></span></header>
   <div class="ag-body"><div id="agList"></div></div>
   <footer>
     <div class="ag-review" id="agReviewRow" hidden><span class="ag-rdot"></span><span>Проведите полное ревью требований для согласованности</span><button type="button" class="ag-btn" id="agReviewSend">Отправить</button></div>
-    <div class="ag-pend" id="agPendBox" hidden><details><summary id="agPending"></summary><ol id="agPendList"></ol></details><button type="button" class="ag-btn" id="agSendComments">Отправить</button></div>
-    <input id="agAuthor" maxlength="120" placeholder="Ваше имя — для журнала правок" hidden>
     <div class="ag-compose"><textarea id="agText" rows="1" placeholder="Что поправить в документе…"></textarea><button type="button" class="ag-send" id="agSendText" aria-label="Отправить"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13V3M3.5 7.5L8 3l4.5 4.5"/></svg></button></div>
     <div class="ag-msg" id="agMsg" hidden></div>
   </footer>
@@ -154,44 +156,43 @@ function script(cfg: AgentLayer): string {
   $("agClose").addEventListener("click", function(){ setOpen(false); });
   document.addEventListener("keydown", function(e){ if(e.key === "Escape" && drawer.classList.contains("open")) setOpen(false); });
 
-  var author = $("agAuthor");
-  author.value = get(WHO_KEY, "");
-  author.hidden = !!author.value;
-  author.addEventListener("change", function(){ put(WHO_KEY, author.value.trim()); });
+  // Имя в журнал правок — если когда-то указали; не спрашиваем.
+  function who(){ return get(WHO_KEY, "").trim(); }
+  if(CFG.settingsUrl){ $("agSettings").href = CFG.settingsUrl; $("agSettings").hidden = false; }
 
   function message(text){ var m = $("agMsg"); m.textContent = text || ""; m.hidden = !text; }
-  function renderPending(){
-    var list = pending(), send = $("agSendComments");
-    $("agPendBox").hidden = !list.length;
-    send.disabled = false;
-    var n = list.length, word = n % 10 === 1 && n % 100 !== 11 ? "замечание" : (n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? "замечания" : "замечаний");
-    $("agPending").textContent = n + " " + word + " со страницы";
-    $("agPendList").innerHTML = list.map(function(c){ return "<li>" + esc(c.section) + " — " + esc(c.text) + "</li>"; }).join("");
-  }
+  function renderPending(){}
 
-  window.addEventListener("storage", function(e){ if(e.key === CFG.store) renderPending(); });
-  setInterval(function(){ if(drawer.classList.contains("open")) renderPending(); }, 2000);
-
-  function send(remarks, onSent){
-    var who = author.value.trim();
-    if(!who){ author.hidden = false; author.focus(); message("Укажите имя — оно попадёт в журнал правок."); return; }
-    put(WHO_KEY, who);
+  function send(remarks, onSent, onFail){
     message("");
-    fetch(CFG.reviseUrl, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sessionId: CFG.sessionId, remarks: remarks, author: who }) })
+    fetch(CFG.reviseUrl, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sessionId: CFG.sessionId, remarks: remarks, author: who() }) })
       .then(function(r){ return r.json().then(function(v){ if(!r.ok) throw new Error(v.error || ("HTTP " + r.status)); return v; }); })
       .then(function(){ onSent && onSent(); setOpen(true); poll(true); })
-      .catch(function(e){ message("Не отправилось: " + e.message); });
+      .catch(function(e){ onFail && onFail(); setOpen(true); message("Не отправилось: " + e.message); });
   }
-  function sendComments(){
-    var list = pending();
+  // Замечания со страницы — агенту. Отмечаем отправленными до ответа (опрос не
+  // отправит их второй раз), не ушли — снимаем отметку.
+  function sendComments(list){
+    list = list || pending();
     if(!list.length) return;
-    send(list.map(function(c){ return { section: c.section, quote: c.quote || "", text: c.text, ref: String(c.ts) }; }), function(){
-      var sent = sentSet().concat(list.map(function(c){ return c.ts; }));
-      put(SENT_KEY, JSON.stringify(sent.slice(-500)));
-      renderPending();
+    var ts = list.map(function(c){ return c.ts; });
+    put(SENT_KEY, JSON.stringify(sentSet().concat(ts).slice(-500)));
+    send(list.map(function(c){ return { section: c.section, quote: c.quote || "", text: c.text, ref: String(c.ts) }; }), null, function(){
+      // Не ушли — не повторять по кругу: дальше только кнопкой в «Комментариях».
+      if(baseline) baseline = baseline.concat(ts);
+      put(SENT_KEY, JSON.stringify(sentSet().filter(function(t){ return ts.indexOf(t) < 0; })));
     });
   }
-  $("agSendComments").addEventListener("click", sendComments);
+  // Новое замечание (выделение, точка у [УТОЧНИТЬ]) уходит агенту сразу.
+  // Те, что лежали до открытия страницы, — кнопкой «Отправить ИИ-агенту» в «Комментариях».
+  var baseline = null;
+  function autoSend(){
+    if(baseline === null) return;
+    var fresh = pending().filter(function(c){ return baseline.indexOf(c.ts) < 0; });
+    if(fresh.length) sendComments(fresh);
+  }
+  window.addEventListener("storage", function(e){ if(e.key === CFG.store) autoSend(); });
+  setInterval(autoSend, 1000);
   function sendText(){
     var t = $("agText").value.trim();
     if(!t) return;
@@ -201,13 +202,15 @@ function script(cfg: AgentLayer): string {
   $("agText").addEventListener("keydown", function(e){ if(e.key === "Enter" && !e.shiftKey){ e.preventDefault(); sendText(); } });
   $("agText").addEventListener("input", function(){ this.style.height = "auto"; this.style.height = Math.min(this.scrollHeight, 140) + "px"; });
 
-  // «Комментарии» страницы ревью: вместо «Скопировать промт» — сразу агенту.
+  // «Комментарии» страницы ревью: «Отправить ИИ-агенту» и «Скопировать промт» (для своего ИИ).
   function hijackCopy(){
-    var old = $("copyBtn"); if(!old) return;
-    var b = old.cloneNode(true); old.parentNode.replaceChild(b, old);
+    var copy = $("copyBtn"); if(!copy || $("agSendPanel")) return;
+    var b = copy.cloneNode(false); b.id = "agSendPanel"; b.type = "button";
     b.textContent = "Отправить ИИ-агенту";
-    b.addEventListener("click", function(){ if(pending().length) sendComments(); else { setOpen(true); message("Новых замечаний нет — выделите текст или нажмите на точку у [УТОЧНИТЬ]."); } });
-    var out = $("promptOut"); if(out){ out.style.display = "none"; var h = out.previousElementSibling; if(h && h.tagName === "H4") h.textContent = "Замечания уйдут ИИ-агенту — каждое отдельной правкой"; }
+    copy.parentNode.insertBefore(b, copy);
+    b.style.marginBottom = "6px";
+    b.addEventListener("click", function(){ if(pending().length) sendComments(); else { setOpen(true); message("Все замечания уже у ИИ-агента."); } });
+    var out = $("promptOut"); if(out){ out.style.display = "none"; var h = out.previousElementSibling; if(h && h.tagName === "H4") h.style.display = "none"; }
   }
 
   // Светящаяся точка у «Комментариев»: после локальных правок — полное ревью согласованности.
@@ -229,9 +232,8 @@ function script(cfg: AgentLayer): string {
   $("agReviewNo").addEventListener("click", function(){ tip.hidden = true; });
   document.addEventListener("click", function(e){ if(!tip.hidden && !tip.contains(e.target) && e.target !== dot) tip.hidden = true; });
   function startReview(){
-    var who = author.value.trim() || get(WHO_KEY, "");
     tip.hidden = true; $("agReviewRow").hidden = true;
-    fetch(CFG.reviewUrl, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sessionId: CFG.sessionId, author: who }) })
+    fetch(CFG.reviewUrl, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sessionId: CFG.sessionId, author: who() }) })
       .then(function(r){ return r.json().then(function(v){ if(!r.ok) throw new Error(v.error || ("HTTP " + r.status)); return v; }); })
       .then(function(){ dot.hidden = true; setOpen(true); poll(true); })
       .catch(function(e){ setOpen(true); message("Ревью не запустилось: " + e.message); });
@@ -274,13 +276,13 @@ function script(cfg: AgentLayer): string {
         + (r.notice && !r.error ? '<div class="ag-note">' + esc(r.notice) + "</div>" : "")
         + (r.model && !active(r) ? '<div class="ag-model">' + esc(r.model) + "</div>" : "")
         + (r.undoable ? '<button type="button" class="ag-link" data-undo="' + esc(r.id) + '">Откатить</button>' : "") + "</div>";
-    }).join("") : '<p class="ag-empty">Выделите текст в документе или нажмите точку у [УТОЧНИТЬ] — замечание появится внизу. Или напишите, что поправить: каждое замечание — отдельная правка своего раздела, документ меняется на месте.</p>';
+    }).join("") : "";
   }
   $("agList").addEventListener("click", function(e){
     var b = e.target.closest("[data-undo]"); if(!b) return;
     if(!confirm("Отменить эту правку агента?")) return;
     b.disabled = true;
-    fetch(CFG.undoUrl, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sessionId: CFG.sessionId, id: b.getAttribute("data-undo"), author: author.value.trim() }) })
+    fetch(CFG.undoUrl, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sessionId: CFG.sessionId, id: b.getAttribute("data-undo"), author: who() }) })
       .then(function(r){ return r.json().then(function(v){ if(!r.ok) throw new Error(v.error || r.status); }); })
       .then(function(){ poll(true); }).catch(function(err){ b.disabled = false; message("Откат не вышел: " + err.message); });
   });
@@ -328,6 +330,7 @@ function script(cfg: AgentLayer): string {
     var now = new Date().toISOString(), changed = false;
     var list = comments().map(function(c){ if(refs[String(c.ts)] && !c.closedAt){ changed = true; var x = Object.assign({}, c); x.closedAt = now; x.iteration = 0; return x; } return c; });
     if(changed) put(CFG.store, JSON.stringify(list));
+    if(baseline) baseline = baseline.concat(Object.keys(retry).map(Number));
     if(Object.keys(retry).length) put(SENT_KEY, JSON.stringify(sentSet().filter(function(ts){ return !retry[String(ts)]; })));
     if(changed && window.bftReview) window.bftReview.render();
     renderPending();
@@ -377,6 +380,7 @@ function script(cfg: AgentLayer): string {
 
   function start(){
     reopenUnsent();
+    baseline = pending().map(function(c){ return c.ts; });
     hijackCopy();
     placeDot();
     renderPending();

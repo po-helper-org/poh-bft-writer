@@ -14,7 +14,7 @@
  * администратора → PORTAL_PROVIDER/PORTAL_MODEL → первый ключ из окружения
  * (customer.patch.yml).
  */
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
 export const MODELS_ROUTE = '/api/customer-form.portalModels'
@@ -33,6 +33,26 @@ export interface PortalModels {
   local?: ModelRoute
   /** Полное ревью; нет — агент полного ревью, если настроен, иначе модель полного БФТ. */
   review?: ModelRoute
+  /**
+   * Подключение к шлюзу агентов (Responses API) — из «Настройки → Портал»;
+   * нет — из окружения (BFT_REVIEW_AGENT_*). Ключ наружу не отдаётся.
+   */
+  agent?: AgentConnection
+}
+
+export interface AgentConnection {
+  /** Полный адрес метода ответа, профиль — в пути (…/p/<профиль>/v1/responses). */
+  url: string
+  key: string
+  model?: string
+}
+
+const isUrl = (value: unknown): value is string => typeof value === 'string' && /^https?:\/\/\S+$/.test(value.trim()) && value.length <= 500
+const pickAgent = (value: unknown): AgentConnection | undefined => {
+  const v = value as Partial<AgentConnection> | null
+  if (!v || typeof v !== 'object' || !isUrl(v.url) || typeof v.key !== 'string' || !v.key.trim()) return undefined
+  const model = typeof v.model === 'string' ? v.model.trim().slice(0, 200) : ''
+  return { url: v.url.trim(), key: v.key.trim(), ...(model ? { model } : {}) }
 }
 
 /** Быстрая модель локальных правок по умолчанию. */
@@ -59,6 +79,8 @@ export async function readPortalModels(): Promise<PortalModels> {
       const route = pick(raw[key])
       if (route) out[key] = route
     }
+    const agent = pickAgent(raw.agent)
+    if (agent) out.agent = agent
     return out
   } catch {
     return {}
@@ -67,7 +89,9 @@ export async function readPortalModels(): Promise<PortalModels> {
 
 export async function writePortalModels(models: PortalModels): Promise<void> {
   await mkdir(dirname(FILE), { recursive: true })
-  await writeFile(FILE, `${JSON.stringify(models, null, 2)}\n`, 'utf8')
+  // Ключ шлюза агентов — в этом файле: читать только узлу.
+  await writeFile(FILE, `${JSON.stringify(models, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 })
+  await chmod(FILE, 0o600).catch(() => undefined)
 }
 
 /**
@@ -82,6 +106,14 @@ export function mergePortalModels(current: PortalModels, body: unknown): PortalM
     const route = pick(input[key])
     if (route) next[key] = route
     else delete next[key]
+  }
+  if ('agent' in input) {
+    // Ключ — только на запись: пустой при сохранении — прежний.
+    const raw = input.agent as Partial<AgentConnection> | null
+    const agent = raw && typeof raw === 'object' ? pickAgent({ ...raw, key: typeof raw.key === 'string' && raw.key.trim() ? raw.key : current.agent?.key }) : undefined
+    if (agent) next.agent = agent
+    else if (raw === null) delete next.agent
+    else throw new Error('подключение к шлюзу агентов: нужен адрес http(s)://… и ключ')
   }
   return next
 }
