@@ -84,6 +84,10 @@ const STYLE = `<style id="bft-agent-style">
 #agReviewDot{position:relative;display:inline-block;width:9px;height:9px;margin:0 2px 0 8px;padding:0;border:0;border-radius:50%;background:#f59e0b;vertical-align:middle;cursor:pointer;
   box-shadow:0 0 0 0 rgba(245,158,11,.6);animation:bftGlow 1.8s infinite}
 #agReviewDot[hidden]{display:none}
+#bftAgent .ag-review{display:flex;align-items:center;gap:8px;margin-bottom:8px;padding:6px 6px 6px 10px;border-radius:8px;background:var(--ag-soft)}
+#bftAgent .ag-review[hidden]{display:none}
+#bftAgent .ag-review span:nth-child(2){flex:1;min-width:0}
+#bftAgent .ag-rdot{flex:none;width:8px;height:8px;border-radius:50%;background:#f59e0b;animation:bftGlow 1.8s infinite}
 @keyframes bftGlow{0%{box-shadow:0 0 0 0 rgba(245,158,11,.55)}70%{box-shadow:0 0 0 9px rgba(245,158,11,0)}100%{box-shadow:0 0 0 0 rgba(245,158,11,0)}}
 #agReviewTip{position:fixed;z-index:63;width:260px;padding:12px;border:1px solid var(--ag-line);border-radius:10px;background:var(--ag-bg);box-shadow:0 6px 24px rgba(0,0,0,.12)}
 #agReviewTip[hidden]{display:none}
@@ -100,6 +104,7 @@ const MARKUP = `<button type="button" id="bftAgentBtn" aria-controls="bftAgent" 
   <header><span>ИИ-агент</span><button type="button" id="agClose" aria-label="Закрыть">×</button></header>
   <div class="ag-body"><div id="agList"></div></div>
   <footer>
+    <div class="ag-review" id="agReviewRow" hidden><span class="ag-rdot"></span><span>Проведите полное ревью требований для согласованности</span><button type="button" class="ag-btn" id="agReviewSend">Отправить</button></div>
     <div class="ag-pend" id="agPendBox" hidden><details><summary id="agPending"></summary><ol id="agPendList"></ol></details><button type="button" class="ag-btn" id="agSendComments">Отправить</button></div>
     <input id="agAuthor" maxlength="120" placeholder="Ваше имя — для журнала правок" hidden>
     <div class="ag-compose"><textarea id="agText" rows="1" placeholder="Что поправить в документе…"></textarea><button type="button" class="ag-send" id="agSendText" aria-label="Отправить"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13V3M3.5 7.5L8 3l4.5 4.5"/></svg></button></div>
@@ -222,14 +227,16 @@ function script(cfg: AgentLayer): string {
   });
   $("agReviewNo").addEventListener("click", function(){ tip.hidden = true; });
   document.addEventListener("click", function(e){ if(!tip.hidden && !tip.contains(e.target) && e.target !== dot) tip.hidden = true; });
-  $("agReviewGo").addEventListener("click", function(){
+  function startReview(){
     var who = author.value.trim() || get(WHO_KEY, "");
-    tip.hidden = true;
+    tip.hidden = true; $("agReviewRow").hidden = true;
     fetch(CFG.reviewUrl, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sessionId: CFG.sessionId, author: who }) })
       .then(function(r){ return r.json().then(function(v){ if(!r.ok) throw new Error(v.error || ("HTTP " + r.status)); return v; }); })
       .then(function(){ dot.hidden = true; setOpen(true); poll(true); })
       .catch(function(e){ setOpen(true); message("Ревью не запустилось: " + e.message); });
-  });
+  }
+  $("agReviewGo").addEventListener("click", startReview);
+  $("agReviewSend").addEventListener("click", startReview);
 
   var ICON = { applied: "✓", already: "=", question: "?", skipped: "✗" };
   var LABEL = { applied: "внесено", already: "уже так", question: "открытый вопрос", skipped: "не внесено" };
@@ -337,6 +344,7 @@ function script(cfg: AgentLayer): string {
           renderList(data); renderPending();
           var busyReview = data.items.some(function(r){ return r.kind === "review" && active(r); });
           dot.hidden = !data.reviewDue || busyReview;
+          $("agReviewRow").hidden = dot.hidden;
           var first = known === null, prev = known || {};
           known = {};
           data.items.forEach(function(r){ known[r.id] = r.stage; });
