@@ -20,7 +20,18 @@ interface ModelsState {
   profile: Route
   deep: Route | null
   deepEnv: Route | null
+  /** ИИ-агент правок (ADR-0024): локальные правки и полное ревью. */
+  local?: Route | null
+  localDefault?: Route
+  review?: Route | null
+  reviewAgent?: { configured: boolean; model: string | null }
+  /** Провайдеры, у которых закончился баланс (последние минуты). */
+  exhausted?: { provider: string; at: string }[]
 }
+
+/** Псевдо-провайдер: полное ревью делает внешний агент полного ревью (models.ts). */
+const REVIEW_AGENT = 'review-agent'
+const AGENT_KEY = `${REVIEW_AGENT}\u0000agent`
 
 interface Catalog {
   routableProviders: string[]
@@ -45,13 +56,15 @@ const s: Record<string, CSSProperties> = {
   button: { font: 'inherit', fontSize: 14, fontWeight: 500, padding: '7px 16px', borderRadius: 8, border: '1px solid currentColor', background: 'transparent', color: 'inherit', cursor: 'pointer' },
   ok: { fontSize: 13, color: '#16a34a' },
   error: { fontSize: 13, color: '#dc2626' },
+  warn: { fontSize: 13, lineHeight: 1.5, padding: '10px 12px', borderRadius: 8, border: '1px solid color-mix(in srgb, #d97706 45%, transparent)', background: 'color-mix(in srgb, #d97706 10%, transparent)' },
 }
 
-function ModelSelect(props: { id: string; value: string; catalog: Catalog; empty: string; onChange(value: string): void; disabled?: boolean }): ReactElement {
+function ModelSelect(props: { id: string; value: string; catalog: Catalog; empty: string; onChange(value: string): void; disabled?: boolean; extra?: { value: string; label: string } }): ReactElement {
   const groups = props.catalog.groups.filter((group) => props.catalog.routableProviders.includes(group.id))
   return (
     <select id={props.id} style={s.select} value={props.value} disabled={props.disabled} onChange={(event) => props.onChange(event.target.value)}>
       <option value="">{props.empty}</option>
+      {props.extra && <option value={props.extra.value}>{props.extra.label}</option>}
       {groups.map((group) => (
         <optgroup key={group.id} label={group.name}>
           {group.models.map((model) => <option key={model.id} value={key({ provider: group.id, model: model.id })}>{model.name}</option>)}
@@ -63,6 +76,7 @@ function ModelSelect(props: { id: string; value: string; catalog: Catalog; empty
 
 const label = (catalog: Catalog | null, route: Route | null | undefined): string => {
   if (!route) return '—'
+  if (route.provider === REVIEW_AGENT) return 'агент полного ревью'
   const group = catalog?.groups.find((g) => g.id === route.provider)
   const model = group?.models.find((m) => m.id === route.model)
   return `${group?.name ?? route.provider} · ${model?.name ?? route.model}`
@@ -73,6 +87,8 @@ export function PortalSettings(props: { call: Rpc }): ReactElement {
   const [catalog, setCatalog] = useState<Catalog | null>(null)
   const [chat, setChat] = useState('')
   const [deep, setDeep] = useState('')
+  const [local, setLocal] = useState('')
+  const [review, setReview] = useState('')
   const [status, setStatus] = useState<{ ok: boolean; text: string } | null>(null)
   const [saving, setSaving] = useState(false)
 
@@ -84,6 +100,8 @@ export function PortalSettings(props: { call: Rpc }): ReactElement {
     setState(models)
     setChat(key(models.chatChoice))
     setDeep(key(models.deep))
+    setLocal(key(models.local))
+    setReview(key(models.review))
     if (res.ok) setCatalog(res.value as Catalog)
   }
   useEffect(() => { load().catch((e) => setStatus({ ok: false, text: `Не загрузилось: ${String(e)}` })) }, [])
@@ -99,11 +117,15 @@ export function PortalSettings(props: { call: Rpc }): ReactElement {
         body: JSON.stringify({
           ...(chat !== key(state?.chatChoice) ? { chat: parse(chat) } : {}),
           ...(deep !== key(state?.deep) ? { deep: parse(deep) } : {}),
+          ...(local !== key(state?.local) ? { local: parse(local) } : {}),
+          ...(review !== key(state?.review) ? { review: parse(review) } : {}),
         }),
       })
       const body = await res.json() as ModelsState & { error?: string }
       if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`)
       setState(body)
+      setLocal(key(body.local))
+      setReview(key(body.review))
       setStatus({ ok: true, text: 'Сохранено — действует для новых сообщений и следующей сборки БФТ.' })
     } catch (e) {
       setStatus({ ok: false, text: e instanceof Error ? e.message : String(e) })
@@ -119,6 +141,12 @@ export function PortalSettings(props: { call: Rpc }): ReactElement {
         <h2 style={s.title}>Портал</h2>
         <p style={s.lead}>Модели портала заказчика. В списке — провайдеры, у которых есть ключ: ключ задаётся в разделе «Модели».</p>
       </div>
+      {!!state.exhausted?.length && (
+        <div role="alert" style={s.warn} data-portal-exhausted>
+          <strong>Закончился баланс: {state.exhausted.map((m) => `${catalog.groups.find((g) => g.id === m.provider)?.name ?? m.provider} (с ${new Date(m.at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })})`).join(', ')}.</strong>{' '}
+          Правки ИИ-агента идут через запасную модель, сборка полного БФТ на этом провайдере не пройдёт. Пополните баланс у провайдера или выберите модель другого провайдера и сохраните — после «Сохранить» портал попробует снова.
+        </div>
+      )}
       <div style={s.row}>
         <label style={s.label} htmlFor="portal-chat-model">Модель чата заказчика</label>
         <ModelSelect id="portal-chat-model" value={chat} catalog={catalog} empty={`По ключам окружения (${label(catalog, state.profile)})`} onChange={setChat} />
@@ -131,6 +159,22 @@ export function PortalSettings(props: { call: Rpc }): ReactElement {
           {state.deepEnv
             ? `Задана в окружении (PORTAL_DEEP_PROVIDER/MODEL): ${label(catalog, state.deepEnv)}.`
             : 'Пишет полный БФТ по корпоративному канону после «Да, согласен». Можно взять модель сильнее, чем у чата.'}
+        </span>
+      </div>
+      <div style={s.row}>
+        <label style={s.label} htmlFor="portal-local-model">ИИ-агент: локальные правки</label>
+        <ModelSelect id="portal-local-model" value={local} catalog={catalog} empty={`По умолчанию (${label(catalog, state.localDefault)})`} onChange={setLocal} />
+        <span style={s.hint}>Одно замечание со страницы БФТ — одна правка его раздела. Нужна быстрая модель: секунды на замечание. Не ответила — правит модель полного БФТ.</span>
+      </div>
+      <div style={s.row}>
+        <label style={s.label} htmlFor="portal-review-model">ИИ-агент: полное ревью</label>
+        <ModelSelect id="portal-review-model" value={review} catalog={catalog}
+          empty={state.reviewAgent?.configured ? 'По умолчанию (агент полного ревью)' : 'По умолчанию (модель полного БФТ)'} onChange={setReview}
+          {...(state.reviewAgent?.configured ? { extra: { value: AGENT_KEY, label: 'Агент полного ревью (шлюз агентов)' } } : {})} />
+        <span style={s.hint}>
+          {state.reviewAgent?.configured
+            ? 'Проверяет согласованность всего документа после локальных правок (точка у «Комментариев»). Агент полного ревью подключён в окружении сервера.'
+            : 'Проверяет согласованность всего документа после локальных правок. Агент полного ревью не подключён: адрес и ключ задаются в окружении сервера (BFT_REVIEW_AGENT_URL, BFT_REVIEW_AGENT_KEY).'}
         </span>
       </div>
       <div style={s.actions}>

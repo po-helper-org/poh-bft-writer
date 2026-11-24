@@ -1,0 +1,31 @@
+/* Доска «Планирования» в духе FigJam (ADR-0025): своя нижняя панель, панели Excalidraw скрыты. */
+.fj{position:relative;height:100%;width:100%}
+.fj .excalidraw{--color-primary:#2563eb}
+.fj .App-menu_top,
+.fj .App-menu__left,
+.fj .HintViewer,
+.fj .help-icon,
+.fj .main-menu-trigger,
+.fj .sidebar-trigger,
+.fj .default-sidebar-trigger,
+.fj .welcome-screen-center,
+.fj .welcome-screen-decor,
+.fj .App-bottom-bar,
+.fj .layer-ui__wrapper__footer-center,
+.fj .footer-center{display:none!important}
+.fj-bar{position:absolute;left:50%;bottom:18px;transform:translateX(-50%);z-index:10;display:flex;gap:2px;padding:6px;border-radius:14px;
+  background:#fff;box-shadow:0 2px 10px rgba(0,0,0,.12),0 0 0 1px rgba(0,0,0,.06);font:500 11px/1.1 system-ui,-apple-system,"Segoe UI",sans-serif}
+.fj-tool{display:flex;flex-direction:column;align-items:center;gap:4px;min-width:58px;padding:7px 6px 6px;border:0;border-radius:10px;background:transparent;color:#374151;cursor:pointer}
+.fj-tool svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.fj-tool:hover{background:#f3f4f6}
+.fj-tool.on{background:#e8f0fe;color:#1d4ed8}
+.fj-tool[aria-label="Стикер"] svg{fill:#fff3bf}
+@media (prefers-color-scheme:dark){.fj-bar{background:#232428;box-shadow:0 2px 10px rgba(0,0,0,.5),0 0 0 1px rgba(255,255,255,.06)}
+  .fj-tool{color:#d1d5db}.fj-tool:hover{background:#2f3136}.fj-tool.on{background:#1e3a8a;color:#bfdbfe}.fj-tool[aria-label="Стикер"] svg{fill:#5c4d12}}
+.fj-colors{position:absolute;left:50%;bottom:92px;transform:translateX(-50%);z-index:10;display:flex;gap:6px;padding:8px 10px;border-radius:12px;
+  background:#fff;box-shadow:0 2px 10px rgba(0,0,0,.12),0 0 0 1px rgba(0,0,0,.06)}
+.fj-color{width:24px;height:24px;padding:0;border-radius:50%;border:1px solid rgba(0,0,0,.14);cursor:pointer}
+.fj-color:hover{transform:scale(1.12)}
+.fj-color.on{box-shadow:0 0 0 2px #fff,0 0 0 4px #2563eb}
+@media (prefers-color-scheme:dark){.fj-colors{background:#232428;box-shadow:0 2px 10px rgba(0,0,0,.5),0 0 0 1px rgba(255,255,255,.06)}
+  .fj-color.on{box-shadow:0 0 0 2px #232428,0 0 0 4px #60a5fa}}

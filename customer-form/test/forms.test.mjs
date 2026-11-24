@@ -1,8 +1,8 @@
 // Форма вопросов по БФТ (ADR-0018): вопросы из маркеров, стороны, стабильные qid, версии, ответы, страницы.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { answersContext, applyEdits, canonOf, deriveQuestions, editQuestions, latestVersion, newForm, questionForMarker, refreshForm, reissue, sideOf, submitAnswers, SubmitGate } from '../lib-test/forms.js'
-import { arrange, formPage, linkMarks, previewPage } from '../lib-test/form-page.js'
+import { answersContext, applyEdits, formTitle, canonOf, deriveQuestions, editQuestions, latestVersion, newForm, questionForMarker, refreshForm, reissue, sideOf, submitAnswers, SubmitGate } from '../lib-test/forms.js'
+import { arrange, formPage, linkMarks, mailPlan, previewPage } from '../lib-test/form-page.js'
 
 const doc = (extra = '') => [
   '# [БФТ] zayavka-7: Отчёт по возвратам для партнёров', '',
@@ -158,4 +158,34 @@ test('ограничение частоты отправок на форму', (
   assert.equal(gate.allow('a', 20), false)
   assert.ok(gate.allow('b', 20))
   assert.ok(gate.allow('a', 1500))
+})
+
+test('письма с вопросами: корневое — заказчику, ответы в цепочке — по адресатам; панель на странице формы', () => {
+  const form = newForm({ slug: 'zayavka-7', sessionId: 's', title: 'Отчёт по возвратам' })
+  refreshForm(form, { md: doc(), deepAt: 'd1', people })
+  const v = latestVersion(form)
+  const plan = mailPlan(form, v)
+  assert.deepEqual(plan.customer, ['За какой период нужен отчёт?', 'Кто выдаёт тестовую учётку партнёра?'])
+  assert.deepEqual(plan.teams, [{ addressee: 'команды Платёжки', items: ['В каком формате отдаются возвраты?'] }])
+  const html = formPage(form, v, { previewHref: 'preview?id=X', answerHref: 'form/answer' })
+  assert.match(html, /id="mailOpen"[^>]*>✉ Подготовить письма/)
+  assert.match(html, /<aside class="drawer" id="mailDrawer"[^>]*hidden>/)
+  assert.match(html, /id="mailSend" type="button">Отправить</)
+  assert.match(html, /In-Reply-To/)
+  assert.match(html, /placeholder="Мой ответ"/)
+  // данные писем — JSON в скрипте, без адресов заказчика: адреса вписывает PO
+  assert.match(html, /var PLAN=\{"title":"Отчёт по возвратам"/)
+  assert.ok(!html.includes('@') || !/[\w.-]+@[\w-]+\.[a-z]{2,}/i.test(html.replace(/bft-form\.local|компания\.ru/g, '')))
+})
+
+test('заголовок формы — без «[БФТ]» и номера-слага заявки', () => {
+  assert.equal(formTitle('zayavka-1: Промокоды за покупку через TicketsCloud'), 'Промокоды за покупку через TicketsCloud')
+  assert.equal(formTitle('[БФТ] zayavka-12 — Отчёт'), 'Отчёт')
+  assert.equal(formTitle('zayavka-7'), 'zayavka-7')
+  const form = newForm({ slug: 'zayavka-7', sessionId: 's', title: 'zayavka-7: Отчёт по возвратам' })
+  refreshForm(form, { md: doc(), deepAt: 'd1', people })
+  const v = latestVersion(form)
+  const html = formPage(form, v, { previewHref: 'p', answerHref: 'a' })
+  assert.match(html, /<h1>Отчёт по возвратам<\/h1>/)
+  assert.equal(mailPlan(form, v).title, 'Отчёт по возвратам')
 })

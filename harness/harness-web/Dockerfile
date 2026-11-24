@@ -17,6 +17,10 @@ COPY customer-form/package.json customer-form/tsconfig*.json customer-form/tsdow
 COPY customer-form/src ./customer-form/src
 COPY customer-form/cordis.patch.yml ./customer-form/
 RUN cd customer-form && npm install --no-audit --no-fund && npm run build
+# Доска «Планирования» (ADR-0025): Excalidraw одним бандлом board.js/board.css, без CDN; node_modules не берём дальше
+COPY customer-form/board/package.json customer-form/board/build.mjs ./customer-form/board/
+COPY customer-form/board/src ./customer-form/board/src
+RUN cd customer-form/board && npm install --no-audit --no-fund && npm run build && rm -rf node_modules
 # bft-manager (ADR-0009): «Управление БФТ» для PO поверх API Vikunja
 COPY bft-manager/package.json bft-manager/tsconfig*.json bft-manager/tsdown.config.ts bft-manager/cordis.patch.yml ./bft-manager/
 COPY bft-manager/src ./bft-manager/src

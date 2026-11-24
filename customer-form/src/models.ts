@@ -2,7 +2,10 @@
  * Модели портала (ADR-0012): выбор администратора в «Настройках → Портал».
  *
  * - модель чата — модель dsh по умолчанию (`agentDefaultModel`);
- * - модель полного БФТ — отдельно; не выбрана — та же, что у чата.
+ * - модель полного БФТ — отдельно; не выбрана — та же, что у чата;
+ * - ИИ-агент правок (ADR-0024): локальные правки — быстрая модель (по умолчанию
+ *   Haiku), полное ревью — агент полного ревью (`REVIEW_AGENT`, шлюз агентов из
+ *   окружения) или любая модель dsh.
  *
  * `saveSelection` пишет в профиль, а профиль пересборка образа засевает
  * заново из customer.patch.yml. Поэтому выбор хранится в томе
@@ -26,7 +29,17 @@ export interface PortalModels {
   chat?: ModelRoute
   /** Модель полного БФТ; нет — та же, что у чата. */
   deep?: ModelRoute
+  /** Локальные правки ИИ-агента; нет — PORTAL_LOCAL_PROVIDER/MODEL или DEFAULT_LOCAL. */
+  local?: ModelRoute
+  /** Полное ревью; нет — агент полного ревью, если настроен, иначе модель полного БФТ. */
+  review?: ModelRoute
 }
+
+/** Быстрая модель локальных правок по умолчанию. */
+export const DEFAULT_LOCAL: ModelRoute = { provider: 'requesty', model: 'anthropic/claude-haiku-5-5' }
+/** Псевдо-провайдер: полное ревью делает внешний агент (review-agent.ts). */
+export const REVIEW_AGENT = 'review-agent'
+const KEYS = ['chat', 'deep', 'local', 'review'] as const
 
 const FILE = join(process.env.DSH_HOME ?? '/data', 'customer-form', 'models.json')
 
@@ -41,9 +54,12 @@ const pick = (value: unknown): ModelRoute | undefined =>
 export async function readPortalModels(): Promise<PortalModels> {
   try {
     const raw = JSON.parse(await readFile(FILE, 'utf8')) as Record<string, unknown>
-    const chat = pick(raw.chat)
-    const deep = pick(raw.deep)
-    return { ...(chat ? { chat } : {}), ...(deep ? { deep } : {}) }
+    const out: PortalModels = {}
+    for (const key of KEYS) {
+      const route = pick(raw[key])
+      if (route) out[key] = route
+    }
+    return out
   } catch {
     return {}
   }
@@ -55,13 +71,13 @@ export async function writePortalModels(models: PortalModels): Promise<void> {
 }
 
 /**
- * Тело POST от раздела «Портал»: `chat` и `deep` — маршрут или null
+ * Тело POST от раздела «Портал»: `chat`, `deep`, `local`, `review` — маршрут или null
  * («как по умолчанию»); отсутствующее поле не меняется.
  */
 export function mergePortalModels(current: PortalModels, body: unknown): PortalModels {
   const input = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>
   const next: PortalModels = { ...current }
-  for (const key of ['chat', 'deep'] as const) {
+  for (const key of KEYS) {
     if (!(key in input)) continue
     const route = pick(input[key])
     if (route) next[key] = route
