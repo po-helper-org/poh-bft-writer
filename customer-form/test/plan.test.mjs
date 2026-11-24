@@ -81,6 +81,7 @@ test('страница БФТ: кнопка всегда, артефакт — �
   const page = '<html><body><main><h1>БФТ</h1></main></body></html>'
   const empty = await withPlan(page, 'session-1', dir)
   assert.match(empty, /class="plan-btn" href="customer-form\.plan\?session=session-1"/)
+  assert.ok(empty.indexOf('plan-btn') > empty.indexOf('</h1>') && empty.indexOf('plan-btn') < empty.indexOf('</main>'), 'кнопка — под заголовком')
   assert.ok(!empty.includes('data-plan'))
   await savePlan(dir, { note: '## Декомпозиция\n- BE: событие из Kafka', scene: scene(1), svg: '' }, 'Т')
   const saved = await withPlan(page, 'session-1', dir)

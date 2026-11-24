@@ -210,10 +210,23 @@ export interface PlanLinks { page: string; zip: string; pdf: string; note: strin
 
 /** Блок на странице полного БФТ: кнопка «Планирование» вверху и артефакт внизу. */
 export function planButton(links: PlanLinks): string {
-  return `<a class="plan-btn" href="${escHtml(links.page)}" target="_blank" rel="noopener" title="Заметка и доска для декомпозиции с командой">🗂 Планирование</a>
-<style>.plan-btn{position:fixed;top:14px;right:76px;z-index:30;display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:999px;
-border:1px solid rgba(127,127,127,.35);background:var(--bg,#fff);color:inherit;font:600 13px/1.2 system-ui,sans-serif;text-decoration:none;box-shadow:0 1px 3px rgba(0,0,0,.08)}
-.plan-btn:hover{border-color:rgba(127,127,127,.7)}@media print{.plan-btn{display:none}}</style>`
+  return `<p class="plan-bar"><a class="plan-btn" href="${escHtml(links.page)}" target="_blank" rel="noopener" title="Заметка и доска для декомпозиции с командой">🗂 Планирование</a></p>
+<style>.plan-bar{margin:.4rem 0 1.2rem}.plan-btn{display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:999px;
+border:1px solid rgba(127,127,127,.35);color:inherit;font:600 13px/1.2 system-ui,sans-serif;text-decoration:none}
+.plan-btn:hover{border-color:rgba(127,127,127,.7)}@media print{.plan-bar{display:none}}</style>`
+}
+
+/** Кнопка — сразу под заголовком документа (в потоке страницы: правый верх занят переключателем панели). */
+export function insertPlanButton(page: string, links: PlanLinks): string {
+  const main = page.indexOf('<main')
+  const h1 = page.indexOf('</h1>', main < 0 ? 0 : main)
+  if (h1 < 0) return appendBeforeBody(page, planButton(links))
+  return page.slice(0, h1 + 5) + planButton(links) + page.slice(h1 + 5)
+}
+
+function appendBeforeBody(page: string, html: string): string {
+  const at = page.lastIndexOf('</body>')
+  return at < 0 ? page + html : page.slice(0, at) + html + page.slice(at)
 }
 
 export function planArtifact(plan: SavedPlan | undefined, links: PlanLinks): string {
