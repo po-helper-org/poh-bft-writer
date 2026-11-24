@@ -419,7 +419,7 @@ body.cs-sb-open .cs-rail{ left:var(--sb-w); }
 .cs-rail-tab.plan{ background:var(--fg); color:var(--bg); }
 .cs-sb{ position:fixed; left:0; top:0; bottom:0; width:var(--sb-w); z-index:58; display:none; flex-direction:column;
   background:var(--bg); border-right:1px solid var(--fg); box-shadow:3px 0 0 var(--line-soft); font:13px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif; }
-body.cs-sb-open .cs-sb{ display:flex; }
+body.cs-sb-open .cs-sb.on{ display:flex; }
 @media (min-width:1180px){ body.cs-sb-open{ padding-left:var(--sb-w); } }
 .cs-sb-head{ display:flex; align-items:center; justify-content:space-between; gap:.5rem; padding:.55rem .8rem; border-bottom:1px solid var(--line-soft); }
 .cs-sb-head h4{ margin:0; font-size:.9rem; }
@@ -495,11 +495,17 @@ var API=${jsonInScript(form.api)}, SID=${jsonInScript(form.sessionId)}, KEY="bft
 function post(url, body){ return fetch(url,{ method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify(Object.assign({ sessionId:SID }, body||{})) }).then(function(r){ return r.json().then(function(j){ if(!r.ok) throw new Error(j&&j.error||('ошибка '+r.status)); return j; }); }); }
 function fail(e){ alert('Не получилось: '+e.message); }
 function edit(body){ return post(API.edit, body).then(function(){ location.reload(); }, fail); }
-function setOpen(open){ document.body.classList.toggle('cs-sb-open', open); try{ localStorage.setItem(KEY, open?'1':'0'); }catch(e){} var t=document.getElementById('csSideToggle'); if(t) t.setAttribute('aria-expanded', open?'true':'false'); }
-var saved=null; try{ saved=localStorage.getItem(KEY); }catch(e){}
-setOpen(saved===null ? window.innerWidth>=1180 : saved==='1');
-document.getElementById('csSideToggle').addEventListener('click', function(){ setOpen(!document.body.classList.contains('cs-sb-open')); });
-document.getElementById('csSideClose').addEventListener('click', function(){ setOpen(false); });
+/** Слева одна панель за раз: «Вопросы» (csSidebar) или «Планирование» (csPlanSide, ставит plan.ts). */
+function show(id){ var p=id&&document.getElementById(id); if(!p) id=''; document.querySelectorAll('.cs-sb').forEach(function(x){ x.classList.toggle('on', x.id===id); }); document.body.classList.toggle('cs-sb-open', !!id);
+  document.querySelectorAll('.cs-rail [data-panel]').forEach(function(t){ t.setAttribute('aria-expanded', t.getAttribute('data-panel')===id?'true':'false'); });
+  try{ localStorage.setItem(KEY, id||'0'); }catch(e){} if(p) p.dispatchEvent(new Event('cs-open')); }
+function setOpen(open){ show(open?'csSidebar':''); }
+window.csPanel=show;
+document.addEventListener('click', function(e){ var t=e.target.closest('.cs-rail [data-panel]'); if(t){ e.preventDefault(); var id=t.getAttribute('data-panel'); show(document.getElementById(id)&&document.getElementById(id).classList.contains('on')&&document.body.classList.contains('cs-sb-open')?'':id); return; } if(e.target.closest('[data-close-panel]')) show(''); });
+function restore(){ var saved=null; try{ saved=localStorage.getItem(KEY); }catch(e){}
+  if(location.hash==='#plan') saved='csPlanSide'; else if(saved==='1') saved='csSidebar';
+  show(saved===null ? (window.innerWidth>=1180?'csSidebar':'') : saved==='0'?'':saved); }
+if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', restore); else setTimeout(restore, 0);
 document.addEventListener('keydown', function(e){ if(e.key==='Escape' && window.innerWidth<1180) setOpen(false); });
 function norm(s){ return String(s||'').replace(/\s+/g,' ').trim().toLowerCase(); }
 /** Куда вести вопрос: его пометка; нет — строка требования (ФТ-N); нет — заголовок раздела. */
@@ -533,9 +539,9 @@ if(copy) copy.addEventListener('click', function(){ url.select(); (navigator.cli
 var revoke=document.getElementById('csRevoke');
 if(revoke) revoke.addEventListener('click', function(){ if(confirm('Отозвать ссылку? Она перестанет открываться у всех, кому её отправили.')) post(API.revoke).then(function(){ location.reload(); }, fail); });
 })();</script>`
-  return `${SIDEBAR_STYLE}<nav class="cs-rail" aria-label="Панели БФТ"><button type="button" class="cs-rail-tab q" id="csSideToggle" aria-controls="csSidebar">⟩ Вопросы (${answered}/${total})</button>${RAIL_PLAN_SLOT}</nav>
+  return `${SIDEBAR_STYLE}<nav class="cs-rail" aria-label="Панели БФТ"><button type="button" class="cs-rail-tab q" id="csSideToggle" data-panel="csSidebar" aria-controls="csSidebar">⟩ Вопросы (${answered}/${total})</button>${RAIL_PLAN_SLOT}</nav>
 <aside class="cs-sb" id="csSidebar" aria-label="Вопросы по БФТ">
-<div class="cs-sb-head"><h4>Вопросы<span class="cs-sb-sub">${total ? `отвечено ${answered} из ${total} · заказчику ${customerCount}, командам ${total - customerCount}` : 'пока нет'}</span></h4><button type="button" class="cs-sb-x" id="csSideClose" title="Скрыть панель">×</button></div>
+<div class="cs-sb-head"><h4>Вопросы<span class="cs-sb-sub">${total ? `отвечено ${answered} из ${total} · заказчику ${customerCount}, командам ${total - customerCount}` : 'пока нет'}</span></h4><button type="button" class="cs-sb-x" id="csSideClose" data-close-panel title="Скрыть панель">×</button></div>
 <div class="cs-sb-body">${groups}
 <form class="cs-sb-add" id="csAddQ"><input name="text" placeholder="Свой вопрос…" maxlength="500" required><input name="addressee" placeholder="у кого" title="У кого спросить" maxlength="120" value="заказчика"><button type="submit" title="Добавить вопрос">+</button></form>
 ${removed}</div>
