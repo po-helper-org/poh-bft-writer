@@ -165,3 +165,6 @@ export async function BftLifecycle(input: LifecycleInput): Promise<LifecycleStat
   }
   return statusOf(state)
 }
+
+// Отправка БФТ в Confluence (ADR-0028) — отдельный короткий workflow на каждую отправку.
+export { ConfluencePublish, progressQuery } from './publish.js'
