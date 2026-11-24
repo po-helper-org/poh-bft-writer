@@ -175,7 +175,7 @@ test('ТОП-5 родителей: порядок источников, дете
   assert.deepEqual(top.map((t) => t.id), ['14', '12', '10', '13', '15'])
   assert.match(top[0].reasons[0], /уже публиковали/)
   assert.match(top[1].reasons[0], /похожий БФТ «\[БФТ\] zayavka-3: Выплаты»/)
-  assert.equal(top[2].reasons.length, 2, 'два запроса — две причины')
+  assert.deepEqual(top[2].reasons, ['найдено поиском: «возвраты», «кабинет»'], 'два запроса — одна причина')
   assert.deepEqual(rankParents([{ id: '1', title: 'Шаблон. БФТ № [команда]', source: 'search', rank: 0 }, { id: '2', title: 'Скрипты', source: 'search', rank: 6 }]).map((t) => t.id), ['2', '1'], 'шаблон — ниже')
   for (let i = 0; i < 5; i++) {
     const shuffled = [...candidates].sort(() => Math.random() - 0.5)
