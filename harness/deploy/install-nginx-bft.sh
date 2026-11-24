@@ -14,6 +14,9 @@
 #   curl -s -o /dev/null -w '%{http_code}' -X POST https://<хост>/bft-sources/mcp   # ждём 401
 # Форма вопросов по БФТ (ADR-0018): /bft/form, /bft/form/answer, /bft/preview — без
 # Authentik (ключ в ссылке проверяет портал). Проверка: /bft/form без ключа — 404, не 302.
+# Агент полного ревью (ADR-0024): location = /bft-review/v1/responses → BFT_REVIEW_AGENT_UPSTREAM
+# из harness/.env (адрес метода ответа одного агента на loopback хоста); пусто — блок не ставится.
+# Проверка: POST без ключа — 401 от шлюза агентов.
 set -euo pipefail
 
 DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -45,7 +48,17 @@ if [ "${1:-}" = --rollback ]; then
   sudo sed -i -E "s|^([[:space:]]*)${PORTAL_INCLUDE//./\\.}|\1# ${PORTAL_INCLUDE} # poh-bft-portal: откат|" "$VHOST"
   sudo sed -i -E "s|^([[:space:]]*)# ${WIDGET_INCLUDE//./\\.}.*$|\1${WIDGET_INCLUDE}|" "$VHOST"
 else
-  sudo install -m 644 "$DIR/bft-portal.nginx.conf" "$SNIP"
+  UPSTREAM=""
+  [ -f "$ENV_FILE" ] && UPSTREAM=$(grep -m1 '^BFT_REVIEW_AGENT_UPSTREAM=' "$ENV_FILE" | cut -d= -f2- || true)
+  RENDERED=$(mktemp)
+  if [[ "$UPSTREAM" =~ ^http://127\.0\.0\.1:[0-9]+/[A-Za-z0-9/_.-]+$ ]]; then
+    sed "s|__BFT_REVIEW_AGENT_UPSTREAM__|$UPSTREAM|" "$DIR/bft-portal.nginx.conf" > "$RENDERED"
+  else
+    [ -z "$UPSTREAM" ] || echo "BFT_REVIEW_AGENT_UPSTREAM — ждём http://127.0.0.1:<порт>/<путь>; блок агента ревью не ставлю"
+    sed '/# BFT_REVIEW_AGENT_BEGIN/,/# BFT_REVIEW_AGENT_END/d' "$DIR/bft-portal.nginx.conf" > "$RENDERED"
+  fi
+  sudo install -m 644 "$RENDERED" "$SNIP"
+  rm -f "$RENDERED"
   # Виджет занимал /bft/ — его include комментируем (дубль location не пройдёт nginx -t).
   sudo sed -i -E "s|^([[:space:]]*)${WIDGET_INCLUDE//./\\.}.*$|\1# ${WIDGET_INCLUDE} # poh-bft-portal: /bft/ отдан порталу|" "$VHOST"
   if ! sudo grep -qE "^[[:space:]]*${PORTAL_INCLUDE//./\\.}" "$VHOST"; then
@@ -71,3 +84,4 @@ printf "снаружи  %s/bft/      -> %s (ждём 302 на вход Authentik
 printf "внутри   127.0.0.1:3082 -> %s (ждём 200 — портал жив)\n" "$(curl -s -m 15 -o /dev/null -w '%{http_code}' http://127.0.0.1:3082/)"
 printf "снаружи  %s/bft/form  -> %s (ждём 404 — форма открыта без входа, ключа нет)\n" "$HOST" "$(curl -s -m 15 -o /dev/null -w '%{http_code}' "$HOST/bft/form")"
 printf "снаружи  %s/bft/mcp   -> %s (ждём 401 — MCP открыт без входа, токена нет)\n" "$HOST" "$(curl -s -m 15 -o /dev/null -w '%{http_code}' -X POST "$HOST/bft/mcp")"
+[ -z "${UPSTREAM:-}" ] || printf "снаружи  %s/bft-review/v1/responses -> %s (ждём 401 — агент ревью, ключа нет)\n" "$HOST" "$(curl -s -m 15 -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -d '{}' "$HOST/bft-review/v1/responses")"

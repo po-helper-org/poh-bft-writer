@@ -347,8 +347,8 @@
   var uncDrawerList = document.getElementById("uncList");
   var uncMarks = Array.prototype.slice.call(document.querySelectorAll("main mark.unc"));
   var uncMeta = [];
-  var uncIdSeen = {};
-  uncMarks.forEach(function(mark, i){
+  uncMarks.forEach(wireMark);
+  function wireMark(mark){
     var section = nearestSection(mark);
     var container = mark.closest("td") || mark.closest("p") || mark.parentElement;
     var fullText = (container ? container.textContent : mark.textContent).replace(/\s+/g," ").trim();
@@ -359,9 +359,9 @@
     // positional "unc-N" ids shift whenever an earlier [УТОЧНИТЬ] is added or
     // removed, silently reattributing the localStorage "answered" status to a
     // different point on the next export.
-    var baseId = "unc-" + hashString(section + "|" + fullText);
-    uncIdSeen[baseId] = (uncIdSeen[baseId] || 0) + 1;
-    mark.id = uncIdSeen[baseId] > 1 ? baseId + "-" + uncIdSeen[baseId] : baseId;
+    var baseId = "unc-" + hashString(section + "|" + fullText), id = baseId, k = 1;
+    while(document.getElementById(id) && document.getElementById(id) !== mark){ k++; id = baseId + "-" + k; }
+    mark.id = id;
 
     var dot = document.createElement("button");
     dot.className = "unc-dot";
@@ -382,7 +382,7 @@
     dot.addEventListener("mouseleave", hideHint);
     dot.addEventListener("focus", function(){ showHint(dot, mark.id); });
     dot.addEventListener("blur", hideHint);
-  });
+  }
 
   function hideHint(){
     var old = document.getElementById("activeHint");
@@ -647,6 +647,23 @@
     });
   }
   buildToc();
+
+  // Точечная перерисовка (ИИ-агент портала заменяет разделы на месте): новые точки
+  // «УТОЧНИТЬ» — с обработчиками, пропавшие — из списка; ревизия — новая, но
+  // открытые комментарии не закрываются: что внесено, закрывает сам агент.
+  window.bftReview = {
+    refresh: function(rev){
+      uncMeta = uncMeta.filter(function(m){ return document.body.contains(m.mark); });
+      Array.prototype.slice.call(document.querySelectorAll("main mark.unc")).forEach(function(mark){
+        var next = mark.nextElementSibling;
+        if(!next || !next.classList.contains("unc-dot")) wireMark(mark);
+      });
+      if(rev){ DOC_REV = rev; try{ localStorage.setItem(REV_KEY, rev); }catch(e){} }
+      buildToc();
+      render();
+    },
+    render: function(){ render(); }
+  };
 
   render();
 })();

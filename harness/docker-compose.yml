@@ -187,6 +187,15 @@ services:
       # deploy-server.sh, токен пишет harness/deploy/install-sources-gateway.sh.
       DATA_SOURCES_URL_ATLASSIAN: ${DATA_SOURCES_URL_ATLASSIAN:-}
       DATA_SOURCES_TOKEN_ATLASSIAN: ${DATA_SOURCES_TOKEN_ATLASSIAN:-}
+      # ИИ-агент правок полного БФТ (ADR-0024): быстрая модель локальных правок (пусто —
+      # выбор в «Настройках → Портал» или Haiku через requesty) и агент полного ревью —
+      # через шлюз агентов (nginx /bft-review/v1/responses). Адрес переносит
+      # deploy-server.sh, ключ кладёт владелец: harness/deploy/set-review-agent-key.sh.
+      PORTAL_LOCAL_PROVIDER: ${PORTAL_LOCAL_PROVIDER:-}
+      PORTAL_LOCAL_MODEL: ${PORTAL_LOCAL_MODEL:-}
+      BFT_REVIEW_AGENT_URL: ${BFT_REVIEW_AGENT_URL:-}
+      BFT_REVIEW_AGENT_KEY: ${BFT_REVIEW_AGENT_KEY:-}
+      BFT_REVIEW_AGENT_MODEL: ${BFT_REVIEW_AGENT_MODEL:-}
     depends_on:
       context-ingest: { condition: service_healthy }
     ports:

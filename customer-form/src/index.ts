@@ -35,7 +35,7 @@ import { buildFastFromPrimary, type PrimaryDoc } from './primary.js'
 import { qualityMetrics } from './quality-metrics.js'
 import { parseSources } from './canon-check.js'
 import { customerWordsContext } from './intake.js'
-import { mergePortalModels, MODELS_ROUTE, readPortalModels, sameRoute, writePortalModels, type ModelRoute, type PortalModels } from './models.js'
+import { DEFAULT_LOCAL, mergePortalModels, MODELS_ROUTE, readPortalModels, REVIEW_AGENT, sameRoute, writePortalModels, type ModelRoute, type PortalModels } from './models.js'
 import { ADMIN_ONLY_ENDPOINTS, ADMIN_PAGE, ADMIN_STATUS, adminOnlyResponse, adminPage, isAdmin } from './admin.js'
 import { siblingHref } from './links.js'
 import { isMcpSession } from './request-flow.js'
@@ -46,7 +46,9 @@ import { bftMcp, MCP_INSTRUCTIONS } from './mcp-bft.js'
 import { bftCard, type BftState } from './bft-list.js'
 import { registerPlanRoutes, withPlan } from './plan-routes.js'
 import { withAgent } from './agent-page.js'
-import { newRevision, normalizeRemarks, poWords, readRevisions, reviseDeep, revisionsContext, saveRevisions, undoRevision, type Revision } from './bft-revise.js'
+import { canUndo, dshModel, newRevision, normalizeRemarks, poWords, queueRemarks, readRevisions, reviewDue, reviseDeep, revisionsContext, saveRevisions, sinceReview, undoRevision, type Revision, type TextModel } from './bft-revise.js'
+import { docRevOf, pickBlocks } from './doc-sections.js'
+import { reviewAgentFromEnv, reviewAgentModel } from './review-agent.js'
 import { answersContext, answersMarkdown, answersPath, editQuestions, formOfRequest, formTitle, isFormId, latestVersion, linkForm, newForm, readForm, refreshForm, reissue, saveForm, submitAnswers, SubmitGate, type BftForm, type EditOp, type FormPerson, type FormQuestion } from './forms.js'
 import { formGonePage, formPage, previewPage, type DeepFormLayer } from './form-page.js'
 import { mirrorAll, mirrorRequest } from './workspace-mirror.js'
@@ -295,6 +297,24 @@ export function apply(ctx: HarnessContext): void {
       return () => { defaults = undefined; deepRuntime = undefined }
     }, 'customer-form: модели портала')
   })
+  /**
+   * Модели ИИ-агента правок (ADR-0024): локальные правки — быстрая модель
+   * (выбор администратора → PORTAL_LOCAL_PROVIDER/MODEL → Haiku), полное ревью —
+   * агент полного ревью через шлюз агентов (настроен в окружении) или модель
+   * dsh; запасная — модель полного БФТ.
+   */
+  const reviseModels = (): { local: TextModel; review: TextModel; fallback: TextModel } | undefined => {
+    if (!deepRuntime) return undefined
+    const fallback = dshModel(deepRuntime.llm, deepRuntime.route())
+    const env = process.env.PORTAL_LOCAL_PROVIDER && process.env.PORTAL_LOCAL_MODEL ? { provider: process.env.PORTAL_LOCAL_PROVIDER, model: process.env.PORTAL_LOCAL_MODEL } : undefined
+    const localRoute = portalModels.local ?? env ?? DEFAULT_LOCAL
+    const agent = reviewAgentFromEnv()
+    const choice = portalModels.review
+    const review = choice && choice.provider !== REVIEW_AGENT ? dshModel(deepRuntime.llm, choice, 32_000)
+      : agent && (!choice || choice.provider === REVIEW_AGENT) ? reviewAgentModel(agent)
+        : dshModel(deepRuntime.llm, deepRuntime.route(), 32_000)
+    return { local: dshModel(deepRuntime.llm, localRoute), review, fallback }
+  }
   // Источники данных (плагин data-sources): Jira/Confluence перед полным БФТ.
   // Плагина нет или источник не подключён — полный БФТ собирается как раньше.
   let dataSources: DataSourcesLike | undefined
@@ -503,6 +523,15 @@ export function apply(ctx: HarnessContext): void {
     return form.edits.removed.map((qid) => all.get(qid)).filter((q): q is FormQuestion => !!q)
   }
   /** Слой формы для страницы полного БФТ в портале. */
+  /** Страница полного БФТ для заказчика (без колонки агента): её же режут на разделы для точечной перерисовки. */
+  const deepView = async (slug: string, sessionId: string): Promise<string | undefined> => {
+    const files = fastFiles(FAST_ROOT, slug)
+    const deep = await readDeepState(deepFiles(files, slug))
+    const deepHtml = deep?.stage === 'ready' ? await readFile(deepFiles(files, slug).html, 'utf8').catch(() => undefined) : undefined
+    if (!deep || !deepHtml) return undefined
+    const layer = await deepFormLayer(slug, sessionId).catch((e) => { console.error('[customer-form] слой формы вопросов:', e); return undefined })
+    return customerDeepPage(deepHtml, sessionId, siblingHref(`${fastPagePath(sessionId)}&view=fast`), deep.questions, layer)
+  }
   const deepFormLayer = async (slug: string, sessionId: string): Promise<DeepFormLayer | undefined> => {
     const doc = await deepDocOf(slug)
     return withFormLock(slug, async () => {
@@ -716,6 +745,11 @@ export function apply(ctx: HarnessContext): void {
           profile: profileDefaultModel(),
           deep: portalModels.deep ?? null,
           deepEnv: deepEnv ?? null,
+          local: portalModels.local ?? null,
+          localDefault: process.env.PORTAL_LOCAL_PROVIDER && process.env.PORTAL_LOCAL_MODEL
+            ? { provider: process.env.PORTAL_LOCAL_PROVIDER, model: process.env.PORTAL_LOCAL_MODEL } : DEFAULT_LOCAL,
+          review: portalModels.review ?? null,
+          reviewAgent: reviewAgentFromEnv() ? { configured: true, model: reviewAgentFromEnv()!.model ?? null } : { configured: false, model: null },
         }, { headers: { 'cache-control': 'no-store' } })
       },
     }), 'customer-form: модели портала')
@@ -875,13 +909,13 @@ export function apply(ctx: HarnessContext): void {
           const fastUrl = siblingHref(`${fastPagePath(sessionId)}&view=fast`)
           if (deep.stage === 'building') return new Response(waitingPage(sessionId, { stage: 'building', startedAt: deep.startedAt }, siblingHref('/api/customer-form.bftDeepStatus'), 'deep'), { headers })
           if (deep.stage === 'failed') return new Response(deepFailedPage(sessionId, deep.error ?? 'неизвестная ошибка', siblingHref('/api/customer-form.bftDeepRetry'), fastUrl), { headers })
-          const deepHtml = await readFile(deepFiles(files, slug).html, 'utf8').catch(() => undefined)
-          if (deepHtml) {
-            const layer = await deepFormLayer(slug, sessionId).catch((e) => { console.error('[customer-form] слой формы вопросов:', e); return undefined })
+          const view = await deepView(slug, sessionId)
+          if (view) {
             // ИИ-агент правок (ADR-0021): колонка справа — замечания со страницы сразу в документ.
-            const page = withAgent(customerDeepPage(deepHtml, sessionId, fastUrl, deep.questions, layer), {
+            const page = withAgent(view, {
               sessionId, store: `bft-comments-${slug}`, deepAt: deep.finishedAt ?? null,
               reviseUrl: siblingHref('/api/customer-form.bftRevise'), statusUrl: siblingHref('/api/customer-form.bftReviseStatus'), undoUrl: siblingHref('/api/customer-form.bftReviseUndo'),
+              sectionUrl: siblingHref('/api/customer-form.bftReviseSection'), reviewUrl: siblingHref('/api/customer-form.bftReview'),
             })
             // «Планирование» (ADR-0025): кнопка вверху, сохранённая заметка и доска — артефактом внизу.
             return new Response(await withPlan(page, sessionId, files.dir), { headers })
@@ -1320,61 +1354,136 @@ export function apply(ctx: HarnessContext): void {
       const deep = await readDeepState(deepFiles(fast, slug))
       return { ticket, slug, fast, deep } as const
     }
+    /**
+     * Очередь правок заявки (ADR-0024): одно замечание — одна задача, по порядку —
+     * каждая ложится на результат предыдущей. Исполнитель один на заявку; очередь
+     * в revisions.json переживает рестарт (подхватит следующий запрос статуса).
+     */
+    const drainQueue = (ticket: Ticket, slug: string, sessionId: string): void => {
+      if (reviseRunning.has(slug) || deepRunning.has(slug)) return
+      const models = reviseModels()
+      if (!models) return
+      const fast = fastFiles(FAST_ROOT, slug)
+      reviseRunning.add(slug)
+      void (async () => {
+        let changed = false
+        for (;;) {
+          if (deepRunning.has(slug)) break
+          const list = await readRevisions(fast)
+          const next = list.find((r) => r.stage === 'queued')
+          if (!next) break
+          const review = next.kind === 'review'
+          let done: Revision
+          try {
+            done = await reviseDeep({
+              model: review ? models.review : models.local, fallback: models.fallback,
+              skillsPath: SKILLS_PATH, fast, slug, revision: next, ...(review ? { since: sinceReview(list) } : {}),
+              onProgress: (update) => patchRevision(slug, next.id, update),
+            })
+          } catch (e) {
+            console.error(`[customer-form] ИИ-агент правок ${slug}:`, e)
+            done = { ...next, stage: 'failed', error: (e as Error).message.slice(0, 1500), finishedAt: new Date().toISOString() }
+          }
+          await patchRevision(slug, next.id, done)
+          if (done.stage === 'ready' && done.edits) changed = true
+        }
+        if (changed) void mirrorRequest(ticket.taskId, sessionId)
+      })().catch((e) => console.error('[customer-form] ИИ-агент правок упал:', e)).finally(() => {
+        reviseRunning.delete(slug)
+        // Пока шёл последний круг, могли добавить задачи — подхватить.
+        void readRevisions(fast).then((list) => { if (list.some((r) => r.stage === 'queued')) drainQueue(ticket, slug, sessionId) }).catch(() => undefined)
+      })
+    }
+    /** Проверки перед постановкой в очередь: документ готов, не пересобирается, модель есть. */
+    const enqueueGuard = (got: { slug: string; deep: { stage?: string } | undefined }) => {
+      if (got.deep?.stage !== 'ready') return Response.json({ error: got.deep?.stage === 'building' ? 'полный БФТ ещё собирается' : 'полного БФТ ещё нет' }, { status: 409 })
+      if (deepRunning.has(got.slug)) return Response.json({ error: 'полный БФТ пересобирается — дождитесь сборки' }, { status: 409 })
+      if (!deepRuntime) return Response.json({ error: 'модель портала недоступна' }, { status: 503 })
+      return undefined
+    }
     scoped.effect(() => register({
       path: '/api/customer-form.bftRevise',
       methods: ['POST'],
       requestBody: 'buffered',
       fetch: async (request: Request) => {
         const body = (await request.json().catch(() => ({}))) as { sessionId?: unknown; remarks?: unknown; author?: unknown }
-        const got = await revisable(typeof body.sessionId === 'string' ? body.sessionId : '')
+        const sessionId = typeof body.sessionId === 'string' ? body.sessionId : ''
+        const got = await revisable(sessionId)
         if ('error' in got) return Response.json({ error: got.error }, { status: got.status })
-        const { ticket, slug, fast, deep } = got
-        if (deep?.stage !== 'ready') return Response.json({ error: deep?.stage === 'building' ? 'полный БФТ ещё собирается' : 'полного БФТ ещё нет' }, { status: 409 })
-        if (deepRunning.has(slug)) return Response.json({ error: 'полный БФТ пересобирается — дождитесь сборки' }, { status: 409 })
-        if (reviseRunning.has(slug)) return Response.json({ error: 'агент ещё вносит прошлые замечания — дождитесь, новые отправьте следом' }, { status: 409 })
-        if (!deepRuntime) return Response.json({ error: 'модель портала недоступна' }, { status: 503 })
+        const refused = enqueueGuard(got)
+        if (refused) return refused
         const remarks = normalizeRemarks(body.remarks)
         if (typeof remarks === 'string') return Response.json({ error: remarks }, { status: 400 })
         const author = typeof body.author === 'string' ? body.author.trim() : ''
-        const revision = newRevision(remarks, author || undefined)
-        const runtime = deepRuntime
-        reviseRunning.add(slug)
-        await withRevisions(slug, async (list) => ({ list: [...list, revision], value: undefined }))
-        void (async () => {
-          let done: Revision
-          try {
-            done = await reviseDeep({
-              llm: runtime.llm, route: runtime.route(), skillsPath: SKILLS_PATH, fast, slug, revision,
-              onProgress: (update) => patchRevision(slug, revision.id, update),
-            })
-          } catch (e) {
-            console.error(`[customer-form] ИИ-агент правок ${slug}:`, e)
-            done = { ...revision, stage: 'failed', error: (e as Error).message.slice(0, 1500), finishedAt: new Date().toISOString() }
-          }
-          await patchRevision(slug, revision.id, done)
-          if (done.stage === 'ready' && done.edits) void mirrorRequest(ticket.taskId, typeof body.sessionId === 'string' ? body.sessionId : '')
-        })().catch((e) => console.error('[customer-form] ИИ-агент правок упал:', e)).finally(() => reviseRunning.delete(slug))
-        return Response.json({ ok: true, id: revision.id })
+        const tasks = queueRemarks(remarks, author || undefined)
+        await withRevisions(got.slug, async (list) => ({ list: [...list, ...tasks], value: undefined }))
+        drainQueue(got.ticket, got.slug, sessionId)
+        return Response.json({ ok: true, ids: tasks.map((t) => t.id) })
       },
     }), 'customer-form: /api/customer-form.bftRevise')
+
+    // Полное ревью согласованности (ADR-0024): точка у «Комментариев» → задача review в ту же очередь.
+    scoped.effect(() => register({
+      path: '/api/customer-form.bftReview',
+      methods: ['POST'],
+      requestBody: 'buffered',
+      fetch: async (request: Request) => {
+        const body = (await request.json().catch(() => ({}))) as { sessionId?: unknown; author?: unknown }
+        const sessionId = typeof body.sessionId === 'string' ? body.sessionId : ''
+        const got = await revisable(sessionId)
+        if ('error' in got) return Response.json({ error: got.error }, { status: got.status })
+        const refused = enqueueGuard(got)
+        if (refused) return refused
+        const author = typeof body.author === 'string' ? body.author.trim() : ''
+        const task = newRevision([], author || undefined, 'review')
+        const queued = await withRevisions(got.slug, async (list) => {
+          const open = list.find((r) => r.kind === 'review' && (r.stage === 'queued' || r.stage === 'writing' || r.stage === 'checking'))
+          return open ? { value: open.id } : { list: [...list, task], value: task.id }
+        })
+        drainQueue(got.ticket, got.slug, sessionId)
+        return Response.json({ ok: true, id: queued })
+      },
+    }), 'customer-form: /api/customer-form.bftReview')
 
     scoped.effect(() => register({
       path: '/api/customer-form.bftReviseStatus',
       methods: ['GET'],
       requestBody: 'buffered',
       fetch: async (request: Request) => {
-        const got = await revisable(new URL(request.url).searchParams.get('session') ?? '')
+        const sessionId = new URL(request.url).searchParams.get('session') ?? ''
+        const got = await revisable(sessionId)
         if ('error' in got) return Response.json({ error: got.error }, { status: got.status })
         const list = await readRevisions(got.fast)
-        // Правка, оборванная рестартом, — не «пишет вечно».
-        const items = list.map((r) => (r.stage === 'writing' || r.stage === 'checking') && !reviseRunning.has(got.slug)
-          ? { ...r, stage: 'failed' as const, error: 'прервано перезапуском портала — отправьте замечания ещё раз' } : r)
+        const running = reviseRunning.has(got.slug)
+        // Очередь, оставшаяся после рестарта, — дальше; правка, оборванная рестартом, — не «пишет вечно».
+        if (!running && list.some((r) => r.stage === 'queued') && got.deep?.stage === 'ready') drainQueue(got.ticket, got.slug, sessionId)
+        const items = list.map((r) => (r.stage === 'writing' || r.stage === 'checking') && !running
+          ? { ...r, stage: 'failed' as const, error: 'прервано перезапуском портала — отправьте замечание ещё раз' } : r)
         return Response.json({
-          ok: true, running: reviseRunning.has(got.slug), deep: got.deep?.stage ?? null, deepAt: got.deep?.finishedAt ?? null,
-          items: items.slice(-20).reverse().map(({ backup, ...r }) => ({ ...r, undoable: !!backup })),
+          ok: true, running: running || items.some((r) => r.stage === 'queued'), deep: got.deep?.stage ?? null, deepAt: got.deep?.finishedAt ?? null,
+          reviewDue: reviewDue(items),
+          items: items.slice(-40).reverse().map(({ backup: _b, changes: _c, ...r }) => ({ ...r, undoable: canUndo(items, r.id) })),
         }, { headers: { 'cache-control': 'no-store' } })
       },
     }), 'customer-form: /api/customer-form.bftReviseStatus')
+
+    // Точечная перерисовка (ADR-0024): HTML изменённых разделов текущей страницы, без перезагрузки.
+    scoped.effect(() => register({
+      path: '/api/customer-form.bftReviseSection',
+      methods: ['GET'],
+      requestBody: 'buffered',
+      fetch: async (request: Request) => {
+        const params = new URL(request.url).searchParams
+        const sessionId = params.get('session') ?? ''
+        const got = await revisable(sessionId)
+        if ('error' in got) return Response.json({ error: got.error }, { status: got.status })
+        const ids = (params.get('ids') ?? '').split(',').map((x) => x.trim()).filter((x) => /^[\w-]{1,40}$/.test(x)).slice(0, 60)
+        const page = await deepView(got.slug, sessionId)
+        if (!page) return Response.json({ error: 'полного БФТ нет' }, { status: 404 })
+        return Response.json({ ok: true, docRev: docRevOf(page), deepAt: got.deep?.finishedAt ?? null, sections: pickBlocks(page, ids) },
+          { headers: { 'cache-control': 'no-store' } })
+      },
+    }), 'customer-form: /api/customer-form.bftReviseSection')
 
     scoped.effect(() => register({
       path: '/api/customer-form.bftReviseUndo',
@@ -1385,21 +1494,18 @@ export function apply(ctx: HarnessContext): void {
         const got = await revisable(typeof body.sessionId === 'string' ? body.sessionId : '')
         if ('error' in got) return Response.json({ error: got.error }, { status: got.status })
         if (reviseRunning.has(got.slug) || deepRunning.has(got.slug)) return Response.json({ error: 'документ сейчас меняется — дождитесь' }, { status: 409 })
+        const id = typeof body.id === 'string' ? body.id : ''
         const list = await readRevisions(got.fast)
-        // Откатить можно только последнюю внесённую правку: под ней — ровно её копия.
-        const last = [...list].reverse().find((r) => r.stage === 'ready' && (r.edits ?? 0) > 0 && r.kind === 'revise')
-        const undone = new Set(list.filter((r) => r.kind === 'undo').map((r) => r.undoOf))
-        if (!last || last.id !== body.id || undone.has(last.id)) return Response.json({ error: 'откатить можно только последнюю правку агента' }, { status: 409 })
+        if (!canUndo(list, id)) return Response.json({ error: 'эту правку откатить нельзя' }, { status: 409 })
         reviseRunning.add(got.slug)
         try {
-          await undoRevision(SKILLS_PATH, got.fast, got.slug, last)
+          const { sections } = await undoRevision(SKILLS_PATH, got.fast, got.slug, list, id)
           const author = typeof body.author === 'string' ? body.author.trim().slice(0, 120) : ''
-          const undo: Revision = { ...newRevision([], author || undefined), kind: 'undo', stage: 'ready', undoOf: last.id, finishedAt: new Date().toISOString() }
-          delete undo.progress
-          await withRevisions(got.slug, async (items) => ({ list: [...items.map((r) => (r.id === last.id ? (({ backup: _b, ...rest }) => rest)(r) : r)), undo], value: undefined }))
-          return Response.json({ ok: true })
+          const undo: Revision = { ...newRevision([], author || undefined, 'undo'), stage: 'ready', undoOf: id, ...(sections ? { sections } : {}), finishedAt: new Date().toISOString() }
+          await withRevisions(got.slug, async (items) => ({ list: [...items, undo], value: undefined }))
+          return Response.json({ ok: true, id: undo.id })
         } catch (e) {
-          return Response.json({ error: (e as Error).message }, { status: 500 })
+          return Response.json({ error: (e as Error).message }, { status: 409 })
         } finally {
           reviseRunning.delete(got.slug)
         }

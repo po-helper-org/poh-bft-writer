@@ -1,8 +1,10 @@
 /**
- * Колонка «🤖 ИИ-агент» на странице полного БФТ (ADR-0021) — как у отчёта /sprints:
- * замечания из «Комментариев» страницы или своим текстом → агент правит документ,
- * ход виден живьём, по каждому замечанию — итог (внесено / уже так / вопрос /
- * не внесено), страница обновляется сама; последнюю правку можно откатить.
+ * Колонка «🤖 ИИ-агент» на странице полного БФТ (ADR-0021, ADR-0024) — как у
+ * отчёта /sprints: замечания из «Комментариев» страницы или своим текстом →
+ * очередь «одно замечание — одна правка», ход виден живьём, по каждому — итог
+ * (внесено / уже так / вопрос / не внесено). Готовая правка меняет на странице
+ * только свои разделы — без перезагрузки и прыжка прокрутки, с подсветкой.
+ * Светящаяся точка у «Комментариев» — полное ревью согласованности.
  * Чат портала не нужен: работает и на отдельной ссылке документа.
  */
 
@@ -13,14 +15,18 @@ export interface AgentLayer {
   reviseUrl: string
   statusUrl: string
   undoUrl: string
+  /** HTML изменённых разделов (точечная перерисовка). */
+  sectionUrl: string
+  /** Поставить полное ревью согласованности. */
+  reviewUrl: string
   /** deep.json finishedAt на момент отдачи страницы: изменился — документ обновили. */
   deepAt: string | null
 }
 
 const STYLE = `<style id="bft-agent-style">
-#bftAgentBtn,#bftAgent,#bftAgentFresh{--ag-fg:#111;--ag-mute:#8a8a8a;--ag-line:#ececec;--ag-bg:#fff;--ag-soft:#f6f6f4;--ag-ok:#15803d;--ag-q:#a16207;--ag-err:#b91c1c;
+#bftAgentBtn,#bftAgent,#bftAgentFresh,#agReviewTip{--ag-fg:#111;--ag-mute:#8a8a8a;--ag-line:#ececec;--ag-bg:#fff;--ag-soft:#f6f6f4;--ag-ok:#15803d;--ag-q:#a16207;--ag-err:#b91c1c;
   font:13px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;color:var(--ag-fg)}
-@media (prefers-color-scheme:dark){#bftAgentBtn,#bftAgent,#bftAgentFresh{--ag-fg:#ececec;--ag-mute:#8d8d8d;--ag-line:#2a2a2a;--ag-bg:#161616;--ag-soft:#1f1f1f;--ag-ok:#4ade80;--ag-q:#facc15;--ag-err:#f87171}}
+@media (prefers-color-scheme:dark){#bftAgentBtn,#bftAgent,#bftAgentFresh,#agReviewTip{--ag-fg:#ececec;--ag-mute:#8d8d8d;--ag-line:#2a2a2a;--ag-bg:#161616;--ag-soft:#1f1f1f;--ag-ok:#4ade80;--ag-q:#facc15;--ag-err:#f87171}}
 #bftAgentBtn{position:fixed;right:16px;bottom:16px;z-index:60;display:flex;align-items:center;gap:6px;height:34px;padding:0 12px;border-radius:17px;
   border:1px solid var(--ag-line);background:var(--ag-bg);box-shadow:0 2px 10px rgba(0,0,0,.08);cursor:pointer;font-weight:500}
 #bftAgentBtn svg{width:15px;height:15px}
@@ -70,8 +76,23 @@ const STYLE = `<style id="bft-agent-style">
 #bftAgent .ag-msg{color:var(--ag-err);font-size:12px;margin-top:6px}
 #bftAgentFresh{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:62;display:none;align-items:center;gap:10px;height:34px;padding:0 6px 0 14px;
   border-radius:17px;background:var(--ag-fg);color:var(--ag-bg);box-shadow:0 2px 10px rgba(0,0,0,.15)}
+#bftAgent .ag-kind{font-weight:600;color:var(--ag-fg)}
+#bftAgent .ag-model{color:var(--ag-mute);font-size:11px;margin-top:4px}
+#bftAgent .ag-state.wait{color:var(--ag-mute)}
+.ag-flash{animation:bftFlash 2.2s ease-out}
+@keyframes bftFlash{0%,35%{background:rgba(250,204,21,.28)}100%{background:transparent}}
+#agReviewDot{position:relative;display:inline-block;width:9px;height:9px;margin:0 2px 0 8px;padding:0;border:0;border-radius:50%;background:#f59e0b;vertical-align:middle;cursor:pointer;
+  box-shadow:0 0 0 0 rgba(245,158,11,.6);animation:bftGlow 1.8s infinite}
+#agReviewDot[hidden]{display:none}
+@keyframes bftGlow{0%{box-shadow:0 0 0 0 rgba(245,158,11,.55)}70%{box-shadow:0 0 0 9px rgba(245,158,11,0)}100%{box-shadow:0 0 0 0 rgba(245,158,11,0)}}
+#agReviewTip{position:fixed;z-index:63;width:260px;padding:12px;border:1px solid var(--ag-line);border-radius:10px;background:var(--ag-bg);box-shadow:0 6px 24px rgba(0,0,0,.12)}
+#agReviewTip[hidden]{display:none}
+#agReviewTip p{margin:0 0 10px}
+#agReviewTip .ag-row{display:flex;justify-content:flex-end;gap:6px}
+#agReviewTip .ag-ghost{height:26px;padding:0 10px;border:1px solid var(--ag-line);border-radius:6px;background:none;color:inherit;font:inherit;cursor:pointer}
+#agReviewTip .ag-btn{flex:none;height:26px;padding:0 10px;border:0;border-radius:6px;background:var(--ag-fg);color:var(--ag-bg);font:inherit;font-weight:500;cursor:pointer}
 #bftAgentFresh button{height:24px;padding:0 10px;border:0;border-radius:12px;background:var(--ag-bg);color:var(--ag-fg);font:inherit;cursor:pointer}
-@media print{#bftAgentBtn,#bftAgent,#bftAgentFresh{display:none!important}}
+@media print{#bftAgentBtn,#bftAgent,#bftAgentFresh,#agReviewDot,#agReviewTip{display:none!important}}
 </style>`
 
 const MARKUP = `<button type="button" id="bftAgentBtn" aria-controls="bftAgent" aria-expanded="false"><svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 1l1.6 4.4L14 7l-4.4 1.6L8 13l-1.6-4.4L2 7l4.4-1.6z"/></svg>ИИ-агент<span class="dot"></span></button>
@@ -85,6 +106,7 @@ const MARKUP = `<button type="button" id="bftAgentBtn" aria-controls="bftAgent" 
     <div class="ag-msg" id="agMsg" hidden></div>
   </footer>
 </aside>
+<div id="agReviewTip" role="dialog" aria-label="Полное ревью" hidden><p>Проведите полное ревью требований для согласованности</p><div class="ag-row"><button type="button" class="ag-ghost" id="agReviewNo">Позже</button><button type="button" class="ag-btn" id="agReviewGo">Отправить</button></div></div>
 <div id="bftAgentFresh" role="status"><span>Документ обновлён</span><button type="button" id="agReload">Показать</button></div>`
 
 function script(cfg: AgentLayer): string {
@@ -135,7 +157,7 @@ function script(cfg: AgentLayer): string {
   function renderPending(){
     var list = pending(), send = $("agSendComments");
     $("agPendBox").hidden = !list.length;
-    send.disabled = running;
+    send.disabled = false;
     var n = list.length, word = n % 10 === 1 && n % 100 !== 11 ? "замечание" : (n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? "замечания" : "замечаний");
     $("agPending").textContent = n + " " + word + " со страницы";
     $("agPendList").innerHTML = list.map(function(c){ return "<li>" + esc(c.section) + " — " + esc(c.text) + "</li>"; }).join("");
@@ -151,13 +173,13 @@ function script(cfg: AgentLayer): string {
     message("");
     fetch(CFG.reviseUrl, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sessionId: CFG.sessionId, remarks: remarks, author: who }) })
       .then(function(r){ return r.json().then(function(v){ if(!r.ok) throw new Error(v.error || ("HTTP " + r.status)); return v; }); })
-      .then(function(v){ watching = v.id; onSent && onSent(); setOpen(true); poll(true); })
+      .then(function(){ onSent && onSent(); setOpen(true); poll(true); })
       .catch(function(e){ message("Не отправилось: " + e.message); });
   }
   function sendComments(){
     var list = pending();
     if(!list.length) return;
-    send(list.map(function(c){ return { section: c.section, quote: c.quote || "", text: c.text }; }), function(){
+    send(list.map(function(c){ return { section: c.section, quote: c.quote || "", text: c.text, ref: String(c.ts) }; }), function(){
       var sent = sentSet().concat(list.map(function(c){ return c.ts; }));
       put(SENT_KEY, JSON.stringify(sent.slice(-500)));
       renderPending();
@@ -179,52 +201,130 @@ function script(cfg: AgentLayer): string {
     var b = old.cloneNode(true); old.parentNode.replaceChild(b, old);
     b.textContent = "Отправить ИИ-агенту";
     b.addEventListener("click", function(){ if(pending().length) sendComments(); else { setOpen(true); message("Новых замечаний нет — выделите текст или нажмите на точку у [УТОЧНИТЬ]."); } });
-    var out = $("promptOut"); if(out){ out.style.display = "none"; var h = out.previousElementSibling; if(h && h.tagName === "H4") h.textContent = "Замечания уйдут ИИ-агенту — он поправит документ"; }
+    var out = $("promptOut"); if(out){ out.style.display = "none"; var h = out.previousElementSibling; if(h && h.tagName === "H4") h.textContent = "Замечания уйдут ИИ-агенту — каждое отдельной правкой"; }
   }
+
+  // Светящаяся точка у «Комментариев»: после локальных правок — полное ревью согласованности.
+  var dot = document.createElement("button");
+  dot.type = "button"; dot.id = "agReviewDot"; dot.hidden = true;
+  dot.setAttribute("aria-label", "Полное ревью требований");
+  var tip = $("agReviewTip");
+  function placeDot(){
+    var host = $("panelToggle");
+    if(host && host.parentNode) host.parentNode.insertBefore(dot, host.nextSibling); else btn.appendChild(dot);
+  }
+  dot.addEventListener("click", function(e){
+    e.stopPropagation();
+    var r = dot.getBoundingClientRect();
+    tip.style.left = Math.max(8, Math.min(r.left - 12, window.innerWidth - 276)) + "px";
+    tip.style.top = (r.bottom + 8) + "px";
+    tip.hidden = !tip.hidden;
+  });
+  $("agReviewNo").addEventListener("click", function(){ tip.hidden = true; });
+  document.addEventListener("click", function(e){ if(!tip.hidden && !tip.contains(e.target) && e.target !== dot) tip.hidden = true; });
+  $("agReviewGo").addEventListener("click", function(){
+    var who = author.value.trim() || get(WHO_KEY, "");
+    tip.hidden = true;
+    fetch(CFG.reviewUrl, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sessionId: CFG.sessionId, author: who }) })
+      .then(function(r){ return r.json().then(function(v){ if(!r.ok) throw new Error(v.error || ("HTTP " + r.status)); return v; }); })
+      .then(function(){ dot.hidden = true; setOpen(true); poll(true); })
+      .catch(function(e){ setOpen(true); message("Ревью не запустилось: " + e.message); });
+  });
 
   var ICON = { applied: "✓", already: "=", question: "?", skipped: "✗" };
   var LABEL = { applied: "внесено", already: "уже так", question: "открытый вопрос", skipped: "не внесено" };
+  function active(r){ return r.stage === "queued" || r.stage === "writing" || r.stage === "checking"; }
   function state(r){
     if(r.kind === "undo") return '<span class="ag-state">откат</span>';
+    if(r.stage === "queued") return '<span class="ag-state wait">в очереди</span>';
     if(r.stage === "writing" || r.stage === "checking") return '<span class="ag-state run">в работе</span>';
     if(r.stage === "failed") return '<span class="ag-state err">не вышло</span>';
     return '<span class="ag-state ok">' + (r.edits ? "правок: " + r.edits : "без правок") + "</span>";
   }
   function live(r){
-    if(r.stage === "writing") return '<div class="ag-live"><span class="ag-spin"></span>пишет правки' + (r.progress && r.progress.chars ? " · " + r.progress.chars + " зн." : "") + (r.progress && r.progress.round > 1 ? " · круг " + r.progress.round : "") + "</div>";
+    if(r.stage === "writing") return '<div class="ag-live"><span class="ag-spin"></span>' + (r.kind === "review" ? "проверяет согласованность" : "правит") + (r.scope && r.kind !== "review" ? " · " + esc(r.scope) : "") + (r.progress && r.progress.chars ? " · " + r.progress.chars + " зн." : "") + (r.progress && r.progress.round > 1 ? " · круг " + r.progress.round : "") + "</div>";
     if(r.stage === "checking") return '<div class="ag-live"><span class="ag-spin"></span>проверяет шаблон</div>';
     return "";
   }
-  var lastUndoable = null;
+  function resultItem(res, text, section){
+    var ico = res ? ICON[res.status] : "·", cls = res ? res.status : "";
+    var note = res ? LABEL[res.status] + (res.note ? " — " + res.note : "") : "";
+    return '<div class="ag-item"><span class="ag-ico ' + cls + '">' + ico + '</span><span class="ag-txt">' + (section && section !== "Документ" ? '<span class="ag-sec">' + esc(section) + " · </span>" : "") + esc(text) + (note ? "<small>" + esc(note) + "</small>" : "") + "</span></div>";
+  }
   function renderList(data){
-    lastUndoable = null;
-    for(var i = 0; i < data.items.length; i++){ var it = data.items[i]; if(it.kind === "revise" && it.stage === "ready" && it.edits){ if(it.undoable) lastUndoable = it.id; break; } }
     $("agList").innerHTML = data.items.length ? data.items.map(function(r){
       var top = '<div class="ag-top"><span>' + esc(when(r.at)) + (r.author ? " · " + esc(r.author) : "") + "</span>" + state(r) + "</div>";
-      if(r.kind === "undo") return '<div class="ag-rev">' + top + '<div class="ag-item"><span class="ag-ico">↺</span><span class="ag-txt">Возвращена версия до правки</span></div></div>';
-      var items = (r.remarks || []).map(function(m, i){
-        var res = (r.results || []).filter(function(x){ return x.n === i + 1; })[0];
-        var ico = res ? ICON[res.status] : "·", cls = res ? res.status : "";
-        var note = res ? LABEL[res.status] + (res.note ? " — " + res.note : "") : "";
-        return '<div class="ag-item"><span class="ag-ico ' + cls + '">' + ico + '</span><span class="ag-txt">' + (m.section && m.section !== "Документ" ? '<span class="ag-sec">' + esc(m.section) + " · </span>" : "") + esc(m.text) + (note ? "<small>" + esc(note) + "</small>" : "") + "</span></div>";
-      }).join("");
+      if(r.kind === "undo") return '<div class="ag-rev">' + top + '<div class="ag-item"><span class="ag-ico">↺</span><span class="ag-txt">Правка отменена</span></div></div>';
+      var items;
+      if(r.kind === "review"){
+        items = '<div class="ag-item"><span class="ag-ico">◎</span><span class="ag-txt"><span class="ag-kind">Полное ревью согласованности</span></span></div>'
+          + (r.results || []).map(function(res){ return resultItem(res, res.note || LABEL[res.status], ""); }).join("");
+      } else {
+        items = (r.remarks || []).map(function(m, i){ return resultItem((r.results || []).filter(function(x){ return x.n === i + 1; })[0], m.text, m.section); }).join("");
+      }
       return '<div class="ag-rev">' + top + items + live(r) + (r.error ? '<div class="ag-err">' + esc(r.error) + "</div>" : "")
-        + (r.id === lastUndoable ? '<button type="button" class="ag-link" data-undo="' + esc(r.id) + '">Откатить эту правку</button>' : "") + "</div>";
-    }).join("") : '<p class="ag-empty">Выделите текст в документе или нажмите точку у [УТОЧНИТЬ] — замечание появится внизу. Или напишите, что поправить: агент внесёт правку и проверит шаблон.</p>';
+        + (r.model && !active(r) ? '<div class="ag-model">' + esc(r.model) + "</div>" : "")
+        + (r.undoable ? '<button type="button" class="ag-link" data-undo="' + esc(r.id) + '">Откатить</button>' : "") + "</div>";
+    }).join("") : '<p class="ag-empty">Выделите текст в документе или нажмите точку у [УТОЧНИТЬ] — замечание появится внизу. Или напишите, что поправить: каждое замечание — отдельная правка своего раздела, документ меняется на месте.</p>';
   }
   $("agList").addEventListener("click", function(e){
     var b = e.target.closest("[data-undo]"); if(!b) return;
-    if(!confirm("Вернуть документ к версии до этой правки агента?")) return;
+    if(!confirm("Отменить эту правку агента?")) return;
     b.disabled = true;
     fetch(CFG.undoUrl, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sessionId: CFG.sessionId, id: b.getAttribute("data-undo"), author: author.value.trim() }) })
       .then(function(r){ return r.json().then(function(v){ if(!r.ok) throw new Error(v.error || r.status); }); })
-      .then(reload).catch(function(err){ b.disabled = false; message("Откат не вышел: " + err.message); });
+      .then(function(){ poll(true); }).catch(function(err){ b.disabled = false; message("Откат не вышел: " + err.message); });
   });
 
   function reload(){ try{ sessionStorage.setItem(OPEN_KEY, "1"); sessionStorage.setItem("bft-agent-scroll", String(window.scrollY)); }catch(e){} location.reload(); }
   $("agReload").addEventListener("click", reload);
 
-  var running = false, watching = null, timer = null, seenAt = CFG.deepAt;
+  // — точечная перерисовка: разделы страницы от <h2 id> (или свёрнутого <details class="fold">) до следующего —
+  function isStart(n){ return n.nodeType === 1 && ((n.tagName === "H2" && n.id) || (n.tagName === "DETAILS" && n.classList.contains("fold")) || n.tagName === "FOOTER"); }
+  function replaceBlock(id, html){
+    var h = document.getElementById(id), main = document.querySelector("main");
+    if(!h || !main || !main.contains(h)) return false;
+    var top = h; while(top.parentElement && top.parentElement !== main) top = top.parentElement;
+    var old = [top], n = top.nextSibling;
+    while(n && !isStart(n)){ old.push(n); n = n.nextSibling; }
+    var t = document.createElement("template"); t.innerHTML = html;
+    var fresh = Array.prototype.slice.call(t.content.childNodes);
+    fresh.forEach(function(x){ main.insertBefore(x, top); });
+    old.forEach(function(x){ x.remove(); });
+    fresh.forEach(function(x){ if(x.nodeType === 1){ x.classList.add("ag-flash"); setTimeout(function(){ x.classList.remove("ag-flash"); }, 2400); } });
+    if(window.mermaid){ var m = []; fresh.forEach(function(x){ if(x.nodeType === 1) m = m.concat(Array.prototype.slice.call(x.matches(".mermaid") ? [x] : x.querySelectorAll(".mermaid"))); }); if(m.length) try{ mermaid.run({ nodes: m }); }catch(e){} }
+    return true;
+  }
+  function patch(ids){
+    if(!ids.length) return Promise.resolve(true);
+    var y = window.scrollY;
+    return fetch(CFG.sectionUrl + "?session=" + encodeURIComponent(CFG.sessionId) + "&ids=" + encodeURIComponent(ids.join(",")), { cache: "no-store" })
+      .then(function(r){ return r.json(); })
+      .then(function(v){
+        if(!v || !v.sections) return false;
+        var ok = v.sections.length === ids.length;
+        v.sections.forEach(function(b){ ok = replaceBlock(b.id, b.html) && ok; });
+        if(window.bftReview) window.bftReview.refresh(v.docRev);
+        if(v.deepAt) seenAt = v.deepAt;
+        window.scrollTo(0, y);
+        return ok;
+      })
+      .catch(function(){ return false; });
+  }
+  // Отправленные замечания: внесено — закрыть на странице; не вышло — вернуть в «к отправке».
+  function settleComments(done){
+    if(!done.length) return;
+    var refs = {}, retry = {};
+    done.forEach(function(r){ (r.remarks || []).forEach(function(m){ if(m.ref){ if(r.stage === "ready") refs[m.ref] = 1; else retry[m.ref] = 1; } }); });
+    var now = new Date().toISOString(), changed = false;
+    var list = comments().map(function(c){ if(refs[String(c.ts)] && !c.closedAt){ changed = true; var x = Object.assign({}, c); x.closedAt = now; x.iteration = 0; return x; } return c; });
+    if(changed) put(CFG.store, JSON.stringify(list));
+    if(Object.keys(retry).length) put(SENT_KEY, JSON.stringify(sentSet().filter(function(ts){ return !retry[String(ts)]; })));
+    if(changed && window.bftReview) window.bftReview.render();
+    renderPending();
+  }
+
+  var running = false, timer = null, seenAt = CFG.deepAt, known = null;
   function poll(now){
     clearTimeout(timer);
     var go = function(){
@@ -235,14 +335,27 @@ function script(cfg: AgentLayer): string {
           running = !!data.running;
           btn.classList.toggle("busy", running);
           renderList(data); renderPending();
-          var mine = watching && data.items.filter(function(r){ return r.id === watching; })[0];
-          if(mine && mine.stage === "ready" && mine.edits){ watching = null; reload(); return; }
-          if(mine && mine.stage !== "writing" && mine.stage !== "checking") watching = null;
-          // Документ поправил кто-то ещё (или агент по чужим замечаниям) — предложить обновить.
-          if(data.deepAt && seenAt && data.deepAt !== seenAt && !watching) $("bftAgentFresh").style.display = "flex";
+          var busyReview = data.items.some(function(r){ return r.kind === "review" && active(r); });
+          dot.hidden = !data.reviewDue || busyReview;
+          var first = known === null, prev = known || {};
+          known = {};
+          data.items.forEach(function(r){ known[r.id] = r.stage; });
+          if(first) return;
+          // Закончилось с прошлого опроса: правка, ревью, откат (новые — тоже: могли пройти между опросами).
+          var done = data.items.filter(function(r){ return (!prev[r.id] || active({ stage: prev[r.id] })) && !active(r); });
+          settleComments(done.filter(function(r){ return r.kind === "revise"; }));
+          var changed = done.filter(function(r){ return r.stage === "ready" && (r.kind === "undo" || r.edits); }).reverse();
+          if(!changed.length){
+            if(data.deepAt && seenAt && data.deepAt !== seenAt && !running) $("bftAgentFresh").style.display = "flex";
+            return;
+          }
+          if(changed.some(function(r){ return !r.sections; })){ reload(); return; }
+          var ids = [];
+          changed.forEach(function(r){ r.sections.forEach(function(id){ if(ids.indexOf(id) < 0) ids.push(id); }); });
+          return patch(ids).then(function(ok){ if(!ok) reload(); });
         })
         .catch(function(){})
-        .then(function(){ timer = setTimeout(go, running || watching ? 2500 : 20000); });
+        .then(function(){ timer = setTimeout(go, running ? 1500 : 20000); });
     };
     if(now) go(); else timer = setTimeout(go, 20000);
   }
@@ -250,6 +363,7 @@ function script(cfg: AgentLayer): string {
   function start(){
     reopenUnsent();
     hijackCopy();
+    placeDot();
     renderPending();
     try{
       var y = sessionStorage.getItem("bft-agent-scroll");
