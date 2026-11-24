@@ -157,6 +157,9 @@ function unescapeHtml(text: string): string {
  *  нет чата — карточка Vikunja, если трекер открывается снаружи. sessions — taskId → сессия портала. */
 export type OpenTarget = { kind: 'chat'; sessionId: string; href: string } | { kind: 'tracker'; url: string } | { kind: 'none' }
 
+/** «Доступ для ИИ-агентов» портала (customer-form, ADR-0023) — от корня портала, без ведущего «/». */
+export const ACCESS_PATH = 'api/customer-form.mcpAccess'
+
 export function openTarget(card: Pick<Card, 'id' | 'url' | 'links'>, sessions: ReadonlyMap<number, string>): OpenTarget {
   const sessionId = sessions.get(card.id) ?? card.links.map((l) => sessions.get(l.id)).find((s): s is string => !!s)
   if (sessionId) return { kind: 'chat', sessionId, href: `./?session=${encodeURIComponent(sessionId)}` }
