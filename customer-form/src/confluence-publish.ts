@@ -237,11 +237,18 @@ export function rankParents(candidates: readonly ParentCandidate[], options: { l
     if (!s.url && c.url) s.url = c.url
     const bonus = c.source === 'search' ? WEIGHT.search * (1 + 1 / (1 + (c.rank ?? 9))) : WEIGHT[c.source]
     s.score += bonus
-    const reason = c.source === 'previous' ? 'сюда уже публиковали БФТ из портала'
-      : c.source === 'sibling' ? `здесь лежит похожий БФТ${c.via ? ` «${c.via}»` : ''}`
-      : c.source === 'sources' ? 'страница из материалов и разведки заявки'
-      : `найдено поиском${c.via ? ` «${c.via}»` : ''}`
-    if (!s.reasons.includes(reason)) s.reasons.push(reason)
+    if (c.source === 'search') {
+      // Все запросы, которыми нашлась страница, — одной причиной.
+      const at = s.reasons.findIndex((r) => r.startsWith('найдено поиском'))
+      const q = c.via ? `«${c.via}»` : ''
+      if (at < 0) s.reasons.push(q ? `найдено поиском: ${q}` : 'найдено поиском')
+      else if (q && !s.reasons[at]!.includes(q)) s.reasons[at] = s.reasons[at]!.includes(':') ? `${s.reasons[at]}, ${q}` : `найдено поиском: ${q}`
+    } else {
+      const reason = c.source === 'previous' ? 'сюда уже публиковали БФТ из портала'
+        : c.source === 'sibling' ? `здесь лежит похожий БФТ${c.via ? ` «${c.via}»` : ''}`
+        : 'страница из материалов и разведки заявки'
+      if (!s.reasons.includes(reason)) s.reasons.push(reason)
+    }
     byId.set(c.id, s)
   }
   for (const s of byId.values()) {
