@@ -156,3 +156,10 @@ test('ответы пришли во время сборки: её готовн�
   s = reduce(s, { eventId: 'df2', at: at(12), actor: { kind: 'system' }, kind: 'deepFailed', data: { startedAt: at(8), error: 'модель не ответила' } })
   assert.deepEqual(s.inbox[0].rebuild, { state: 'failed', at: at(12), reason: 'модель не ответила' })
 })
+
+test('DeepBuild не стал собирать — отправка «не понадобилась» с причиной', () => {
+  let s = reduce(agreed(), answered(at(1), {}))
+  s = reduce(s, { eventId: 'rb', at: at(3), actor: { kind: 'system' }, kind: 'rebuildRequested', data: { lastSubmitAt: at(1), started: true } })
+  s = reduce(s, { eventId: 'sk', at: at(4), actor: { kind: 'system' }, kind: 'note', data: { skipped: true, startedAt: at(3), reason: 'ответы уже учтены сборкой' } })
+  assert.deepEqual(s.inbox[0].rebuild, { state: 'skipped', at: at(4), reason: 'ответы уже учтены сборкой' })
+})

@@ -144,6 +144,13 @@ export function nextInbox(inbox: readonly InboxEntry[], event: BftEvent, pending
       const reason = error ?? (typeof event.data?.reason === 'string' ? event.data.reason : event.summary)
       return set(covered, () => ({ state: error ? 'failed' : 'skipped', at: event.at, ...(reason ? { reason } : {}) }))
     }
+    case 'note': {
+      // Сборку не начали (DeepBuild: ответы уже учтены, модели нет) — отправки, которых она ждала.
+      if (event.data?.skipped !== true) return [...inbox]
+      const run = typeof event.data.startedAt === 'string' ? event.data.startedAt : undefined
+      const reason = typeof event.data.reason === 'string' ? event.data.reason : undefined
+      return set((e) => e.rebuild.state === 'building' && (!run || e.at <= run), () => ({ state: 'skipped', at: event.at, ...(reason ? { reason } : {}) }))
+    }
     case 'deepReady':
     case 'deepFailed': {
       // Готова сборка, начатая ДО ответа (ответы ждут следующую), — отправку не закрывает.

@@ -72,7 +72,7 @@ function rebuildEvent(pending: RebuildPending, result: { started: boolean; reaso
 /** Итог сборки → события хроники; eventId те же, что шлёт сверка портала по файлам (повтор отбросится). */
 function buildEvents(result: DeepBuildResult): BftEvent[] {
   const run = result.startedAt
-  if (result.stage === 'skipped') return [{ eventId: `deep:skipped:${run}`, at: new Date().toISOString(), actor: system, kind: 'note', summary: `Полный БФТ не собирали: ${result.reason ?? 'не нужно'}` }]
+  if (result.stage === 'skipped') return [{ eventId: `deep:skipped:${run}`, at: new Date().toISOString(), actor: system, kind: 'note', summary: `Полный БФТ не собирали: ${result.reason ?? 'не нужно'}`, data: { skipped: true, startedAt: run, ...(result.reason ? { reason: result.reason } : {}) } }]
   const started: BftEvent = { eventId: `deep:started:${run}`, at: run, actor: system, kind: 'deepStarted' }
   const at = result.finishedAt ?? new Date().toISOString()
   return result.stage === 'ready'

@@ -62,7 +62,7 @@ test('шаг 2–3: пауза после ответов — таймер цик
       const now = new Date().toISOString()
       const send = (event) => client.workflow.signalWithStart('BftLifecycle', { workflowId: 'bft-8', taskQueue: 'bft-flow', args: [input], signal: 'event', signalArgs: [event] })
       const handle = await send({ eventId: 'ready', at: '2026-11-19T10:05:00Z', actor: { kind: 'system' }, kind: 'deepReady' })
-      await send({ eventId: 'ans', at: now, actor: { kind: 'customer' }, kind: 'formAnswered', data: { rebuildAfterMs: 1500, questions: { total: 3, answered: 1 } } })
+      await send({ eventId: 'ans', at: now, actor: { kind: 'customer' }, kind: 'formAnswered', data: { rebuildAfterMs: 1500, questions: { total: 3, answered: 1 }, submission: { formId: 'f8', author: 'Мария Тестова', addressees: ['заказчика'], saved: 1, unknown: 0 } } })
       let status
       for (let i = 0; i < 50 && !(status = await handle.query('status')).rebuild; i++) await new Promise((r) => setTimeout(r, 100))
       assert.ok(status.rebuild, 'пересборка ждёт паузу')
@@ -76,6 +76,12 @@ test('шаг 2–3: пауза после ответов — таймер цик
       assert.equal(status.build, undefined)
       const timeline = await handle.query('timeline')
       assert.match(timeline.at(-1).summary, /не собирали: ответы уже учтены/)
+      // Входящее событие (ADR-0027): отправка с подписью и итогом пересборки по ней.
+      const inbox = await handle.query('inbox')
+      assert.equal(inbox.length, 1)
+      assert.equal(inbox[0].author, 'Мария Тестова')
+      assert.equal(inbox[0].rebuild.state, 'skipped')
+      assert.match(inbox[0].rebuild.reason, /ответы уже учтены/)
       await handle.signal('event', { eventId: 'c', at: '2026-11-25T10:00:00Z', actor: { kind: 'po' }, kind: 'cancelled' })
       await handle.result()
     }))
