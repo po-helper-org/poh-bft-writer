@@ -70,3 +70,4 @@ printf "снаружи  %s/bft       -> %s (ждём 301)\n" "$HOST" "$(curl -s 
 printf "снаружи  %s/bft/      -> %s (ждём 302 на вход Authentik)\n" "$HOST" "$(curl -s -m 15 -o /dev/null -w '%{http_code}' "$HOST/bft/")"
 printf "внутри   127.0.0.1:3082 -> %s (ждём 200 — портал жив)\n" "$(curl -s -m 15 -o /dev/null -w '%{http_code}' http://127.0.0.1:3082/)"
 printf "снаружи  %s/bft/form  -> %s (ждём 404 — форма открыта без входа, ключа нет)\n" "$HOST" "$(curl -s -m 15 -o /dev/null -w '%{http_code}' "$HOST/bft/form")"
+printf "снаружи  %s/bft/mcp   -> %s (ждём 401 — MCP открыт без входа, токена нет)\n" "$HOST" "$(curl -s -m 15 -o /dev/null -w '%{http_code}' -X POST "$HOST/bft/mcp")"

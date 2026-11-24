@@ -611,6 +611,107 @@ export const SOFT_ON_LAST: ReadonlySet<string> = new Set(['CV001', 'CV005', 'CT0
 /** Не больше 10 строк замечаний в промт повтора. */
 const warningLines = (warnings: QualityFinding[]) => warnings.filter((w) => !REPORT_ONLY.has(w.code)).slice(0, 10).map(formatFinding).join('\n')
 
+/** Что набрала сборка по попыткам — для отчёта о качестве (deep.json). */
+export interface DeepTrail { lintErrorsByAttempt: number[]; checkErrorsByAttempt: number[]; warnings: QualityFinding[]; fixes: string[] }
+
+/** Вход проверки канона: всё, что нужно сборке, кроме модели. */
+export type DeepJudgeInput = Omit<DeepInput, 'llm' | 'route' | 'attempts' | 'timeoutMs'>
+
+/** Итог проверки одного текста канона. */
+export type DeepVerdict =
+  | { ok: true; canon: string; lintErrors: number; checkErrors: number; warnings: QualityFinding[]; fixes: string[] }
+  | { ok: false; previous: PreviousAttempt; errors: QualityFinding[]; lintErrors: number; checkErrors: number; warnings: QualityFinding[]; fixes: string[] }
+
+/**
+ * Задание и приёмка канона полного БФТ (ADR-0023): промт для модели и проверка её
+ * текста — шапка, автоправки, bft-lint.py и проверки портала. Один путь для сборки
+ * моделью портала (buildDeep) и для внешнего агента через MCP, который пишет канон
+ * своей моделью: знания, правила и проверки остаются в портале.
+ */
+export interface DeepJudge {
+  files: DeepFiles
+  fastMd: string
+  prompt(previous?: PreviousAttempt): { system: string; user: string }
+  /** soft — последняя попытка: CV001/CV005/CT003/UML001/SK002 не валят сборку, а уходят в замечания. */
+  judge(raw: string, soft: boolean): Promise<DeepVerdict>
+}
+
+export async function deepJudge(input: DeepJudgeInput): Promise<DeepJudge> {
+  const files = deepFiles(input.fast, input.slug)
+  const fastMd = await readFile(input.fast.md, 'utf8')
+  const golden = await readFile(join(input.skillsPath, 'bft-deep-swarm/examples/golden_deep_document.md'), 'utf8')
+  const date = isoToday()
+  const head = deepHead(fastMd, date, input.sources)
+  const tail = continueBlock(input.request, date)
+  const lintScript = join(input.skillsPath, 'bft-writer/scripts/bft-lint.py')
+  const intake = await readIntake(input.fast)
+  const anchor = await anchorOf(input.fast, input.slug)
+  const primary = await readFile(input.fast.primary, 'utf8').then((t) => JSON.parse(t) as unknown, () => undefined)
+  const ctx = checkContext({ fastMd, sourcesMd: input.sourcesMd ?? '', anchor, golden: goldenCanon(golden), ...(input.po?.length ? { po: input.po } : {}), ...(intake ? { intake } : {}), ...(primary ? { primary } : {}) })
+  return {
+    files,
+    fastMd,
+    prompt: (previous) => deepPrompt(golden, fastMd, input.context, previous, anchor),
+    async judge(raw, soft) {
+      const split = splitCanon(raw, linkBases(input.context))
+      const fixed = autoFix(split.canon, ctx)
+      if (fixed.log.length) console.error(`[customer-form] bft-deep ${input.slug}: автоправки — ${fixed.log.length}:\n${fixed.log.slice(0, 20).join('\n')}`)
+      const canon = fixed.canon
+      const doc = `${head}\n\n${canon}\n\n${tail}\n`
+      await writeFile(files.md, doc, 'utf8')
+      const lint = await lintDoc(lintScript, files.md)
+      const checked = check(doc, ctx)
+      const toQuality = (f: CheckFinding): QualityFinding => ({ code: f.code, level: f.level, message: f.message, ...(f.line ? { line: f.line } : {}) })
+      let errors = [...lint.findings.filter((f) => f.level === 'ERROR'), ...checked.errors.map(toQuality)]
+      let warnings = [...lint.findings.filter((f) => f.level !== 'ERROR'), ...checked.warnings.map(toQuality)]
+      // Последняя попытка: пробел покрытия и строка plantuml — повод для повтора, но не причина остаться без документа (раунд 4).
+      if (soft) {
+        const relaxed = errors.filter((f) => SOFT_ON_LAST.has(f.code))
+        if (relaxed.length) { errors = errors.filter((f) => !SOFT_ON_LAST.has(f.code)); warnings = [...warnings, ...relaxed] }
+      }
+      const counts = { lintErrors: lint.findings.filter((f) => f.level === 'ERROR').length, checkErrors: checked.errors.length, warnings, fixes: fixed.log }
+      if (!errors.length) return { ok: true, canon, ...counts }
+      return { ok: false, errors, previous: { canon, errors: errors.map(formatFinding).join('\n'), warnings: warningLines(warnings) }, ...counts }
+    },
+  }
+}
+
+/** Отчёт о качестве сборки по текущему документу и следу попыток. */
+async function deepQuality(input: DeepJudgeInput, files: DeepFiles, fastMd: string, trail: DeepTrail, attempts: number, stage: DeepStage, questions?: OpenQuestion[]): Promise<DeepQuality> {
+  const doc = await readFile(files.md, 'utf8').catch(() => '')
+  const primary = await readFile(input.fast.primary, 'utf8').then((t) => JSON.parse(t) as unknown, () => undefined)
+  const intake = await readIntake(input.fast)
+  const golden = await readFile(join(input.skillsPath, 'bft-deep-swarm/examples/golden_deep_document.md'), 'utf8').then(goldenCanon, () => undefined)
+  const report = qualityMetrics({
+    doc, fastMd, sourcesMd: input.sourcesMd ?? '', contextMd: input.contextMd ?? '', primary, ...(intake ? { intake } : {}), ...(golden ? { golden } : {}),
+    quality: { attempts, lintErrorsByAttempt: trail.lintErrorsByAttempt, checkErrorsByAttempt: trail.checkErrorsByAttempt, warnings: trail.warnings, ...(questions ? { questions } : {}) }, stage,
+    ...(input.reconMs !== undefined ? { reconMs: input.reconMs } : {}),
+  })
+  return { attempts, lintErrorsByAttempt: trail.lintErrorsByAttempt, checkErrorsByAttempt: trail.checkErrorsByAttempt, warnings: trail.warnings, fixes: trail.fixes, metrics: report.metrics }
+}
+
+/** Принятый канон — страница ревью и состояние ready (deep.json). */
+export async function finishDeep(input: DeepJudgeInput, judge: DeepJudge, canon: string, trail: DeepTrail, attempts: number, startedAt: string): Promise<DeepState> {
+  const html = await python(join(input.skillsPath, 'bft-writer/scripts/bft-html-export.py'), [judge.files.md])
+  if (html.code !== 0) throw new Error(`страница ревью не собрана: ${html.out}`)
+  const questions = openQuestions(canon)
+  const state: DeepState = { stage: 'ready', startedAt, finishedAt: new Date().toISOString(), attempts, quality: await deepQuality(input, judge.files, judge.fastMd, trail, attempts, 'ready', questions), questions }
+  await saveDeepState(judge.files, state)
+  return state
+}
+
+/** Сборка не удалась — состояние failed с отчётом по сделанным попыткам. */
+export async function failDeep(input: DeepJudgeInput, files: DeepFiles, fastMd: string, trail: DeepTrail, attempts: number, startedAt: string, error: string): Promise<DeepState> {
+  const tried = Math.min(attempts, trail.lintErrorsByAttempt.length)
+  const state: DeepState = {
+    stage: 'failed', startedAt, finishedAt: new Date().toISOString(), error: error.slice(0, 2000),
+    ...(tried ? { attempts: tried, quality: await deepQuality(input, files, fastMd, trail, tried, 'failed').catch(() => undefined) } : {}),
+  }
+  if (!state.quality) delete state.quality
+  await saveDeepState(files, state)
+  return state
+}
+
 /**
  * Собрать deep: шапка + канон модели + «Продолжить», автоправки, линтер и
  * проверки портала с повторами, страница ревью. Повтор — только на ERROR
@@ -622,79 +723,27 @@ export async function buildDeep(input: DeepInput): Promise<DeepState> {
   const startedAt = input.startedAt ?? new Date().toISOString()
   await saveDeepState(files, { stage: 'building', startedAt })
   const signal = AbortSignal.timeout(input.timeoutMs ?? 15 * 60_000)
-  const lintErrorsByAttempt: number[] = []
-  const checkErrorsByAttempt: number[] = []
-  let warnings: QualityFinding[] = []
-  let fixes: string[] = []
+  const trail: DeepTrail = { lintErrorsByAttempt: [], checkErrorsByAttempt: [], warnings: [], fixes: [] }
   let fastMd = ''
-  let questions: OpenQuestion[] | undefined
-  const quality = async (attempts: number, stage: DeepStage): Promise<DeepQuality> => {
-    const doc = await readFile(files.md, 'utf8').catch(() => '')
-    const primary = await readFile(input.fast.primary, 'utf8').then((t) => JSON.parse(t) as unknown, () => undefined)
-    const intake = await readIntake(input.fast)
-    const golden = await readFile(join(input.skillsPath, 'bft-deep-swarm/examples/golden_deep_document.md'), 'utf8').then(goldenCanon, () => undefined)
-    const report = qualityMetrics({
-      doc, fastMd, sourcesMd: input.sourcesMd ?? '', contextMd: input.contextMd ?? '', primary, ...(intake ? { intake } : {}), ...(golden ? { golden } : {}),
-      quality: { attempts, lintErrorsByAttempt, checkErrorsByAttempt, warnings, ...(questions ? { questions } : {}) }, stage,
-      ...(input.reconMs !== undefined ? { reconMs: input.reconMs } : {}),
-    })
-    return { attempts, lintErrorsByAttempt, checkErrorsByAttempt, warnings, fixes, metrics: report.metrics }
-  }
   let attempt = 0
   try {
-    fastMd = await readFile(input.fast.md, 'utf8')
-    const golden = await readFile(join(input.skillsPath, 'bft-deep-swarm/examples/golden_deep_document.md'), 'utf8')
-    const date = isoToday()
-    const head = deepHead(fastMd, date, input.sources)
-    const tail = continueBlock(input.request, date)
-    const lintScript = join(input.skillsPath, 'bft-writer/scripts/bft-lint.py')
-    const intake = await readIntake(input.fast)
-    const anchor = await anchorOf(input.fast, input.slug)
-    const primary = await readFile(input.fast.primary, 'utf8').then((t) => JSON.parse(t) as unknown, () => undefined)
-    const ctx = checkContext({ fastMd, sourcesMd: input.sourcesMd ?? '', anchor, golden: goldenCanon(golden), ...(input.po?.length ? { po: input.po } : {}), ...(intake ? { intake } : {}), ...(primary ? { primary } : {}) })
+    const judge = await deepJudge(input)
+    fastMd = judge.fastMd
     const max = input.attempts ?? 3
     let previous: PreviousAttempt | undefined
     for (attempt = 1; attempt <= max; attempt++) {
-      const split = splitCanon(await generate(input.llm, input.route, deepPrompt(golden, fastMd, input.context, previous, anchor), signal), linkBases(input.context))
-      const fixed = autoFix(split.canon, ctx)
-      fixes = fixed.log
-      if (fixed.log.length) console.error(`[customer-form] bft-deep ${input.slug}: автоправки — ${fixed.log.length}:\n${fixed.log.slice(0, 20).join('\n')}`)
-      const canon = fixed.canon
-      const doc = `${head}\n\n${canon}\n\n${tail}\n`
-      await writeFile(files.md, doc, 'utf8')
-      const lint = await lintDoc(lintScript, files.md)
-      const checked = check(doc, ctx)
-      const toQuality = (f: CheckFinding): QualityFinding => ({ code: f.code, level: f.level, message: f.message, ...(f.line ? { line: f.line } : {}) })
-      let errors = [...lint.findings.filter((f) => f.level === 'ERROR'), ...checked.errors.map(toQuality)]
-      warnings = [...lint.findings.filter((f) => f.level !== 'ERROR'), ...checked.warnings.map(toQuality)]
-      // Последняя попытка: пробел покрытия и строка plantuml — повод для повтора, но не причина остаться без документа (раунд 4).
-      if (attempt === max) {
-        const soft = errors.filter((f) => SOFT_ON_LAST.has(f.code))
-        if (soft.length) { errors = errors.filter((f) => !SOFT_ON_LAST.has(f.code)); warnings = [...warnings, ...soft] }
-      }
-      lintErrorsByAttempt.push(lint.findings.filter((f) => f.level === 'ERROR').length)
-      checkErrorsByAttempt.push(checked.errors.length)
-      if (!errors.length) {
-        const html = await python(join(input.skillsPath, 'bft-writer/scripts/bft-html-export.py'), [files.md])
-        if (html.code !== 0) throw new Error(`страница ревью не собрана: ${html.out}`)
-        questions = openQuestions(canon)
-        const state: DeepState = { stage: 'ready', startedAt, finishedAt: new Date().toISOString(), attempts: attempt, quality: await quality(attempt, 'ready'), questions }
-        await saveDeepState(files, state)
-        return state
-      }
-      previous = { canon, errors: errors.map(formatFinding).join('\n'), warnings: warningLines(warnings) }
-      console.error(`[customer-form] bft-deep ${input.slug}: попытка ${attempt} — ошибок ${errors.length}:\n${previous.errors}`)
+      const verdict = await judge.judge(await generate(input.llm, input.route, judge.prompt(previous), signal), attempt === max)
+      trail.fixes = verdict.fixes
+      trail.warnings = verdict.warnings
+      trail.lintErrorsByAttempt.push(verdict.lintErrors)
+      trail.checkErrorsByAttempt.push(verdict.checkErrors)
+      if (verdict.ok) return await finishDeep(input, judge, verdict.canon, trail, attempt, startedAt)
+      previous = verdict.previous
+      console.error(`[customer-form] bft-deep ${input.slug}: попытка ${attempt} — ошибок ${verdict.errors.length}:\n${previous.errors}`)
     }
     throw new Error(`канон не прошёл проверку (bft-lint.py и проверки портала) за ${max} попытки:\n${previous?.errors ?? ''}`)
   } catch (e) {
-    const tried = Math.min(attempt, lintErrorsByAttempt.length)
-    const state: DeepState = {
-      stage: 'failed', startedAt, finishedAt: new Date().toISOString(), error: (e as Error).message.slice(0, 2000),
-      ...(tried ? { attempts: tried, quality: await quality(tried, 'failed').catch(() => undefined) } : {}),
-    }
-    if (!state.quality) delete state.quality
-    await saveDeepState(files, state)
-    return state
+    return failDeep(input, files, fastMd, trail, attempt, startedAt, (e as Error).message)
   }
 }
 

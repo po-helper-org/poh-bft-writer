@@ -174,6 +174,11 @@ services:
       # (после разового шага nginx); пауза перед пересборкой БФТ по ответам, мс.
       BFT_FORM_PUBLIC: ${BFT_FORM_PUBLIC:-}
       FORM_REBUILD_MS: ${FORM_REBUILD_MS:-120000}
+      # MCP «Система БФТ» для внешних ИИ-агентов (ADR-0023): вход — local (пользователи портала,
+      # заводит администратор на /api/customer-form.users) или sso (сервер за Authentik).
+      # Адрес MCP: http://<хост>:3080/api/customer-form.mcp; BFT_MCP_PUBLIC=1 — короткий /mcp за nginx.
+      PORTAL_AUTH: ${PORTAL_AUTH:-local}
+      BFT_MCP_PUBLIC: ${BFT_MCP_PUBLIC:-}
       # Кортекс (ADR-0011): bft-fast дораскрывает запрос — контуры проверки и зоны влияния.
       CORTEX_URL: http://cortex:8095
       # Источник данных atlassian — шлюз источников (ADR-0015): MCP ровно с
