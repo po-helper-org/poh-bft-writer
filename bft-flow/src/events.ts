@@ -35,6 +35,7 @@ export type EventKind =
   | 'materialAdded'     // файл, голос, ссылка заказчика
   | 'scenarioProposed' | 'scenarioApproved'
   | 'briefRequested' | 'briefBuilt' | 'briefApproved'
+  | 'deepRequested'     // просьба собрать полный БФТ («Да, согласен», «Собрать заново») — сборку ведёт цикл (шаг 3)
   | 'deepStarted' | 'deepReady' | 'deepFailed'
   | 'formPublished' | 'formEdited' | 'formAnswered' | 'formRevoked'
   | 'reviseApplied'     // точечные правки ИИ-агента (ADR-0021)
@@ -99,6 +100,10 @@ export interface LifecycleState {
   formOpen?: { addressees: string[] }
   /** Ждёт пересборка по ответам формы: последний учтённый ответ и когда пересобрать. */
   rebuild?: RebuildPending
+  /** Сборка полного БФТ, которую ведёт цикл (шаг 3): идёт и, возможно, ещё одна в очереди. */
+  build?: { reason: string; startedAt: string; queued?: { reason: string; lastSubmitAt?: string } }
+  /** Сколько сборок запускал цикл — номер в id дочернего workflow. */
+  builds?: number
   /** Последние записи хроники (не больше TIMELINE_MAX). */
   timeline: TimelineEntry[]
   /** eventId последних событий — повтор не применяется. */
@@ -112,9 +117,31 @@ export interface RebuildPending { lastSubmitAt: string; dueAt: string }
 /** Активности портала (очередь bft-portal). */
 export interface RebuildRequest { taskId: number; slug: string; sessionId: string; lastSubmitAt: string }
 export interface RebuildResult { started: boolean; reason?: string }
+/** Сборка полного БФТ (дочерний DeepBuild → активность buildDeep). */
+export interface DeepBuildRequest {
+  taskId: number
+  slug: string
+  sessionId: string
+  /** Время начала — и в файле состояния, и в eventId хроники (`deep:*:<startedAt>`). */
+  startedAt: string
+  reason: 'approved' | 'retry' | 'answers' | 'chat' | string
+  /** reason=answers: последний ответ формы — портал не собирает, если сборка после него уже была. */
+  lastSubmitAt?: string
+}
+export interface DeepBuildResult {
+  stage: 'ready' | 'failed' | 'skipped'
+  startedAt: string
+  finishedAt?: string
+  error?: string
+  /** skipped: почему не собирали (заявка MCP, не найдена). */
+  reason?: string
+}
+
 export interface PortalActivities {
-  /** Пересобрать полный БФТ по ответам формы. Идёт сборка — ошибка (Temporal повторит). */
+  /** Шаг 2 (оставлена для историй, начатых до шага 3): пересобрать по ответам формы. */
   rebuildFromAnswers(request: RebuildRequest): Promise<RebuildResult>
+  /** Собрать полный БФТ; пульс раз в 20 с — рестарт портала посреди сборки → повтор. */
+  buildDeep(request: DeepBuildRequest): Promise<DeepBuildResult>
 }
 
 export interface LifecycleStatus {
@@ -127,6 +154,7 @@ export interface LifecycleStatus {
   questions?: LifecycleState['questions']
   artifacts: LifecycleState['artifacts']
   rebuild?: RebuildPending
+  build?: LifecycleState['build']
   events: number
   createdAt: string
   updatedAt: string

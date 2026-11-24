@@ -10,8 +10,13 @@ export const PORTAL_TASK_QUEUE = 'bft-portal'
 
 export interface RebuildRequest { taskId: number; slug: string; sessionId: string; lastSubmitAt: string }
 export interface RebuildResult { started: boolean; reason?: string }
+export interface DeepBuildRequest { taskId: number; slug: string; sessionId: string; startedAt: string; reason: string; lastSubmitAt?: string }
+export interface DeepBuildResult { stage: 'ready' | 'failed' | 'skipped'; startedAt: string; finishedAt?: string; error?: string; reason?: string }
+/** Копия bft-flow/src/events.ts → PortalActivities. */
 export interface PortalActivities {
+  /** Шаг 2: для историй, начатых до шага 3. */
   rebuildFromAnswers(request: RebuildRequest): Promise<RebuildResult>
+  buildDeep(request: DeepBuildRequest): Promise<DeepBuildResult>
 }
 
 const RETRY_MS = 30_000

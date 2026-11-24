@@ -14,6 +14,7 @@ const SUMMARY: Partial<Record<BftEvent['kind'], string>> = {
   briefRequested: 'Запрошены первичные требования',
   briefBuilt: 'Первичные требования собраны',
   briefApproved: 'Заказчик согласовал первичные требования',
+  deepRequested: 'Запрошена сборка полного БФТ',
   deepStarted: 'Началась сборка полного БФТ',
   deepReady: 'Полный БФТ готов',
   deepFailed: 'Полный БФТ не собран',
@@ -140,6 +141,6 @@ export function reduce(state: LifecycleState, event: BftEvent): LifecycleState {
 }
 
 export function statusOf(state: LifecycleState): LifecycleStatus {
-  const { taskId, slug, title, stage, waitingFor, round, questions, artifacts, rebuild, events, createdAt, updatedAt } = state
-  return { taskId, slug, title, stage, waitingFor, round, ...(questions ? { questions } : {}), artifacts, ...(rebuild ? { rebuild } : {}), events, createdAt, updatedAt }
+  const { taskId, slug, title, stage, waitingFor, round, questions, artifacts, rebuild, build, events, createdAt, updatedAt } = state
+  return { taskId, slug, title, stage, waitingFor, round, ...(questions ? { questions } : {}), artifacts, ...(rebuild ? { rebuild } : {}), ...(build ? { build } : {}), events, createdAt, updatedAt }
 }
