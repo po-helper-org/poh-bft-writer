@@ -45,7 +45,7 @@ import { mcpHandler } from './mcp-server.js'
 import { bftMcp, MCP_INSTRUCTIONS } from './mcp-bft.js'
 import { bftCard, type BftState } from './bft-list.js'
 import { registerPlanRoutes, withPlan } from './plan-routes.js'
-import { ConfluenceWriter, plantumlPng, publishActivities, publishConfigFromEnv, type PublishRequest } from './confluence-publish.js'
+import type { PublishRequest } from './confluence-publish.js'
 import { PublishFlow, registerConfluencePublish } from './confluence-publish-routes.js'
 import { withConfluence } from './confluence-publish-page.js'
 import { registeredEvent, sharedLifecycle } from './lifecycle.js'
@@ -723,34 +723,19 @@ export function apply(ctx: HarnessContext): void {
     return startDeep(ticket, req.sessionId, 'answers') ? { started: true } : { started: false, reason: 'модель портала недоступна или заявку собирает внешний агент' }
   }
   /**
-   * Отправка в Confluence (ADR-0028): ключ публикации — только здесь и только из окружения.
-   * Активности workflow ConfluencePublish исполняет портал вместе с активностями цикла.
+   * Отправка в Confluence (ADR-0028): страницу пишет исполнитель публикации (confluence-publisher,
+   * ключ записи — только у него); портал — итог: комментарий в задачу и запись в хронику цикла.
    */
-  let writerCache: { key: string; writer: ConfluenceWriter } | undefined
-  const confluenceWriter = (): ConfluenceWriter | undefined => {
-    const cfg = publishConfigFromEnv()
-    if (!cfg) return undefined
-    const key = `${cfg.baseUrl}|${cfg.user ?? ''}|${cfg.token.length}`
-    if (writerCache?.key !== key) writerCache = { key, writer: new ConfluenceWriter(cfg) }
-    return writerCache.writer
-  }
-  const announcePublish = async (req: PublishRequest, mode: string, url: string) => {
+  const confluenceAnnounce = async (req: PublishRequest, page: { pageId: string; url: string; mode: 'create' | 'update' }): Promise<void> => {
     const ticket = await backlog.find(req.sessionId).catch(() => undefined)
-    const safe = url.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!))
-    if (ticket) await backlog.comment(ticket, `<p><strong>📘 БФТ опубликован в Confluence</strong>${mode === 'update' ? ' (страница обновлена)' : ''}: <a href="${safe}">${safe}</a> (портал${req.by ? `, ${req.by}` : ''})</p>`).catch(() => undefined)
+    const safe = page.url.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!))
+    if (ticket) await backlog.comment(ticket, `<p><strong>📘 БФТ опубликован в Confluence</strong>${page.mode === 'update' ? ' (страница обновлена)' : ''}: <a href="${safe}">${safe}</a> (портал${req.by ? `, ${req.by}` : ''})</p>`)
     const at = new Date().toISOString()
     if (lifecycle.enabled) await lifecycle.record({ taskId: req.taskId, slug: req.slug, sessionId: req.sessionId, createdAt: at },
-      { eventId: `confluence:published:${req.run}`, at, actor: { kind: 'system' }, kind: 'note', summary: `БФТ опубликован в Confluence: ${url}`, data: { url, run: req.run } })
+      { eventId: `confluence:published:${req.run}`, at, actor: { kind: 'system' }, kind: 'note', summary: `БФТ опубликован в Confluence: ${page.url}`, data: { url: page.url, run: req.run } })
   }
-  const confluenceActivities = publishActivities({
-    files: (slug) => { const f = fastFiles(FAST_ROOT, slug); return { dir: f.dir, md: deepFiles(f, slug).md } },
-    writer: confluenceWriter,
-    exportDoc: async (slug, md, format) => exportDocument(md, format, (await readDeepState(deepFiles(fastFiles(FAST_ROOT, slug), slug)))?.questions),
-    renderPng: plantumlPng,
-    announce: (req, page, url) => announcePublish(req, page.mode, url),
-  })
   if (lifecycle.enabled) {
-    const stopWorker = startPortalWorker({ rebuildFromAnswers, buildDeep: buildDeepActivity, ...confluenceActivities })
+    const stopWorker = startPortalWorker({ rebuildFromAnswers, buildDeep: buildDeepActivity, ...{ confluenceAnnounce } })
     ctx.effect(() => () => void stopWorker(), 'customer-form: активности жизненного цикла (bft-portal)')
   }
 
@@ -1461,7 +1446,7 @@ export function apply(ctx: HarnessContext): void {
       const offs = registerConfluencePublish(register, {
         root: FAST_ROOT,
         confluence: () => materials.confluence,
-        writer: confluenceWriter,
+        configured: () => !!(process.env.CONFLUENCE_PUBLISH_URL ?? '').trim(),
         flow: publishFlow,
         who: (request) => whoIs(request, users, mode),
         request: async (sessionId) => {

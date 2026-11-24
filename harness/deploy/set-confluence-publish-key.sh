@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Разовый шаг владельца (без sudo), на сервере портала: ключ публикации БФТ в Confluence
-# (ADR-0028) → CONFLUENCE_PUBLISH_TOKEN в harness/.env, портал пересоздаётся с ним.
+# (ADR-0028) → CONFLUENCE_PUBLISH_TOKEN в harness/.env; с ним пересоздаётся только исполнитель
+# публикации confluence-publisher (портал с агентами ключа не получает).
 #   bash ~/<DEPLOY_DIR>/harness/deploy/set-confluence-publish-key.sh   # спросит ключ, ввод не печатается
 # Ключ — личный токен Confluence (Server/DC) или API-токен (Cloud, тогда в server.env
 # CONFLUENCE_PUBLISH_USER — email). Нужны права на создание страниц в разделах, куда публикуют.
@@ -17,5 +18,5 @@ mv .env.tmp .env && chmod 600 .env
 echo "✓ CONFLUENCE_PUBLISH_TOKEN записан в harness/.env"
 grep -q '^CONFLUENCE_PUBLISH_URL=.' .env || echo "! CONFLUENCE_PUBLISH_URL ещё не задан — впишите в server.env и выложите (deploy-server.sh)"
 export COMPOSE_FILE=docker-compose.yml:docker-compose.server.yml COMPOSE_PROJECT_NAME=poh-bft-portal
-docker compose up -d --force-recreate customer-web > /dev/null
-echo "✓ портал пересоздан — на странице полного БФТ «⇪ В Confluence» публикует"
+docker compose up -d --force-recreate confluence-publisher > /dev/null
+echo "✓ confluence-publisher пересоздан — на странице полного БФТ «⇪ В Confluence» публикует"

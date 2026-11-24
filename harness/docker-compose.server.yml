@@ -39,6 +39,17 @@ services:
     build:
       network: host
 
+  # Отправка в Confluence (ADR-0028): Confluence доступен только через VPN хоста, а файрвол не
+  # пускает контейнеры к портам хоста — исполнитель публикации живёт в сети хоста и ходит в
+  # Temporal через опубликованный только на 127.0.0.1 порт.
+  temporal:
+    ports:
+      - "127.0.0.1:3089:7233"
+  confluence-publisher:
+    network_mode: host
+    environment:
+      TEMPORAL_ADDRESS: 127.0.0.1:3089
+
   # На сервере у docker сеть bridge выключена ("bridge": "none" в daemon.json):
   # сборке нужен выход в интернет через сеть хоста.
   cortex:

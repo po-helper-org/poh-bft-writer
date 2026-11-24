@@ -202,8 +202,8 @@ Temporal), запускает работу (дочерний workflow или а�
 | `sendMail` | bft-flow | `Message-ID` = `<bft-<taskId>.r<round>.<addressee>.<n>@…>`; повтор не шлёт второй раз |
 | `pollMailbox` | bft-flow | курсор UID IMAP в состоянии расписания |
 | `mirrorWorkspace` | bft-portal | перезапись тех же файлов |
-| `confluenceRender` (markdown → storage, схемы PNG, .docx/.pdf) | bft-portal | чистая: тот же документ → то же тело (sha256) |
-| `confluenceUpsertPage`, `confluenceAttach`, `confluenceFinish` | bft-portal | `pageId` в `confluence-publish.json`; своя страница по метке `bft-<slug>`; вложение с тем же sha256 не грузится |
+| `confluenceRender` (markdown → storage, схемы PNG, .docx/.pdf) | bft-confluence | чистая: тот же документ → то же тело (sha256) |
+| `confluenceUpsertPage`, `confluenceAttach`, `confluenceFinish`, `confluenceAncestors` | bft-confluence (исполнитель публикации, сеть хоста, ключ записи) | `pageId` в `confluence-publish.json`; своя страница по метке `bft-<slug>`; вложение с тем же sha256 не грузится |
 
 ## Сценарии
 
@@ -371,8 +371,9 @@ stateDiagram-v2
 3. Workflow: `confluenceRender` (детерминированно) → `confluenceUpsertPage` (создать
    подстраницей родителя или обновить свою, метки `bft`, `bft-<slug>`) →
    `confluenceAttach` (схемы, .docx, .pdf; неизменённые не грузятся) → `confluenceFinish`
-   (переименованные Confluence вложения — в тело; `confluence.json`, комментарий в
-   задачу, `note` «опубликовано» в цикл).
+   (переименованные Confluence вложения — в тело; `confluence.json`) → `confluenceAnnounce`
+   портала (комментарий в задачу, `note` «опубликовано» в цикл). Первые четыре исполняет
+   `confluence-publisher` (очередь `bft-confluence`, ключ записи только у него).
 4. Портал раз в 2 с читает `progress`: четыре шага, отметки, ссылка на страницу.
    Перезагрузка страницы — панель открывается сама, ход тот же (он в Temporal).
 5. Ошибка: сеть, 5xx, 409, 429 — повторы внутри активности (5 раз), пользователь видит

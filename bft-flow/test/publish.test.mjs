@@ -16,9 +16,12 @@ test('ConfluencePublish: преобразование → страница → �
     await ensureSearchAttributes(env.connection, 'default', () => {})
     const calls = []
     let flaky = 0
+    const announced = []
+    const portalQ = await Worker.create({ connection: env.nativeConnection, taskQueue: 'bft-portal', activities: { async confluenceAnnounce(r, p) { announced.push([r.run, p.mode]) } } })
     const portal = await Worker.create({
-      connection: env.nativeConnection, taskQueue: 'bft-portal',
+      connection: env.nativeConnection, taskQueue: 'bft-confluence',
       activities: {
+        async confluenceAncestors(ids) { return ids.map((id) => ({ id, parent: { id: '100', title: 'Раздел БФТ' } })) },
         async confluenceRender(r) { calls.push(['render', r.run]); return rendered },
         async confluenceUpsertPage(r) {
           calls.push(['page', r.run])
@@ -31,7 +34,7 @@ test('ConfluencePublish: преобразование → страница → �
       },
     })
     const flow = await Worker.create({ connection: env.nativeConnection, taskQueue: 'bft-flow', workflowsPath: new URL('../lib/workflows.js', import.meta.url).pathname })
-    await portal.runUntil(flow.runUntil(async () => {
+    await portalQ.runUntil(portal.runUntil(flow.runUntil(async () => {
       const ok = await env.client.workflow.start('ConfluencePublish', { workflowId: 'bft-7-confluence-1', taskQueue: 'bft-flow', args: [req(1)] })
       const result = await ok.result()
       assert.equal(result.status, 'done')
@@ -51,7 +54,10 @@ test('ConfluencePublish: преобразование → страница → �
       assert.match(failed.error, /403/)
       const desc = await bad.describe()
       assert.equal(desc.status.name, 'FAILED')
-    }))
+      assert.deepEqual(announced, [[1, 'create']], 'итог — в трекер через портал, только у удачной')
+      const anc = await env.client.workflow.execute('ConfluenceLookup', { workflowId: 'confluence-lookup-1', taskQueue: 'bft-flow', args: [['555']] })
+      assert.deepEqual(anc, [{ id: '555', parent: { id: '100', title: 'Раздел БФТ' } }])
+    })))
   } finally {
     await env.teardown()
   }

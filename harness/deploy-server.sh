@@ -143,7 +143,7 @@ done
 echo "▸ Сборка воркера жизненного цикла…"
 docker compose build -q bft-flow
 ./start.sh --no-open --no-build
-docker compose up -d --force-recreate customer-web bft-flow > /dev/null
+docker compose up -d --force-recreate customer-web bft-flow confluence-publisher > /dev/null
 for i in \$(seq 1 60); do [ "\$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3082/)" = 200 ] && break; sleep 2; done
 echo "▸ портал 127.0.0.1:3082 → \$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3082/)"
 EOF
