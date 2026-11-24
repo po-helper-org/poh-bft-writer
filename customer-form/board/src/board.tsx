@@ -3,7 +3,8 @@
  * зарисовок. Своя нижняя панель — Выбор, Рука, Стикер, Текст, Стрелка (V H S T A);
  * панели Excalidraw (свойства, цвета, толщина, меню, библиотека, подсказки) скрыты.
  * Линии ровные (без «рукописного» эффекта), шрифт Nunito. Стикер — клик по доске:
- * жёлтая карточка, сразу ввод текста; стрелки цепляются к стикерам.
+ * карточка без обводки, сразу ввод текста; стрелки цепляются к стикерам. Цвет — десять
+ * пастельных, как в FigJam: ряд над панелью при инструменте «Стикер» или выделенных стикерах.
  * Страница (plan.ts) кладёт в window.PLAN сохранённую сцену, а при «Сохранить»
  * берёт у window.planBoard сцену (JSON .excalidraw) и SVG доски.
  */
@@ -16,7 +17,7 @@ import { createRoot } from 'react-dom/client'
 type Tool = 'selection' | 'hand' | 'sticky' | 'text' | 'arrow'
 
 interface Api {
-  getSceneElements(): readonly { id: string; isDeleted?: boolean }[]
+  getSceneElements(): readonly El[]
   getAppState(): Record<string, unknown>
   getFiles(): Record<string, unknown>
   setActiveTool(tool: { type: string } | { type: 'custom'; customType: string }): void
@@ -31,7 +32,40 @@ interface PlanWindow {
 const w = window as unknown as PlanWindow
 let api: Api | null = null
 
-const STICKY = { w: 200, h: 140, fill: '#fff3bf' }
+const STICKY = { w: 200, h: 140 }
+/** Цвета стикеров как в FigJam: пастель, текст на любом читается. */
+const COLORS: Array<{ fill: string; label: string }> = [
+  { fill: '#fff3bf', label: 'Жёлтый' },
+  { fill: '#ffd8a8', label: 'Оранжевый' },
+  { fill: '#ffc9c9', label: 'Красный' },
+  { fill: '#fcc2d7', label: 'Розовый' },
+  { fill: '#e5dbff', label: 'Фиолетовый' },
+  { fill: '#d0ebff', label: 'Синий' },
+  { fill: '#c3fae8', label: 'Бирюзовый' },
+  { fill: '#d3f9d8', label: 'Зелёный' },
+  { fill: '#e9ecef', label: 'Серый' },
+  { fill: '#ffffff', label: 'Белый' },
+]
+let stickyFill = COLORS[0]!.fill
+
+interface El { id: string; type?: string; isDeleted?: boolean; strokeColor?: string; fillStyle?: string; backgroundColor?: string; version?: number; customData?: Record<string, unknown> }
+/** Стикер — наша карточка: помечена customData, а ранние — прямоугольник с заливкой без обводки. */
+const isSticky = (e: El) => !e.isDeleted && (e.customData?.sticky === true || (e.type === 'rectangle' && e.strokeColor === 'transparent' && e.fillStyle === 'solid'))
+
+/** Перекрасить выбранные стикеры; новые стикеры — этим же цветом. */
+function paint(fill: string): void {
+  stickyFill = fill
+  if (!api) return
+  const sel = (api.getAppState().selectedElementIds ?? {}) as Record<string, boolean>
+  const els = api.getSceneElements() as readonly El[]
+  if (!els.some((e) => sel[e.id] && isSticky(e))) return
+  api.updateScene({
+    elements: els.map((e) => (sel[e.id] && isSticky(e) && e.backgroundColor !== fill
+      ? { ...e, backgroundColor: fill, version: (e.version ?? 1) + 1, versionNonce: Math.floor(Math.random() * 2 ** 31), updated: Date.now() }
+      : e)),
+    captureUpdate: CaptureUpdateAction.IMMEDIATELY,
+  })
+}
 /** Новые элементы — ровные, шрифт без засечек: доска для рабочих зарисовок, а не скетч. */
 const CLEAN = {
   currentItemRoughness: 0,
@@ -69,7 +103,8 @@ function placeSticky(x: number, y: number): void {
   if (!api) return
   const [rect] = convertToExcalidrawElements([{
     type: 'rectangle', x: x - STICKY.w / 2, y: y - STICKY.h / 2, width: STICKY.w, height: STICKY.h,
-    backgroundColor: STICKY.fill, fillStyle: 'solid', strokeColor: 'transparent', strokeWidth: 1, roughness: 0, roundness: null,
+    backgroundColor: stickyFill, fillStyle: 'solid', strokeColor: 'transparent', strokeWidth: 1, roughness: 0, roundness: null,
+    customData: { sticky: true },
   } as never]) as unknown as Array<{ id: string }>
   if (!rect) return
   api.updateScene({
@@ -96,17 +131,29 @@ const typing = (t: EventTarget | null) => {
   return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)
 }
 
-function Toolbar({ active }: { active: Tool }): ReactElement {
+/** Цвета — над панелью, пока выбран инструмент «Стикер» или выделены стикеры. */
+function Colors({ current, onPick }: { current: string; onPick: (fill: string) => void }): ReactElement {
+  return h('div', { className: 'fj-colors', role: 'toolbar', 'aria-label': 'Цвет стикера' },
+    COLORS.map((c) => h('button', {
+      key: c.fill, type: 'button', className: `fj-color${current === c.fill ? ' on' : ''}`, title: c.label, 'aria-label': c.label, 'aria-pressed': current === c.fill,
+      style: { background: c.fill }, onClick: () => onPick(c.fill),
+    })))
+}
+
+function Toolbar({ active, fill }: { active: Tool; fill: string }): ReactElement {
   return h('div', { className: 'fj-bar', role: 'toolbar', 'aria-label': 'Инструменты доски' },
     TOOLS.map((t) => h('button', {
       key: t.id, type: 'button', className: `fj-tool${active === t.id ? ' on' : ''}`, title: `${t.label} · ${t.key}`, 'aria-label': t.label, 'aria-pressed': active === t.id,
       onClick: () => setTool(t.id),
-    }, h('svg', { viewBox: '0 0 24 24', 'aria-hidden': true }, h('path', { d: ICONS[t.id] })), h('span', null, t.label))))
+    }, h('svg', { viewBox: '0 0 24 24', 'aria-hidden': true }, h('path', { d: ICONS[t.id], style: t.id === 'sticky' ? { fill } : undefined })), h('span', null, t.label))))
 }
 
 function Board(): ReactElement {
   const [dark, setDark] = useState(() => matchMedia('(prefers-color-scheme: dark)').matches)
   const [active, setActive] = useState<Tool>('selection')
+  /** Цвет выделенных стикеров (один — его цвет, разные — пусто) или null, если стикеры не выделены. */
+  const [picked, setPicked] = useState<string | null>(null)
+  const [fill, setFill] = useState(stickyFill)
   useEffect(() => {
     const m = matchMedia('(prefers-color-scheme: dark)')
     const on = () => setDark(m.matches)
@@ -132,7 +179,11 @@ function Board(): ReactElement {
       theme: dark ? 'dark' : 'light',
       langCode: 'ru-RU',
       viewModeEnabled: !!w.PLAN?.readOnly,
-      onChange: (_els: unknown, state: { activeTool?: { type: string; customType?: string } }) => {
+      onChange: (els: readonly El[], state: { activeTool?: { type: string; customType?: string }; selectedElementIds?: Record<string, boolean> }) => {
+        const sel = state.selectedElementIds ?? {}
+        const fills = [...new Set(els.filter((e) => sel[e.id] && isSticky(e)).map((e) => e.backgroundColor ?? ''))]
+        const nowPicked = fills.length === 0 ? null : fills.length === 1 ? fills[0]! : ''
+        setPicked((prev) => (prev === nowPicked ? prev : nowPicked))
         const t = state.activeTool
         const now: Tool = t?.type === 'custom' && t.customType === 'sticky' ? 'sticky' : (['hand', 'text', 'arrow'].includes(t?.type ?? '') ? t!.type as Tool : 'selection')
         setActive((prev) => (prev === now ? prev : now))
@@ -143,7 +194,10 @@ function Board(): ReactElement {
       },
       UIOptions: { canvasActions: { loadScene: false, saveToActiveFile: false, export: false, saveAsImage: false, toggleTheme: false, changeViewBackgroundColor: false, clearCanvas: false }, tools: { image: false } },
     }),
-    h(Toolbar, { active }))
+    !w.PLAN?.readOnly && (active === 'sticky' || picked !== null)
+      ? h(Colors, { current: picked ?? fill, onPick: (f: string) => { paint(f); setFill(f); setPicked((p) => (p === null ? p : f)) } })
+      : null,
+    h(Toolbar, { active, fill }))
 }
 
 w.planBoard = {
