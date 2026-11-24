@@ -24,7 +24,7 @@ interface ModelsState {
   local?: Route | null
   localDefault?: Route
   review?: Route | null
-  reviewAgent?: { configured: boolean; model: string | null }
+  reviewAgent?: { configured: boolean; model: string | null; url?: string | null; source?: 'settings' | 'env' | null }
   /** Провайдеры, у которых закончился баланс (последние минуты). */
   exhausted?: { provider: string; at: string }[]
 }
@@ -76,7 +76,7 @@ function ModelSelect(props: { id: string; value: string; catalog: Catalog; empty
 
 const label = (catalog: Catalog | null, route: Route | null | undefined): string => {
   if (!route) return '—'
-  if (route.provider === REVIEW_AGENT) return 'агент полного ревью'
+  if (route.provider === REVIEW_AGENT) return 'агент из шлюза агентов'
   const group = catalog?.groups.find((g) => g.id === route.provider)
   const model = group?.models.find((m) => m.id === route.model)
   return `${group?.name ?? route.provider} · ${model?.name ?? route.model}`
@@ -89,6 +89,9 @@ export function PortalSettings(props: { call: Rpc }): ReactElement {
   const [deep, setDeep] = useState('')
   const [local, setLocal] = useState('')
   const [review, setReview] = useState('')
+  const [agentUrl, setAgentUrl] = useState('')
+  const [agentKey, setAgentKey] = useState('')
+  const [agentModel, setAgentModel] = useState('')
   const [status, setStatus] = useState<{ ok: boolean; text: string } | null>(null)
   const [saving, setSaving] = useState(false)
 
@@ -102,10 +105,17 @@ export function PortalSettings(props: { call: Rpc }): ReactElement {
     setDeep(key(models.deep))
     setLocal(key(models.local))
     setReview(key(models.review))
+    setAgentUrl(models.reviewAgent?.source === 'settings' ? models.reviewAgent.url ?? '' : '')
+    setAgentModel(models.reviewAgent?.source === 'settings' ? models.reviewAgent.model ?? '' : '')
+    setAgentKey('')
     if (res.ok) setCatalog(res.value as Catalog)
   }
   useEffect(() => { load().catch((e) => setStatus({ ok: false, text: `Не загрузилось: ${String(e)}` })) }, [])
 
+  const fromSettings = state?.reviewAgent?.source === 'settings'
+  const agentChanged = !!agentKey.trim()
+    || agentUrl.trim() !== (fromSettings ? state?.reviewAgent?.url ?? '' : '')
+    || agentModel.trim() !== (fromSettings ? state?.reviewAgent?.model ?? '' : '')
   const save = async () => {
     setSaving(true)
     setStatus(null)
@@ -119,6 +129,7 @@ export function PortalSettings(props: { call: Rpc }): ReactElement {
           ...(deep !== key(state?.deep) ? { deep: parse(deep) } : {}),
           ...(local !== key(state?.local) ? { local: parse(local) } : {}),
           ...(review !== key(state?.review) ? { review: parse(review) } : {}),
+          ...(agentChanged ? { agent: agentUrl.trim() ? { url: agentUrl.trim(), key: agentKey, model: agentModel.trim() } : null } : {}),
         }),
       })
       const body = await res.json() as ModelsState & { error?: string }
@@ -126,6 +137,7 @@ export function PortalSettings(props: { call: Rpc }): ReactElement {
       setState(body)
       setLocal(key(body.local))
       setReview(key(body.review))
+      setAgentKey('')
       setStatus({ ok: true, text: 'Сохранено — действует для новых сообщений и следующей сборки БФТ.' })
     } catch (e) {
       setStatus({ ok: false, text: e instanceof Error ? e.message : String(e) })
@@ -163,19 +175,32 @@ export function PortalSettings(props: { call: Rpc }): ReactElement {
       </div>
       <div style={s.row}>
         <label style={s.label} htmlFor="portal-local-model">ИИ-агент: локальные правки</label>
-        <ModelSelect id="portal-local-model" value={local} catalog={catalog} empty={`По умолчанию (${label(catalog, state.localDefault)})`} onChange={setLocal} />
+        <ModelSelect id="portal-local-model" value={local} catalog={catalog} empty={`По умолчанию (${label(catalog, state.localDefault)})`} onChange={setLocal}
+          {...(state.reviewAgent?.configured ? { extra: { value: AGENT_KEY, label: 'Агент из шлюза агентов' } } : {})} />
         <span style={s.hint}>Одно замечание со страницы БФТ — одна правка его раздела. Нужна быстрая модель: секунды на замечание. Не ответила — правит модель полного БФТ.</span>
       </div>
       <div style={s.row}>
         <label style={s.label} htmlFor="portal-review-model">ИИ-агент: полное ревью</label>
         <ModelSelect id="portal-review-model" value={review} catalog={catalog}
           empty={state.reviewAgent?.configured ? 'По умолчанию (агент полного ревью)' : 'По умолчанию (модель полного БФТ)'} onChange={setReview}
-          {...(state.reviewAgent?.configured ? { extra: { value: AGENT_KEY, label: 'Агент полного ревью (шлюз агентов)' } } : {})} />
+          {...(state.reviewAgent?.configured ? { extra: { value: AGENT_KEY, label: 'Агент из шлюза агентов' } } : {})} />
+        <span style={s.hint}>Проверяет согласованность всего документа после локальных правок (точка у «Комментариев»).</span>
+      </div>
+      <div style={s.row} data-portal-agent>
+        <span style={s.label}>Подключение к шлюзу агентов</span>
         <span style={s.hint}>
-          {state.reviewAgent?.configured
-            ? 'Проверяет согласованность всего документа после локальных правок (точка у «Комментариев»). Агент полного ревью подключён в окружении сервера.'
-            : 'Проверяет согласованность всего документа после локальных правок. Агент полного ревью не подключён: адрес и ключ задаются в окружении сервера (BFT_REVIEW_AGENT_URL, BFT_REVIEW_AGENT_KEY).'}
+          Агент из шлюза агентов (Responses API) — для ИИ-агента правок: выберите его выше в «локальных правках» или «полном ревью».
+          Профиль агента — часть адреса: …/p/&lt;профиль&gt;/v1/responses. Агент должен быть без инструментов: в документе — текст заказчика.
+          {state.reviewAgent?.source === 'env' ? ' Сейчас подключение задано в окружении сервера; сохранённое здесь его заменит.' : ''}
         </span>
+        <label style={s.hint} htmlFor="portal-agent-url">Адрес</label>
+        <input id="portal-agent-url" style={s.select} value={agentUrl} placeholder="http://…/p/<профиль>/v1/responses" onChange={(e) => setAgentUrl(e.target.value)} />
+        <label style={s.hint} htmlFor="portal-agent-key">Ключ</label>
+        <input id="portal-agent-key" type="password" autoComplete="new-password" style={s.select} value={agentKey}
+          placeholder={fromSettings ? 'задан — оставьте пустым, чтобы не менять' : 'Bearer-ключ агента'} onChange={(e) => setAgentKey(e.target.value)} />
+        <label style={s.hint} htmlFor="portal-agent-model">Модель (необязательно)</label>
+        <input id="portal-agent-model" style={s.select} value={agentModel} placeholder="как у профиля" onChange={(e) => setAgentModel(e.target.value)} />
+        <span style={s.hint}>{state.reviewAgent?.configured ? `Подключено${state.reviewAgent.source === 'env' ? ' (окружение сервера)' : ''}: ${state.reviewAgent.url ?? ''}` : 'Не подключено. Чтобы отключить сохранённое — очистите адрес и сохраните.'}</span>
       </div>
       <div style={s.actions}>
         <button type="button" style={s.button} onClick={() => void save()} disabled={saving}>{saving ? 'Сохраняю…' : 'Сохранить'}</button>

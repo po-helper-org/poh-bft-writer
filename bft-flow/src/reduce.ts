@@ -2,10 +2,11 @@
  * Состояние цикла из событий — чистая функция без Temporal (тестируется отдельно,
  * workflow только применяет её). Правила стадий — спека, раздел «Стадии».
  */
-import { COLUMN_CANCELLED, COLUMN_ESTIMATE, COLUMN_NEEDS_PO, COLUMN_TO_WORK_PREFIX, TERMINAL_STAGES, type BftEvent, type LifecycleInput, type LifecycleState, type LifecycleStatus, type RebuildPending, type Stage, type Wait } from './events.js'
+import { COLUMN_CANCELLED, COLUMN_ESTIMATE, COLUMN_NEEDS_PO, COLUMN_TO_WORK_PREFIX, TERMINAL_STAGES, type BftEvent, type InboxEntry, type InboxRebuild, type LifecycleInput, type LifecycleState, type LifecycleStatus, type RebuildPending, type Stage, type Wait } from './events.js'
 
 export const TIMELINE_MAX = 200
 export const SEEN_MAX = 500
+export const INBOX_MAX = 50
 
 const SUMMARY: Partial<Record<BftEvent['kind'], string>> = {
   registered: 'Заявка заведена',
@@ -118,6 +119,64 @@ function nextRebuild(state: LifecycleState, event: BftEvent): RebuildPending | u
   return pending
 }
 
+/**
+ * Входящие события (отправки формы) и статус пересборки по каждой: ответ ставит «ждёт паузу»
+ * до срока цикла (новый ответ сдвигает срок у всех ждущих); запрос пересборки или сборка,
+ * начатая после ответа, — «собирается»; готовый / упавший полный БФТ — «готово» / «ошибка»;
+ * портал не стал собирать — «не понадобилась» с причиной. Отправка с тем же временем
+ * (форма переиздана под новым ключом с теми же ответами) второй раз не заводится.
+ */
+export function nextInbox(inbox: readonly InboxEntry[], event: BftEvent, pending: RebuildPending | undefined): InboxEntry[] {
+  const set = (match: (e: InboxEntry) => boolean, rebuild: (e: InboxEntry) => InboxRebuild) =>
+    inbox.map((e) => (match(e) ? { ...e, rebuild: rebuild(e) } : e))
+  const waiting = (e: InboxEntry) => e.rebuild.state === 'waiting'
+  switch (event.kind) {
+    case 'formAnswered': {
+      const sub = event.data?.submission
+      const due = pending && pending.lastSubmitAt >= event.at ? pending.dueAt : undefined
+      const moved = due ? set(waiting, () => ({ state: 'waiting', dueAt: due })) : [...inbox]
+      if (!sub || inbox.some((e) => e.at === event.at)) return moved
+      const entry: InboxEntry = {
+        id: event.eventId, kind: 'formSubmitted', at: event.at, formId: sub.formId,
+        ...(sub.author ? { author: sub.author } : {}), addressees: sub.addressees ?? [], saved: sub.saved ?? 0, unknown: sub.unknown ?? 0,
+        ...(sub.coveredBy ? { coveredBy: sub.coveredBy } : {}),
+        rebuild: sub.coveredBy ? { state: 'ready', at: sub.coveredBy, reason: 'учтено сборкой, начатой после ответов' }
+          : due ? { state: 'waiting', dueAt: due } : { state: 'skipped', at: event.at, reason: 'пересборку по ответам цикл не ведёт' },
+      }
+      return [...moved, entry].slice(-INBOX_MAX)
+    }
+    case 'deepStarted':
+      return set((e) => waiting(e) && e.at <= event.at, () => ({ state: 'building', at: event.at }))
+    case 'rebuildRequested': {
+      const last = typeof event.data?.lastSubmitAt === 'string' ? event.data.lastSubmitAt : undefined
+      if (!last) return [...inbox]
+      const covered = (e: InboxEntry) => waiting(e) && e.at <= last
+      if (event.data?.started === true || event.data?.requested === true) return set(covered, () => ({ state: 'building', at: event.at, ...(event.data?.queued === true ? { reason: 'после текущей сборки' } : {}) }))
+      const error = typeof event.data?.error === 'string' ? event.data.error : undefined
+      const reason = error ?? (typeof event.data?.reason === 'string' ? event.data.reason : event.summary)
+      return set(covered, () => ({ state: error ? 'failed' : 'skipped', at: event.at, ...(reason ? { reason } : {}) }))
+    }
+    case 'note': {
+      // Сборку не начали (DeepBuild: ответы уже учтены, модели нет) — отправки, которых она ждала.
+      if (event.data?.skipped !== true) return [...inbox]
+      const run = typeof event.data.startedAt === 'string' ? event.data.startedAt : undefined
+      const reason = typeof event.data.reason === 'string' ? event.data.reason : undefined
+      return set((e) => e.rebuild.state === 'building' && (!run || e.at <= run), () => ({ state: 'skipped', at: event.at, ...(reason ? { reason } : {}) }))
+    }
+    case 'deepReady':
+    case 'deepFailed': {
+      // Готова сборка, начатая ДО ответа (ответы ждут следующую), — отправку не закрывает.
+      const run = event.data?.artifact?.rev ?? (typeof event.data?.startedAt === 'string' ? event.data.startedAt : undefined)
+      const covers = (e: InboxEntry) => e.rebuild.state === 'building' && (!run || e.at <= run)
+      return event.kind === 'deepReady'
+        ? set(covers, () => ({ state: 'ready', at: event.at }))
+        : set(covers, () => ({ state: 'failed', at: event.at, ...(event.data?.error ? { reason: String(event.data.error) } : {}) }))
+    }
+    default:
+      return [...inbox]
+  }
+}
+
 /** Применить событие. Повтор (тот же eventId) и события после закрытия цикла — без изменений. */
 export function reduce(state: LifecycleState, event: BftEvent): LifecycleState {
   if (state.seen.includes(event.eventId) || isTerminal(state.stage)) return state
@@ -137,11 +196,13 @@ export function reduce(state: LifecycleState, event: BftEvent): LifecycleState {
     : event.kind === 'formRevoked' ? undefined : state.formOpen
   const rebuild = nextRebuild(state, event)
   const column = event.kind === 'trackerObserved' && typeof event.data?.to === 'string' ? { column: event.data.to, columnAt: event.at } : {}
+  const inbox = nextInbox(state.inbox ?? [], event, rebuild)
   return {
     ...state,
     ...column,
     ...(formOpen ? { formOpen } : { formOpen: undefined }),
     rebuild,
+    ...(inbox.length ? { inbox } : {}),
     stage,
     waitingFor: next?.waitingFor ?? state.waitingFor,
     round: next?.round ?? state.round,

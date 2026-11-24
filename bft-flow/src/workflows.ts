@@ -15,7 +15,7 @@ import {
   proxyActivities, setHandler, upsertSearchAttributes, workflowInfo,
 } from '@temporalio/workflow'
 import {
-  AUTO_COLUMNS, PORTAL_TASK_QUEUE, columnFor, type BftEvent, type DeepBuildRequest, type DeepBuildResult, type LifecycleInput,
+  AUTO_COLUMNS, PORTAL_TASK_QUEUE, columnFor, type BftEvent, type DeepBuildRequest, type DeepBuildResult, type InboxEntry, type LifecycleInput,
   type LifecycleState, type LifecycleStatus, type PortalActivities, type RebuildPending, type TimelineEntry,
 } from './events.js'
 import { initialState, isTerminal, reduce, statusOf } from './reduce.js'
@@ -24,6 +24,8 @@ import { BFT_ROUND, BFT_STAGE, BFT_TASK_ID, BFT_UPDATED_AT, BFT_WAITING_FOR } fr
 export const eventSignal = defineSignal<[BftEvent]>('event')
 export const statusQuery = defineQuery<LifecycleStatus>('status')
 export const timelineQuery = defineQuery<TimelineEntry[], [string?]>('timeline')
+/** Входящие события заявки (отправки формы) со статусом пересборки — сайдбар документа. */
+export const inboxQuery = defineQuery<InboxEntry[]>('inbox')
 
 /** Больше событий в одном прогоне — continueAsNew (история Temporal не раздувается). */
 export const EVENTS_PER_RUN = 1000
@@ -66,26 +68,32 @@ export async function DeepBuild(request: DeepBuildRequest): Promise<DeepBuildRes
 const system = { kind: 'system' as const }
 
 /** Итог запроса пересборки — событием в собственную очередь (то же применение, что у сигналов). */
-function rebuildEvent(pending: RebuildPending, result: { started: boolean; reason?: string } | { error: string }, summary?: string): BftEvent {
+function rebuildEvent(pending: RebuildPending, result: { started: boolean; reason?: string; queued?: boolean; requested?: boolean } | { error: string }, summary?: string): BftEvent {
   const at = new Date().toISOString()
   summary ??= 'error' in result ? `Пересборка по ответам формы не запущена: ${result.error.slice(0, 160)}`
     : result.started ? 'Ответы формы — портал пересобирает полный БФТ'
     : `Пересборка по ответам не нужна${result.reason ? `: ${result.reason}` : ''}`
   return {
     eventId: `rebuild:${pending.lastSubmitAt}:${at}`, at, actor: system, kind: 'rebuildRequested', summary,
-    data: { lastSubmitAt: pending.lastSubmitAt, started: !('error' in result) && result.started, ...('error' in result ? { error: result.error.slice(0, 500) } : {}) },
+    data: {
+      lastSubmitAt: pending.lastSubmitAt, started: !('error' in result) && result.started,
+      ...('error' in result ? { error: result.error.slice(0, 500) } : result.reason ? { reason: result.reason.slice(0, 200) } : {}),
+      ...(!('error' in result) && result.queued ? { queued: true } : {}),
+      // Сборка запрошена (цикл ведёт её сам): стадию поставит её начало, отправки формы — «собирается».
+      ...(!('error' in result) && result.requested ? { requested: true } : {}),
+    },
   }
 }
 
 /** Итог сборки → события хроники; eventId те же, что шлёт сверка портала по файлам (повтор отбросится). */
 function buildEvents(result: DeepBuildResult): BftEvent[] {
   const run = result.startedAt
-  if (result.stage === 'skipped') return [{ eventId: `deep:skipped:${run}`, at: new Date().toISOString(), actor: system, kind: 'note', summary: `Полный БФТ не собирали: ${result.reason ?? 'не нужно'}` }]
+  if (result.stage === 'skipped') return [{ eventId: `deep:skipped:${run}`, at: new Date().toISOString(), actor: system, kind: 'note', summary: `Полный БФТ не собирали: ${result.reason ?? 'не нужно'}`, data: { skipped: true, startedAt: run, ...(result.reason ? { reason: result.reason } : {}) } }]
   const started: BftEvent = { eventId: `deep:started:${run}`, at: run, actor: system, kind: 'deepStarted' }
   const at = result.finishedAt ?? new Date().toISOString()
   return result.stage === 'ready'
     ? [started, { eventId: `deep:ready:${run}`, at, actor: system, kind: 'deepReady', data: { artifact: { path: 'deep.md', rev: run } } }]
-    : [started, { eventId: `deep:failed:${run}`, at, actor: system, kind: 'deepFailed', ...(result.error ? { summary: `Полный БФТ не собран: ${result.error.slice(0, 160)}`, data: { error: result.error.slice(0, 500) } } : {}) }]
+    : [started, { eventId: `deep:failed:${run}`, at, actor: system, kind: 'deepFailed', data: { startedAt: run, ...(result.error ? { error: result.error.slice(0, 500) } : {}) }, ...(result.error ? { summary: `Полный БФТ не собран: ${result.error.slice(0, 160)}` } : {}) }]
 }
 
 const causeOf = (e: unknown): string => {
@@ -104,6 +112,7 @@ export async function BftLifecycle(input: LifecycleInput): Promise<LifecycleStat
   let requesting = false
   setHandler(eventSignal, (event) => { queue.push(event) })
   setHandler(statusQuery, () => statusOf(state))
+  setHandler(inboxQuery, () => state.inbox ?? [])
   setHandler(timelineQuery, (since) => (since ? state.timeline.filter((t) => t.at > since) : state.timeline))
 
   const publish = () => upsertSearchAttributes([
@@ -187,7 +196,7 @@ export async function BftLifecycle(input: LifecycleInput): Promise<LifecycleStat
         // Стадию «пересборка» ставит начало сборки (deepStarted), не просьба: портал может и не собирать
         // (ответы уже учтены). До этой развилки просьба ставила стадию сразу — так и повторяем.
         const started = !patched('rebuild-stage-on-start')
-        queue.push(rebuildEvent(pending, { started }, queued ? 'Ответы формы — пересборка после текущей сборки' : 'Ответы формы — цикл пересобирает полный БФТ'))
+        queue.push(rebuildEvent(pending, { started, queued, requested: true }, queued ? 'Ответы формы — пересборка после текущей сборки' : 'Ответы формы — цикл пересобирает полный БФТ'))
       } else requestRebuild(pending)
     }
     while (finished.length) {
@@ -217,3 +226,6 @@ export async function BftLifecycle(input: LifecycleInput): Promise<LifecycleStat
   }
   return statusOf(state)
 }
+
+// Отправка БФТ в Confluence (ADR-0028) — отдельный короткий workflow на каждую отправку.
+export { ConfluencePublish, progressQuery } from './publish.js'

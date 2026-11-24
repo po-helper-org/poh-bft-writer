@@ -137,13 +137,16 @@ test('ненайденный фрагмент — второй круг; пра�
 })
 
 test('колонка агента: перед </body>, адреса и ключ замечаний, конфиг не ломает скрипт', () => {
-  const page = withAgent('<html><body><main>док</main></body></html>', { sessionId: 's</script><b>', store: 'bft-comments-zayavka-1', reviseUrl: 'customer-form.bftRevise', statusUrl: 'customer-form.bftReviseStatus', undoUrl: 'customer-form.bftReviseUndo', sectionUrl: 'customer-form.bftReviseSection', reviewUrl: 'customer-form.bftReview', deepAt: null })
+  const page = withAgent('<html><body><main>док</main></body></html>', { sessionId: 's</script><b>', store: 'bft-comments-zayavka-1', reviseUrl: 'customer-form.bftRevise', statusUrl: 'customer-form.bftReviseStatus', undoUrl: 'customer-form.bftReviseUndo', sectionUrl: 'customer-form.bftReviseSection', reviewUrl: 'customer-form.bftReview', settingsUrl: 'customer-form.admin?to=settings', deepAt: null })
   assert.ok(page.indexOf('id="bftAgentBtn"') < page.indexOf('</body>'))
   assert.match(page, /"store":"bft-comments-zayavka-1"/)
   assert.ok(!page.includes('s</script><b>'))
   assert.match(page, /Отправить ИИ-агенту/)
   assert.match(page, /Проведите полное ревью требований для согласованности/)
   assert.match(page, /"sectionUrl":"customer-form.bftReviseSection"/)
+  assert.match(page, /id="agSettings"[^>]*>Настройки</)
+  assert.match(page, /"settingsUrl":"customer-form.admin\?to=settings"/)
+  assert.ok(!/Укажите имя|Ваше имя|замечаний со страницы|Выделите текст в документе/.test(page), 'без имени и пояснений')
 })
 
 const DOC = ['---', 'a: 1', '---', '# Док', 'вступление', '## Проблема которую решаем', 'текст про витрину', '## Функциональные требования', '| ФТ-1 | витрина | x |', '| ФТ-2 | отчёт | y |', '```', '## не заголовок', '```', '## Риски', '| r | — | — | — |', ''].join('\n')

@@ -69,8 +69,40 @@ export interface BftEvent {
     error?: string
     /** formAnswered: через сколько после ответа пересобрать полный БФТ (пауза — отвечают пачкой). */
     rebuildAfterMs?: number
+    /** formAnswered: одна отправка формы — кто, кому были вопросы, сколько ответов (тексты — в файле формы). */
+    submission?: FormSubmission
     [key: string]: unknown
   }
+}
+
+/**
+ * Отправка формы вопросов («Отправить ответы»): входящее событие заявки. Тексты ответов
+ * в историю не идут — они в файле формы (по formId и времени отправки).
+ */
+export interface FormSubmission {
+  formId: string
+  /** Подпись респондента («Как вас подписать»); нет — отправитель не назвался. */
+  author?: string
+  /** Адресаты вопросов, на которые ответили (разделы «Для: …» формы). */
+  addressees: string[]
+  /** Ответов в этой отправке; из них «не знаю / не ко мне». */
+  saved: number
+  unknown: number
+  /** Ответы уже учла готовая сборка, начатая в это время (событие дошло до цикла позже неё). */
+  coveredBy?: string
+}
+
+/** Пересборка БФТ по ответам этой отправки: ждёт паузу → собирается → готово / ошибка / не понадобилась. */
+export type InboxRebuildState = 'waiting' | 'building' | 'ready' | 'failed' | 'skipped'
+export interface InboxRebuild { state: InboxRebuildState; /** waiting: когда цикл попросит пересборку. */ dueAt?: string; /** Когда статус сменился. */ at?: string; reason?: string }
+
+/** Входящее событие заявки для сайдбара документа: «Форма заполнена». */
+export interface InboxEntry extends FormSubmission {
+  /** eventId события formAnswered. */
+  id: string
+  kind: 'formSubmitted'
+  at: string
+  rebuild: InboxRebuild
 }
 
 export interface LifecycleInput {
@@ -110,6 +142,8 @@ export interface LifecycleState {
   columnAt?: string
   /** Последние записи хроники (не больше TIMELINE_MAX). */
   timeline: TimelineEntry[]
+  /** Входящие события (отправки формы) со статусом пересборки, не больше INBOX_MAX. Нет у циклов до этого кода. */
+  inbox?: InboxEntry[]
   /** eventId последних событий — повтор не применяется. */
   seen: string[]
   events: number

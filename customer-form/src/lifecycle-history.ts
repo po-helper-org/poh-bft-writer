@@ -31,7 +31,8 @@ export interface RequestSnapshot {
     publishedAt?: string
     revokedAt?: string
     total: number
-    answers: Array<{ at: string; status: 'answer' | 'unknown' }>
+    /** Ответы: время отправки, «не знаю», подпись и адресат вопроса (раздел «Для: …»). */
+    answers: Array<{ at: string; status: 'answer' | 'unknown'; author?: string; addressee?: string }>
   }
   revisions?: Array<{ id: string; kind: string; at: string; stage: string; finishedAt?: string; edits?: number; error?: string }>
   /** Время снимка — для событий без своего времени (перенос в трекере). */
@@ -59,6 +60,16 @@ export function trackerObservedEvent(status: string, observedAt: string, cycleCo
   return { eventId: `tracker:seen:${status}:${observedAt}`, at: observedAt, actor: po, kind: 'trackerObserved', summary: `В трекере: «${status}»`, data: { to: status } }
 }
 
+/** Сводка одной отправки формы для цикла: кто подписался, чьи вопросы, сколько ответов (без текстов). */
+export function submissionOf(formId: string, answers: ReadonlyArray<{ status: 'answer' | 'unknown'; author?: string; addressee?: string }>) {
+  const author = answers.find((a) => a.author?.trim())?.author?.trim()
+  return {
+    formId, ...(author ? { author } : {}),
+    addressees: [...new Set(answers.map((a) => a.addressee).filter((a): a is string => !!a))],
+    saved: answers.length, unknown: answers.filter((a) => a.status === 'unknown').length,
+  }
+}
+
 export function historyEvents(s: RequestSnapshot): LifecycleEvent[] {
   const out: LifecycleEvent[] = []
   const push = (e: LifecycleEvent) => { const at = isoUtc(e.at); if (at) out.push({ ...e, at }) }
@@ -79,7 +90,7 @@ export function historyEvents(s: RequestSnapshot): LifecycleEvent[] {
     const firstRevision = (s.revisions ?? []).map((r) => isoUtc(r.at)).filter((at) => at && at >= isoUtc(run)).sort()[0]
     const readyAt = [isoUtc(s.deep.finishedAt ?? run), firstRevision].filter(Boolean).sort()[0]!
     if (s.deep.stage === 'ready') push({ eventId: `deep:ready:${run}`, at: readyAt, actor: system, kind: 'deepReady', data: { artifact: { path: 'deep.md', rev: run } } })
-    if (s.deep.stage === 'failed') push({ eventId: `deep:failed:${run}`, at: s.deep.finishedAt ?? run, actor: system, kind: 'deepFailed', ...(s.deep.error ? { summary: `Полный БФТ не собран: ${s.deep.error.slice(0, 160)}`, data: { error: s.deep.error.slice(0, 500) } } : {}) })
+    if (s.deep.stage === 'failed') push({ eventId: `deep:failed:${run}`, at: s.deep.finishedAt ?? run, actor: system, kind: 'deepFailed', data: { startedAt: run, ...(s.deep.error ? { error: s.deep.error.slice(0, 500) } : {}) }, ...(s.deep.error ? { summary: `Полный БФТ не собран: ${s.deep.error.slice(0, 160)}` } : {}) })
   }
   if (s.form?.publishedAt) {
     const f = s.form
@@ -90,8 +101,16 @@ export function historyEvents(s: RequestSnapshot): LifecycleEvent[] {
       const upTo = f.answers.filter((a) => a.at <= at)
       const answered = upTo.filter((a) => a.status === 'answer').length
       const unknown = upTo.filter((a) => a.status === 'unknown').length
-      const here = f.answers.filter((a) => a.at === at).length
-      push({ eventId: `form:answers:${f.id}:${at}`, at, actor: { kind: 'customer' }, kind: 'formAnswered', summary: `Ответы формы: +${here}, всего отвечено ${answered} из ${f.total}`, data: { questions: { total: f.total, answered, unknown }, ...(s.rebuildAfterMs !== undefined ? { rebuildAfterMs: s.rebuildAfterMs } : {}) } })
+      // Готовый полный БФТ, начатый после отправки, её уже учёл: событие, впервые дошедшее до цикла
+      // позже (форма переиздана под новым ключом, отправка до входящих событий), пересборку не ставит.
+      const coveredBy = s.deep?.stage === 'ready' && isoUtc(s.deep.startedAt) > at ? isoUtc(s.deep.startedAt) : undefined
+      const sub = { ...submissionOf(f.id, f.answers.filter((a) => a.at === at)), ...(coveredBy ? { coveredBy } : {}) }
+      const from = sub.author ?? 'без подписи'
+      push({
+        eventId: `form:answers:${f.id}:${at}`, at, actor: { kind: 'customer', ...(sub.author ? { name: sub.author } : {}) }, kind: 'formAnswered',
+        summary: `Форма заполнена (${from}): +${sub.saved}, всего отвечено ${answered} из ${f.total}`,
+        data: { questions: { total: f.total, answered, unknown }, submission: sub, ...(s.rebuildAfterMs !== undefined && !coveredBy ? { rebuildAfterMs: s.rebuildAfterMs } : {}) },
+      })
     }
     if (f.revokedAt) push({ eventId: `form:revoked:${f.id}`, at: f.revokedAt, actor: po, kind: 'formRevoked' })
   }

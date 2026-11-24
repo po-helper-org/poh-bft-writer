@@ -219,6 +219,13 @@ services:
       # Temporal недоступен — портал работает как раньше, событие только в журнал (теневой режим).
       TEMPORAL_ADDRESS: ${BFT_TEMPORAL_ADDRESS-temporal:7233}
       TEMPORAL_NAMESPACE: bft
+      # «Отправить в Confluence» (ADR-0028): адрес Confluence (база REST, для Cloud — с /wiki) и ключ
+      # с правом записи. Адрес переносит deploy-server.sh из server.env, ключ вводит владелец на
+      # сервере (harness/deploy/set-confluence-publish-key.sh). USER — только для Cloud (email).
+      # Нет адреса или ключа — кнопка есть, отправка честно говорит, чего не хватает.
+      CONFLUENCE_PUBLISH_URL: ${CONFLUENCE_PUBLISH_URL:-}
+      CONFLUENCE_PUBLISH_TOKEN: ${CONFLUENCE_PUBLISH_TOKEN:-}
+      CONFLUENCE_PUBLISH_USER: ${CONFLUENCE_PUBLISH_USER:-}
     depends_on:
       context-ingest: { condition: service_healthy }
     ports:

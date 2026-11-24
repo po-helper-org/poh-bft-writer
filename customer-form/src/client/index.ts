@@ -234,6 +234,7 @@ export function apply(ctx: ClientContext): void {
         { name: 'settings.section', id: 'customer-form-portal', order: 15, label: () => 'Портал', inject: () => ({ call }) },
         PortalSettings as ComponentType<never>,
       ))
+      openPortalSettingsFromLink()
     })
     .catch(() => { /* портал без статуса — режим заказчика */ })
 
@@ -476,4 +477,40 @@ export function apply(ctx: ClientContext): void {
       console.error('[customer-form] workspace не подключился, чаты пойдут в текущий:', e)
     }
   })()
+}
+
+/**
+ * «Настройки» в колонке ИИ-агента ведут на вход администратора, а оттуда — на
+ * портал с ?settings=portal: открыть «Настройки → Портал». Своего способа
+ * открыть раздел по ссылке у оболочки dsh нет — нажимаем её кнопки (или
+ * сочетание клавиш «Настройки»).
+ */
+function openPortalSettingsFromLink(): void {
+  const params = new URLSearchParams(location.search)
+  if (params.get('settings') !== 'portal') return
+  params.delete('settings')
+  const rest = params.toString()
+  history.replaceState(history.state, '', `${location.pathname}${rest ? `?${rest}` : ''}${location.hash}`)
+  const byText = (root: ParentNode, text: string) =>
+    [...root.querySelectorAll<HTMLElement>('button,[role="tab"],[role="menuitem"]')].find((b) => b.textContent?.trim() === text || b.getAttribute('aria-label') === text)
+  const started = Date.now()
+  let opened = false
+  let pressed = false
+  const tick = () => {
+    if (Date.now() - started > 20_000) return
+    const dialog = document.querySelector('[role="dialog"]')
+    const section = dialog ? byText(dialog, 'Портал') : undefined
+    if (section) { section.click(); return }
+    if (!opened) {
+      const trigger = byText(document, 'Настройки')
+      if (trigger) { trigger.click(); opened = true }
+      else if (!pressed && Date.now() - started > 2_000) {
+        pressed = true
+        const mac = /Mac|iPhone|iPad/.test(navigator.platform)
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: ',', code: 'Comma', altKey: true, metaKey: mac, ctrlKey: !mac, bubbles: true }))
+      }
+    }
+    setTimeout(tick, 300)
+  }
+  setTimeout(tick, 500)
 }

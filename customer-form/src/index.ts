@@ -45,14 +45,18 @@ import { mcpHandler } from './mcp-server.js'
 import { bftMcp, MCP_INSTRUCTIONS } from './mcp-bft.js'
 import { bftCard, type BftState } from './bft-list.js'
 import { registerPlanRoutes, withPlan } from './plan-routes.js'
+import { ConfluenceWriter, plantumlPng, publishActivities, publishConfigFromEnv, type PublishRequest } from './confluence-publish.js'
+import { PublishFlow, registerConfluencePublish } from './confluence-publish-routes.js'
+import { withConfluence } from './confluence-publish-page.js'
 import { registeredEvent, sharedLifecycle } from './lifecycle.js'
 import { AUTO_COLUMNS, startPortalWorker, type MoveTicketRequest, type MoveTicketResult, type DeepBuildRequest, type DeepBuildResult, type RebuildRequest, type RebuildResult } from './lifecycle-worker.js'
 import { historyEvents, isoUtc, trackerObservedEvent, type RequestSnapshot } from './lifecycle-history.js'
 import { lifecyclePage } from './lifecycle-page.js'
+import { inboxView } from './form-inbox.js'
 import { withAgent } from './agent-page.js'
 import { canUndo, dshModel, newRevision, normalizeRemarks, poWords, queueRemarks, readRevisions, reviewDue, reviseDeep, revisionsContext, saveRevisions, sinceReview, undoRevision, type Revision, type TextModel } from './bft-revise.js'
 import { docRevOf, pickBlocks } from './doc-sections.js'
-import { reviewAgentFromEnv, reviewAgentModel } from './review-agent.js'
+import { reviewAgentFrom, reviewAgentModel } from './review-agent.js'
 import { ProviderHealth } from './provider-health.js'
 import { answersContext, answersMarkdown, answersPath, editQuestions, formOfRequest, formTitle, isFormId, latestVersion, linkForm, newForm, readForm, refreshForm, reissue, saveForm, submitAnswers, SubmitGate, type BftForm, type EditOp, type FormPerson, type FormQuestion } from './forms.js'
 import { formGonePage, formPage, previewPage, type DeepFormLayer } from './form-page.js'
@@ -71,6 +75,8 @@ const FORM_PREVIEW = '/api/customer-form.formPreview'
 const FORM_CREATE = '/api/customer-form.formCreate'
 const FORM_REVOKE = '/api/customer-form.formRevoke'
 const FORM_EDIT = '/api/customer-form.formEdit'
+/** Входящие события заявки (ADR-0027): отправки формы и статус пересборки — сайдбар документа. */
+const FORM_INBOX = '/api/customer-form.formInbox'
 /** Открытые страницы формы: не индексировать, не кэшировать, без Referer наружу. */
 const PUBLIC_HEADERS = { 'cache-control': 'no-store', 'x-robots-tag': 'noindex, nofollow', 'referrer-policy': 'no-referrer' }
 /**
@@ -261,7 +267,8 @@ export function apply(ctx: HarnessContext): void {
   /** Пауза после последнего ответа формы до пересборки БФТ: отвечают пачкой — собираем один раз (таймер — в цикле, шаг 2). */
   const FORM_REBUILD_MS = Number(process.env.FORM_REBUILD_MS ?? 120_000)
   /** Свести с циклом сразу (не ждать сверки раз в минуту) — например, после ответов формы. */
-  let syncLifecycleNow: (sessionIds: string[]) => Promise<void> = async () => {}
+  /** true — все события заявки доставлены в цикл; false — Temporal выключен или недоступен (дошлёт сверка). */
+  let syncLifecycleNow: (sessionIds: string[]) => Promise<boolean> = async () => false
   if (lifecycle.enabled) {
     backlog.onRegistered = (sessionId, ticket, text) => {
       const at = new Date().toISOString()
@@ -293,7 +300,7 @@ export function apply(ctx: HarnessContext): void {
           id: form.id, createdAt: form.createdAt,
           ...(form.publishedAt ? { publishedAt: form.publishedAt } : {}), ...(form.revokedAt ? { revokedAt: form.revokedAt } : {}),
           total: latestVersion(form)?.questions.length ?? 0,
-          answers: Object.values(form.answers).map((a) => ({ at: a.at, status: a.status })),
+          answers: Object.values(form.answers).map((a) => ({ at: a.at, status: a.status, addressee: a.addressee, ...(a.author ? { author: a.author } : {}) })),
         } } : {}),
         revisions: revisions.map((r) => ({ id: r.id, kind: r.kind, at: r.at, stage: r.stage,
           ...(r.finishedAt ? { finishedAt: r.finishedAt } : {}), ...(r.edits !== undefined ? { edits: r.edits } : {}), ...(r.error ? { error: r.error } : {}) })),
@@ -304,6 +311,7 @@ export function apply(ctx: HarnessContext): void {
       const observedAt = new Date().toISOString()
       const items = await backlog.overview(sessionIds)
       let delivered = 0
+      let failed = false
       for (const item of items) {
         const created = isoUtc(item.created) || new Date().toISOString()
         const request = { taskId: item.taskId, slug: fastSlug(item.taskId), sessionId: item.sessionId, title: item.title, createdAt: created }
@@ -311,7 +319,7 @@ export function apply(ctx: HarnessContext): void {
         for (const event of events) {
           const key = `${item.taskId}:${event.eventId}`
           if (sent.has(key)) continue
-          if (!(await lifecycle.record(request, event))) break // Temporal недоступен — дошлём на следующем заходе
+          if (!(await lifecycle.record(request, event))) { failed = true; break } // Temporal недоступен — дошлём на следующем заходе
           sent.add(key)
           delivered++
         }
@@ -322,9 +330,9 @@ export function apply(ctx: HarnessContext): void {
           if (seen && (await lifecycle.record(request, seen))) delivered++
         }
       }
-      return { items: items.length, delivered }
+      return { items: items.length, delivered, failed }
     }
-    syncLifecycleNow = (sessionIds) => deliver(sessionIds).then(() => undefined, (e) => console.error('[customer-form] жизненный цикл: событие заявки не отправлено:', e))
+    syncLifecycleNow = (sessionIds) => deliver(sessionIds).then((r) => r.items > 0 && !r.failed, (e) => { console.error('[customer-form] жизненный цикл: событие заявки не отправлено:', e); return false })
     const syncLifecycle = async () => {
       if (syncing) return
       syncing = true
@@ -401,12 +409,14 @@ export function apply(ctx: HarnessContext): void {
     const fallback = dshModel(deepRuntime.llm, deepRuntime.route())
     const env = process.env.PORTAL_LOCAL_PROVIDER && process.env.PORTAL_LOCAL_MODEL ? { provider: process.env.PORTAL_LOCAL_PROVIDER, model: process.env.PORTAL_LOCAL_MODEL } : undefined
     const localRoute = portalModels.local ?? env ?? DEFAULT_LOCAL
-    const agent = reviewAgentFromEnv()
+    const agent = reviewAgentFrom(portalModels)
     const choice = portalModels.review
     const review = choice && choice.provider !== REVIEW_AGENT ? dshModel(deepRuntime.llm, choice, 32_000)
       : agent && (!choice || choice.provider === REVIEW_AGENT) ? reviewAgentModel(agent)
         : dshModel(deepRuntime.llm, deepRuntime.route(), 32_000)
-    return { local: dshModel(deepRuntime.llm, localRoute), review, fallback }
+    // Локальные правки тоже можно отдать агенту шлюза (выбор администратора).
+    const local = localRoute.provider === REVIEW_AGENT ? (agent ? reviewAgentModel(agent) : dshModel(deepRuntime.llm, env ?? DEFAULT_LOCAL)) : dshModel(deepRuntime.llm, localRoute)
+    return { local, review, fallback }
   }
   // Источники данных (плагин data-sources): Jira/Confluence перед полным БФТ.
   // Плагина нет или источник не подключён — полный БФТ собирается как раньше.
@@ -697,7 +707,7 @@ export function apply(ctx: HarnessContext): void {
       return {
         sessionId, questions: version.questions, answers: form.answers, removed: removedOf(form), version: version.v,
         ...(form.publishedAt && !form.revokedAt ? { link: formUrl(form.id) } : {}),
-        api: { create: siblingHref(FORM_CREATE), revoke: siblingHref(FORM_REVOKE), edit: siblingHref(FORM_EDIT) },
+        api: { create: siblingHref(FORM_CREATE), revoke: siblingHref(FORM_REVOKE), edit: siblingHref(FORM_EDIT), inbox: siblingHref(FORM_INBOX) },
       }
     })
   }
@@ -730,8 +740,35 @@ export function apply(ctx: HarnessContext): void {
     }
     return result
   }
+  /**
+   * Отправка в Confluence (ADR-0028): ключ публикации — только здесь и только из окружения.
+   * Активности workflow ConfluencePublish исполняет портал вместе с активностями цикла.
+   */
+  let writerCache: { key: string; writer: ConfluenceWriter } | undefined
+  const confluenceWriter = (): ConfluenceWriter | undefined => {
+    const cfg = publishConfigFromEnv()
+    if (!cfg) return undefined
+    const key = `${cfg.baseUrl}|${cfg.user ?? ''}|${cfg.token.length}`
+    if (writerCache?.key !== key) writerCache = { key, writer: new ConfluenceWriter(cfg) }
+    return writerCache.writer
+  }
+  const announcePublish = async (req: PublishRequest, mode: string, url: string) => {
+    const ticket = await backlog.find(req.sessionId).catch(() => undefined)
+    const safe = url.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!))
+    if (ticket) await backlog.comment(ticket, `<p><strong>📘 БФТ опубликован в Confluence</strong>${mode === 'update' ? ' (страница обновлена)' : ''}: <a href="${safe}">${safe}</a> (портал${req.by ? `, ${req.by}` : ''})</p>`).catch(() => undefined)
+    const at = new Date().toISOString()
+    if (lifecycle.enabled) await lifecycle.record({ taskId: req.taskId, slug: req.slug, sessionId: req.sessionId, createdAt: at },
+      { eventId: `confluence:published:${req.run}`, at, actor: { kind: 'system' }, kind: 'note', summary: `БФТ опубликован в Confluence: ${url}`, data: { url, run: req.run } })
+  }
+  const confluenceActivities = publishActivities({
+    files: (slug) => { const f = fastFiles(FAST_ROOT, slug); return { dir: f.dir, md: deepFiles(f, slug).md } },
+    writer: confluenceWriter,
+    exportDoc: async (slug, md, format) => exportDocument(md, format, (await readDeepState(deepFiles(fastFiles(FAST_ROOT, slug), slug)))?.questions),
+    renderPng: plantumlPng,
+    announce: (req, page, url) => announcePublish(req, page.mode, url),
+  })
   if (lifecycle.enabled) {
-    const stopWorker = startPortalWorker({ rebuildFromAnswers, buildDeep: buildDeepActivity, moveTicket })
+    const stopWorker = startPortalWorker({ rebuildFromAnswers, buildDeep: buildDeepActivity, moveTicket, ...confluenceActivities })
     ctx.effect(() => () => void stopWorker(), 'customer-form: активности жизненного цикла (bft-portal)')
   }
 
@@ -874,7 +911,7 @@ export function apply(ctx: HarnessContext): void {
           let body: unknown
           try { body = await request.json() } catch { return Response.json({ error: 'тело не JSON' }, { status: 400 }) }
           const before = portalModels.chat
-          portalModels = mergePortalModels(portalModels, body)
+          try { portalModels = mergePortalModels(portalModels, body) } catch (e) { return Response.json({ error: (e as Error).message }, { status: 400 }) }
           providerHealth.clear() // сменили модель или пополнили баланс — пробуем снова
           await writePortalModels(portalModels)
           try {
@@ -909,7 +946,11 @@ export function apply(ctx: HarnessContext): void {
           localDefault: process.env.PORTAL_LOCAL_PROVIDER && process.env.PORTAL_LOCAL_MODEL
             ? { provider: process.env.PORTAL_LOCAL_PROVIDER, model: process.env.PORTAL_LOCAL_MODEL } : DEFAULT_LOCAL,
           review: portalModels.review ?? null,
-          reviewAgent: reviewAgentFromEnv() ? { configured: true, model: reviewAgentFromEnv()!.model ?? null } : { configured: false, model: null },
+          reviewAgent: (() => {
+            const agent = reviewAgentFrom(portalModels)
+            // Ключ не отдаём — только адрес, модель и откуда подключение.
+            return agent ? { configured: true, model: agent.model ?? null, url: agent.url, source: agent.source } : { configured: false, model: null, url: null, source: null }
+          })(),
           // Провайдеры, у которых закончился баланс (последние 10 минут).
           exhausted: providerHealth.list(),
         }, { headers: { 'cache-control': 'no-store' } })
@@ -1077,10 +1118,11 @@ export function apply(ctx: HarnessContext): void {
             const page = withAgent(view, {
               sessionId, store: `bft-comments-${slug}`, deepAt: deep.finishedAt ?? null,
               reviseUrl: siblingHref('/api/customer-form.bftRevise'), statusUrl: siblingHref('/api/customer-form.bftReviseStatus'), undoUrl: siblingHref('/api/customer-form.bftReviseUndo'),
-              sectionUrl: siblingHref('/api/customer-form.bftReviseSection'), reviewUrl: siblingHref('/api/customer-form.bftReview'),
+              sectionUrl: siblingHref('/api/customer-form.bftReviseSection'), reviewUrl: siblingHref('/api/customer-form.bftReview'), settingsUrl: `${siblingHref(ADMIN_PAGE)}?to=settings`,
             })
             // «Планирование» (ADR-0025): кнопка вверху, сохранённая заметка и доска — артефактом внизу.
-            return new Response(await withPlan(page, sessionId, files.dir), { headers })
+            // «Отправить в Confluence» (ADR-0028): вкладка в рейке и панель выбора страницы и хода отправки.
+            return new Response(withConfluence(await withPlan(page, sessionId, files.dir), sessionId), { headers })
           }
         }
         // Заказчику (rev21) — тот же документ: How to demo таблицей, зоны и контакты, без полей для PO.
@@ -1158,15 +1200,22 @@ export function apply(ctx: HarnessContext): void {
           if ('saved' in res && res.saved) {
             await saveForm(form)
             await writeFile(answersPath(opened.doc.files.dir), answersMarkdown(form), 'utf8')
-            // Ответы → событие цикла сразу; паузу до пересборки отсчитывает цикл.
-            void syncLifecycleNow([form.sessionId])
             const taskId = Number(/^zayavka-(\d+)$/.exec(form.slug)?.[1])
             if (taskId) void mirrorRequest(taskId, form.sessionId)
+            return { ...res, at: form.lastSubmitAt, sessionId: form.sessionId }
           }
           return res
         })
         if ('error' in result) return Response.json({ error: result.error }, { status: 400, headers: PUBLIC_HEADERS })
-        return Response.json({ ok: true, saved: result.saved }, { headers: PUBLIC_HEADERS })
+        // Отправка → входящее событие процесса заявки сразу (ADR-0027); паузу до пересборки
+        // отсчитывает цикл. Не дождались (Temporal недоступен, медленно) — ответы сохранены, событие дошлёт сверка.
+        const recorded = 'sessionId' in result && result.sessionId
+          ? await Promise.race([syncLifecycleNow([result.sessionId]), new Promise<boolean>((r) => setTimeout(() => r(false), 4000))])
+          : false
+        return Response.json({
+          ok: true, saved: result.saved, ...('at' in result && result.at ? { at: result.at } : {}), recorded,
+          ...(lifecycle.enabled ? { rebuildAfterMs: FORM_REBUILD_MS } : {}),
+        }, { headers: PUBLIC_HEADERS })
       },
     }), 'customer-form: ответы формы вопросов')
 
@@ -1360,6 +1409,26 @@ export function apply(ctx: HarnessContext): void {
       },
     }), 'customer-form: /api/customer-form.lifecycle')
 
+    // Входящие события заявки (ADR-0027): отправки формы — из процесса заявки (query inbox),
+    // ответы — из файла формы. За входом портала; Temporal недоступен — отправки из файла без статуса.
+    scoped.effect(() => register({
+      path: FORM_INBOX,
+      methods: ['GET'],
+      requestBody: 'buffered',
+      fetch: async (request: Request) => {
+        const headers = { 'cache-control': 'no-store' }
+        const sessionId = new URL(request.url).searchParams.get('session') ?? ''
+        const ticket = sessionId ? await backlog.find(sessionId).catch(() => undefined) : undefined
+        if (!ticket) return Response.json({ ok: false, error: 'нет такой заявки' }, { status: 404, headers })
+        const files = fastFiles(FAST_ROOT, fastSlug(ticket.taskId))
+        const [form, cycle] = await Promise.all([
+          formOfRequest(files.dir).catch(() => undefined),
+          lifecycle.enabled ? lifecycle.inbox(ticket.taskId) : Promise.resolve(undefined),
+        ])
+        return Response.json({ ok: true, ...inboxView(form, cycle) }, { headers })
+      },
+    }), 'customer-form: входящие события заявки')
+
     // Страница «Жизненный цикл» заявки (ADR-0022): стадия, ожидания и хроника. Администратору —
     // ссылка на историю цикла в Temporal UI (BFT_TEMPORAL_UI_URL; на сервере — /bft-temporal).
     const temporalUi = (): string | undefined => {
@@ -1404,6 +1473,35 @@ export function apply(ctx: HarnessContext): void {
     const users = new Users()
     const mcpTokens = new McpTokens()
     const mode = authMode()
+    // «Отправить в Confluence» (ADR-0028): выбор родительской страницы, старт и ход workflow.
+    const publishFlow = new PublishFlow()
+    scoped.effect(() => {
+      const offs = registerConfluencePublish(register, {
+        root: FAST_ROOT,
+        confluence: () => materials.confluence,
+        writer: confluenceWriter,
+        flow: publishFlow,
+        who: (request) => whoIs(request, users, mode),
+        request: async (sessionId) => {
+          const ticket = sessionId ? await backlog.find(sessionId).catch(() => undefined) : undefined
+          if (!ticket) return undefined
+          const slug = fastSlug(ticket.taskId)
+          const files = fastFiles(FAST_ROOT, slug)
+          const deep = deepFiles(files, slug)
+          const ready = (await readDeepState(deep))?.stage === 'ready'
+          const md = await readFile(deep.md, 'utf8').catch(() => '')
+          const fastMd = await readFile(files.md, 'utf8').catch(() => '')
+          const title = /^# (.+)$/m.exec(md.replace(/^---\n[\s\S]*?\n---\n/, ''))?.[1]?.trim() ?? `Заявка #${ticket.taskId}`
+          return { taskId: ticket.taskId, slug, dir: files.dir, md: deep.md, ready, title, systems: fastMd ? reconSubject(fastMd).systems : [] }
+        },
+        started: async (req) => {
+          const at = new Date().toISOString()
+          if (lifecycle.enabled) await lifecycle.record({ taskId: req.taskId, slug: req.slug, sessionId: req.sessionId, createdAt: at },
+            { eventId: `confluence:started:${req.run}`, at, actor: { kind: 'po', ...(req.by ? { name: req.by } : {}) }, kind: 'note', summary: `Отправка в Confluence подстраницей «${req.parent.title}» (Temporal: bft-${req.taskId}-confluence-${req.run})` })
+        },
+      })
+      return () => offs.forEach((off) => off())
+    }, 'customer-form: отправка в Confluence')
     const MCP_ROUTE = '/api/customer-form.mcp'
     const ACCESS_ROUTE = '/api/customer-form.mcpAccess'
     const LOGIN_ROUTE = '/api/customer-form.login'

@@ -50,3 +50,23 @@ test('настройки: локальная модель и полное рев
   assert.deepEqual(next, { chat: { provider: 'a', model: 'b' }, local: { provider: 'requesty', model: 'h' }, review: { provider: 'review-agent', model: 'agent' } })
   assert.deepEqual(mergePortalModels(next, { local: null }), { chat: { provider: 'a', model: 'b' }, review: { provider: 'review-agent', model: 'agent' } })
 })
+
+test('подключение к шлюзу агентов из настроек: ключ только на запись, null — отключить, без ключа — ошибка', async () => {
+  const { reviewAgentFrom } = await import('../lib-test/review-agent.js')
+  const set = mergePortalModels({}, { agent: { url: 'http://gw/p/x/v1/responses', key: 'k1', model: '' } })
+  assert.deepEqual(set.agent, { url: 'http://gw/p/x/v1/responses', key: 'k1' })
+  const kept = mergePortalModels(set, { agent: { url: 'http://gw/p/y/v1/responses', key: '', model: 'm' } })
+  assert.deepEqual(kept.agent, { url: 'http://gw/p/y/v1/responses', key: 'k1', model: 'm' }, 'пустой ключ — прежний')
+  assert.equal(mergePortalModels(kept, { agent: null }).agent, undefined)
+  assert.throws(() => mergePortalModels({}, { agent: { url: 'http://gw', key: '' } }), /нужен адрес/)
+  assert.throws(() => mergePortalModels({}, { agent: { url: 'ftp://gw', key: 'k' } }), /нужен адрес/)
+  assert.equal(reviewAgentFrom(kept, {}).source, 'settings')
+  assert.equal(reviewAgentFrom({}, { BFT_REVIEW_AGENT_URL: 'http://e/v1/responses', BFT_REVIEW_AGENT_KEY: 'k' }).source, 'env')
+  assert.equal(reviewAgentFrom({}, {}), undefined)
+})
+
+test('вход администратора с ?to=settings — сразу «Настройки → Портал»', async () => {
+  const { afterLogin } = await import('../lib-test/admin.js')
+  assert.equal(afterLogin(new Request('http://p/bft/api/customer-form.admin?to=settings')), '../?settings=portal')
+  assert.equal(afterLogin(new Request('http://p/bft/api/customer-form.admin')), '../')
+})

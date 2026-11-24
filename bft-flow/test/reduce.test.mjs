@@ -103,3 +103,104 @@ test('шаг 4: колонка трекера — в состоянии; реш�
   assert.equal(reduce(s, seen('t7', 'Отменено', 4)).stage, 'cancelled')
   assert.equal(statusOf(s).column, 'Проработка БФТ')
 })
+
+// Входящие события: отправка формы → «Форма заполнена» со статусом пересборки (use case «Ответы формы → входящее событие»).
+const answered = (at, submission, extra = {}) => ({ eventId: `form:answers:f1:${at}`, at, actor: { kind: 'customer' }, kind: 'formAnswered',
+  data: { questions: { total: 10, answered: 2 }, rebuildAfterMs: 120_000, submission: { formId: 'f1', addressees: ['заказчика'], saved: 2, unknown: 0, ...submission } }, ...extra })
+const at = (min) => `2026-11-20T10:${String(min).padStart(2, '0')}:00.000Z`
+const agreed = () => run(ev('briefApproved'), ev('deepReady'))
+
+test('отправка формы — входящее событие: кто, кому, сколько, ждёт паузу', () => {
+  const s = reduce(agreed(), answered(at(1), { author: 'Мария Тестова', addressees: ['заказчика', 'Ивана Примерова'], saved: 3, unknown: 1 }))
+  assert.equal(s.inbox.length, 1)
+  const [e] = s.inbox
+  assert.equal(e.kind, 'formSubmitted')
+  assert.equal(e.author, 'Мария Тестова')
+  assert.deepEqual(e.addressees, ['заказчика', 'Ивана Примерова'])
+  assert.equal(e.saved, 3)
+  assert.equal(e.unknown, 1)
+  assert.deepEqual(e.rebuild, { state: 'waiting', dueAt: at(3) })
+  assert.deepEqual(s.rebuild, { lastSubmitAt: at(1), dueAt: at(3) })
+})
+
+test('без подписи — author не выдумывается', () => {
+  const s = reduce(agreed(), answered(at(1), {}))
+  assert.equal(s.inbox[0].author, undefined)
+})
+
+test('вторая отправка сдвигает срок у обеих; пересборка → собирается → готово', () => {
+  let s = reduce(agreed(), answered(at(1), { author: 'А' }))
+  s = reduce(s, answered(at(2), { author: 'Б' }))
+  assert.deepEqual(s.inbox.map((e) => e.rebuild), [{ state: 'waiting', dueAt: at(4) }, { state: 'waiting', dueAt: at(4) }])
+  s = reduce(s, { eventId: 'rb', at: at(4), actor: { kind: 'system' }, kind: 'rebuildRequested', data: { lastSubmitAt: at(2), started: true } })
+  assert.deepEqual(s.inbox.map((e) => e.rebuild.state), ['building', 'building'])
+  s = reduce(s, { eventId: 'ds', at: at(5), actor: { kind: 'system' }, kind: 'deepStarted' })
+  s = reduce(s, { eventId: 'dr', at: at(9), actor: { kind: 'system' }, kind: 'deepReady' })
+  assert.deepEqual(s.inbox.map((e) => e.rebuild), [{ state: 'ready', at: at(9) }, { state: 'ready', at: at(9) }])
+  assert.equal(s.round, 2)
+})
+
+test('портал не стал собирать — «не понадобилась» с причиной; ошибка — «ошибка»', () => {
+  let s = reduce(agreed(), answered(at(1), {}))
+  s = reduce(s, { eventId: 'rb', at: at(3), actor: { kind: 'system' }, kind: 'rebuildRequested', data: { lastSubmitAt: at(1), started: false, reason: 'ответы уже учтены сборкой' } })
+  assert.deepEqual(s.inbox[0].rebuild, { state: 'skipped', at: at(3), reason: 'ответы уже учтены сборкой' })
+  let f = reduce(agreed(), answered(at(1), {}))
+  f = reduce(f, { eventId: 'rb', at: at(3), actor: { kind: 'system' }, kind: 'rebuildRequested', data: { lastSubmitAt: at(1), started: false, error: 'портал недоступен' } })
+  assert.deepEqual(f.inbox[0].rebuild, { state: 'failed', at: at(3), reason: 'портал недоступен' })
+})
+
+test('ручная сборка после ответа тоже снимает ожидание; упавшая — ошибка', () => {
+  let s = reduce(agreed(), answered(at(1), {}))
+  s = reduce(s, { eventId: 'ds', at: at(2), actor: { kind: 'system' }, kind: 'deepStarted' })
+  assert.equal(s.inbox[0].rebuild.state, 'building')
+  s = reduce(s, { eventId: 'df', at: at(4), actor: { kind: 'system' }, kind: 'deepFailed', data: { error: 'модель не ответила' } })
+  assert.deepEqual(s.inbox[0].rebuild, { state: 'failed', at: at(4), reason: 'модель не ответила' })
+})
+
+test('форма переиздана под новым ключом — та же отправка второй раз не заводится; старые события без submission — без входящих', () => {
+  let s = reduce(agreed(), answered(at(1), {}))
+  s = reduce(s, { ...answered(at(1), { formId: 'f2' }), eventId: `form:answers:f2:${at(1)}` })
+  assert.equal(s.inbox.length, 1)
+  const old = reduce(agreed(), { eventId: 'old', at: at(1), actor: { kind: 'customer' }, kind: 'formAnswered', data: { questions: { total: 3, answered: 1 } } })
+  assert.equal(old.inbox, undefined)
+})
+
+test('ответы пришли во время сборки: её готовность отправку не закрывает — «собирается» до следующей', () => {
+  let s = reduce(agreed(), answered(at(5), {}))
+  s = reduce(s, { eventId: 'rb', at: at(7), actor: { kind: 'system' }, kind: 'rebuildRequested', data: { lastSubmitAt: at(5), started: true, queued: true } })
+  assert.deepEqual(s.inbox[0].rebuild, { state: 'building', at: at(7), reason: 'после текущей сборки' })
+  s = reduce(s, { eventId: 'ds1', at: at(1), actor: { kind: 'system' }, kind: 'deepStarted' })
+  s = reduce(s, { eventId: 'dr1', at: at(8), actor: { kind: 'system' }, kind: 'deepReady', data: { artifact: { path: 'deep.md', rev: at(1) } } })
+  assert.equal(s.inbox[0].rebuild.state, 'building')
+  s = reduce(s, { eventId: 'ds2', at: at(8), actor: { kind: 'system' }, kind: 'deepStarted' })
+  s = reduce(s, { eventId: 'df2', at: at(12), actor: { kind: 'system' }, kind: 'deepFailed', data: { startedAt: at(8), error: 'модель не ответила' } })
+  assert.deepEqual(s.inbox[0].rebuild, { state: 'failed', at: at(12), reason: 'модель не ответила' })
+})
+
+test('DeepBuild не стал собирать — отправка «не понадобилась» с причиной', () => {
+  let s = reduce(agreed(), answered(at(1), {}))
+  s = reduce(s, { eventId: 'rb', at: at(3), actor: { kind: 'system' }, kind: 'rebuildRequested', data: { lastSubmitAt: at(1), started: true } })
+  s = reduce(s, { eventId: 'sk', at: at(4), actor: { kind: 'system' }, kind: 'note', data: { skipped: true, startedAt: at(3), reason: 'ответы уже учтены сборкой' } })
+  assert.deepEqual(s.inbox[0].rebuild, { state: 'skipped', at: at(4), reason: 'ответы уже учтены сборкой' })
+})
+
+test('отправка, уже учтённая готовой сборкой (дошла до цикла позже), — сразу «готово», без таймера', () => {
+  const ev2 = { ...answered(at(1), { coveredBy: at(3) }) }
+  delete ev2.data.rebuildAfterMs
+  const s = reduce(agreed(), ev2)
+  assert.deepEqual(s.inbox[0].rebuild, { state: 'ready', at: at(3), reason: 'учтено сборкой, начатой после ответов' })
+  assert.equal(s.rebuild, undefined)
+})
+
+test('шаг 4 (исправление шага 3): просьба о пересборке не ставит стадию, отправки формы — «собирается»', () => {
+  const at = (m) => `2026-11-22T10:${String(m).padStart(2, '0')}:00.000Z`
+  let s = run(ev('briefApproved'), ev('deepReady'))
+  s = reduce(s, { eventId: 'a', at: at(1), actor: { kind: 'customer' }, kind: 'formAnswered', data: { rebuildAfterMs: 60_000, submission: { formId: 'f', addressees: [], saved: 1, unknown: 0 } } })
+  s = reduce(s, { eventId: 'rb', at: at(2), actor: { kind: 'system' }, kind: 'rebuildRequested', data: { lastSubmitAt: at(1), started: false, requested: true } })
+  assert.equal(s.stage, 'agreement')
+  assert.equal(s.rebuild, undefined)
+  assert.equal(s.inbox[0].rebuild.state, 'building')
+  s = reduce(s, { eventId: 'sk', at: at(3), actor: { kind: 'system' }, kind: 'note', data: { skipped: true, startedAt: at(2), reason: 'ответы уже учтены сборкой' } })
+  assert.equal(s.inbox[0].rebuild.state, 'skipped')
+  assert.equal(s.stage, 'agreement')
+})
