@@ -78,7 +78,7 @@ test('сайдбар документа: раздел «Входящие» с о
   assert.match(html, /id="csInbox"/)
   assert.match(html, /"customer-form\.formInbox"/)
   assert.match(html, /Форма заполнена/)
-  assert.ok(html.indexOf('id="csInbox"') < html.indexOf('Заказчику ·'), 'входящие — над вопросами')
+  assert.ok(html.indexOf('id="csInbox"') < html.indexOf('class="cs-sb-group"'), 'входящие — над вопросами')
   assert.ok(!deepFormSidebar({ ...layer, api: { create: 'c', revoke: 'r', edit: 'e' } }).includes('id="csInbox"'))
 })
 
