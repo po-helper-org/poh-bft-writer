@@ -15,6 +15,7 @@ const SUMMARY: Partial<Record<BftEvent['kind'], string>> = {
   briefRequested: 'Запрошены первичные требования',
   briefBuilt: 'Первичные требования собраны',
   briefApproved: 'Заказчик согласовал первичные требования',
+  deepRequested: 'Запрошена сборка полного БФТ',
   deepStarted: 'Началась сборка полного БФТ',
   deepReady: 'Полный БФТ готов',
   deepFailed: 'Полный БФТ не собран',
@@ -138,15 +139,20 @@ export function nextInbox(inbox: readonly InboxEntry[], event: BftEvent, pending
       const last = typeof event.data?.lastSubmitAt === 'string' ? event.data.lastSubmitAt : undefined
       if (!last) return [...inbox]
       const covered = (e: InboxEntry) => waiting(e) && e.at <= last
-      if (event.data?.started === true) return set(covered, () => ({ state: 'building', at: event.at }))
+      if (event.data?.started === true) return set(covered, () => ({ state: 'building', at: event.at, ...(event.data?.queued === true ? { reason: 'после текущей сборки' } : {}) }))
       const error = typeof event.data?.error === 'string' ? event.data.error : undefined
       const reason = error ?? (typeof event.data?.reason === 'string' ? event.data.reason : event.summary)
       return set(covered, () => ({ state: error ? 'failed' : 'skipped', at: event.at, ...(reason ? { reason } : {}) }))
     }
     case 'deepReady':
-      return set((e) => e.rebuild.state === 'building', () => ({ state: 'ready', at: event.at }))
-    case 'deepFailed':
-      return set((e) => e.rebuild.state === 'building', () => ({ state: 'failed', at: event.at, ...(event.data?.error ? { reason: String(event.data.error) } : {}) }))
+    case 'deepFailed': {
+      // Готова сборка, начатая ДО ответа (ответы ждут следующую), — отправку не закрывает.
+      const run = event.data?.artifact?.rev ?? (typeof event.data?.startedAt === 'string' ? event.data.startedAt : undefined)
+      const covers = (e: InboxEntry) => e.rebuild.state === 'building' && (!run || e.at <= run)
+      return event.kind === 'deepReady'
+        ? set(covers, () => ({ state: 'ready', at: event.at }))
+        : set(covers, () => ({ state: 'failed', at: event.at, ...(event.data?.error ? { reason: String(event.data.error) } : {}) }))
+    }
     default:
       return [...inbox]
   }
@@ -187,6 +193,6 @@ export function reduce(state: LifecycleState, event: BftEvent): LifecycleState {
 }
 
 export function statusOf(state: LifecycleState): LifecycleStatus {
-  const { taskId, slug, title, stage, waitingFor, round, questions, artifacts, rebuild, events, createdAt, updatedAt } = state
-  return { taskId, slug, title, stage, waitingFor, round, ...(questions ? { questions } : {}), artifacts, ...(rebuild ? { rebuild } : {}), events, createdAt, updatedAt }
+  const { taskId, slug, title, stage, waitingFor, round, questions, artifacts, rebuild, build, events, createdAt, updatedAt } = state
+  return { taskId, slug, title, stage, waitingFor, round, ...(questions ? { questions } : {}), artifacts, ...(rebuild ? { rebuild } : {}), ...(build ? { build } : {}), events, createdAt, updatedAt }
 }

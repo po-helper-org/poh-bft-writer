@@ -46,7 +46,7 @@ import { bftMcp, MCP_INSTRUCTIONS } from './mcp-bft.js'
 import { bftCard, type BftState } from './bft-list.js'
 import { registerPlanRoutes, withPlan } from './plan-routes.js'
 import { registeredEvent, sharedLifecycle } from './lifecycle.js'
-import { startPortalWorker, type RebuildRequest, type RebuildResult } from './lifecycle-worker.js'
+import { startPortalWorker, type DeepBuildRequest, type DeepBuildResult, type RebuildRequest, type RebuildResult } from './lifecycle-worker.js'
 import { historyEvents, isoUtc, type RequestSnapshot } from './lifecycle-history.js'
 import { lifecyclePage } from './lifecycle-page.js'
 import { inboxView } from './form-inbox.js'
@@ -534,8 +534,34 @@ export function apply(ctx: HarnessContext): void {
   const deepRunning = new Set<string>()
   /** ИИ-агент правок (ADR-0021): одна правка на заявку за раз. */
   const reviseRunning = new Set<string>()
-  /** Собрать полный БФТ в фоне; повторный вызов во время сборки ничего не делает. */
-  const startDeep = (ticket: Ticket, sessionId: string): boolean => {
+  /** Собрать полный БФТ в этом процессе и дождаться конца (из активности цикла или без Temporal). */
+  const runDeepNow = async (ticket: Ticket, sessionId: string, runtime: DeepRuntime, startedAt: string): Promise<DeepState> => {
+    const slug = fastSlug(ticket.taskId)
+    const fast = fastFiles(FAST_ROOT, slug)
+    deepRunning.add(slug)
+    try {
+      // «Собирается» — сразу: разведка по источникам идёт до сборки, заказчик видит экран ожидания.
+      await saveDeepState(deepFiles(fast, slug), { stage: 'building', startedAt })
+      void mirrorRequest(ticket.taskId, sessionId)
+      const { state, sources, sourcesPath } = await runDeep(fast, slug, deepRequestRef(ticket.taskId, sessionId), runtime, startedAt, { mode: 'live' })
+      // Полный БФТ и карта источников — в папку заявки, не дожидаясь трекера.
+      void mirrorRequest(ticket.taskId, sessionId)
+      await reportDeep(backlog, ticket, slug, deepFiles(fast, slug), state, sources ? sourcesPath : undefined)
+      return state
+    } finally {
+      deepRunning.delete(slug)
+    }
+  }
+  /** Просьба собрать ушла в цикл, сборка ещё не началась: повторный клик не шлёт вторую. */
+  const deepAsked = new Map<string, number>()
+  const DEEP_ASK_MS = 5 * 60_000
+  /**
+   * Собрать полный БФТ (ADR-0022, шаг 3): просьба — событием в цикл заявки, сборку ведёт
+   * он (дочерний DeepBuild → активность buildDeep, пульс и повтор после рестарта портала).
+   * Temporal недоступен — собираем в этом процессе, как раньше. Повторный вызов во время
+   * сборки ничего не делает.
+   */
+  const startDeep = (ticket: Ticket, sessionId: string, reason: 'approved' | 'retry' | 'answers' = 'approved'): boolean => {
     const slug = fastSlug(ticket.taskId)
     // Заявку MCP пишет модель внешнего агента (ADR-0023): портал свою модель на неё не тратит —
     // ни по «Да, согласен» на странице, ни по ответам формы; пересобирает агент (bft_prepare_full_bft).
@@ -543,25 +569,64 @@ export function apply(ctx: HarnessContext): void {
       console.error(`[customer-form] bft-deep ${slug}: заявка MCP — собирает внешний агент, модель портала не вызываю`)
       return false
     }
-    if (deepRunning.has(slug)) return true
+    if (deepRunning.has(slug) || Date.now() - (deepAsked.get(slug) ?? 0) < DEEP_ASK_MS) return true
     if (!deepRuntime) {
       console.error('[customer-form] bft-deep: модель портала недоступна (ctx.llm)')
       return false
     }
     const runtime = deepRuntime
-    const fast = fastFiles(FAST_ROOT, slug)
-    deepRunning.add(slug)
+    const startedAt = new Date().toISOString()
+    deepAsked.set(slug, Date.now())
     void (async () => {
-      // «Собирается» — сразу: разведка по источникам идёт до сборки, заказчик видит экран ожидания.
-      const startedAt = new Date().toISOString()
+      const fast = fastFiles(FAST_ROOT, slug)
+      // Экран ожидания — сразу, не дожидаясь, пока цикл дойдёт до портала.
       await saveDeepState(deepFiles(fast, slug), { stage: 'building', startedAt })
-      void mirrorRequest(ticket.taskId, sessionId)
-      const { state, sources, sourcesPath } = await runDeep(fast, slug, deepRequestRef(ticket.taskId, sessionId), runtime, startedAt, { mode: 'live' })
-      // Полный БФТ и карта источников — в папку заявки, не дожидаясь трекера.
-      void mirrorRequest(ticket.taskId, sessionId)
-      await reportDeep(backlog, ticket, slug, deepFiles(fast, slug), state, sources ? sourcesPath : undefined)
-    })().catch((e) => console.error('[customer-form] bft-deep упал:', e)).finally(() => deepRunning.delete(slug))
+      const summary = reason === 'retry' ? 'Запрошена сборка полного БФТ заново' : reason === 'answers' ? 'Ответы формы — запрошена пересборка' : 'Первичные требования согласованы — запрошена сборка полного БФТ'
+      const asked = lifecycle.enabled && await lifecycle.record(
+        { taskId: ticket.taskId, slug, sessionId, createdAt: startedAt },
+        { eventId: `deep:requested:${startedAt}`, at: startedAt, actor: { kind: reason === 'retry' ? 'po' : 'customer' }, kind: 'deepRequested', summary, data: { reason, startedAt } },
+      )
+      if (asked) return
+      deepAsked.delete(slug)
+      console.error(`[customer-form] bft-deep ${slug}: цикл заявки недоступен — собираю в портале`)
+      await runDeepNow(ticket, sessionId, runtime, startedAt)
+    })().catch((e) => { deepAsked.delete(slug); console.error('[customer-form] bft-deep упал:', e) })
     return true
+  }
+  /**
+   * Активность цикла (шаг 3): собрать полный БФТ и дождаться конца. Пульс раз в 20 с —
+   * портал пропал (выкладка) → Temporal повторит на новом процессе с тем же startedAt.
+   * Сборка не удалась (модель, проверки) — итог «failed», без автоповтора: решает PO.
+   */
+  const buildDeepActivity = async (req: DeepBuildRequest): Promise<DeepBuildResult> => {
+    const slug = fastSlug(req.taskId)
+    const skipped = (reason: string): DeepBuildResult => ({ stage: 'skipped', startedAt: req.startedAt, reason })
+    if (isMcpSession(req.sessionId)) return skipped('заявку MCP собирает внешний агент')
+    const { Context } = await import('@temporalio/activity')
+    const activity = Context.current()
+    const beat = setInterval(() => activity.heartbeat(), 20_000)
+    try {
+      deepAsked.delete(slug)
+      // Идёт сборка (без цикла) или правка ИИ-агента — дождаться: правка ляжет в документ, сборка её учтёт.
+      while (deepRunning.has(slug) || reviseRunning.has(slug)) {
+        activity.heartbeat()
+        await new Promise((r) => setTimeout(r, 10_000))
+      }
+      const fast = fastFiles(FAST_ROOT, slug)
+      if (req.lastSubmitAt) {
+        const deep = await readDeepState(deepFiles(fast, slug))
+        // Ответы уже учтены сборкой, начатой после них, — повторять не нужно.
+        if (deep?.startedAt && deep.startedAt > req.lastSubmitAt) return skipped('ответы уже учтены сборкой')
+      }
+      if (!deepRuntime) throw new Error('модель портала недоступна (ctx.llm)')
+      const ticket = await backlog.find(req.sessionId)
+      if (!ticket) return skipped('заявка не найдена в трекере')
+      console.error(`[customer-form] bft-deep ${slug}: сборка по циклу заявки (${req.reason}, попытка ${activity.info.attempt})`)
+      const state = await runDeepNow(ticket, req.sessionId, deepRuntime, req.startedAt)
+      return { stage: state.stage === 'ready' ? 'ready' : 'failed', startedAt: req.startedAt, ...(state.finishedAt ? { finishedAt: state.finishedAt } : {}), ...(state.error ? { error: state.error } : {}) }
+    } finally {
+      clearInterval(beat)
+    }
   }
   /**
    * Форма вопросов по БФТ (ADR-0018). Запись формы — под замком по id: ответы
@@ -650,10 +715,10 @@ export function apply(ctx: HarnessContext): void {
     const ticket = await backlog.find(req.sessionId)
     if (!ticket) return { started: false, reason: 'заявка не найдена в трекере' }
     console.error(`[customer-form] форма ${slug}: ответы — пересобираю полный БФТ (по циклу заявки)`)
-    return startDeep(ticket, req.sessionId) ? { started: true } : { started: false, reason: 'модель портала недоступна или заявку собирает внешний агент' }
+    return startDeep(ticket, req.sessionId, 'answers') ? { started: true } : { started: false, reason: 'модель портала недоступна или заявку собирает внешний агент' }
   }
   if (lifecycle.enabled) {
-    const stopWorker = startPortalWorker({ rebuildFromAnswers })
+    const stopWorker = startPortalWorker({ rebuildFromAnswers, buildDeep: buildDeepActivity })
     ctx.effect(() => () => void stopWorker(), 'customer-form: активности жизненного цикла (bft-portal)')
   }
 
@@ -1257,7 +1322,9 @@ export function apply(ctx: HarnessContext): void {
           const demo = sharedDemos().get(item.sessionId)
           const form = await formOfRequest(files.dir).catch(() => undefined)
           const questions = form ? latestVersion(form)?.questions ?? [] : []
+          const cycle = lifecycle.enabled ? await lifecycle.status(item.taskId).catch(() => undefined) : undefined
           const state: BftState = {
+            ...(cycle ? { lifecycle: { stage: cycle.status.stage, waitingFor: cycle.status.waitingFor, round: cycle.status.round } } : {}),
             ...(demo ? { demo: { approvedAt: demo.approvedAt } } : {}),
             ...(fast ? { fast: { approvedAt: fast.approvedAt, rev: fast.rev } } : {}),
             ...(deep ? { deep: { stage: deep.stage, startedAt: deep.startedAt, finishedAt: deep.finishedAt } } : {}),
@@ -1495,7 +1562,7 @@ export function apply(ctx: HarnessContext): void {
         const ticket = sessionId ? await backlog.find(sessionId).catch(() => undefined) : undefined
         if (!ticket) return Response.json({ error: 'заявка не найдена' }, { status: 404 })
         if (!(await fastState(fastFiles(FAST_ROOT, fastSlug(ticket.taskId))))?.approvedAt) return Response.json({ error: 'первичные требования не согласованы' }, { status: 409 })
-        return startDeep(ticket, sessionId) ? Response.json({ ok: true }) : Response.json({ error: 'модель портала недоступна' }, { status: 503 })
+        return startDeep(ticket, sessionId, 'retry') ? Response.json({ ok: true }) : Response.json({ error: 'модель портала недоступна' }, { status: 503 })
       },
     }), 'customer-form: /api/customer-form.bftDeepRetry')
 

@@ -4,6 +4,7 @@
  * состояния заявки; чтение файлов и трекера — в маршруте customer-form.bftList.
  */
 import type { RequestSummary } from './host.js'
+import { STAGE_LABEL as LIFECYCLE_LABEL } from './lifecycle-page.js'
 
 export type BftStage = 'dialog' | 'demo' | 'fast-review' | 'fast-approved' | 'deep-building' | 'deep-ready' | 'deep-failed'
 
@@ -32,6 +33,8 @@ export interface BftCard {
   chatUrl: string
   /** Вопросы формы согласования: сколько всего и на сколько ответили. */
   questions?: { total: number; answered: number }
+  /** Цикл заявки: его стадия, кого ждём, раунд согласования. */
+  lifecycle?: { stage: string; waitingFor: string[]; round: number }
   updatedAt: string
   artifacts: BftArtifact[]
 }
@@ -42,6 +45,8 @@ export interface BftState {
   fast?: { approvedAt?: string | undefined; rev?: string | undefined }
   deep?: { stage: 'building' | 'ready' | 'failed'; startedAt?: string | undefined; finishedAt?: string | undefined }
   form?: { id: string; publishedAt?: string | undefined; revokedAt?: string | undefined; total: number; answered: number }
+  /** Статус цикла заявки (ADR-0022, шаг 3): есть — стадия из него, а не из файлов. */
+  lifecycle?: { stage: string; waitingFor: string[]; round: number }
 }
 
 export interface BftUrls {
@@ -65,7 +70,26 @@ const STAGE_LABEL: Record<BftStage, string> = {
   'deep-failed': 'Полный БФТ не собран',
 }
 
+/** Стадия цикла → стадия списка (значения прежние: витрины их уже знают). */
+function lifecycleStage(state: BftState): BftStage | undefined {
+  switch (state.lifecycle?.stage) {
+    case 'intake': return 'dialog'
+    case 'scenario': return 'demo'
+    case 'brief': case 'brief_review': return 'fast-review'
+    case 'deep': return state.deep ? 'deep-building' : 'fast-approved'
+    case 'rebuilding': return 'deep-building'
+    case 'deep_failed': return 'deep-failed'
+    case 'agreement': case 'validated': case 'handed_off': return 'deep-ready'
+    default: return undefined
+  }
+}
+
+const WAIT: Record<string, string> = { customer: 'заказчика', po: 'PO', model: 'модель' }
+const waitLabel = (w: string) => WAIT[w] ?? (w.startsWith('team:') ? w.slice(5) : w)
+
 export function bftStage(state: BftState): BftStage {
+  const fromLifecycle = lifecycleStage(state)
+  if (fromLifecycle) return fromLifecycle
   if (state.deep) return `deep-${state.deep.stage}` as BftStage
   if (state.fast) return state.fast.approvedAt ? 'fast-approved' : 'fast-review'
   if (state.demo) return 'demo'
@@ -106,7 +130,10 @@ export function bftCard(item: RequestSummary, state: BftState, urls: BftUrls): B
     created: item.created,
     ...(item.status ? { status: item.status } : {}),
     stage,
-    stageLabel: STAGE_LABEL[stage],
+    stageLabel: state.lifecycle && lifecycleStage(state)
+      ? `${LIFECYCLE_LABEL[state.lifecycle.stage] ?? STAGE_LABEL[stage]}${state.lifecycle.waitingFor.length && state.lifecycle.stage === 'agreement' ? ` — ждём ${state.lifecycle.waitingFor.map(waitLabel).join(', ')}` : ''}`
+      : STAGE_LABEL[stage],
+    ...(state.lifecycle ? { lifecycle: state.lifecycle } : {}),
     chatUrl: urls.portal(`/?session=${session}`),
     ...(form ? { questions: { total: form.total, answered: form.answered } } : {}),
     updatedAt: times.sort().at(-1) ?? item.created,

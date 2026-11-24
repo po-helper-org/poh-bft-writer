@@ -84,7 +84,7 @@ export function historyEvents(s: RequestSnapshot): LifecycleEvent[] {
     const firstRevision = (s.revisions ?? []).map((r) => isoUtc(r.at)).filter((at) => at && at >= isoUtc(run)).sort()[0]
     const readyAt = [isoUtc(s.deep.finishedAt ?? run), firstRevision].filter(Boolean).sort()[0]!
     if (s.deep.stage === 'ready') push({ eventId: `deep:ready:${run}`, at: readyAt, actor: system, kind: 'deepReady', data: { artifact: { path: 'deep.md', rev: run } } })
-    if (s.deep.stage === 'failed') push({ eventId: `deep:failed:${run}`, at: s.deep.finishedAt ?? run, actor: system, kind: 'deepFailed', ...(s.deep.error ? { summary: `Полный БФТ не собран: ${s.deep.error.slice(0, 160)}`, data: { error: s.deep.error.slice(0, 500) } } : {}) })
+    if (s.deep.stage === 'failed') push({ eventId: `deep:failed:${run}`, at: s.deep.finishedAt ?? run, actor: system, kind: 'deepFailed', data: { startedAt: run, ...(s.deep.error ? { error: s.deep.error.slice(0, 500) } : {}) }, ...(s.deep.error ? { summary: `Полный БФТ не собран: ${s.deep.error.slice(0, 160)}` } : {}) })
   }
   if (s.form?.publishedAt) {
     const f = s.form

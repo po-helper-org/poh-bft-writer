@@ -20,13 +20,14 @@ export const STAGE_LABEL: Record<string, string> = {
   cancelled: 'Отменён',
 }
 
+const REASON: Record<string, string> = { approved: 'согласованы первичные', retry: '«Собрать заново»', answers: 'ответы формы' }
 const WAIT_LABEL = (w: string) => w === 'customer' ? 'заказчика' : w === 'po' ? 'PO' : w === 'model' ? 'модель' : w.startsWith('team:') ? w.slice(5) : w
 const ACTOR_LABEL: Record<string, string> = { customer: 'заказчик', po: 'PO', team: 'команда', system: 'портал', mail: 'почта' }
 
 export interface LifecyclePageData {
   title: string
   taskId: number
-  status: { stage: string; waitingFor: string[]; round: number; events: number; updatedAt: string; questions?: { total: number; answered: number; unknown?: number }; rebuild?: { dueAt: string; lastSubmitAt: string } }
+  status: { stage: string; waitingFor: string[]; round: number; events: number; updatedAt: string; questions?: { total: number; answered: number; unknown?: number }; rebuild?: { dueAt: string; lastSubmitAt: string }; build?: { reason: string; startedAt: string; queued?: { reason: string } } }
   timeline: Array<{ at: string; kind: string; actor: string; summary: string; stage: string }>
   /** Ссылка на историю цикла в Temporal UI — только администратору. */
   temporalHref?: string
@@ -46,6 +47,7 @@ export function lifecyclePage(d: LifecyclePageData): string {
     ['Ждём', s.waitingFor.length ? s.waitingFor.map(WAIT_LABEL).join(', ') : '—'],
     ['Раунд согласования', s.round ? String(s.round) : '—'],
     ['Вопросы формы', s.questions ? `отвечено ${s.questions.answered} из ${s.questions.total}${s.questions.unknown ? `, «не знаю» — ${s.questions.unknown}` : ''}` : '—'],
+    ['Сборка полного БФТ', s.build ? `идёт с ${when(s.build.startedAt)} (${REASON[s.build.reason] ?? s.build.reason})${s.build.queued ? `, следом ещё одна (${REASON[s.build.queued.reason] ?? s.build.queued.reason})` : ''}` : '—'],
     ['Пересборка по ответам', s.rebuild ? `ждёт, около ${when(s.rebuild.dueAt)}` : '—'],
     ['Событий', String(s.events)],
     ['Обновлено', when(s.updatedAt)],
