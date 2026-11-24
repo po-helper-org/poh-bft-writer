@@ -9,13 +9,15 @@
  * continueAsNew с переносом состояния.
  */
 import { condition, continueAsNew, defineQuery, defineSignal, proxyActivities, setHandler, upsertSearchAttributes, workflowInfo, allHandlersFinished } from '@temporalio/workflow'
-import { PORTAL_TASK_QUEUE, type BftEvent, type LifecycleInput, type LifecycleStatus, type PortalActivities, type RebuildPending, type TimelineEntry } from './events.js'
+import { PORTAL_TASK_QUEUE, type BftEvent, type InboxEntry, type LifecycleInput, type LifecycleStatus, type PortalActivities, type RebuildPending, type TimelineEntry } from './events.js'
 import { initialState, isTerminal, reduce, statusOf } from './reduce.js'
 import { BFT_ROUND, BFT_STAGE, BFT_TASK_ID, BFT_UPDATED_AT, BFT_WAITING_FOR } from './search-attributes.js'
 
 export const eventSignal = defineSignal<[BftEvent]>('event')
 export const statusQuery = defineQuery<LifecycleStatus>('status')
 export const timelineQuery = defineQuery<TimelineEntry[], [string?]>('timeline')
+/** Входящие события заявки (отправки формы) со статусом пересборки — сайдбар документа. */
+export const inboxQuery = defineQuery<InboxEntry[]>('inbox')
 
 /** Больше событий в одном прогоне — continueAsNew (история Temporal не раздувается). */
 export const EVENTS_PER_RUN = 1000
@@ -36,7 +38,10 @@ function rebuildEvent(pending: RebuildPending, result: { started: boolean; reaso
     : `Пересборка по ответам не нужна${result.reason ? `: ${result.reason}` : ''}`
   return {
     eventId: `rebuild:${pending.lastSubmitAt}:${at}`, at, actor: { kind: 'system' }, kind: 'rebuildRequested', summary,
-    data: { lastSubmitAt: pending.lastSubmitAt, started: !('error' in result) && result.started, ...('error' in result ? { error: result.error.slice(0, 500) } : {}) },
+    data: {
+      lastSubmitAt: pending.lastSubmitAt, started: !('error' in result) && result.started,
+      ...('error' in result ? { error: result.error.slice(0, 500) } : result.reason ? { reason: result.reason.slice(0, 200) } : {}),
+    },
   }
 }
 
@@ -48,6 +53,7 @@ export async function BftLifecycle(input: LifecycleInput): Promise<LifecycleStat
   let requesting = false
   setHandler(eventSignal, (event) => { queue.push(event) })
   setHandler(statusQuery, () => statusOf(state))
+  setHandler(inboxQuery, () => state.inbox ?? [])
   setHandler(timelineQuery, (since) => (since ? state.timeline.filter((t) => t.at > since) : state.timeline))
 
   const publish = () => upsertSearchAttributes([

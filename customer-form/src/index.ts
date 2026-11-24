@@ -49,6 +49,7 @@ import { registeredEvent, sharedLifecycle } from './lifecycle.js'
 import { startPortalWorker, type RebuildRequest, type RebuildResult } from './lifecycle-worker.js'
 import { historyEvents, isoUtc, type RequestSnapshot } from './lifecycle-history.js'
 import { lifecyclePage } from './lifecycle-page.js'
+import { inboxView } from './form-inbox.js'
 import { withAgent } from './agent-page.js'
 import { canUndo, dshModel, newRevision, normalizeRemarks, poWords, queueRemarks, readRevisions, reviewDue, reviseDeep, revisionsContext, saveRevisions, sinceReview, undoRevision, type Revision, type TextModel } from './bft-revise.js'
 import { docRevOf, pickBlocks } from './doc-sections.js'
@@ -71,6 +72,8 @@ const FORM_PREVIEW = '/api/customer-form.formPreview'
 const FORM_CREATE = '/api/customer-form.formCreate'
 const FORM_REVOKE = '/api/customer-form.formRevoke'
 const FORM_EDIT = '/api/customer-form.formEdit'
+/** Входящие события заявки (ADR-0027): отправки формы и статус пересборки — сайдбар документа. */
+const FORM_INBOX = '/api/customer-form.formInbox'
 /** Открытые страницы формы: не индексировать, не кэшировать, без Referer наружу. */
 const PUBLIC_HEADERS = { 'cache-control': 'no-store', 'x-robots-tag': 'noindex, nofollow', 'referrer-policy': 'no-referrer' }
 /**
@@ -261,7 +264,8 @@ export function apply(ctx: HarnessContext): void {
   /** Пауза после последнего ответа формы до пересборки БФТ: отвечают пачкой — собираем один раз (таймер — в цикле, шаг 2). */
   const FORM_REBUILD_MS = Number(process.env.FORM_REBUILD_MS ?? 120_000)
   /** Свести с циклом сразу (не ждать сверки раз в минуту) — например, после ответов формы. */
-  let syncLifecycleNow: (sessionIds: string[]) => Promise<void> = async () => {}
+  /** true — все события заявки доставлены в цикл; false — Temporal выключен или недоступен (дошлёт сверка). */
+  let syncLifecycleNow: (sessionIds: string[]) => Promise<boolean> = async () => false
   if (lifecycle.enabled) {
     backlog.onRegistered = (sessionId, ticket, text) => {
       const at = new Date().toISOString()
@@ -293,7 +297,7 @@ export function apply(ctx: HarnessContext): void {
           id: form.id, createdAt: form.createdAt,
           ...(form.publishedAt ? { publishedAt: form.publishedAt } : {}), ...(form.revokedAt ? { revokedAt: form.revokedAt } : {}),
           total: latestVersion(form)?.questions.length ?? 0,
-          answers: Object.values(form.answers).map((a) => ({ at: a.at, status: a.status })),
+          answers: Object.values(form.answers).map((a) => ({ at: a.at, status: a.status, addressee: a.addressee, ...(a.author ? { author: a.author } : {}) })),
         } } : {}),
         revisions: revisions.map((r) => ({ id: r.id, kind: r.kind, at: r.at, stage: r.stage,
           ...(r.finishedAt ? { finishedAt: r.finishedAt } : {}), ...(r.edits !== undefined ? { edits: r.edits } : {}), ...(r.error ? { error: r.error } : {}) })),
@@ -302,6 +306,7 @@ export function apply(ctx: HarnessContext): void {
     const deliver = async (sessionIds: string[]) => {
       const items = await backlog.overview(sessionIds)
       let delivered = 0
+      let failed = false
       for (const item of items) {
         const created = isoUtc(item.created) || new Date().toISOString()
         const request = { taskId: item.taskId, slug: fastSlug(item.taskId), sessionId: item.sessionId, title: item.title, createdAt: created }
@@ -309,14 +314,14 @@ export function apply(ctx: HarnessContext): void {
         for (const event of events) {
           const key = `${item.taskId}:${event.eventId}`
           if (sent.has(key)) continue
-          if (!(await lifecycle.record(request, event))) break // Temporal недоступен — дошлём на следующем заходе
+          if (!(await lifecycle.record(request, event))) { failed = true; break } // Temporal недоступен — дошлём на следующем заходе
           sent.add(key)
           delivered++
         }
       }
-      return { items: items.length, delivered }
+      return { items: items.length, delivered, failed }
     }
-    syncLifecycleNow = (sessionIds) => deliver(sessionIds).then(() => undefined, (e) => console.error('[customer-form] жизненный цикл: событие заявки не отправлено:', e))
+    syncLifecycleNow = (sessionIds) => deliver(sessionIds).then((r) => r.items > 0 && !r.failed, (e) => { console.error('[customer-form] жизненный цикл: событие заявки не отправлено:', e); return false })
     const syncLifecycle = async () => {
       if (syncing) return
       syncing = true
@@ -624,7 +629,7 @@ export function apply(ctx: HarnessContext): void {
       return {
         sessionId, questions: version.questions, answers: form.answers, removed: removedOf(form), version: version.v,
         ...(form.publishedAt && !form.revokedAt ? { link: formUrl(form.id) } : {}),
-        api: { create: siblingHref(FORM_CREATE), revoke: siblingHref(FORM_REVOKE), edit: siblingHref(FORM_EDIT) },
+        api: { create: siblingHref(FORM_CREATE), revoke: siblingHref(FORM_REVOKE), edit: siblingHref(FORM_EDIT), inbox: siblingHref(FORM_INBOX) },
       }
     })
   }
@@ -1075,15 +1080,22 @@ export function apply(ctx: HarnessContext): void {
           if ('saved' in res && res.saved) {
             await saveForm(form)
             await writeFile(answersPath(opened.doc.files.dir), answersMarkdown(form), 'utf8')
-            // Ответы → событие цикла сразу; паузу до пересборки отсчитывает цикл.
-            void syncLifecycleNow([form.sessionId])
             const taskId = Number(/^zayavka-(\d+)$/.exec(form.slug)?.[1])
             if (taskId) void mirrorRequest(taskId, form.sessionId)
+            return { ...res, at: form.lastSubmitAt, sessionId: form.sessionId }
           }
           return res
         })
         if ('error' in result) return Response.json({ error: result.error }, { status: 400, headers: PUBLIC_HEADERS })
-        return Response.json({ ok: true, saved: result.saved }, { headers: PUBLIC_HEADERS })
+        // Отправка → входящее событие процесса заявки сразу (ADR-0027); паузу до пересборки
+        // отсчитывает цикл. Не дождались (Temporal недоступен, медленно) — ответы сохранены, событие дошлёт сверка.
+        const recorded = 'sessionId' in result && result.sessionId
+          ? await Promise.race([syncLifecycleNow([result.sessionId]), new Promise<boolean>((r) => setTimeout(() => r(false), 4000))])
+          : false
+        return Response.json({
+          ok: true, saved: result.saved, ...('at' in result && result.at ? { at: result.at } : {}), recorded,
+          ...(lifecycle.enabled ? { rebuildAfterMs: FORM_REBUILD_MS } : {}),
+        }, { headers: PUBLIC_HEADERS })
       },
     }), 'customer-form: ответы формы вопросов')
 
@@ -1274,6 +1286,26 @@ export function apply(ctx: HarnessContext): void {
         return Response.json({ ok: true, ...got }, { headers })
       },
     }), 'customer-form: /api/customer-form.lifecycle')
+
+    // Входящие события заявки (ADR-0027): отправки формы — из процесса заявки (query inbox),
+    // ответы — из файла формы. За входом портала; Temporal недоступен — отправки из файла без статуса.
+    scoped.effect(() => register({
+      path: FORM_INBOX,
+      methods: ['GET'],
+      requestBody: 'buffered',
+      fetch: async (request: Request) => {
+        const headers = { 'cache-control': 'no-store' }
+        const sessionId = new URL(request.url).searchParams.get('session') ?? ''
+        const ticket = sessionId ? await backlog.find(sessionId).catch(() => undefined) : undefined
+        if (!ticket) return Response.json({ ok: false, error: 'нет такой заявки' }, { status: 404, headers })
+        const files = fastFiles(FAST_ROOT, fastSlug(ticket.taskId))
+        const [form, cycle] = await Promise.all([
+          formOfRequest(files.dir).catch(() => undefined),
+          lifecycle.enabled ? lifecycle.inbox(ticket.taskId) : Promise.resolve(undefined),
+        ])
+        return Response.json({ ok: true, ...inboxView(form, cycle) }, { headers })
+      },
+    }), 'customer-form: входящие события заявки')
 
     // Страница «Жизненный цикл» заявки (ADR-0022): стадия, ожидания и хроника. Администратору —
     // ссылка на историю цикла в Temporal UI (BFT_TEMPORAL_UI_URL; на сервере — /bft-temporal).

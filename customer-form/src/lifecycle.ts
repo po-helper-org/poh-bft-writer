@@ -35,6 +35,20 @@ export interface LifecycleStatus {
   [key: string]: unknown
 }
 
+/** Входящее событие заявки (отправка формы) со статусом пересборки — копия InboxEntry из bft-flow/src/events.ts. */
+export type InboxRebuildState = 'waiting' | 'building' | 'ready' | 'failed' | 'skipped'
+export interface InboxEntry {
+  id: string
+  kind: 'formSubmitted'
+  at: string
+  formId: string
+  author?: string
+  addressees: string[]
+  saved: number
+  unknown: number
+  rebuild: { state: InboxRebuildState; dueAt?: string; at?: string; reason?: string }
+}
+
 const RETRY_AFTER_MS = 30_000
 
 export class Lifecycle {
@@ -83,6 +97,17 @@ export class Lifecycle {
     } catch (e) {
       this.log(`[customer-form] жизненный цикл #${request.taskId}: событие ${event.kind} не доставлено — ${(e as Error).message}`)
       return false
+    }
+  }
+
+  /** Входящие события цикла (query `inbox`); undefined — цикла нет или Temporal недоступен. */
+  async inbox(taskId: number): Promise<InboxEntry[] | undefined> {
+    const client = await this.connect()
+    if (!client) return undefined
+    try {
+      return await client.workflow.getHandle(workflowIdOf(taskId)).query<InboxEntry[]>('inbox')
+    } catch {
+      return undefined
     }
   }
 

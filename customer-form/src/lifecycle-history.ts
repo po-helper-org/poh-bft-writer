@@ -31,7 +31,8 @@ export interface RequestSnapshot {
     publishedAt?: string
     revokedAt?: string
     total: number
-    answers: Array<{ at: string; status: 'answer' | 'unknown' }>
+    /** Ответы: время отправки, «не знаю», подпись и адресат вопроса (раздел «Для: …»). */
+    answers: Array<{ at: string; status: 'answer' | 'unknown'; author?: string; addressee?: string }>
   }
   revisions?: Array<{ id: string; kind: string; at: string; stage: string; finishedAt?: string; edits?: number; error?: string }>
   /** Время снимка — для событий без своего времени (перенос в трекере). */
@@ -51,6 +52,16 @@ const INITIAL_STATUSES = ['Создан']
 export function isoUtc(at: string | undefined): string {
   const t = at ? Date.parse(at) : NaN
   return Number.isNaN(t) ? '' : new Date(t).toISOString()
+}
+
+/** Сводка одной отправки формы для цикла: кто подписался, чьи вопросы, сколько ответов (без текстов). */
+export function submissionOf(formId: string, answers: ReadonlyArray<{ status: 'answer' | 'unknown'; author?: string; addressee?: string }>) {
+  const author = answers.find((a) => a.author?.trim())?.author?.trim()
+  return {
+    formId, ...(author ? { author } : {}),
+    addressees: [...new Set(answers.map((a) => a.addressee).filter((a): a is string => !!a))],
+    saved: answers.length, unknown: answers.filter((a) => a.status === 'unknown').length,
+  }
 }
 
 export function historyEvents(s: RequestSnapshot): LifecycleEvent[] {
@@ -84,8 +95,13 @@ export function historyEvents(s: RequestSnapshot): LifecycleEvent[] {
       const upTo = f.answers.filter((a) => a.at <= at)
       const answered = upTo.filter((a) => a.status === 'answer').length
       const unknown = upTo.filter((a) => a.status === 'unknown').length
-      const here = f.answers.filter((a) => a.at === at).length
-      push({ eventId: `form:answers:${f.id}:${at}`, at, actor: { kind: 'customer' }, kind: 'formAnswered', summary: `Ответы формы: +${here}, всего отвечено ${answered} из ${f.total}`, data: { questions: { total: f.total, answered, unknown }, ...(s.rebuildAfterMs !== undefined ? { rebuildAfterMs: s.rebuildAfterMs } : {}) } })
+      const sub = submissionOf(f.id, f.answers.filter((a) => a.at === at))
+      const from = sub.author ?? 'без подписи'
+      push({
+        eventId: `form:answers:${f.id}:${at}`, at, actor: { kind: 'customer', ...(sub.author ? { name: sub.author } : {}) }, kind: 'formAnswered',
+        summary: `Форма заполнена (${from}): +${sub.saved}, всего отвечено ${answered} из ${f.total}`,
+        data: { questions: { total: f.total, answered, unknown }, submission: sub, ...(s.rebuildAfterMs !== undefined ? { rebuildAfterMs: s.rebuildAfterMs } : {}) },
+      })
     }
     if (f.revokedAt) push({ eventId: `form:revoked:${f.id}`, at: f.revokedAt, actor: po, kind: 'formRevoked' })
   }

@@ -12,6 +12,7 @@
 import { deepPageBase } from './fast-page.js'
 import { formTitle, questionForMarker, type BftForm, type FormAnswer, type FormQuestion, type FormVersion } from './forms.js'
 import { UNASSIGNED, type QuestionRef } from './questions.js'
+import { inboxBlock } from './form-inbox.js'
 
 const esc = (s: unknown) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!))
 const unesc = (s: string) => s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#x27;|&#39;/g, "'").replace(/&amp;/g, '&')
@@ -88,6 +89,11 @@ input[type=checkbox]{ width:18px; height:18px; margin:0; accent-color:var(--acce
 .done summary{ cursor:pointer; font-size:16px; }
 .done ul{ padding-left:18px; margin:12px 0 0; }
 .done li{ margin:8px 0; }
+.sent{ border:1px solid #1e8e3e; border-left:6px solid #1e8e3e; background:#e6f4ea; }
+.sent[hidden]{ display:none; }
+.sent .q-text{ color:#137333; font-weight:500; }
+.sent p{ margin:.3rem 0 0; }
+.last-sent{ color:#137333; }
 .submit{ display:flex; flex-wrap:wrap; gap:12px 16px; align-items:center; margin:24px 0 8px; }
 button{ font:inherit; cursor:pointer; }
 .btn{ background:var(--accent); color:#fff; border:0; border-radius:4px; padding:9px 24px; font-size:14px; font-weight:500; letter-spacing:.25px; }
@@ -193,6 +199,7 @@ export function formPage(form: BftForm, version: FormVersion, opts: FormPageOpts
 <p><a class="preview" href="${esc(opts.previewHref)}" target="_blank" rel="noopener">Открыть БФТ целиком (только чтение)</a></p>
 <hr class="hr">
 <p class="meta">Версия формы ${version.v} · обновлена ${esc(when(version.at))} · вопросов ${total}, отвечено ${answered}</p>
+${form.lastSubmitAt ? `<p class="meta last-sent">Последняя отправка ответов: ${esc(when(form.lastSubmitAt))}</p>` : ''}
 </div>
 <div class="card"><p class="q-text">Как вас подписать</p><p class="q-where">Имя и команда — необязательно</p>
 <input type="text" id="author" maxlength="120" placeholder="Мой ответ" autocomplete="name"></div>
@@ -201,6 +208,7 @@ ${customerHtml}` : ''}
 ${teams.length || !customer.length ? `<div class="side teams"><span class="tab">Раздел ${teamNo} из ${Math.max(sections, teamNo)}</span><div class="card"><h2>Уточнения для команд</h2><p class="count">Отвечено ${answeredHere(teamList)} из ${teamCount}</p></div></div>
 ${teamsHtml}` : ''}
 ${earlierHtml}
+<div class="card sent" id="sent" role="status" aria-live="polite" hidden><p class="q-text" id="sentTitle">✓ Ответы отправлены</p><p id="sentText"></p></div>
 <div class="submit"><button class="btn" id="send" type="button" disabled>Отправить ответы</button><span id="status">Изменений нет</span></div>
 <p class="foot">Форма собрана из бизнес-функциональных требований. Не отправляйте через неё пароли и персональные данные.</p>
 </div>
@@ -229,7 +237,15 @@ send.addEventListener('click', function(){
       list.forEach(function(c){ var t=c.querySelector('textarea'), u=c.querySelector('.unk'); t.setAttribute('data-initial', u.checked?'':t.value); u.setAttribute('data-initial', u.checked?'1':'');
         var s=c.querySelector('.state'); if(!s){ s=document.createElement('span'); c.querySelector('.q-row').appendChild(s); }
         s.className='state'+(u.checked?' unk':''); s.textContent=u.checked?'Отмечено «не знаю» · только что':'Ответ сохранён · только что'; });
-      refresh(); status.textContent='Сохранено ответов: '+res.j.saved+'. Требования пересоберутся с ними через пару минут.';
+      refresh();
+      var t=new Date(res.j.at||Date.now()).toLocaleTimeString('ru-RU',{ hour:'2-digit', minute:'2-digit' });
+      var mins=res.j.rebuildAfterMs ? Math.max(1, Math.round(res.j.rebuildAfterMs/60000)) : 2;
+      document.getElementById('sentTitle').textContent='✓ Ответы отправлены в '+t+' — ответов: '+res.j.saved;
+      document.getElementById('sentText').textContent=res.j.recorded
+        ? 'Отправка записана в заявку: автор БФТ её видит. Примерно через '+mins+' мин требования пересоберутся с вашими ответами.'
+        : 'Ответы сохранены. Запись в заявку дойдёт в течение минуты, затем требования пересоберутся с вашими ответами.';
+      var box=document.getElementById('sent'); box.hidden=false; box.scrollIntoView({ behavior:'smooth', block:'center' });
+      status.textContent='Ответы отправлены в '+t+'. Можно дополнить и отправить ещё раз.';
     })
     .catch(function(e){ send.disabled=false; status.textContent='Не сохранилось: '+e.message+'. Попробуйте ещё раз.'; });
 });
@@ -366,7 +382,7 @@ export interface DeepFormLayer {
   link?: string
   version?: number
   /** Маршруты (относительно страницы) для правки и выдачи ссылки. */
-  api: { create: string; revoke: string; edit: string }
+  api: { create: string; revoke: string; edit: string; /** Входящие события (ADR-0027): отправки формы и статус пересборки. */ inbox?: string }
 }
 
 export const FORM_STYLE = `<style id="customer-form-style">
@@ -534,7 +550,7 @@ if(revoke) revoke.addEventListener('click', function(){ if(confirm('Отозва
   return `${SIDEBAR_STYLE}<nav class="cs-rail" aria-label="Панели БФТ"><button type="button" class="cs-rail-tab q" id="csSideToggle" aria-controls="csSidebar">⟩ Вопросы (${answered}/${total})</button>${RAIL_PLAN_SLOT}</nav>
 <aside class="cs-sb" id="csSidebar" aria-label="Вопросы по БФТ">
 <div class="cs-sb-head"><h4>Вопросы<span class="cs-sb-sub">${total ? `отвечено ${answered} из ${total} · заказчику ${customerCount}, командам ${total - customerCount}` : 'пока нет'}</span></h4><button type="button" class="cs-sb-x" id="csSideClose" title="Скрыть панель">×</button></div>
-<div class="cs-sb-body">${groups}
+<div class="cs-sb-body">${form.api.inbox ? inboxBlock(form.api.inbox, form.sessionId) : ''}${groups}
 <form class="cs-sb-add" id="csAddQ"><input name="text" placeholder="Свой вопрос — что нужно узнать?" maxlength="500" required><div class="row"><input name="addressee" placeholder="У кого" maxlength="120" value="заказчика"><button type="submit">Добавить</button></div></form>
 ${removed}</div>
 <div class="cs-sb-foot">${foot}</div>
