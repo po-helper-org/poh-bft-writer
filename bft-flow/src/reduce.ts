@@ -129,7 +129,9 @@ export function nextInbox(inbox: readonly InboxEntry[], event: BftEvent, pending
       const entry: InboxEntry = {
         id: event.eventId, kind: 'formSubmitted', at: event.at, formId: sub.formId,
         ...(sub.author ? { author: sub.author } : {}), addressees: sub.addressees ?? [], saved: sub.saved ?? 0, unknown: sub.unknown ?? 0,
-        rebuild: due ? { state: 'waiting', dueAt: due } : { state: 'skipped', at: event.at, reason: 'пересборку по ответам цикл не ведёт' },
+        ...(sub.coveredBy ? { coveredBy: sub.coveredBy } : {}),
+        rebuild: sub.coveredBy ? { state: 'ready', at: sub.coveredBy, reason: 'учтено сборкой, начатой после ответов' }
+          : due ? { state: 'waiting', dueAt: due } : { state: 'skipped', at: event.at, reason: 'пересборку по ответам цикл не ведёт' },
       }
       return [...moved, entry].slice(-INBOX_MAX)
     }

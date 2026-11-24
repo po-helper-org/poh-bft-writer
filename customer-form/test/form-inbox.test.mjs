@@ -90,3 +90,15 @@ test('форма: после отправки — плашка «Ответы о
   submitAnswers(f, [{ qid: 'a', text: '3 в месяц' }], '', T1)
   assert.match(formPage(f, f.versions[0], { previewHref: 'preview', answerHref: 'form/answer' }), /Последняя отправка ответов: /)
 })
+
+test('отправка старше готовой сборки — учтена: coveredBy, без паузы пересборки', () => {
+  const at = '2026-11-20T10:00:00.000Z'
+  const base = { taskId: 7, title: 'Промокоды', created: '2026-11-19T09:00:00Z', now: '2026-11-24T12:00:00Z', rebuildAfterMs: 120_000,
+    form: { id: 'f2', createdAt: '2026-11-21T09:00:00Z', publishedAt: '2026-11-21T09:05:00Z', total: 3, answers: [{ at, status: 'answer', addressee: 'заказчика' }] } }
+  const covered = historyEvents({ ...base, deep: { stage: 'ready', startedAt: '2026-11-20T10:05:00.000Z', finishedAt: '2026-11-20T10:15:00.000Z' } }).find((x) => x.kind === 'formAnswered')
+  assert.equal(covered.data.submission.coveredBy, '2026-11-20T10:05:00.000Z')
+  assert.equal(covered.data.rebuildAfterMs, undefined)
+  const fresh = historyEvents({ ...base, deep: { stage: 'building', startedAt: '2026-11-20T10:05:00.000Z' } }).find((x) => x.kind === 'formAnswered')
+  assert.equal(fresh.data.submission.coveredBy, undefined, 'идёт сборка — ответы ждут следующую')
+  assert.equal(fresh.data.rebuildAfterMs, 120_000)
+})

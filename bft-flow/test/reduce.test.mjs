@@ -163,3 +163,11 @@ test('DeepBuild не стал собирать — отправка «не по�
   s = reduce(s, { eventId: 'sk', at: at(4), actor: { kind: 'system' }, kind: 'note', data: { skipped: true, startedAt: at(3), reason: 'ответы уже учтены сборкой' } })
   assert.deepEqual(s.inbox[0].rebuild, { state: 'skipped', at: at(4), reason: 'ответы уже учтены сборкой' })
 })
+
+test('отправка, уже учтённая готовой сборкой (дошла до цикла позже), — сразу «готово», без таймера', () => {
+  const ev2 = { ...answered(at(1), { coveredBy: at(3) }) }
+  delete ev2.data.rebuildAfterMs
+  const s = reduce(agreed(), ev2)
+  assert.deepEqual(s.inbox[0].rebuild, { state: 'ready', at: at(3), reason: 'учтено сборкой, начатой после ответов' })
+  assert.equal(s.rebuild, undefined)
+})

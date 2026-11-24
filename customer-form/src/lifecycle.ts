@@ -46,6 +46,7 @@ export interface InboxEntry {
   addressees: string[]
   saved: number
   unknown: number
+  coveredBy?: string
   rebuild: { state: InboxRebuildState; dueAt?: string; at?: string; reason?: string }
 }
 

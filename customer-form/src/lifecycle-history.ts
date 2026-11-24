@@ -95,12 +95,15 @@ export function historyEvents(s: RequestSnapshot): LifecycleEvent[] {
       const upTo = f.answers.filter((a) => a.at <= at)
       const answered = upTo.filter((a) => a.status === 'answer').length
       const unknown = upTo.filter((a) => a.status === 'unknown').length
-      const sub = submissionOf(f.id, f.answers.filter((a) => a.at === at))
+      // Готовый полный БФТ, начатый после отправки, её уже учёл: событие, впервые дошедшее до цикла
+      // позже (форма переиздана под новым ключом, отправка до входящих событий), пересборку не ставит.
+      const coveredBy = s.deep?.stage === 'ready' && isoUtc(s.deep.startedAt) > at ? isoUtc(s.deep.startedAt) : undefined
+      const sub = { ...submissionOf(f.id, f.answers.filter((a) => a.at === at)), ...(coveredBy ? { coveredBy } : {}) }
       const from = sub.author ?? 'без подписи'
       push({
         eventId: `form:answers:${f.id}:${at}`, at, actor: { kind: 'customer', ...(sub.author ? { name: sub.author } : {}) }, kind: 'formAnswered',
         summary: `Форма заполнена (${from}): +${sub.saved}, всего отвечено ${answered} из ${f.total}`,
-        data: { questions: { total: f.total, answered, unknown }, submission: sub, ...(s.rebuildAfterMs !== undefined ? { rebuildAfterMs: s.rebuildAfterMs } : {}) },
+        data: { questions: { total: f.total, answered, unknown }, submission: sub, ...(s.rebuildAfterMs !== undefined && !coveredBy ? { rebuildAfterMs: s.rebuildAfterMs } : {}) },
       })
     }
     if (f.revokedAt) push({ eventId: `form:revoked:${f.id}`, at: f.revokedAt, actor: po, kind: 'formRevoked' })
