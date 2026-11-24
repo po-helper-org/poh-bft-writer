@@ -45,9 +45,15 @@ const po = { kind: 'po' as const }
 /** Колонки трекера, перенос в которые не новость (заявка в них рождается). */
 const INITIAL_STATUSES = ['Создан']
 
+/** Время — в UTC ISO: трекер отдаёт со смещением (+03:00), файлы — в UTC; сравниваем строки. */
+export function isoUtc(at: string | undefined): string {
+  const t = at ? Date.parse(at) : NaN
+  return Number.isNaN(t) ? '' : new Date(t).toISOString()
+}
+
 export function historyEvents(s: RequestSnapshot): LifecycleEvent[] {
   const out: LifecycleEvent[] = []
-  const push = (e: LifecycleEvent) => { if (e.at) out.push(e) }
+  const push = (e: LifecycleEvent) => { const at = isoUtc(e.at); if (at) out.push({ ...e, at }) }
 
   if (s.demo) {
     // Время предложения сценария в файлах не хранится: согласованный — только согласованием.
@@ -61,12 +67,15 @@ export function historyEvents(s: RequestSnapshot): LifecycleEvent[] {
   if (s.deep) {
     const run = s.deep.startedAt
     push({ eventId: `deep:started:${run}`, at: run, actor: system, kind: 'deepStarted' })
-    if (s.deep.stage === 'ready') push({ eventId: `deep:ready:${run}`, at: s.deep.finishedAt ?? run, actor: system, kind: 'deepReady', data: { artifact: { path: 'deep.md', rev: run } } })
+    // Правки ИИ-агента переписывают finishedAt: готов документ был не позже первой правки после сборки.
+    const firstRevision = (s.revisions ?? []).map((r) => isoUtc(r.at)).filter((at) => at && at >= isoUtc(run)).sort()[0]
+    const readyAt = [isoUtc(s.deep.finishedAt ?? run), firstRevision].filter(Boolean).sort()[0]!
+    if (s.deep.stage === 'ready') push({ eventId: `deep:ready:${run}`, at: readyAt, actor: system, kind: 'deepReady', data: { artifact: { path: 'deep.md', rev: run } } })
     if (s.deep.stage === 'failed') push({ eventId: `deep:failed:${run}`, at: s.deep.finishedAt ?? run, actor: system, kind: 'deepFailed', ...(s.deep.error ? { summary: `Полный БФТ не собран: ${s.deep.error.slice(0, 160)}`, data: { error: s.deep.error.slice(0, 500) } } : {}) })
   }
   if (s.form?.publishedAt) {
     const f = s.form
-    push({ eventId: `form:published:${f.id}`, at: f.publishedAt!, actor: po, kind: 'formPublished', data: { artifact: { path: `bft-forms/${f.id}.json` } } })
+    push({ eventId: `form:published:${f.id}`, at: f.publishedAt!, actor: po, kind: 'formPublished', data: { artifact: { path: `bft-forms/${f.id}.json` }, questions: { total: f.total, answered: 0 } } })
     // Одна отправка формы — одно событие: ответы с одним временем сохранены одной отправкой.
     const submits = [...new Set(f.answers.map((a) => a.at))].sort()
     for (const at of submits) {

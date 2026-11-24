@@ -48,3 +48,13 @@ test('сборка не удалась → ждём PO; хроника огра�
   assert.equal(s.timeline.length, 200)
   assert.equal(statusOf(s).events, 250)
 })
+
+test('форма опубликована до пересборки — после готовности ждём её адресатов; отзыв — снова PO', () => {
+  let s = run(ev('briefApproved'), ev('deepStarted'), ev('formPublished', { data: { addressees: ['заказчика'] } }))
+  assert.equal(s.stage, 'deep')
+  s = reduce(s, ev('deepReady'))
+  assert.deepEqual(s.waitingFor, ['customer'])
+  s = reduce(s, ev('formRevoked'))
+  assert.deepEqual(s.waitingFor, ['po'])
+  assert.equal(s.formOpen, undefined)
+})

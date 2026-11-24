@@ -46,7 +46,7 @@ import { bftMcp, MCP_INSTRUCTIONS } from './mcp-bft.js'
 import { bftCard, type BftState } from './bft-list.js'
 import { registerPlanRoutes, withPlan } from './plan-routes.js'
 import { registeredEvent, sharedLifecycle } from './lifecycle.js'
-import { historyEvents, type RequestSnapshot } from './lifecycle-history.js'
+import { historyEvents, isoUtc, type RequestSnapshot } from './lifecycle-history.js'
 import { lifecyclePage } from './lifecycle-page.js'
 import { withAgent } from './agent-page.js'
 import { canUndo, dshModel, newRevision, normalizeRemarks, poWords, queueRemarks, readRevisions, reviewDue, reviseDeep, revisionsContext, saveRevisions, sinceReview, undoRevision, type Revision, type TextModel } from './bft-revise.js'
@@ -300,7 +300,7 @@ export function apply(ctx: HarnessContext): void {
         const items = await backlog.overview(await backlog.sessionIds())
         let delivered = 0
         for (const item of items) {
-          const created = item.created || new Date().toISOString()
+          const created = isoUtc(item.created) || new Date().toISOString()
           const request = { taskId: item.taskId, slug: fastSlug(item.taskId), sessionId: item.sessionId, title: item.title, createdAt: created }
           const events = [registeredEvent(created, item.title), ...historyEvents(await snapshotOf(item))]
           for (const event of events) {

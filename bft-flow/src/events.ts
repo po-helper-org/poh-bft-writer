@@ -90,6 +90,8 @@ export interface LifecycleState {
   round: number
   questions?: { total: number; answered: number; unknown?: number }
   artifacts: { brief?: ArtifactRef; deep?: ArtifactRef; form?: ArtifactRef }
+  /** Форма вопросов опубликована и не отозвана: кого она ждёт. */
+  formOpen?: { addressees: string[] }
   /** Последние записи хроники (не больше TIMELINE_MAX). */
   timeline: TimelineEntry[]
   /** eventId последних событий — повтор не применяется. */

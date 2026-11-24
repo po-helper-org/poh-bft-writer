@@ -43,6 +43,12 @@ export function initialState(input: LifecycleInput): LifecycleState {
 
 export const isTerminal = (stage: Stage): boolean => TERMINAL_STAGES.includes(stage)
 
+/** Кого ждёт открытая форма: заказчика и команды-адресаты. */
+function formWaits(addressees: readonly string[]): Wait[] {
+  const teams = addressees.filter((a) => !/заказчик/i.test(a)).map((a): Wait => `team:${a}`)
+  return ['customer', ...teams]
+}
+
 /** Стадия и ожидания после события; undefined — событие стадию не меняет. */
 function transition(state: LifecycleState, event: BftEvent): { stage: Stage; waitingFor: Wait[]; round?: number } | undefined {
   const building = state.stage === 'agreement' || state.stage === 'rebuilding' || state.round > 0
@@ -59,14 +65,14 @@ function transition(state: LifecycleState, event: BftEvent): { stage: Stage; wai
     case 'deepStarted':
       return { stage: building ? 'rebuilding' : 'deep', waitingFor: ['model'] }
     case 'deepReady':
-      return { stage: 'agreement', waitingFor: ['po'], round: state.round + 1 }
+      // Форма уже открыта (опубликована до этой сборки) — ждём её адресатов, иначе PO.
+      return { stage: 'agreement', waitingFor: state.formOpen ? formWaits(state.formOpen.addressees) : ['po'], round: state.round + 1 }
     case 'deepFailed':
       return { stage: 'deep_failed', waitingFor: ['po'] }
-    case 'formPublished': {
-      if (state.stage !== 'agreement') return undefined
-      const teams = (event.data?.addressees ?? []).filter((a) => !/заказчик/i.test(a)).map((a): Wait => `team:${a}`)
-      return { stage: 'agreement', waitingFor: ['customer', ...teams] }
-    }
+    case 'formPublished':
+      return state.stage === 'agreement' ? { stage: 'agreement', waitingFor: formWaits(event.data?.addressees ?? []) } : undefined
+    case 'formRevoked':
+      return state.stage === 'agreement' ? { stage: 'agreement', waitingFor: ['po'] } : undefined
     case 'validated':
       return { stage: 'validated', waitingFor: ['po'] }
     case 'handedOff':
@@ -91,8 +97,11 @@ export function reduce(state: LifecycleState, event: BftEvent): LifecycleState {
     if (event.kind === 'formPublished' || event.kind === 'formEdited') artifacts.form = artifact
   }
   const entry = { at: event.at, kind: event.kind, actor: event.actor.kind, summary: event.summary ?? SUMMARY[event.kind] ?? event.kind, stage }
+  const formOpen = event.kind === 'formPublished' ? { addressees: event.data?.addressees ?? [] }
+    : event.kind === 'formRevoked' ? undefined : state.formOpen
   return {
     ...state,
+    ...(formOpen ? { formOpen } : { formOpen: undefined }),
     stage,
     waitingFor: next?.waitingFor ?? state.waitingFor,
     round: next?.round ?? state.round,

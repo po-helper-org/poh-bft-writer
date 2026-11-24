@@ -40,10 +40,11 @@ test('полный путь по файлам: порядок по времен�
 })
 
 test('пересборка полного БФТ — новые события (другой startedAt), сбой — с причиной', () => {
-  const a = historyEvents({ ...base, deep: { stage: 'ready', startedAt: 't1', finishedAt: 't2' } }).map((e) => e.eventId)
-  const b = historyEvents({ ...base, deep: { stage: 'building', startedAt: 't3' } }).map((e) => e.eventId)
+  const a = historyEvents({ ...base, deep: { stage: 'ready', startedAt: '2026-11-20T10:00:00Z', finishedAt: '2026-11-20T10:20:00Z' } }).map((e) => e.eventId)
+  const b = historyEvents({ ...base, deep: { stage: 'building', startedAt: '2026-11-21T10:00:00Z' } }).map((e) => e.eventId)
+  assert.equal(a.length, 2)
   assert.ok(!b.some((id) => a.includes(id)))
-  const failed = historyEvents({ ...base, deep: { stage: 'failed', startedAt: 't4', finishedAt: 't5', error: 'модель недоступна' } })
+  const failed = historyEvents({ ...base, deep: { stage: 'failed', startedAt: '2026-11-22T10:00:00Z', finishedAt: '2026-11-22T10:05:00Z', error: 'модель недоступна' } })
   assert.equal(failed.at(-1).kind, 'deepFailed')
   assert.match(failed.at(-1).summary, /модель недоступна/)
 })
@@ -51,5 +52,18 @@ test('пересборка полного БФТ — новые события (
 test('сценарий без согласования — предложен (время снимка); форма не опубликована — молчит', () => {
   const events = historyEvents({ ...base, demo: { rev: 1 }, form: { id: 'f', createdAt: 'x', total: 3, answers: [] } })
   assert.deepEqual(events.map((e) => e.eventId), ['scenario:proposed:1'])
-  assert.equal(events[0].at, base.now)
+  assert.equal(events[0].at, '2026-11-24T12:00:00.000Z')
+})
+
+test('время — в UTC: смещение трекера (+03:00) и правки ИИ-агента не путают порядок', () => {
+  const events = historyEvents({
+    ...base,
+    fast: { rev: 'r', builtAt: '2026-11-19T11:25:00+03:00', approvedAt: '2026-11-19T08:40:00Z' },
+    // Правка ИИ-агента переписала finishedAt — готов документ был не позже первой правки.
+    deep: { stage: 'ready', startedAt: '2026-11-19T08:41:00Z', finishedAt: '2026-11-24T12:30:00Z' },
+    revisions: [{ id: 'r1', kind: 'revise', at: '2026-11-23T14:50:00Z', stage: 'ready', finishedAt: '2026-11-23T14:53:00Z', edits: 1 }],
+  })
+  assert.deepEqual(events.map((e) => e.kind), ['briefBuilt', 'briefApproved', 'deepStarted', 'deepReady', 'reviseApplied'])
+  assert.equal(events[0].at, '2026-11-19T08:25:00.000Z')
+  assert.equal(events.find((e) => e.kind === 'deepReady').at, '2026-11-23T14:50:00.000Z')
 })

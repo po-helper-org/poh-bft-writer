@@ -75,8 +75,9 @@ export class Lifecycle {
         args: [request],
         signal: 'event',
         signalArgs: [event],
-        // Закрытый цикл (отменён, передан) новым событием не воскрешаем.
-        workflowIdReusePolicy: 'REJECT_DUPLICATE',
+        // Завершённый цикл (отменён, передан) новым событием не воскрешаем; прерванный
+        // администратором (terminate — например, пересбор теневой истории) — заводим заново.
+        workflowIdReusePolicy: 'ALLOW_DUPLICATE_FAILED_ONLY',
       })
       return true
     } catch (e) {
