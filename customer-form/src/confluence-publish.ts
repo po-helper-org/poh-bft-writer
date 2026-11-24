@@ -8,7 +8,9 @@
  * - Состояние публикации заявки — `confluence-publish.json` в папке заявки: pageId (по нему
  *   повторная отправка обновляет страницу, а не плодит дубль), родитель, номер прогона.
  * - Активности workflow `ConfluencePublish` (bft-flow): преобразование → страница →
- *   вложения → итог. Исполняет их портал (очередь bft-portal): у него файлы заявки.
+ *   вложения → итог. Исполняет их `confluence-publisher` (очередь bft-confluence) — тот же
+ *   образ, что портал, но в сети хоста: Confluence бывает доступен только через VPN хоста,
+ *   а ключ записи есть только у него, не у портала с агентами.
  *
  * Ключ и адрес — только из окружения (`CONFLUENCE_PUBLISH_URL`, `CONFLUENCE_PUBLISH_TOKEN`,
  * для Cloud ещё `CONFLUENCE_PUBLISH_USER`); в журнал, ответы и историю Temporal не попадают.
@@ -221,7 +223,8 @@ const WEIGHT: Record<CandidateSource, number> = { previous: 4, sibling: 3, sourc
  * ТОП-N родительских страниц: детерминированно — одинаковые кандидаты в любом порядке дают
  * один и тот же список. Очки: прошлые публикации портала (сюда уже клали БФТ) > родитель
  * похожего БФТ > страницы из материалов и разведки заявки > выдача поиска (чем выше, тем
- * больше). Страница, где в названии «БФТ»/«требования», — +1: похоже на раздел для БФТ.
+ * больше). Страница, где в названии «БФТ»/«требования», — +1: похоже на раздел для БФТ;
+ * шаблон — −3: класть под него нельзя.
  */
 export function rankParents(candidates: readonly ParentCandidate[], options: { limit?: number; exclude?: readonly string[] } = {}): ParentSuggestion[] {
   const exclude = new Set(options.exclude ?? [])
@@ -241,7 +244,11 @@ export function rankParents(candidates: readonly ParentCandidate[], options: { l
     if (!s.reasons.includes(reason)) s.reasons.push(reason)
     byId.set(c.id, s)
   }
-  for (const s of byId.values()) if (/БФТ|требовани/i.test(s.title)) s.score += 1
+  for (const s of byId.values()) {
+    if (/БФТ|требовани/i.test(s.title)) s.score += 1
+    // Шаблон страницы — не раздел для БФТ, хотя «БФТ» в названии есть.
+    if (/^\s*шаблон|\bшаблон\b|template/i.test(s.title)) s.score -= 3
+  }
   return [...byId.values()]
     .map((s) => ({ ...s, score: Math.round(s.score * 1000) / 1000, reasons: s.reasons.slice(0, 3) }))
     .sort((a, b) => b.score - a.score || a.title.localeCompare(b.title, 'ru') || a.id.localeCompare(b.id))
@@ -315,12 +322,20 @@ export interface RenderResult { title: string; labels: string[]; body: FileRef; 
 export interface PageResult { pageId: string; url: string; version: number; mode: 'create' | 'update'; title: string }
 export interface AttachResult { uploaded: string[]; skipped: string[]; names: Record<string, string> }
 export interface FinishResult { url: string; pageId: string }
+export interface AncestorInfo { id: string; space?: string; parent?: { id: string; title: string } }
 
 export interface PublishActivities {
   confluenceRender(req: PublishRequest): Promise<RenderResult>
   confluenceUpsertPage(req: PublishRequest, render: RenderResult): Promise<PageResult>
   confluenceAttach(req: PublishRequest, render: RenderResult, page: PageResult): Promise<AttachResult>
   confluenceFinish(req: PublishRequest, render: RenderResult, page: PageResult, attach: AttachResult): Promise<FinishResult>
+  /** Родители страниц (для ТОП-5: «здесь лежит похожий БФТ»); нет ключа — пусто. */
+  confluenceAncestors(ids: string[]): Promise<AncestorInfo[]>
+}
+
+/** Активность портала: итог отправки — комментарием в задачу и записью в хронику цикла. */
+export interface AnnounceActivities {
+  confluenceAnnounce(req: PublishRequest, page: { pageId: string; url: string; mode: 'create' | 'update' }): Promise<void>
 }
 
 /** Ошибка, которую повторять бессмысленно: Temporal её не повторяет (nonRetryableErrorTypes). */
@@ -334,8 +349,6 @@ export interface PublishDeps {
   exportDoc(slug: string, md: string, format: 'docx' | 'pdf'): Promise<string>
   /** Схема PlantUML → PNG; не вышло — undefined (тогда схема кодом с пометкой). */
   renderPng?(source: string, outPng: string): Promise<boolean>
-  /** Итог — в заявку трекера и хронику цикла. */
-  announce?(req: PublishRequest, page: PageResult, url: string): Promise<void>
   now?(): string
 }
 
@@ -500,9 +513,21 @@ export function publishActivities(deps: PublishDeps): PublishActivities {
         await updatePublishState(dir, { publishedAt: at, version: final.version, url: final.url })
         // Тот же файл, что пишет MCP bft_record_publication: список БФТ и агенты видят ссылку.
         await writeFile(join(dir, 'confluence.json'), JSON.stringify({ url: final.url, at, by: req.by ?? 'портал', pageId: final.pageId }), 'utf8')
-        await deps.announce?.(req, final, final.url).catch(() => undefined)
         return { url: final.url, pageId: final.pageId }
       })
+    },
+
+    async confluenceAncestors(ids) {
+      const client = deps.writer()
+      if (!client) return []
+      const out: AncestorInfo[] = []
+      for (const id of ids.filter((x) => /^\d{1,20}$/.test(x)).slice(0, 8)) {
+        const page = await client.getPage(id).catch(() => undefined)
+        if (!page) continue
+        const parent = page.ancestors[page.ancestors.length - 1]
+        out.push({ id, ...(page.space.key ? { space: page.space.key } : {}), ...(parent ? { parent } : {}) })
+      }
+      return out
     },
   }
 }

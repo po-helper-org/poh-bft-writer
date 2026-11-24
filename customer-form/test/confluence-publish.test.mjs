@@ -176,6 +176,7 @@ test('ТОП-5 родителей: порядок источников, дете
   assert.match(top[0].reasons[0], /уже публиковали/)
   assert.match(top[1].reasons[0], /похожий БФТ «\[БФТ\] zayavka-3: Выплаты»/)
   assert.equal(top[2].reasons.length, 2, 'два запроса — две причины')
+  assert.deepEqual(rankParents([{ id: '1', title: 'Шаблон. БФТ № [команда]', source: 'search', rank: 0 }, { id: '2', title: 'Скрипты', source: 'search', rank: 6 }]).map((t) => t.id), ['2', '1'], 'шаблон — ниже')
   for (let i = 0; i < 5; i++) {
     const shuffled = [...candidates].sort(() => Math.random() - 0.5)
     assert.deepEqual(rankParents(shuffled, { exclude: ['99'] }), top)
@@ -262,7 +263,6 @@ async function setup() {
     writer: () => fake.writer,
     exportDoc: async (_slug, _md, format) => { if (format === 'pdf') throw new Error('weasyprint нет'); return docx },
     renderPng: async (_src, out) => { await writeFile(out, 'PNG'); return true },
-    announce: async (req, page, url) => { announced.push({ run: req.run, mode: page.mode, url }) },
     now: () => '2026-11-24T12:00:00.000Z',
   })
   const req = (run) => ({ taskId: 7, slug: 'zayavka-7', sessionId: 's-7', run, parent: { id: '100', title: 'Раздел БФТ' } })
@@ -278,7 +278,7 @@ async function setup() {
 }
 
 test('отправка: создаёт подстраницу, повторная — обновляет ту же, вложения без изменений не грузит', async () => {
-  const { dir, fake, announced, publish } = await setup()
+  const { dir, fake, announced, publish, acts: a1 } = await setup()
   const first = await publish(1)
   assert.equal(first.page.mode, 'create')
   assert.deepEqual(first.render.attachments.map((a) => a.name), ['bft-diagram-1.png', 'zayavka-7.docx'])
@@ -302,7 +302,9 @@ test('отправка: создаёт подстраницу, повторна�
   assert.equal(fake.pages.get(first.page.pageId).version.number, 2)
   assert.deepEqual(second.attach.uploaded, [])
   assert.deepEqual(second.attach.skipped, ['bft-diagram-1.png', 'zayavka-7.docx'])
-  assert.deepEqual(announced.map((a) => a.mode), ['create', 'update'])
+  assert.deepEqual(announced, [])
+  // Родители похожих страниц — для ТОП-5 («здесь лежит похожий БФТ»).
+  assert.deepEqual(await a1.confluenceAncestors(['100', 'x', '9999', first.page.pageId]), [{ id: '100', space: 'DEMO' }, { id: first.page.pageId, space: 'DEMO', parent: { id: '100', title: 'Раздел БФТ' } }])
 })
 
 test('страницу удалили из состояния — находит свою по названию и метке; чужая с тем же названием — отказ', async () => {
