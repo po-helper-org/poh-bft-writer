@@ -164,6 +164,9 @@ export class Backlog {
   }
   private readonly failCreate = new Set<string>()
 
+  /** Заявка только что заведена (жизненный цикл, ADR-0022). Наблюдатель, не участник: ошибки глотаются. */
+  onRegistered?: (sessionId: string, ticket: Ticket, text: string) => void
+
   async find(sessionId: string): Promise<Ticket | undefined> {
     return (await this.tickets)[sessionId]
   }
@@ -177,6 +180,7 @@ export class Backlog {
       if (known) return known
       const ticket = await this.submit(text)
       await this.save(sessionId, ticket)
+      try { this.onRegistered?.(sessionId, ticket, text) } catch { /* наблюдатель не роняет заявку */ }
       return ticket
     })()
     this.pending.set(sessionId, job)
@@ -311,6 +315,30 @@ export class Backlog {
     const res = await this.fetchImpl(`${this.cfg.trackerUrl}/projects/${pid}`, { headers: await this.vkHeaders() })
     const views = ((await res.json()) as { views?: { id: number; title: string; view_kind: string }[] }).views ?? []
     return views.find((v) => v.title === 'Запросы') ?? views.find((v) => v.view_kind === 'kanban')
+  }
+
+  /**
+   * Перенести задачу в колонку доски «Запросы» (ADR-0022, шаг 4: так переносит цикл заявки).
+   * Задача стоит не в одной из `allowedFrom` (PO поставил сам) — не трогаем, отдаём, где она.
+   */
+  async moveRequest(taskId: number, to: string, allowedFrom: readonly string[]): Promise<{ moved: boolean; column: string }> {
+    const view = await this.requestsView()
+    if (!view) throw new Error('трекер: вида «Запросы» нет')
+    const statuses = await this.statuses()
+    const current = statuses.get(taskId) ?? statuses.get(0) ?? ''
+    if (current === to) return { moved: false, column: to }
+    if (!allowedFrom.includes(current)) return { moved: false, column: current }
+    const pid = await this.projectId()
+    const headers = await this.vkHeaders()
+    const res = await this.fetchImpl(`${this.cfg.trackerUrl}/projects/${pid}/views/${view.id}/buckets`, { headers })
+    const buckets = (await res.json()) as { id: number; title: string }[]
+    const target = Array.isArray(buckets) ? buckets.find((b) => b.title === to) : undefined
+    if (!target) throw new Error(`трекер: колонки «${to}» на доске «Запросы» нет`)
+    const moved = await this.fetchImpl(`${this.cfg.trackerUrl}/projects/${pid}/views/${view.id}/buckets/${target.id}/tasks`, {
+      method: 'POST', headers, body: JSON.stringify({ task_id: taskId }),
+    })
+    if (!moved.ok) throw new Error(`трекер: перенос в «${to}» ${moved.status}`)
+    return { moved: true, column: to }
   }
 
   /** Задача → колонка доски «Запросы»; ключ 0 — первая колонка (новые). */

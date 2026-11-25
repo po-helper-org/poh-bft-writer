@@ -270,6 +270,42 @@ export function submitAnswers(form: BftForm, items: readonly SubmitItem[], autho
 const day = (iso: string) => iso.slice(0, 10)
 
 /**
+ * Одна отправка формы («Отправить ответы») — ответы с одним временем: submitAnswers ставит
+ * всем ответам отправки одно `at`. Ответ, заменённый позже, лежит в history — отправка его
+ * не теряет. Порядок — как в форме (по qid в текущей версии), затем остальные.
+ */
+export interface Submission {
+  at: string
+  author?: string
+  /** Адресаты вопросов отправки — разделы «Для: …» формы, по порядку появления. */
+  addressees: string[]
+  items: Array<Pick<FormAnswer, 'qid' | 'question' | 'addressee' | 'text' | 'status'>>
+  saved: number
+  unknown: number
+}
+
+export function submissionsOf(form: BftForm): Submission[] {
+  const byAt = new Map<string, FormAnswer[]>()
+  for (const a of [...Object.values(form.answers), ...form.history]) {
+    const list = byAt.get(a.at) ?? []
+    if (!list.some((x) => x.qid === a.qid)) list.push(a)
+    byAt.set(a.at, list)
+  }
+  const order = new Map((latestVersion(form)?.questions ?? []).map((q, i) => [q.qid, i]))
+  const rank = (qid: string) => order.get(qid) ?? Number.MAX_SAFE_INTEGER
+  return [...byAt.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([at, list]) => {
+    const items = list.sort((x, y) => rank(x.qid) - rank(y.qid))
+    const author = items.find((a) => a.author)?.author
+    return {
+      at, ...(author ? { author } : {}),
+      addressees: [...new Set(items.map((a) => a.addressee))],
+      items: items.map(({ qid, question, addressee, text, status }) => ({ qid, question, addressee, text, status })),
+      saved: items.length, unknown: items.filter((a) => a.status === 'unknown').length,
+    }
+  })
+}
+
+/**
  * Ответы для модели (контекст сборки полного БФТ): по вопросу — ответ, кто и
  * когда. «Не знаю» — отдельно: маркер остаётся. Пусто — ''.
  */

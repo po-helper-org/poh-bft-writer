@@ -5,13 +5,14 @@
  *    «Не знаю / не ко мне», подпись — по желанию; ссылка на предпросмотр БФТ;
  *  - previewPage — полный БФТ только на чтение по той же ссылке: без выгрузки,
  *    комментариев и служебных блоков; вопросы и пометки [УТОЧНИТЬ] ведут в форму;
- *  - deepFormBlock / deepFormFooter — слой формы на странице полного БФТ в
- *    портале: правка вопросов PO на месте и «Сформировать форму».
+ *  - deepFormSidebar — слой формы на странице полного БФТ в портале: боковая
+ *    панель с вопросами, правкой PO и «Сформировать форму» / ссылкой формы.
  * Открытые страницы — noindex, без запросов к корню хоста.
  */
 import { deepPageBase } from './fast-page.js'
 import { formTitle, questionForMarker, type BftForm, type FormAnswer, type FormQuestion, type FormVersion } from './forms.js'
 import { UNASSIGNED, type QuestionRef } from './questions.js'
+import { inboxBlock } from './form-inbox.js'
 
 const esc = (s: unknown) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!))
 const unesc = (s: string) => s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#x27;|&#39;/g, "'").replace(/&amp;/g, '&')
@@ -88,6 +89,11 @@ input[type=checkbox]{ width:18px; height:18px; margin:0; accent-color:var(--acce
 .done summary{ cursor:pointer; font-size:16px; }
 .done ul{ padding-left:18px; margin:12px 0 0; }
 .done li{ margin:8px 0; }
+.sent{ border:1px solid #1e8e3e; border-left:6px solid #1e8e3e; background:#e6f4ea; }
+.sent[hidden]{ display:none; }
+.sent .q-text{ color:#137333; font-weight:500; }
+.sent p{ margin:.3rem 0 0; }
+.last-sent{ color:#137333; }
 .submit{ display:flex; flex-wrap:wrap; gap:12px 16px; align-items:center; margin:24px 0 8px; }
 button{ font:inherit; cursor:pointer; }
 .btn{ background:var(--accent); color:#fff; border:0; border-radius:4px; padding:9px 24px; font-size:14px; font-weight:500; letter-spacing:.25px; }
@@ -193,6 +199,7 @@ export function formPage(form: BftForm, version: FormVersion, opts: FormPageOpts
 <p><a class="preview" href="${esc(opts.previewHref)}" target="_blank" rel="noopener">Открыть БФТ целиком (только чтение)</a></p>
 <hr class="hr">
 <p class="meta">Версия формы ${version.v} · обновлена ${esc(when(version.at))} · вопросов ${total}, отвечено ${answered}</p>
+${form.lastSubmitAt ? `<p class="meta last-sent">Последняя отправка ответов: ${esc(when(form.lastSubmitAt))}</p>` : ''}
 </div>
 <div class="card"><p class="q-text">Как вас подписать</p><p class="q-where">Имя и команда — необязательно</p>
 <input type="text" id="author" maxlength="120" placeholder="Мой ответ" autocomplete="name"></div>
@@ -201,6 +208,7 @@ ${customerHtml}` : ''}
 ${teams.length || !customer.length ? `<div class="side teams"><span class="tab">Раздел ${teamNo} из ${Math.max(sections, teamNo)}</span><div class="card"><h2>Уточнения для команд</h2><p class="count">Отвечено ${answeredHere(teamList)} из ${teamCount}</p></div></div>
 ${teamsHtml}` : ''}
 ${earlierHtml}
+<div class="card sent" id="sent" role="status" aria-live="polite" hidden><p class="q-text" id="sentTitle">✓ Ответы отправлены</p><p id="sentText"></p></div>
 <div class="submit"><button class="btn" id="send" type="button" disabled>Отправить ответы</button><span id="status">Изменений нет</span></div>
 <p class="foot">Форма собрана из бизнес-функциональных требований. Не отправляйте через неё пароли и персональные данные.</p>
 </div>
@@ -229,7 +237,15 @@ send.addEventListener('click', function(){
       list.forEach(function(c){ var t=c.querySelector('textarea'), u=c.querySelector('.unk'); t.setAttribute('data-initial', u.checked?'':t.value); u.setAttribute('data-initial', u.checked?'1':'');
         var s=c.querySelector('.state'); if(!s){ s=document.createElement('span'); c.querySelector('.q-row').appendChild(s); }
         s.className='state'+(u.checked?' unk':''); s.textContent=u.checked?'Отмечено «не знаю» · только что':'Ответ сохранён · только что'; });
-      refresh(); status.textContent='Сохранено ответов: '+res.j.saved+'. Требования пересоберутся с ними через пару минут.';
+      refresh();
+      var t=new Date(res.j.at||Date.now()).toLocaleTimeString('ru-RU',{ hour:'2-digit', minute:'2-digit' });
+      var mins=res.j.rebuildAfterMs ? Math.max(1, Math.round(res.j.rebuildAfterMs/60000)) : 2;
+      document.getElementById('sentTitle').textContent='✓ Ответы отправлены в '+t+' — ответов: '+res.j.saved;
+      document.getElementById('sentText').textContent=res.j.recorded
+        ? 'Отправка записана в заявку: автор БФТ её видит. Примерно через '+mins+' мин требования пересоберутся с вашими ответами.'
+        : 'Ответы сохранены. Запись в заявку дойдёт в течение минуты, затем требования пересоберутся с вашими ответами.';
+      var box=document.getElementById('sent'); box.hidden=false; box.scrollIntoView({ behavior:'smooth', block:'center' });
+      status.textContent='Ответы отправлены в '+t+'. Можно дополнить и отправить ещё раз.';
     })
     .catch(function(e){ send.disabled=false; status.textContent='Не сохранилось: '+e.message+'. Попробуйте ещё раз.'; });
 });
@@ -366,7 +382,7 @@ export interface DeepFormLayer {
   link?: string
   version?: number
   /** Маршруты (относительно страницы) для правки и выдачи ссылки. */
-  api: { create: string; revoke: string; edit: string }
+  api: { create: string; revoke: string; edit: string; /** Входящие события (ADR-0027): отправки формы и статус пересборки. */ inbox?: string }
 }
 
 export const FORM_STYLE = `<style id="customer-form-style">
@@ -395,61 +411,243 @@ const answerLine = (a: FormAnswer | undefined) => !a ? ''
     ? `<span class="cs-ans unk">не знают${a.author ? ` (${esc(a.author)})` : ''}</span>`
     : `<span class="cs-ans">✓ ${esc(a.text.length > 160 ? `${a.text.slice(0, 160)}…` : a.text)}${a.author ? ` — ${esc(a.author)}` : ''}</span>`
 
-/** «Что нужно для согласования» со слоем формы: стороны, ответы, правка PO на месте (шаг 2). */
-export function deepFormBlock(form: DeepFormLayer): string {
-  const { customer, teams } = arrange(form.questions)
-  const item = (q: FormQuestion) => `<li class="cs-q" data-qid="${esc(q.qid)}">${form.link ? `<a href="${esc(`${form.link}#q-${q.qid}`)}" target="_blank" rel="noopener">${esc(q.text)}</a>` : esc(q.text)}${q.refs.length ? ` <span class="cs-q-ref">— ${esc(refText(q.refs))}</span>` : ''}${q.manual ? ' <span class="cs-q-ref">(добавлен PO)</span>' : ''}<span class="cs-tools"><button type="button" data-op="edit" title="Переформулировать">✎</button><button type="button" data-op="addressee" title="Сменить адресата">кому</button><button type="button" data-op="remove" title="Убрать из формы">×</button></span>${answerLine(form.answers[q.qid])}</li>`
-  const customerHtml = customer.length ? `<ul>${customer.map(item).join('')}</ul>` : '<p class="cs-q-ref">Вопросов к заказчику нет.</p>'
-  const teamsHtml = teams.length ? teams.map((g) => `<h3>${esc(g.addressee === UNASSIGNED ? g.addressee : `Спросить у ${g.addressee}`)}</h3><ul>${g.items.map(item).join('')}</ul>`).join('') : '<p class="cs-q-ref">Вопросов к командам нет.</p>'
-  const removed = form.removed.length
-    ? `<details><summary class="cs-q-ref">Убраны из формы — ${form.removed.length}</summary><ul>${form.removed.map((q) => `<li class="cs-q" data-qid="${esc(q.qid)}">${esc(q.text)} <span class="cs-tools"><button type="button" data-op="restore">вернуть</button></span></li>`).join('')}</ul></details>`
-    : ''
-  return `<section class="cs-questions" id="customer-questions"><h2 id="sec-questions">Что нужно для согласования</h2>
-<h3 class="cs-side">Вопросы заказчику</h3>${customerHtml}
-<h3 class="cs-side">Уточнения для команд</h3>${teamsHtml}
-${removed}
-<form class="cs-add" id="csAddQ"><input name="text" placeholder="Свой вопрос — что нужно узнать?" maxlength="500" required><input name="addressee" placeholder="У кого (заказчика, команды…)" maxlength="120" value="заказчика"><button type="submit">+ Добавить вопрос</button></form>
-<p class="cs-form-link">${form.link ? `Форма вопросов: <a href="${esc(form.link)}" target="_blank" rel="noopener">открыть</a> · версия ${form.version ?? 1}` : '<a href="#customer-form-share">Сформировать форму для заказчика и команд ↓</a>'}</p>
-</section>`
+/** Пометка [УТОЧНИТЬ] со своим вопросом — `data-qid`: из боковой панели к ней можно перейти. */
+export function tagMarks(page: string, questions: readonly FormQuestion[]): string {
+  return page.replace(/<mark class="unc">([\s\S]*?)<\/mark>/g, (whole, inner: string) => {
+    const m = /\[УТОЧНИТЬ([^\]]*)\]/.exec(unesc(inner.replace(/<[^>]+>/g, '')))
+    const q = m ? questionForMarker(m[1] ?? '', questions) : undefined
+    return q ? `<mark class="unc" data-qid="${esc(q.qid)}">${inner}</mark>` : whole
+  })
 }
 
-/** Внизу БФТ — «Сформировать форму» / ссылка, «Скопировать», «Отозвать» (шаги 3–4). */
-export function deepFormFooter(form: DeepFormLayer): string {
-  const count = form.questions.length
-  const customer = form.questions.filter((q) => q.side === 'customer').length
+/** Место вкладки «Планирование» в рейке: её ставит plan-routes (ADR-0025). */
+export const RAIL_PLAN_SLOT = '<!--cs-rail-plan-->'
+
+const SIDEBAR_STYLE = `<style id="customer-sidebar-style">
+.rail, #navDrawer, #uncDrawer{ display:none !important; }
+:root{ --sb-w:min(360px, 92vw); }
+.cs-rail{ position:fixed; left:0; top:50%; transform:translateY(-50%); z-index:57; display:flex; flex-direction:column; gap:6px; align-items:flex-start; transition:left .12s ease; }
+body.cs-sb-open .cs-rail{ left:var(--sb-w); }
+.cs-rail-tab{ writing-mode:vertical-rl; transform:rotate(180deg); border:none; cursor:pointer; color:#fff; text-decoration:none;
+  font:.72rem/1 "Courier New",monospace; letter-spacing:.03em; padding:.8rem .4rem; }
+.cs-rail-tab:visited{ color:#fff; }
+.cs-rail-tab.q{ background:#e00000; }
+.cs-rail-tab.plan{ background:var(--fg); color:var(--bg); }
+.cs-sb{ position:fixed; left:0; top:0; bottom:0; width:var(--sb-w); z-index:58; display:none; flex-direction:column;
+  background:var(--bg); border-right:1px solid var(--line-soft); --sb-font:system-ui,-apple-system,"Segoe UI",sans-serif; font:400 14px/20px var(--sb-font); color:var(--fg); }
+body.cs-sb-open .cs-sb.on{ display:flex; animation:cs-sb-in .5s cubic-bezier(.22,1,.36,1); }
+@keyframes cs-sb-in{ from{ opacity:0; transform:translateX(-12px); } to{ opacity:1; transform:none; } }
+@media (prefers-reduced-motion:reduce){ body.cs-sb-open .cs-sb.on{ animation:cs-sb-fade .3s linear; } @keyframes cs-sb-fade{ from{ opacity:0; } } }
+@media (min-width:1180px){ body.cs-sb-open{ padding-left:var(--sb-w); } }
+.cs-sb :focus-visible{ outline:2px solid var(--fg); outline-offset:2px; }
+.cs-sb button{ font-family:inherit; }
+.cs-sb-head{ display:flex; align-items:center; gap:8px; padding:12px 8px 12px 16px; }
+.cs-sb-head h4{ flex:1; min-width:0; margin:0; display:flex; align-items:baseline; gap:8px; font:500 16px/24px var(--sb-font); }
+.cs-sb-head .cs-sb-sub{ color:var(--muted); font:400 12px/16px var(--sb-font); margin:0; }
+.cs-sb-x{ flex:none; display:grid; place-items:center; width:32px; height:32px; padding:0; border:0; border-radius:8px; background:transparent; color:var(--muted); cursor:pointer; font-size:20px; line-height:1; transition:background-color .3s cubic-bezier(.22,1,.36,1), color .3s cubic-bezier(.22,1,.36,1); }
+.cs-sb-x:hover{ background:var(--mark); color:var(--fg); }
+.cs-sb-x:active{ transform:translateY(1px); }
+.cs-sb-prog{ padding:0 16px 12px; border-bottom:1px solid var(--line-soft); }
+.cs-sb-prog .lbl{ display:flex; justify-content:space-between; font:400 12px/16px var(--sb-font); color:var(--muted); margin-bottom:8px; }
+.cs-sb-prog .lbl b{ font-weight:500; color:var(--fg); }
+.cs-sb-bar{ height:4px; border-radius:9999px; background:var(--line-soft); overflow:hidden; }
+.cs-sb-bar i{ display:block; height:100%; border-radius:9999px; background:#2f7d32; transform-origin:left; }
+.cs-sb-body{ flex:1; overflow-y:auto; padding:8px 16px 16px; }
+.cs-sb-group{ display:flex; align-items:center; gap:8px; margin:16px 0 4px; font:500 12px/16px var(--sb-font); color:var(--muted); }
+.cs-sb-group:first-child{ margin-top:8px; }
+.cs-cnt{ min-width:20px; padding:0 6px; border-radius:9999px; background:var(--mark); color:var(--fg); text-align:center; }
+.cs-sb ul{ list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:2px; }
+.sb-q{ position:relative; display:grid; grid-template-columns:16px minmax(0,1fr); column-gap:8px; padding:8px; margin:0 -8px; border-radius:8px; transition:background-color .3s cubic-bezier(.22,1,.36,1); }
+.sb-q:hover, .sb-q:focus-within{ background:var(--mark); }
+.sb-ic{ width:16px; height:16px; margin-top:2px; color:var(--muted); }
+.sb-q.done .sb-ic{ color:#2f7d32; }
+.sb-q.unk .sb-ic{ color:#b26a00; }
+.sb-q-main{ min-width:0; }
+.sb-q-text{ cursor:pointer; overflow-wrap:anywhere; }
+.sb-q-text:hover{ text-decoration:underline; text-underline-offset:3px; text-decoration-color:var(--muted); }
+.sb-q-text.nolink{ cursor:default; text-decoration:none; }
+.sb-q-ref{ display:block; margin-top:2px; font:400 12px/16px var(--sb-font); color:var(--muted); }
+.sb-ans{ display:block; margin-top:8px; padding:8px; border-radius:6px; background:rgba(47,125,50,.08); font:400 12px/16px var(--sb-font); overflow-wrap:anywhere; }
+.sb-ans .who{ color:var(--muted); }
+.sb-ans.unk{ background:rgba(178,106,0,.1); }
+.sb-tools{ position:absolute; top:4px; right:4px; display:flex; gap:2px; padding:2px; border:1px solid var(--line-soft); border-radius:8px; background:var(--bg); opacity:0; pointer-events:none; transition:opacity .3s cubic-bezier(.22,1,.36,1); }
+.sb-q:hover .sb-tools, .sb-q:focus-within .sb-tools{ opacity:1; pointer-events:auto; }
+.sb-q.editing .sb-tools{ display:none; }
+@media (hover:none){ .sb-tools{ position:static; opacity:1; pointer-events:auto; margin:8px 0 0 -2px; border:0; padding:0; background:transparent; } }
+.sb-q-main > [hidden]{ display:none !important; }
+.cs-ghost{ padding:2px 8px; border:0; border-radius:6px; background:transparent; color:var(--muted); font:500 12px/16px var(--sb-font); cursor:pointer; transition:background-color .3s cubic-bezier(.22,1,.36,1), color .3s cubic-bezier(.22,1,.36,1); }
+.cs-ghost:hover{ background:var(--line-soft); color:var(--fg); }
+.cs-ghost:active{ transform:translateY(1px); }
+.cs-ghost.danger:hover{ color:#b3261e; }
+.sb-edit{ display:flex; flex-direction:column; gap:8px; }
+.cs-sb textarea, .cs-sb input[type=text]{ width:100%; box-sizing:border-box; padding:8px 12px; border:1px solid var(--line-soft); border-radius:8px; background:var(--bg); color:inherit; font:400 14px/20px var(--sb-font); resize:vertical; transition:border-color .3s cubic-bezier(.22,1,.36,1); }
+.cs-sb textarea:focus, .cs-sb input[type=text]:focus{ border-color:var(--fg); outline:none; }
+.cs-sb label.f{ display:flex; flex-direction:column; gap:4px; font:500 12px/16px var(--sb-font); color:var(--muted); }
+.cs-row{ display:flex; gap:8px; }
+.cs-sb-empty{ margin:16px 0 8px; padding:24px 16px; border:1px dashed var(--line-soft); border-radius:12px; text-align:center; }
+.cs-sb-empty b{ display:block; font:500 14px/20px var(--sb-font); }
+.cs-sb-empty span{ display:block; margin-top:4px; font:400 12px/16px var(--sb-font); color:var(--muted); text-wrap:pretty; }
+.cs-sb-addbtn{ display:flex; align-items:center; justify-content:center; gap:8px; width:100%; margin-top:16px; padding:8px 12px; border:1px dashed var(--line-soft); border-radius:8px; background:transparent; color:var(--muted); font:500 14px/20px var(--sb-font); cursor:pointer; transition:border-color .3s cubic-bezier(.22,1,.36,1), color .3s cubic-bezier(.22,1,.36,1); }
+.cs-sb-addbtn:hover{ border-color:var(--fg); color:var(--fg); }
+.cs-sb-add{ display:flex; flex-direction:column; gap:12px; margin-top:16px; padding:12px; border:1px solid var(--line-soft); border-radius:12px; }
+.cs-sb-add[hidden], .cs-sb-addbtn[hidden]{ display:none; }
+.cs-sb details{ margin-top:24px; }
+.cs-sb summary{ font:500 12px/16px var(--sb-font); color:var(--muted); cursor:pointer; list-style:none; display:flex; align-items:center; gap:8px; }
+.cs-sb summary::-webkit-details-marker{ display:none; }
+.cs-sb summary::before{ content:"›"; display:inline-block; width:8px; transition:transform .3s cubic-bezier(.22,1,.36,1); }
+.cs-sb details[open] summary::before{ transform:rotate(90deg); }
+.cs-sb details ul{ margin-top:8px; }
+.sb-gone{ display:flex; align-items:flex-start; justify-content:space-between; gap:8px; padding:8px; margin:0 -8px; border-radius:8px; color:var(--muted); }
+.sb-gone:hover{ background:var(--mark); }
+.cs-sb-err{ margin:0 16px 12px; padding:8px 12px; border-radius:8px; background:rgba(179,38,30,.08); color:#b3261e; font:400 12px/16px var(--sb-font); }
+.cs-sb-err[hidden]{ display:none; }
+.cs-sb-foot{ display:flex; flex-direction:column; gap:8px; padding:12px 16px 16px; border-top:1px solid var(--line-soft); background:var(--bg); }
+.cs-sb-main, .cs-btn{ display:block; width:100%; box-sizing:border-box; padding:8px 12px; border:1px solid var(--fg); border-radius:8px; background:var(--fg); color:var(--bg); font:600 14px/20px var(--sb-font); text-align:center; text-decoration:none; cursor:pointer; transition:opacity .3s cubic-bezier(.22,1,.36,1); }
+.cs-sb-main:hover, .cs-btn:hover{ opacity:.88; }
+.cs-sb-main:active, .cs-btn:active{ transform:translateY(1px); }
+.cs-sb-main:disabled, .cs-btn:disabled{ opacity:.4; cursor:default; transform:none; }
+.cs-btn.sm{ width:auto; padding:4px 12px; font-size:12px; line-height:16px; }
+.cs-sb-alt{ display:block; width:100%; box-sizing:border-box; padding:8px 12px; border:1px solid var(--line-soft); border-radius:8px; background:transparent; color:inherit; font:600 14px/20px var(--sb-font); text-align:center; text-decoration:none; cursor:pointer; transition:border-color .3s cubic-bezier(.22,1,.36,1); }
+.cs-sb-alt:hover{ border-color:var(--fg); }
+.cs-sb-alt:visited{ color:inherit; }
+.cs-link-lbl{ display:flex; justify-content:space-between; font:500 12px/16px var(--sb-font); color:var(--muted); }
+.cs-link{ display:flex; align-items:center; gap:4px; padding:4px 4px 4px 12px; border:1px solid var(--line-soft); border-radius:8px; }
+.cs-link input{ flex:1; min-width:0; border:0 !important; padding:0 !important; background:transparent; color:var(--muted); font:400 12px/16px ui-monospace,SFMono-Regular,Menlo,monospace !important; }
+.cs-link .cs-btn{ flex:none; }
+.cs-sb-links{ display:flex; gap:8px; align-items:center; }
+.cs-sb-links .cs-sb-alt{ flex:1; }
+.cs-flash{ outline:2px solid #e00000 !important; outline-offset:2px; }
+@media print{ .cs-rail, .cs-sb{ display:none !important; } body.cs-sb-open{ padding-left:0; } }
+</style>`
+
+/**
+ * Боковая панель формы вопросов на странице полного БФТ (ADR-0018, ADR-0026):
+ * вместо «Содержания» и обхода «УТОЧНИТЬ» — рейка «Вопросы» и «Планирование»;
+ * в панели — вопросы по сторонам с ответами и правкой PO, свой вопрос, внизу —
+ * «Сформировать форму» или ссылка формы. Клик по вопросу — к его пометке в тексте.
+ * Вид — по сетке отступов 4/8/12/16/24 и шкале шрифта 12/14/16; правка вопроса и
+ * адресата — на месте, ошибки — строкой в панели, без alert/prompt.
+ */
+export function deepFormSidebar(form: DeepFormLayer): string {
+  const { customer, teams } = arrange(form.questions)
+  const total = form.questions.length
   const answered = form.questions.filter((q) => form.answers[q.qid]).length
-  const body = form.link
-    ? `<p>Ссылка открывается без входа в портал. Ответы встраиваются в БФТ: документ пересобирается через пару минут после ответа, форма — вслед за ним.</p>
-<input id="csFormUrl" readonly value="${esc(form.link)}">
-<p><button type="button" class="cs-big" id="csCopy">Скопировать ссылку</button> <a href="${esc(form.link)}" target="_blank" rel="noopener">Открыть форму</a> · <button type="button" id="csRevoke">Отозвать ссылку</button></p>
-<p class="cs-q-ref">Вопросов ${count} (заказчику — ${customer}, командам — ${count - customer}), отвечено ${answered}. Отозванная ссылка перестаёт открываться; ответы остаются, новая ссылка — той же кнопкой.</p>`
-    : `<p>Вопросы из «Что нужно для согласования» — формой по ссылке: заказчик и команды открывают её без входа в портал и отвечают. Ответы встраиваются в БФТ, документ пересобирается.</p>
-<p><button type="button" class="cs-big" id="csCreate">Сформировать форму</button></p>
-<p class="cs-q-ref">Вопросов ${count}: заказчику — ${customer}, командам — ${count - customer}. Поправить их можно выше, в «Что нужно для согласования».</p>`
+  const addressees = [...new Set(['заказчика', ...form.questions.map((q) => q.addressee).filter((a) => a && a !== UNASSIGNED)])]
+  const item = (q: FormQuestion) => {
+    const a = form.answers[q.qid]
+    const state = !a ? 'open' : a.status === 'unknown' ? 'unk' : 'done'
+    const ref = [q.refs.length ? refText(q.refs) : '', q.manual ? 'добавлен PO' : ''].filter(Boolean).join(' · ')
+    const ids = q.refs.map((r) => r.id).filter(Boolean).join('|'), sections = q.refs.map((r) => r.section).filter(Boolean).join('|')
+    return `<li class="sb-q ${state}" data-qid="${esc(q.qid)}" data-ids="${esc(ids)}" data-sections="${esc(sections)}" data-addressee="${esc(q.addressee)}">${SB_ICON[state]}<div class="sb-q-main"><span class="sb-q-text" title="Показать в тексте">${esc(q.text)}</span>${ref ? `<span class="sb-q-ref">${esc(ref)}</span>` : ''}${sbAnswer(a)}<div class="sb-tools"><button type="button" class="cs-ghost" data-op="edit">Изменить</button><button type="button" class="cs-ghost" data-op="addressee">Адресат</button><button type="button" class="cs-ghost danger" data-op="remove">Убрать</button></div></div></li>`
+  }
+  const group = (label: string, items: FormQuestion[]) => `<div class="cs-sb-group">${esc(label)}<span class="cs-cnt">${items.length}</span></div><ul>${items.map(item).join('')}</ul>`
+  const groups = total
+    ? [customer.length ? group('Заказчику', customer) : '', ...teams.map((g) => group(g.addressee, g.items))].join('')
+    : '<div class="cs-sb-empty"><b>Вопросов пока нет</b><span>Добавьте вопрос заказчику или команде, из них соберётся форма.</span></div>'
+  const removed = form.removed.length
+    ? `<details><summary>Убраны из формы · ${form.removed.length}</summary><ul>${form.removed.map((q) => `<li class="sb-gone" data-qid="${esc(q.qid)}"><span>${esc(q.text)}</span><button type="button" class="cs-ghost" data-op="restore">Вернуть</button></li>`).join('')}</ul></details>`
+    : ''
+  const composer = `<button type="button" class="cs-sb-addbtn" id="csAddOpen"${total ? '' : ' hidden'}>+ Добавить вопрос</button>
+<form class="cs-sb-add" id="csAddQ"${total ? ' hidden' : ''}><label class="f">Вопрос<textarea name="text" rows="2" maxlength="500" required placeholder="Что нужно узнать?"></textarea></label><label class="f">Кому<input type="text" name="addressee" list="csAddr" maxlength="120" value="заказчика"></label><datalist id="csAddr">${addressees.map((a) => `<option value="${esc(a)}">`).join('')}</datalist><div class="cs-row"><button type="submit" class="cs-btn sm">Добавить</button>${total ? '<button type="button" class="cs-ghost" id="csAddCancel">Отмена</button>' : ''}</div></form>`
+  const foot = form.link
+    ? `<div class="cs-link-lbl"><span>Ссылка на форму</span><span>версия ${form.version ?? 1}</span></div>
+<div class="cs-link"><input id="csFormUrl" readonly value="${esc(form.link)}" aria-label="Ссылка на форму"><button type="button" class="cs-btn sm" id="csCopy">Копировать</button></div>
+<div class="cs-sb-links"><a class="cs-sb-alt" href="${esc(form.link)}" target="_blank" rel="noopener">Открыть форму</a><button type="button" class="cs-ghost danger" id="csRevoke">Отозвать</button></div>`
+    : total ? `<button type="button" class="cs-sb-main" id="csCreate">Сформировать форму</button>` : ''
+  const pct = total ? Math.round((answered / total) * 100) : 0
   const script = `<script id="customer-form-js">(function(){
-var API=${jsonInScript(form.api)}, SID=${jsonInScript(form.sessionId)};
+var API=${jsonInScript(form.api)}, SID=${jsonInScript(form.sessionId)}, KEY="bft-sidebar";
 function post(url, body){ return fetch(url,{ method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify(Object.assign({ sessionId:SID }, body||{})) }).then(function(r){ return r.json().then(function(j){ if(!r.ok) throw new Error(j&&j.error||('ошибка '+r.status)); return j; }); }); }
-function fail(e){ alert('Не получилось: '+e.message); }
-function edit(body){ return post(API.edit, body).then(function(){ location.reload(); }, fail); }
-document.addEventListener('click', function(e){
+var errBox=document.getElementById('csSbErr');
+function fail(e){ if(!errBox) return; errBox.textContent='Не получилось: '+e.message+'. Попробуйте ещё раз.'; errBox.hidden=false; }
+function edit(body){ if(errBox) errBox.hidden=true; return post(API.edit, body).then(function(){ location.reload(); }, function(e){ fail(e); throw e; }); }
+/** Слева одна панель за раз: «Вопросы» (csSidebar) или «Планирование» (csPlanSide, ставит plan.ts). */
+function show(id){ var p=id&&document.getElementById(id); if(!p) id=''; document.querySelectorAll('.cs-sb').forEach(function(x){ x.classList.toggle('on', x.id===id); }); document.body.classList.toggle('cs-sb-open', !!id);
+  document.querySelectorAll('.cs-rail [data-panel]').forEach(function(t){ t.setAttribute('aria-expanded', t.getAttribute('data-panel')===id?'true':'false'); });
+  try{ localStorage.setItem(KEY, id||'0'); }catch(e){} if(p) p.dispatchEvent(new Event('cs-open')); }
+function setOpen(open){ show(open?'csSidebar':''); }
+window.csPanel=show;
+document.addEventListener('click', function(e){ var t=e.target.closest('.cs-rail [data-panel]'); if(t){ e.preventDefault(); var id=t.getAttribute('data-panel'); show(document.getElementById(id)&&document.getElementById(id).classList.contains('on')&&document.body.classList.contains('cs-sb-open')?'':id); return; } if(e.target.closest('[data-close-panel]')) show(''); });
+function restore(){ var saved=null; try{ saved=localStorage.getItem(KEY); }catch(e){}
+  if(location.hash==='#plan') saved='csPlanSide'; else if(saved==='1') saved='csSidebar';
+  show(saved===null ? (window.innerWidth>=1180?'csSidebar':'') : saved==='0'?'':saved); }
+if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', restore); else setTimeout(restore, 0);
+document.addEventListener('keydown', function(e){ if(e.key==='Escape' && window.innerWidth<1180 && !e.target.closest('.cs-sb form, .sb-edit')) setOpen(false); });
+function norm(s){ return String(s||'').replace(/\\s+/g,' ').trim().toLowerCase(); }
+/** Куда вести вопрос: его пометка; нет — строка требования (ФТ-N); нет — заголовок раздела. */
+function target(li){
+  var m=document.querySelector('main mark.unc[data-qid="'+li.getAttribute('data-qid')+'"]'); if(m) return m;
+  var ids=(li.getAttribute('data-ids')||'').split('|').filter(Boolean), rows=document.querySelectorAll('main tr');
+  for(var i=0;i<ids.length;i++) for(var j=0;j<rows.length;j++){ var c=rows[j].cells[0]; if(c && norm(c.textContent)===norm(ids[i])) return rows[j]; }
+  var secs=(li.getAttribute('data-sections')||'').split('|').filter(Boolean), hs=document.querySelectorAll('main h2, main h3');
+  for(var k=0;k<secs.length;k++) for(var h=0;h<hs.length;h++){ if(norm(hs[h].textContent).indexOf(norm(secs[k]))>=0) return hs[h]; }
+  return null;
+}
+document.querySelectorAll('#csSidebar .sb-q').forEach(function(li){
+  var mark=target(li), t=li.querySelector('.sb-q-text');
+  if(!mark){ t.classList.add('nolink'); t.removeAttribute('title'); return; }
+  t.addEventListener('click', function(){ mark.scrollIntoView({ behavior:'smooth', block:'center' }); mark.classList.add('cs-flash'); setTimeout(function(){ mark.classList.remove('cs-flash'); }, 1600); if(window.innerWidth<1180) setOpen(false); });
+});
+/** Правка на месте: поле и «Сохранить / Отмена» вместо текста вопроса. */
+function inline(li, field, value){
+  var main=li.querySelector('.sb-q-main'); if(main.querySelector('.sb-edit')) return;
+  var box=document.createElement('form'); box.className='sb-edit';
+  var inp=document.createElement(field==='text'?'textarea':'input'); if(field==='text') inp.rows=3; else { inp.type='text'; inp.setAttribute('list','csAddr'); }
+  inp.value=value; inp.maxLength=field==='text'?500:120; inp.required=true;
+  var row=document.createElement('div'); row.className='cs-row';
+  row.innerHTML='<button type="submit" class="cs-btn sm">Сохранить</button><button type="button" class="cs-ghost">Отмена</button>';
+  box.appendChild(inp); box.appendChild(row); li.classList.add('editing');
+  Array.prototype.forEach.call(main.children, function(c){ c.hidden=true; }); main.appendChild(box); inp.focus(); if(inp.select) inp.select();
+  function close(){ box.remove(); li.classList.remove('editing'); Array.prototype.forEach.call(main.children, function(c){ c.hidden=false; }); }
+  row.lastChild.addEventListener('click', close);
+  box.addEventListener('keydown', function(e){ if(e.key==='Escape'){ e.stopPropagation(); close(); } });
+  box.addEventListener('submit', function(e){ e.preventDefault(); var v=inp.value.trim(); if(!v || v===value){ close(); return; }
+    row.firstChild.disabled=true; row.firstChild.textContent='Сохраняю…'; var body={ op:'edit', qid:li.getAttribute('data-qid') }; body[field]=v;
+    edit(body).catch(function(){ row.firstChild.disabled=false; row.firstChild.textContent='Сохранить'; }); });
+}
+document.getElementById('csSidebar').addEventListener('click', function(e){
   var b=e.target.closest('[data-op]'); if(!b) return;
   var li=b.closest('[data-qid]'), qid=li&&li.getAttribute('data-qid'), op=b.getAttribute('data-op');
-  if(op==='edit'){ var cur=(li.querySelector('a')||li).firstChild.textContent; var t=prompt('Вопрос', cur); if(t&&t.trim()&&t!==cur) edit({ op:'edit', qid:qid, text:t }); }
-  else if(op==='addressee'){ var a=prompt('У кого спросить (заказчика, команды …)', ''); if(a&&a.trim()) edit({ op:'edit', qid:qid, addressee:a }); }
-  else if(op==='remove'){ if(confirm('Убрать вопрос из формы?')) edit({ op:'remove', qid:qid }); }
-  else if(op==='restore') edit({ op:'restore', qid:qid });
+  if(op==='edit') inline(li, 'text', li.querySelector('.sb-q-text').textContent);
+  else if(op==='addressee') inline(li, 'addressee', li.getAttribute('data-addressee')||'');
+  else { b.disabled=true; edit({ op:op, qid:qid }).catch(function(){ b.disabled=false; }); }
 });
-var add=document.getElementById('csAddQ');
-if(add) add.addEventListener('submit', function(e){ e.preventDefault(); edit({ op:'add', text:add.text.value, addressee:add.addressee.value }); });
+var add=document.getElementById('csAddQ'), addOpen=document.getElementById('csAddOpen'), addCancel=document.getElementById('csAddCancel');
+if(addOpen) addOpen.addEventListener('click', function(){ addOpen.hidden=true; add.hidden=false; add.scrollIntoView({ block:'nearest', behavior:'smooth' }); add.text.focus({ preventScroll:true }); });
+if(addCancel) addCancel.addEventListener('click', function(){ add.hidden=true; addOpen.hidden=false; add.reset(); });
+if(add) add.addEventListener('submit', function(e){ e.preventDefault(); var s=add.querySelector('[type=submit]'); s.disabled=true; s.textContent='Добавляю…';
+  edit({ op:'add', text:add.text.value, addressee:add.addressee.value }).catch(function(){ s.disabled=false; s.textContent='Добавить'; }); });
 var create=document.getElementById('csCreate');
-if(create) create.addEventListener('click', function(){ create.disabled=true; post(API.create).then(function(){ location.hash='customer-form-share'; location.reload(); }, function(e){ create.disabled=false; fail(e); }); });
+if(create) create.addEventListener('click', function(){ create.disabled=true; create.textContent='Формирую форму…'; if(errBox) errBox.hidden=true; post(API.create).then(function(){ location.reload(); }, function(e){ create.disabled=false; create.textContent='Сформировать форму'; fail(e); }); });
 var copy=document.getElementById('csCopy'), url=document.getElementById('csFormUrl');
-if(copy) copy.addEventListener('click', function(){ url.select(); (navigator.clipboard?navigator.clipboard.writeText(url.value):Promise.reject()).catch(function(){ document.execCommand('copy'); }).then(function(){ copy.textContent='Скопировано'; setTimeout(function(){ copy.textContent='Скопировать ссылку'; }, 1500); }); });
+if(copy) copy.addEventListener('click', function(){ url.select(); (navigator.clipboard?navigator.clipboard.writeText(url.value):Promise.reject()).catch(function(){ document.execCommand('copy'); }).then(function(){ copy.textContent='Скопировано'; setTimeout(function(){ copy.textContent='Копировать'; }, 1500); }); });
 var revoke=document.getElementById('csRevoke');
 if(revoke) revoke.addEventListener('click', function(){ if(confirm('Отозвать ссылку? Она перестанет открываться у всех, кому её отправили.')) post(API.revoke).then(function(){ location.reload(); }, fail); });
 })();</script>`
-  return `<section class="cs-share" id="customer-form-share"><h2>Форма вопросов</h2>${body}</section>${script}`
+  return `${SIDEBAR_STYLE}<nav class="cs-rail" aria-label="Панели БФТ"><button type="button" class="cs-rail-tab q" id="csSideToggle" data-panel="csSidebar" aria-controls="csSidebar">⟩ Вопросы (${answered}/${total})</button>${RAIL_PLAN_SLOT}</nav>
+<aside class="cs-sb" id="csSidebar" aria-label="Вопросы по БФТ">
+<div class="cs-sb-head"><h4>Вопросы</h4><button type="button" class="cs-sb-x" id="csSideClose" data-close-panel title="Скрыть панель" aria-label="Скрыть панель">×</button></div>
+${total ? `<div class="cs-sb-prog"><div class="lbl"><span>Отвечено <b>${answered} из ${total}</b></span><span>${pct}%</span></div><div class="cs-sb-bar" role="progressbar" aria-valuemin="0" aria-valuemax="${total}" aria-valuenow="${answered}" aria-label="Отвечено"><i style="width:${pct}%"></i></div></div>` : ''}
+<div class="cs-sb-body">${form.api.inbox ? inboxBlock(form.api.inbox, form.sessionId) : ''}${groups}
+${composer}
+${removed}</div>
+<p class="cs-sb-err" id="csSbErr" role="alert" hidden></p>
+${foot ? `<div class="cs-sb-foot">${foot}</div>` : ''}
+</aside>${script}`
 }
+
+/** Иконки состояния вопроса (контур в духе Phosphor) — со смыслом в aria-label, не только цветом. */
+const SB_ICON: Record<'open' | 'done' | 'unk', string> = {
+  open: '<svg class="sb-ic" viewBox="0 0 16 16" role="img" aria-label="Нет ответа"><circle cx="8" cy="8" r="6.25" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>',
+  done: '<svg class="sb-ic" viewBox="0 0 16 16" role="img" aria-label="Отвечен"><circle cx="8" cy="8" r="7" fill="currentColor"/><path d="M5 8.2l2 2 4-4.2" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  unk: '<svg class="sb-ic" viewBox="0 0 16 16" role="img" aria-label="Не знают ответа"><circle cx="8" cy="8" r="6.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M6.4 6.3a1.7 1.7 0 1 1 2.4 1.6c-.5.2-.8.6-.8 1.1v.3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="11.4" r=".9" fill="currentColor"/></svg>',
+}
+
+/** Ответ в панели: текст и автор; «не знают» — отдельно. */
+const sbAnswer = (a: FormAnswer | undefined) => !a ? ''
+  : a.status === 'unknown'
+    ? `<span class="sb-ans unk">Не знают${a.author ? ` <span class="who">· ${esc(a.author)}</span>` : ''}</span>`
+    : `<span class="sb-ans">${esc(a.text.length > 160 ? `${a.text.slice(0, 160)}…` : a.text)}${a.author ? ` <span class="who">· ${esc(a.author)}</span>` : ''}</span>`
 
 // ---- предпросмотр по ссылке формы ----
 

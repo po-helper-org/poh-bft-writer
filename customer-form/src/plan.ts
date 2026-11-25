@@ -2,8 +2,10 @@
  * «Планирование» (ADR-0025): из полного БФТ — сразу к декомпозиции с командой.
  * Экран: слева заметка (Вопросы, Декомпозиция, Риски, Сроки), справа доска
  * Excalidraw. «Сохранить» кладёт в папку заявки plan/: note.md, board.excalidraw,
- * board.svg, board.pdf (WeasyPrint) и архив planirovanie.zip — он же артефакт
- * внизу страницы БФТ и вложение комментария при публикации в Confluence.
+ * board.svg, board.pdf (WeasyPrint) и архив planirovanie.zip (заметка и доска
+ * .excalidraw) — он же артефакт внизу страницы БФТ и вложение комментария при
+ * публикации в Confluence. На странице БФТ — боковая панель: сначала только
+ * заметка (автосохранение, saveNote), «Перейти на доску», «Скачать архив».
  */
 import { execFile } from 'node:child_process'
 import { mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
@@ -21,7 +23,19 @@ export const planFiles = (requestDir: string): PlanFiles => {
   return { dir, note: join(dir, 'note.md'), scene: join(dir, 'board.excalidraw'), svg: join(dir, 'board.svg'), pdf: join(dir, 'board.pdf'), zip: join(dir, 'planirovanie.zip'), meta: join(dir, 'meta.json') }
 }
 
-export interface PlanMeta { savedAt: string; by?: string; rev: number; pdf: boolean; elements: number }
+export interface PlanMeta {
+  savedAt: string; by?: string
+  /** Сохранений доски (экран «Планирование»); заметка из боковой панели номер не меняет. */
+  rev: number; pdf: boolean; elements: number
+  /** Когда доску сохранили последний раз; нет — доска не сохранялась. */
+  boardAt?: string
+  /** Когда заметку сохранили из боковой панели. */
+  noteAt?: string
+}
+
+/** Сохранена ли доска: новое — по boardAt; прежние записи писал только экран доски. */
+export const boardSavedAt = (meta: PlanMeta | undefined): string | undefined =>
+  !meta ? undefined : meta.boardAt ?? (meta.rev > 0 && !meta.noteAt ? meta.savedAt : undefined)
 
 export interface SavedPlan { note: string; scene: string; meta: PlanMeta }
 
@@ -111,15 +125,35 @@ export async function savePlan(requestDir: string, input: PlanInput, title: stri
   await put(f.scene, input.scene || '{"type":"excalidraw","version":2,"elements":[],"appState":{},"files":{}}')
   await put(f.svg, safeSvg(input.svg))
   const pdf = input.svg ? await boardPdf(f, title) : false
-  const meta: PlanMeta = { savedAt: now.toISOString(), ...(input.by ? { by: input.by } : {}), rev: (prev?.meta.rev ?? 0) + 1, pdf, elements: elementsOf(input.scene) }
+  const at = now.toISOString()
+  const meta: PlanMeta = { savedAt: at, ...(input.by ? { by: input.by } : {}), rev: (prev?.meta.rev ?? 0) + 1, pdf, elements: elementsOf(input.scene), boardAt: at }
   await put(f.meta, JSON.stringify(meta, undefined, 1))
+  await writeArchive(f, input.note, title, meta, now)
+  return meta
+}
+
+/** Архив планирования — заметка и доска .excalidraw (PDF доски — отдельным файлом). */
+async function writeArchive(f: PlanFiles, note: string, title: string, meta: PlanMeta, now: Date): Promise<void> {
   const entries: ZipEntry[] = [
-    { name: 'zametka.md', data: Buffer.from(noteDocument(input.note, title, meta), 'utf8') },
+    { name: 'zametka.md', data: Buffer.from(noteDocument(note, title, meta), 'utf8') },
     { name: 'doska.excalidraw', data: await readFile(f.scene) },
   ]
-  if (input.svg) entries.push({ name: 'doska.svg', data: await readFile(f.svg) })
-  if (pdf) entries.push({ name: 'doska.pdf', data: await readFile(f.pdf) })
-  await writeFile(f.zip, zip(entries, now))
+  await writeFile(`${f.zip}.tmp`, zip(entries, now))
+  await rename(`${f.zip}.tmp`, f.zip)
+}
+
+/** Заметка из боковой панели (автосохранение): только текст; доска есть — архив с новой заметкой. */
+export async function saveNote(requestDir: string, note: string, title: string, by?: string, now = new Date()): Promise<PlanMeta> {
+  if (note.length > PLAN_LIMITS.note) throw new Error('заметка длиннее 200 000 знаков')
+  const f = planFiles(requestDir)
+  await mkdir(f.dir, { recursive: true })
+  const prev = (await readPlan(requestDir))?.meta
+  await writeFile(`${f.note}.tmp`, note, 'utf8'); await rename(`${f.note}.tmp`, f.note)
+  const at = now.toISOString()
+  const board = boardSavedAt(prev)
+  const meta: PlanMeta = { savedAt: at, ...(by ? { by } : prev?.by ? { by: prev.by } : {}), rev: prev?.rev ?? 0, pdf: prev?.pdf ?? false, elements: prev?.elements ?? 0, ...(board ? { boardAt: board } : {}), noteAt: at }
+  await writeFile(`${f.meta}.tmp`, JSON.stringify(meta, undefined, 1), 'utf8'); await rename(`${f.meta}.tmp`, f.meta)
+  if (board) await writeArchive(f, note, title, meta, now)
   return meta
 }
 
@@ -129,13 +163,13 @@ export function noteDocument(note: string, title: string, meta: Pick<PlanMeta, '
 }
 
 /** Комментарий к странице Confluence: текст заметки и что приложено. */
-export function confluenceComment(plan: SavedPlan, title: string, names: { zip: string; pdf?: string }): string {
+export function confluenceComment(plan: SavedPlan, title: string, names: { zip?: string; pdf?: string }): string {
   return [
     `**Планирование** по «${title}» — ${moscow(plan.meta.savedAt)}${plan.meta.by ? `, ${plan.meta.by}` : ''}`,
     '',
     plan.note.trim() || '_Заметки нет — только доска._',
     '',
-    `Вложения: ${names.zip} (заметка и доска)${names.pdf ? `, ${names.pdf} (доска)` : ''}.`,
+    names.zip ? `Вложения: ${names.zip} (заметка и доска)${names.pdf ? `, ${names.pdf} (доска)` : ''}.` : '_Доска не сохранялась — вложений нет._',
   ].join('\n')
 }
 
@@ -206,7 +240,7 @@ export function zip(entries: ZipEntry[], when = new Date()): Buffer {
 const escHtml = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!))
 const jsonInScript = (v: unknown) => JSON.stringify(v).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029')
 
-export interface PlanLinks { page: string; zip: string; pdf: string; note: string }
+export interface PlanLinks { page: string; zip: string; pdf: string; note: string; noteSave: string }
 
 /** Блок на странице полного БФТ: кнопка «Планирование» вверху и артефакт внизу. */
 export function planButton(links: PlanLinks): string {
@@ -217,11 +251,61 @@ border:1px solid rgba(127,127,127,.35);color:inherit;font:600 13px/1.2 system-ui
 }
 
 /** Кнопка — сразу под заголовком документа (в потоке страницы: правый верх занят переключателем панели). */
-export function insertPlanButton(page: string, links: PlanLinks): string {
+export function insertPlanButton(page: string, links: PlanLinks, plan?: SavedPlan): string {
+  // Есть рейка боковой панели (ADR-0026) — «Планирование» вкладкой в ней и своей панелью.
+  const slot = page.indexOf('<!--cs-rail-plan-->')
+  if (slot >= 0) {
+    const tab = `<button type="button" class="cs-rail-tab plan" data-panel="csPlanSide" aria-controls="csPlanSide" title="Заметка к декомпозиции и доска">▦ Планирование</button>`
+    return appendBeforeBody(page.slice(0, slot) + tab + page.slice(slot + '<!--cs-rail-plan-->'.length), planSidebar(plan, links))
+  }
   const main = page.indexOf('<main')
   const h1 = page.indexOf('</h1>', main < 0 ? 0 : main)
   if (h1 < 0) return appendBeforeBody(page, planButton(links))
   return page.slice(0, h1 + 5) + planButton(links) + page.slice(h1 + 5)
+}
+
+/**
+ * Боковая панель «Планирование» (ADR-0025): сначала — только заметка
+ * (автосохранение), внизу «Перейти на доску»; доска сохранена — ещё «Скачать
+ * архив планирования» (.zip: заметка и доска .excalidraw). Каркас `.cs-sb` —
+ * общий с панелью «Вопросы» (form-page.ts), открывает её рейка.
+ */
+export function planSidebar(plan: SavedPlan | undefined, links: PlanLinks): string {
+  const board = boardSavedAt(plan?.meta)
+  const cfg = { saveUrl: links.noteSave, savedAt: plan?.meta.noteAt ?? plan?.meta.savedAt ?? null }
+  return `<style id="plan-side-style">
+#csPlanSide .cs-sb-body{ display:flex; flex-direction:column; padding:0; }
+#csPlanNote{ flex:1; width:100%; box-sizing:border-box; border:0; outline:0; resize:none; padding:12px 16px 24px; background:transparent; color:inherit; font:14px/20px var(--sb-font, system-ui, sans-serif); tab-size:2; }
+#csPlanSide .cs-sb-main:visited{ color:var(--bg); }
+#csPlanSt.dirty::before{ content:""; display:inline-block; width:6px; height:6px; border-radius:50%; background:#f59e0b; margin-right:5px; vertical-align:1px; }
+</style>
+<aside class="cs-sb" id="csPlanSide" aria-label="Планирование">
+<div class="cs-sb-head"><h4>Планирование<span class="cs-sb-sub" id="csPlanSt"></span></h4><button type="button" class="cs-sb-x" data-close-panel title="Скрыть панель">×</button></div>
+<div class="cs-sb-body"><textarea id="csPlanNote" spellcheck="true" aria-label="Заметка планирования" placeholder="Мысли к декомпозиции: вопросы, роли, риски, сроки…">${escHtml(plan?.note || PLAN_TEMPLATE)}</textarea></div>
+<div class="cs-sb-foot"><a class="cs-sb-main" id="csPlanBoard" href="${escHtml(links.page)}">Перейти на доску</a>${board ? `<a class="cs-sb-alt" id="csPlanZip" href="${escHtml(links.zip)}" download>Скачать архив планирования</a>` : ''}</div>
+</aside>
+<script id="plan-side-js">(function(){
+var CFG=${jsonInScript(cfg)}, note=document.getElementById("csPlanNote"), st=document.getElementById("csPlanSt"), timer=0, busy=null, last=note.value;
+function when(iso){ return new Date(iso).toLocaleTimeString("ru-RU",{hour:"2-digit",minute:"2-digit"}); }
+function mark(t,d){ st.textContent=t; st.classList.toggle("dirty",!!d); }
+if(CFG.savedAt) mark("сохранено в "+when(CFG.savedAt));
+function save(){ clearTimeout(timer); timer=0; if(note.value===last) return busy||Promise.resolve(); var text=note.value; mark("сохраняю…");
+  busy=fetch(CFG.saveUrl,{ method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify({ note:text }) })
+    .then(function(r){ return r.json().catch(function(){ return {}; }).then(function(o){ if(!r.ok||!o.ok) throw new Error(o.error||("ошибка "+r.status)); last=text; mark(note.value===text?"сохранено в "+when(o.savedAt):"не сохранено", note.value!==text); }); })
+    .catch(function(e){ mark("не сохранилось: "+e.message, true); }).then(function(){ busy=null; });
+  return busy; }
+note.addEventListener("input", function(){ mark("не сохранено", true); clearTimeout(timer); timer=setTimeout(save, 800); });
+note.addEventListener("blur", save);
+note.addEventListener("keydown", function(e){
+  if(e.key==="Tab"){ e.preventDefault(); var s=note.selectionStart; note.setRangeText("  ",s,note.selectionEnd,"end"); note.dispatchEvent(new Event("input")); return; }
+  if(e.key==="Enter"&&!e.shiftKey){ var s=note.selectionStart, line=note.value.slice(note.value.lastIndexOf("\\n",s-1)+1,s), m=/^(\\s*)([-*] |\\d+\\. )/.exec(line);
+    if(m){ e.preventDefault(); if(line.trim()===m[2].trim()) note.setRangeText("",s-line.length,s,"end"); else { var n=/\\d+/.test(m[2])?(parseInt(m[2],10)+1)+". ":m[2]; note.setRangeText("\\n"+m[1]+n,s,note.selectionEnd,"end"); } note.dispatchEvent(new Event("input")); } }
+  if((e.metaKey||e.ctrlKey)&&e.key==="s"){ e.preventDefault(); save(); }
+});
+document.getElementById("csPlanBoard").addEventListener("click", function(e){ if(note.value===last) return; e.preventDefault(); var href=this.href; save().then(function(){ location.href=href; }); });
+window.addEventListener("beforeunload", function(e){ if(note.value!==last){ save(); e.preventDefault(); e.returnValue=""; } });
+document.getElementById("csPlanSide").addEventListener("cs-open", function(){ setTimeout(function(){ note.focus(); }, 0); });
+})();</script>`
 }
 
 function appendBeforeBody(page: string, html: string): string {
@@ -230,11 +314,11 @@ function appendBeforeBody(page: string, html: string): string {
 }
 
 export function planArtifact(plan: SavedPlan | undefined, links: PlanLinks): string {
-  if (!plan) return ''
+  if (!plan || !boardSavedAt(plan.meta)) return ''
   const lines = plan.note.split('\n').filter((l) => /^#{1,3} /.test(l)).map((l) => l.replace(/^#+ /, '')).slice(0, 6)
   return `<section class="plan-art" id="planirovanie" data-plan>
 <h2>Планирование</h2>
-<p class="plan-meta">Сохранено ${escHtml(moscow(plan.meta.savedAt))}${plan.meta.by ? ` · ${escHtml(plan.meta.by)}` : ''} · версия ${plan.meta.rev}${lines.length ? ` · ${escHtml(lines.join(' · '))}` : ''}</p>
+<p class="plan-meta">Сохранено ${escHtml(moscow(boardSavedAt(plan.meta) ?? plan.meta.savedAt))}${plan.meta.by ? ` · ${escHtml(plan.meta.by)}` : ''} · версия ${plan.meta.rev}${lines.length ? ` · ${escHtml(lines.join(' · '))}` : ''}</p>
 <p class="plan-links"><a href="${escHtml(links.page)}" target="_blank" rel="noopener">Открыть</a>
 <a href="${escHtml(links.zip)}" download>Скачать .zip</a>${plan.meta.pdf ? `<a href="${escHtml(links.pdf)}" download>Доска .pdf</a>` : ''}<a href="${escHtml(links.note)}" download>Заметка .md</a></p>
 <style>.plan-art{margin:2.5rem 0 1rem;padding:1rem 1.2rem;border:1px solid rgba(127,127,127,.3);border-radius:12px}.plan-art h2{margin:0 0 .3rem}
@@ -256,7 +340,7 @@ export interface PlanPageInput {
 export function planPage(v: PlanPageInput): string {
   let scene: unknown = null
   try { scene = v.saved?.scene ? JSON.parse(v.saved.scene) : null } catch { scene = null }
-  const cfg = { scene, note: v.saved?.note ?? PLAN_TEMPLATE, saveUrl: v.saveUrl, savedAt: v.saved?.meta.savedAt ?? null, rev: v.saved?.meta.rev ?? 0, draftKey: `bft-plan:${v.slug}`, links: v.links }
+  const cfg = { scene, note: v.saved?.note ?? PLAN_TEMPLATE, saveUrl: v.saveUrl, savedAt: boardSavedAt(v.saved?.meta) ?? null, rev: v.saved?.meta.rev ?? 0, draftKey: `bft-plan:${v.slug}`, noteAt: v.saved?.meta.noteAt ?? null, links: v.links }
   return `<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Планирование · ${escHtml(v.title)}</title>
 <link rel="stylesheet" href="${escHtml(v.assetUrl('board.css'))}">
@@ -279,7 +363,7 @@ textarea{flex:1;width:100%;border:0;outline:0;resize:none;padding:16px 18px 40px
 @media (max-width:820px){.wrap{grid-template-columns:1fr;grid-template-rows:40% 60%}.note{border-right:0;border-bottom:1px solid var(--line)}}
 </style></head><body>
 <header class="top">
-  <a class="back" href="${escHtml(v.bftUrl)}">‹ БФТ</a>
+  <a class="back" href="${escHtml(v.bftUrl)}#plan">‹ БФТ</a>
   <h1>Планирование · ${escHtml(v.title)}</h1>
   <span class="st" id="st"></span>
   <a class="zip" id="done" href="${escHtml(v.links.zip)}" download title="Скачать .zip">.zip</a>
@@ -295,13 +379,13 @@ textarea{flex:1;width:100%;border:0;outline:0;resize:none;padding:16px 18px 40px
 var CFG=${jsonInScript(cfg)};
 var note=document.getElementById("note"),st=document.getElementById("st"),btn=document.getElementById("save"),done=document.getElementById("done");
 var draft=null;try{draft=JSON.parse(localStorage.getItem(CFG.draftKey)||"null")}catch(e){}
-note.value=draft&&draft.rev===CFG.rev&&typeof draft.note==="string"?draft.note:CFG.note;
+note.value=draft&&draft.rev===CFG.rev&&(draft.noteAt||null)===CFG.noteAt&&typeof draft.note==="string"?draft.note:CFG.note;
 var dirty=false;
 function when(iso){return new Date(iso).toLocaleTimeString("ru-RU",{hour:"2-digit",minute:"2-digit"})}
 function mark(t,d){st.textContent=t;st.classList.toggle("dirty",!!d)}
 mark(CFG.savedAt?"Сохранено в "+when(CFG.savedAt):"");
 if(CFG.savedAt)done.classList.add("on");
-function changed(){dirty=true;mark("Не сохранено",true);try{localStorage.setItem(CFG.draftKey,JSON.stringify({rev:CFG.rev,note:note.value}))}catch(e){}}
+function changed(){dirty=true;mark("Не сохранено",true);try{localStorage.setItem(CFG.draftKey,JSON.stringify({rev:CFG.rev,noteAt:CFG.noteAt,note:note.value}))}catch(e){}}
 note.addEventListener("input",changed);
 note.addEventListener("keydown",function(e){
   if(e.key==="Tab"){e.preventDefault();var s=note.selectionStart;note.setRangeText("  ",s,note.selectionEnd,"end");changed();return}

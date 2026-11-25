@@ -126,8 +126,11 @@ export class GoogleConnector {
   constructor(
     private readonly ingest: IngestFn,
     private readonly fetchFn: FetchFn = (url, init) => fetch(url, init),
-    private readonly apiKey: string | undefined = process.env.GOOGLE_DRIVE_API_KEY?.trim() || undefined,
+    // Ключ читается при каждом списке: его можно задать в «Ключи и доступы» без перезапуска (ADR-0030).
+    private readonly key: string | undefined | (() => string | undefined) = () => process.env.GOOGLE_DRIVE_API_KEY?.trim() || undefined,
   ) {}
+
+  private get apiKey(): string | undefined { return typeof this.key === 'function' ? this.key() : this.key }
 
   /** GET по списку хостов Google; редиректы — только туда же. */
   async get(url: string): Promise<{ bytes: Uint8Array; type: string; disposition: string; url: string }> {

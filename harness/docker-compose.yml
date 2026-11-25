@@ -1,6 +1,7 @@
 # Автономная система БФТ: docker compose up -d — и работает (ADR-0002).
 # Минимальный контур (ADR-0012): портал, трекер (+postgres), разбор материалов,
-# Кортекс. Коробка, Matrix и harness-web — профиль legacy:
+# Кортекс; жизненный цикл БФТ (ADR-0022) — Temporal + bft-flow + Temporal UI.
+# Коробка, Matrix и harness-web — профиль legacy:
 #   docker compose --profile legacy up -d
 # Полоса А (Т2): 5 сервисов. Трекер добавит Т10, Matrix/Element — Т11.
 # Контексты сборки — корень репозитория: образам нужны plugin/, skills/, box/.
@@ -54,8 +55,7 @@ services:
       retries: 20
     mem_limit: 256m
 
-  temporal:
-    profiles: [legacy]   # минимальный контур (ADR-0012): вне запуска по умолчанию
+  temporal:   # ADR-0022: жизненный цикл БФТ — один workflow на заявку; БД temporal* в общем postgres
     image: temporalio/auto-setup:1.27.2
     restart: unless-stopped
     depends_on:
@@ -132,15 +132,60 @@ services:
       start_period: 20s
     mem_limit: 1536m
 
-  temporal-ui:
-    image: temporalio/ui:2.36.1
-    profiles: [debug]
+  temporal-ui:   # хроника циклов БФТ для администратора (ADR-0022); на сервере — /bft-temporal/ за Authentik
+    image: temporalio/ui:2.57.0
     restart: unless-stopped
     depends_on: [temporal]
     environment:
       TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_DEFAULT_NAMESPACE: bft
+      TEMPORAL_UI_PUBLIC_PATH: ${TEMPORAL_UI_PUBLIC_PATH:-}
     ports: ["${BOX_BIND:-127.0.0.1}:8233:8080"]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080$${TEMPORAL_UI_PUBLIC_PATH}/ || exit 1"]
+      interval: 10s
+      retries: 30
+      start_period: 15s
     mem_limit: 128m
+
+  bft-flow:   # ADR-0022: воркер цикла БФТ — код workflow, очередь bft-flow; namespace bft создаёт сам
+    build:
+      context: ../bft-flow
+    image: poh-bft-flow:local
+    restart: unless-stopped
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_NAMESPACE: bft
+      BFT_RETENTION_DAYS: ${BFT_RETENTION_DAYS:-365}
+    depends_on:
+      temporal: { condition: service_healthy }
+    mem_limit: 384m
+
+  confluence-publisher:   # ADR-0028: отправка БФТ в Confluence — активности ConfluencePublish (очередь bft-confluence)
+    image: poh-harness-web:local
+    restart: unless-stopped
+    entrypoint: ["node", "/app/node_modules/customer-form/lib/confluence-worker.js"]
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_NAMESPACE: bft
+      DSH_HOME: /data
+      # Адрес Confluence (база REST, для Cloud — с /wiki) переносит deploy-server.sh из server.env;
+      # ключ с правом записи вводит владелец на сервере (harness/deploy/set-confluence-publish-key.sh).
+      # USER — только для Cloud (email владельца ключа). Нет адреса или ключа — отправка отказывает с причиной.
+      CONFLUENCE_PUBLISH_URL: ${CONFLUENCE_PUBLISH_URL:-}
+      CONFLUENCE_PUBLISH_TOKEN: ${CONFLUENCE_PUBLISH_TOKEN:-}
+      CONFLUENCE_PUBLISH_USER: ${CONFLUENCE_PUBLISH_USER:-}
+      CONFLUENCE_PUBLISHER_READY_FILE: /tmp/confluence-publisher.ready
+    volumes:
+      - customerdata:/data   # файлы заявок: полный БФТ, выгрузки, confluence-publish.json
+    healthcheck:   # метка пишется, когда воркер подключён к Temporal (start.sh ждёт healthy)
+      test: ["CMD-SHELL", "test -f /tmp/confluence-publisher.ready"]
+      interval: 10s
+      retries: 30
+      start_period: 10s
+    depends_on:
+      temporal: { condition: service_healthy }
+    mem_limit: 768m   # pandoc + weasyprint + plantuml (java) на время одной отправки
 
   customer-web:   # ADR-0007: портал заказчика — dsh-экземпляр только с customer-form
     image: poh-harness-web:local
@@ -196,6 +241,15 @@ services:
       BFT_REVIEW_AGENT_URL: ${BFT_REVIEW_AGENT_URL:-}
       BFT_REVIEW_AGENT_KEY: ${BFT_REVIEW_AGENT_KEY:-}
       BFT_REVIEW_AGENT_MODEL: ${BFT_REVIEW_AGENT_MODEL:-}
+      # Жизненный цикл БФТ (ADR-0022): портал шлёт события в workflow заявки. Пусто — без цикла;
+      # Temporal недоступен — портал работает как раньше, событие только в журнал (теневой режим).
+      TEMPORAL_ADDRESS: ${BFT_TEMPORAL_ADDRESS-temporal:7233}
+      TEMPORAL_NAMESPACE: bft
+      # «Отправить в Confluence» (ADR-0028): порталу — только адрес (кнопка знает, что запись
+      # настроена); ключ записи — у confluence-publisher, не у портала с агентами.
+      CONFLUENCE_PUBLISH_URL: ${CONFLUENCE_PUBLISH_URL:-}
+      # Только признак «ключ записи задан» (1 или пусто) — для «Ключи и доступы»; значения у портала нет.
+      CONFLUENCE_PUBLISH_TOKEN_SET: ${CONFLUENCE_PUBLISH_TOKEN:+1}
     depends_on:
       context-ingest: { condition: service_healthy }
     ports:

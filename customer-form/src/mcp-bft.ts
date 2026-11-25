@@ -24,7 +24,7 @@ import { customerPage, hitsText, readCustomerPages, saveCustomerPages, type Conf
 import { formOfRequest, latestVersion } from './forms.js'
 import { attachAcceptancePage, DEMO_PARAMS, FAST_PARAMS, MCP_SESSION_PREFIX, publishFast, requestSource, SUBMIT_PARAMS } from './request-flow.js'
 import type { McpCaller, McpPrompt, McpResource, McpTool } from './mcp-server.js'
-import { confluenceComment, planFiles, readPlan } from './plan.js'
+import { boardSavedAt, confluenceComment, planFiles, readPlan } from './plan.js'
 
 /** Что MCP берёт у узла портала (замыкания index.ts). */
 export interface BftMcpDeps {
@@ -446,22 +446,25 @@ export function bftMcp(deps: BftMcpDeps): { tools: McpTool[]; prompts: McpPrompt
         const body = md.replace(/^---\n[\s\S]*?\n---\n+/, '')
         const title = (/^# (.+)$/m.exec(body)?.[1] ?? slug).trim()
         const plan = await readPlan(files.dir).catch(() => undefined)
+        const board = !!boardSavedAt(plan?.meta)
         const planPart = plan ? [
           '', '--- Комментарий к странице (планирование) ---',
-          'После публикации добавь этот текст комментарием к странице и приложи файлы из bft_get_planning_file: zip' + (plan.meta.pdf ? ' и pdf' : '') + '.',
-          '', confluenceComment(plan, title, { zip: `${slug}-planirovanie.zip`, ...(plan.meta.pdf ? { pdf: `${slug}-doska.pdf` } : {}) }),
+          board
+            ? 'После публикации добавь этот текст комментарием к странице и приложи файлы из bft_get_planning_file: zip' + (plan.meta.pdf ? ' и pdf' : '') + '.'
+            : 'После публикации добавь этот текст комментарием к странице; доска не сохранялась — вложений нет.',
+          '', confluenceComment(plan, title, board ? { zip: `${slug}-planirovanie.zip`, ...(plan.meta.pdf ? { pdf: `${slug}-doska.pdf` } : {}) } : {}),
         ] : []
         return [`Название страницы: ${title}`, 'Формат: markdown. Опубликуй своим инструментом Confluence; ссылку — в bft_record_publication.', '', '--- Содержимое ---', body, ...planPart].join('\n')
       },
     },
     {
       name: 'bft_get_planning_file',
-      description: 'Файл «Планирования» заявки для вложения в Confluence: zip — архив (заметка, доска .excalidraw, .svg, .pdf), pdf — доска. Возвращает имя файла и содержимое в base64: сохрани его у себя файлом и приложи своим Atlassian MCP (confluence_upload_attachment).',
+      description: 'Файл «Планирования» заявки для вложения в Confluence: zip — архив (заметка и доска .excalidraw), pdf — доска. Возвращает имя файла и содержимое в base64: сохрани его у себя файлом и приложи своим Atlassian MCP (confluence_upload_attachment).',
       inputSchema: withRequest({ file: { type: 'string', enum: ['zip', 'pdf'], required: true, description: 'zip — архив, pdf — доска' } }),
       async call(args, caller) {
         const { files, slug } = await own(args, caller)
         const plan = await readPlan(files.dir).catch(() => undefined)
-        if (!plan) throw new Error('Планирование по заявке ещё не сохранено (кнопка «Планирование» на странице полного БФТ).')
+        if (!plan || !boardSavedAt(plan.meta)) throw new Error('Доска планирования по заявке ещё не сохранена («Планирование» → «Перейти на доску» на странице полного БФТ).')
         const f = planFiles(files.dir)
         const pdf = str(args.file) === 'pdf'
         if (pdf && !plan.meta.pdf) throw new Error('PDF доски не собран — приложи zip.')
