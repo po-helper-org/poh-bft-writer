@@ -10,5 +10,5 @@ test('слой стиля — в конце страницы, скрипт си�
   const js = /<script id="bft-page-theme-js">([\s\S]*?)<\/script>/.exec(page)[1]
   assert.doesNotThrow(() => new Function(js))
   assert.match(page, /nav\.cs-rail \.cs-rail-tab\{/, 'вкладки рейки перекрывают свои цвета слоёв (в т.ч. «В Confluence»)')
-  assert.match(page, /#agList:empty::before/, 'у пустой колонки агента — подсказка')
+  assert.ok(!page.includes('#agList:empty'), 'пустая колонка агента — без пояснений (решение владельца)')
 })
