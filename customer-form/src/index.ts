@@ -53,6 +53,7 @@ import { AUTO_COLUMNS, startPortalWorker, type MoveTicketRequest, type MoveTicke
 import { historyEvents, isoUtc, trackerObservedEvent, type RequestSnapshot } from './lifecycle-history.js'
 import { lifecyclePage } from './lifecycle-page.js'
 import { inboxView } from './form-inbox.js'
+import { withPageTheme } from './page-theme.js'
 import { withAgent } from './agent-page.js'
 import { canUndo, dshModel, newRevision, normalizeRemarks, poWords, queueRemarks, readRevisions, reviewDue, reviseDeep, revisionsContext, saveRevisions, sinceReview, undoRevision, type Revision, type TextModel } from './bft-revise.js'
 import { docRevOf, pickBlocks } from './doc-sections.js'
@@ -1107,7 +1108,8 @@ export function apply(ctx: HarnessContext): void {
             })
             // «Планирование» (ADR-0025): кнопка вверху, сохранённая заметка и доска — артефактом внизу.
             // «Отправить в Confluence» (ADR-0028): вкладка в рейке и панель выбора страницы и хода отправки.
-            return new Response(withConfluence(await withPlan(page, sessionId, files.dir), sessionId), { headers })
+            // Единый стиль страницы (ADR-0029) — последним слоем.
+            return new Response(withPageTheme(withConfluence(await withPlan(page, sessionId, files.dir), sessionId)), { headers })
           }
         }
         // Заказчику (rev21) — тот же документ: How to demo таблицей, зоны и контакты, без полей для PO.
