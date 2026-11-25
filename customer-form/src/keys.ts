@@ -32,6 +32,8 @@ export interface KeySpec {
   check?: KeyCheck
   /** Нужен ли ключ обязательно, чтобы работала функция (для подсказки «не задан»). */
   required?: boolean
+  /** Пользуется только исполнитель публикации: в окружение портала не подставляется. */
+  publisherOnly?: boolean
 }
 
 export const KEY_GROUPS: Record<KeyGroup, string> = {
@@ -52,7 +54,7 @@ export const KEY_SPECS: readonly KeySpec[] = [
   { name: 'DATA_SOURCES_TOKEN_ATLASSIAN', title: 'Токен шлюза источников', group: 'sources', secret: true, editable: false, check: 'data-sources', purpose: 'Доступ портала к шлюзу только на чтение', elsewhere: 'выпускает harness/deploy/install-sources-gateway.sh (шлюз хранит только хэш)' },
   { name: 'CONFLUENCE_PUBLISH_URL', title: 'Адрес Confluence', group: 'confluence', secret: false, editable: true, purpose: 'Куда публикуется БФТ («⇪ В Confluence»); для Cloud — с /wiki' },
   { name: 'CONFLUENCE_PUBLISH_USER', title: 'Пользователь (только Cloud)', group: 'confluence', secret: false, editable: true, purpose: 'Email владельца API-токена; для Server/DC — пусто' },
-  { name: 'CONFLUENCE_PUBLISH_TOKEN', title: 'Ключ записи', group: 'confluence', secret: true, editable: true, check: 'confluence-write', required: true, purpose: 'Создание и обновление страниц БФТ; есть только у исполнителя публикации' },
+  { name: 'CONFLUENCE_PUBLISH_TOKEN', title: 'Ключ записи', group: 'confluence', secret: true, editable: true, check: 'confluence-write', required: true, publisherOnly: true, purpose: 'Создание и обновление страниц БФТ; есть только у исполнителя публикации' },
   { name: 'TRACKER_PASSWORD', title: 'Пароль служебной учётки трекера', group: 'tracker', secret: true, editable: false, purpose: 'Заявки, комментарии, вложения', elsewhere: 'harness/.env (TRACKER_ADMIN_PASSWORD, ставит start.sh)' },
   { name: 'GOOGLE_DRIVE_API_KEY', title: 'Google Drive API', group: 'materials', secret: true, editable: true, check: 'google', purpose: 'Ссылки на папки Google — список файлов через API (без ключа — открытый экспорт)' },
   { name: 'BFT_REVIEW_AGENT_KEY', title: 'Ключ агента полного ревью', group: 'agents', secret: true, editable: false, elsewhere: '«Настройки → Портал → Подключение к шлюзу агентов» (вместе с адресом) или harness/deploy/set-review-agent-key.sh', purpose: 'ИИ-агент правок: полное ревью через шлюз агентов (адрес — «Настройки → Портал»)' },
@@ -186,7 +188,7 @@ export function keyStatuses(store: StoreFile, baseline: NodeJS.ProcessEnv, exter
  */
 export function applyKeys(env: NodeJS.ProcessEnv, baseline: NodeJS.ProcessEnv, values: Record<string, string>): void {
   for (const spec of KEY_SPECS) {
-    if (!spec.editable) continue
+    if (!spec.editable || spec.publisherOnly) continue
     const v = values[spec.name]
     if (v) env[spec.name] = v
     else if (baseline[spec.name] !== undefined) env[spec.name] = baseline[spec.name]

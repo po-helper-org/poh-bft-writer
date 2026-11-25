@@ -1502,7 +1502,11 @@ export function apply(ctx: HarnessContext): void {
       const offs = registerKeys(register, {
         store: keyStore, baseline: ENV_BASELINE, env: process.env, isAdmin,
         // Ключ агента ревью, сохранённый в «Настройки → Портал», — тоже «задан» (значение не читаем наружу).
-        external: (): Record<string, string> => (portalModels.agent?.key ? { BFT_REVIEW_AGENT_KEY: '«Настройки → Портал»' } : {}),
+        external: (): Record<string, string> => ({
+          ...(portalModels.agent?.key ? { BFT_REVIEW_AGENT_KEY: '«Настройки → Портал»' } : {}),
+          // Ключ записи из окружения сервера есть только у исполнителя публикации; порталу — признак.
+          ...(process.env.CONFLUENCE_PUBLISH_TOKEN_SET === '1' ? { CONFLUENCE_PUBLISH_TOKEN: 'окружении сервера (harness/.env) — только у исполнителя публикации' } : {}),
+        }),
         who: (request) => whoIs(request, users, mode),
         checks: {
           'confluence-write': () => publishFlow.check(),

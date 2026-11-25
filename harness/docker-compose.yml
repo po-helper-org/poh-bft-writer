@@ -248,6 +248,8 @@ services:
       # «Отправить в Confluence» (ADR-0028): порталу — только адрес (кнопка знает, что запись
       # настроена); ключ записи — у confluence-publisher, не у портала с агентами.
       CONFLUENCE_PUBLISH_URL: ${CONFLUENCE_PUBLISH_URL:-}
+      # Только признак «ключ записи задан» (1 или пусто) — для «Ключи и доступы»; значения у портала нет.
+      CONFLUENCE_PUBLISH_TOKEN_SET: ${CONFLUENCE_PUBLISH_TOKEN:+1}
     depends_on:
       context-ingest: { condition: service_healthy }
     ports:

@@ -47,7 +47,7 @@ test('окружение процесса: заданное в настройк�
   const env = { ...baseline }
   applyKeys(env, baseline, { GOOGLE_DRIVE_API_KEY: 'from-settings', CONFLUENCE_PUBLISH_TOKEN: 't', ANTHROPIC_API_KEY: 'нельзя' })
   assert.equal(env.GOOGLE_DRIVE_API_KEY, 'from-settings')
-  assert.equal(env.CONFLUENCE_PUBLISH_TOKEN, 't')
+  assert.equal('CONFLUENCE_PUBLISH_TOKEN' in env, false, 'ключ записи — только исполнителю публикации, не в окружение портала')
   assert.equal(env.ANTHROPIC_API_KEY, 'a', 'нередактируемый ключ настройки не меняют')
   applyKeys(env, baseline, {})
   assert.equal(env.GOOGLE_DRIVE_API_KEY, 'from-env')
@@ -94,11 +94,11 @@ test('маршруты: задать → значение не возвраща�
   assert.ok(!text.includes(SECRET), 'значение ушло обратно в браузер')
   const tok = JSON.parse(text).keys.find((k) => k.name === 'CONFLUENCE_PUBLISH_TOKEN')
   assert.deepEqual([tok.set, tok.source, tok.by], [true, 'settings', 'po-admin'])
-  assert.equal(env.CONFLUENCE_PUBLISH_TOKEN, SECRET, 'действует без перезапуска')
+  assert.equal('CONFLUENCE_PUBLISH_TOKEN' in env, false, 'в окружение портала ключ записи не попадает')
   assert.ok((await readFile(join(dir, 'portal-keys', 'keys.json'), 'utf8')).includes(SECRET), 'значение — только в файле 600')
 
   const checkedView = await (await call('/api/customer-form.keysCheck', { name: 'CONFLUENCE_PUBLISH_TOKEN' })).json()
-  assert.deepEqual(checked, [true])
+  assert.deepEqual(checked, [false], 'проверяет исполнитель публикации — у портала ключа нет')
   assert.deepEqual(checkedView.keys.find((k) => k.name === 'CONFLUENCE_PUBLISH_TOKEN').lastCheck, { ok: true, text: 'вход есть: Тестовый', at: '2026-11-25T12:00:00.000Z' })
   assert.equal((await call('/api/customer-form.keysCheck', { name: 'GOOGLE_DRIVE_API_KEY' })).status, 404, 'проверки google в этом наборе нет')
 

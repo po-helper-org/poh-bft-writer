@@ -49,6 +49,10 @@ services:
     network_mode: host
     environment:
       TEMPORAL_ADDRESS: 127.0.0.1:3089
+      # Корпоративный Confluence — с сертификатом внутреннего УЦ: доверяем тому же хранилищу, что и хост.
+      NODE_EXTRA_CA_CERTS: /etc/ssl/host-ca.crt
+    volumes:
+      - /etc/ssl/certs/ca-certificates.crt:/etc/ssl/host-ca.crt:ro
 
   # На сервере у docker сеть bridge выключена ("bridge": "none" в daemon.json):
   # сборке нужен выход в интернет через сеть хоста.
