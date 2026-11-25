@@ -63,8 +63,6 @@ nav.cs-rail .cs-rail-tab:focus-visible{ outline:2px solid var(--fg); outline-off
 #bftAgent header button:hover,#bftAgent header a:hover{ background:var(--mark); color:var(--fg); }
 #bftAgent header a{ height:32px; border-radius:8px; font-size:12px; }
 #bftAgent .ag-body{ padding:8px 16px 16px; border-top:1px solid var(--line-soft); }
-#agList:empty::before{ content:"Выделите текст в документе и оставьте замечание — или напишите ниже, что поправить. Агент внесёт правку и покажет итог здесь.";
-  display:block; padding:8px 0; color:var(--muted); }
 #bftAgent .ag-top,#bftAgent .ag-txt small,#bftAgent .ag-link,#bftAgent .ag-err,#bftAgent .ag-note,#bftAgent .ag-msg{ font-size:12px; line-height:16px; }
 #bftAgent footer{ padding:12px 16px 16px; }
 #bftAgent .ag-pend,#bftAgent .ag-review{ border-radius:8px; padding:8px 8px 8px 12px; }
