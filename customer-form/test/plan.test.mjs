@@ -134,3 +134,16 @@ test('прежняя запись (только экран доски) — до�
   assert.equal(boardSavedAt({ savedAt: 'x', rev: 2, pdf: false, elements: 1 }), 'x')
   assert.equal(boardSavedAt({ savedAt: 'x', rev: 0, pdf: false, elements: 0, noteAt: 'x' }), undefined)
 })
+
+test('скрипты панели и экрана планирования синтаксически целы', async () => {
+  const { planSidebar } = await import('../lib-test/plan.js')
+  const { deepFormSidebar } = await import('../lib-test/form-page.js')
+  const html = [
+    planSidebar(undefined, planLinks('s')),
+    planPage({ title: 'Т', slug: 'z', saveUrl: 's', bftUrl: 'b', assetUrl: (f) => f, links: planLinks('s') }),
+    deepFormSidebar({ sessionId: 's', questions: [], answers: {}, removed: [], api: { create: 'c', revoke: 'r', edit: 'e' } }),
+  ].join('')
+  const scripts = [...html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1]).filter((c) => c.trim())
+  assert.ok(scripts.length >= 3)
+  for (const code of scripts) assert.doesNotThrow(() => new Function(code), code.slice(0, 80))
+})

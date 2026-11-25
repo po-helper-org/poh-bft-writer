@@ -298,8 +298,8 @@ note.addEventListener("input", function(){ mark("не сохранено", true)
 note.addEventListener("blur", save);
 note.addEventListener("keydown", function(e){
   if(e.key==="Tab"){ e.preventDefault(); var s=note.selectionStart; note.setRangeText("  ",s,note.selectionEnd,"end"); note.dispatchEvent(new Event("input")); return; }
-  if(e.key==="Enter"&&!e.shiftKey){ var s=note.selectionStart, line=note.value.slice(note.value.lastIndexOf("\n",s-1)+1,s), m=/^(\s*)([-*] |\d+\. )/.exec(line);
-    if(m){ e.preventDefault(); if(line.trim()===m[2].trim()) note.setRangeText("",s-line.length,s,"end"); else { var n=/\d+/.test(m[2])?(parseInt(m[2],10)+1)+". ":m[2]; note.setRangeText("\n"+m[1]+n,s,note.selectionEnd,"end"); } note.dispatchEvent(new Event("input")); } }
+  if(e.key==="Enter"&&!e.shiftKey){ var s=note.selectionStart, line=note.value.slice(note.value.lastIndexOf("\\n",s-1)+1,s), m=/^(\\s*)([-*] |\\d+\\. )/.exec(line);
+    if(m){ e.preventDefault(); if(line.trim()===m[2].trim()) note.setRangeText("",s-line.length,s,"end"); else { var n=/\\d+/.test(m[2])?(parseInt(m[2],10)+1)+". ":m[2]; note.setRangeText("\\n"+m[1]+n,s,note.selectionEnd,"end"); } note.dispatchEvent(new Event("input")); } }
   if((e.metaKey||e.ctrlKey)&&e.key==="s"){ e.preventDefault(); save(); }
 });
 document.getElementById("csPlanBoard").addEventListener("click", function(e){ if(note.value===last) return; e.preventDefault(); var href=this.href; save().then(function(){ location.href=href; }); });
