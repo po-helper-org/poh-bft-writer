@@ -74,6 +74,15 @@ export class PublishFlow {
     })
   }
 
+  /** Проверка ключа записи у исполнителя публикации (ADR-0030). */
+  async check(): Promise<{ ok: boolean; text: string }> {
+    const client = await this.connect()
+    return client.workflow.execute<() => Promise<{ ok: boolean; text: string }>>('ConfluenceCheck', {
+      workflowId: `confluence-check-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+      taskQueue: PUBLISH_TASK_QUEUE, args: [], workflowExecutionTimeout: '30 seconds',
+    })
+  }
+
   /** Ход: query `progress`; workflow ещё не начал шаг или воркер bft-flow недоступен — по describe. */
   async progress(workflowId: string): Promise<PublishProgress | { status: 'running' | 'failed' | 'done'; error?: string } | undefined> {
     const client = await this.connect()

@@ -148,6 +148,17 @@ export class ConfluenceWriter {
     }))
   }
 
+  /** Кто вошёл под ключом (без записи). Server/DC без входа отвечает 200 «anonymous» — это не вход. */
+  async whoAmI(): Promise<{ ok: boolean; text: string }> {
+    try {
+      const me = await this.call<{ type?: string; displayName?: string; username?: string; publicName?: string }>('GET', '/rest/api/user/current', 'проверка входа')
+      if (!me || me.type === 'anonymous') return { ok: false, text: 'Confluence не узнал ключ: вход анонимный — ключ неверный или истёк' }
+      return { ok: true, text: `вход есть: ${me.displayName ?? me.publicName ?? me.username ?? 'пользователь'}; право записи проверится при первой отправке в выбранный раздел` }
+    } catch (e) {
+      return { ok: false, text: (e as Error).message }
+    }
+  }
+
   async labels(id: string): Promise<string[]> {
     const res = await this.call<{ results: Array<{ name: string }> }>('GET', `/rest/api/content/${id}/label`, 'метки страницы')
     return res.results.map((l) => l.name)
@@ -338,6 +349,8 @@ export interface PublishActivities {
   confluenceFinish(req: PublishRequest, render: RenderResult, page: PageResult, attach: AttachResult): Promise<FinishResult>
   /** Родители страниц (для ТОП-5: «здесь лежит похожий БФТ»); нет ключа — пусто. */
   confluenceAncestors(ids: string[]): Promise<AncestorInfo[]>
+  /** Проверка ключа записи для «Ключи и доступы» (ADR-0030). */
+  confluenceWhoAmI(): Promise<{ ok: boolean; text: string }>
 }
 
 /** Активность портала: итог отправки — комментарием в задачу и записью в хронику цикла. */
@@ -522,6 +535,12 @@ export function publishActivities(deps: PublishDeps): PublishActivities {
         await writeFile(join(dir, 'confluence.json'), JSON.stringify({ url: final.url, at, by: req.by ?? 'портал', pageId: final.pageId }), 'utf8')
         return { url: final.url, pageId: final.pageId }
       })
+    },
+
+    async confluenceWhoAmI() {
+      const client = deps.writer()
+      if (!client) return { ok: false, text: 'не настроено: нет адреса CONFLUENCE_PUBLISH_URL или ключа CONFLUENCE_PUBLISH_TOKEN' }
+      return client.whoAmI()
     },
 
     async confluenceAncestors(ids) {

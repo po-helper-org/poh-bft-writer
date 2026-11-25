@@ -9,7 +9,10 @@
   `confluence-publisher` (в журнале: «исполняю bft-confluence»).
 - В `harness/deploy/server.env` — `CONFLUENCE_PUBLISH_URL` (база Confluence; для Cloud — с `/wiki`,
   тогда же `CONFLUENCE_PUBLISH_USER` — email), выложено.
-- Ключ с правом записи введён на сервере (ввод не печатается):
+- Ключ с правом записи задан: «Настройки → Ключи и доступы → Confluence: публикация БФТ →
+  Ключ записи» (поле только на запись) → «Проверить связь» — «вход есть: …» (ADR-0030).
+  Без браузера — на сервере (ввод не печатается; `--from-env <файл> <переменная>` — взять из
+  другого окружения на сервере):
 
   ```bash
   bash ~/<DEPLOY_DIR>/harness/deploy/set-confluence-publish-key.sh

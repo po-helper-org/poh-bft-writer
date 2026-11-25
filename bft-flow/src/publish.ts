@@ -35,6 +35,8 @@ export interface PublishActivities {
   confluenceAttach(req: PublishRequest, render: RenderResult, page: PageResult): Promise<AttachResult>
   confluenceFinish(req: PublishRequest, render: RenderResult, page: PageResult, attach: AttachResult): Promise<FinishResult>
   confluenceAncestors(ids: string[]): Promise<AncestorInfo[]>
+  /** Проверка ключа записи (ADR-0030): вход в Confluence под ключом, без записи. */
+  confluenceWhoAmI(): Promise<{ ok: boolean; text: string }>
 }
 
 /** Активность портала (bft-portal): итог — комментарием в задачу трекера и записью в хронику цикла. */
@@ -75,6 +77,11 @@ const lookup = proxyActivities<PublishActivities>({ taskQueue: CONFLUENCE_TASK_Q
 /** Родители страниц для ТОП-5 (портал до Confluence на запись не дотягивается — спрашивает исполнителя). */
 export async function ConfluenceLookup(ids: string[]): Promise<AncestorInfo[]> {
   return lookup.confluenceAncestors(ids)
+}
+
+/** Проверка связи ключа записи для «Ключи и доступы» (ADR-0030). */
+export async function ConfluenceCheck(): Promise<{ ok: boolean; text: string }> {
+  return lookup.confluenceWhoAmI()
 }
 
 const causeOf = (e: unknown): string => {

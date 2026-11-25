@@ -48,6 +48,8 @@ import { registerPlanRoutes, withPlan } from './plan-routes.js'
 import type { PublishRequest } from './confluence-publish.js'
 import { PublishFlow, registerConfluencePublish } from './confluence-publish-routes.js'
 import { withConfluence } from './confluence-publish-page.js'
+import { applyKeys, KeyStore } from './keys.js'
+import { checkGoogleKey, registerKeys } from './keys-routes.js'
 import { registeredEvent, sharedLifecycle } from './lifecycle.js'
 import { AUTO_COLUMNS, startPortalWorker, type MoveTicketRequest, type MoveTicketResult, type DeepBuildRequest, type DeepBuildResult, type RebuildRequest, type RebuildResult } from './lifecycle-worker.js'
 import { historyEvents, isoUtc, trackerObservedEvent, type RequestSnapshot } from './lifecycle-history.js'
@@ -66,6 +68,9 @@ import { approveFastRequest, portalHooks, releaseFastAsk } from './fast-approval
 import { titleSession, useSessionTitles } from './session-title.js'
 
 export const name = 'customer-form'
+
+/** Окружение процесса до ключей из «Ключи и доступы» (ADR-0030): «Сбросить» возвращает к нему. */
+const ENV_BASELINE: NodeJS.ProcessEnv = { ...process.env }
 
 /** Страница «Все заявки» портала (ADR-0012, шаг 7). */
 const REQUESTS_PAGE = '/api/customer-form.requests'
@@ -256,6 +261,9 @@ function warnLoopbackUrls(env: NodeJS.ProcessEnv = process.env): void {
 
 export function apply(ctx: HarnessContext): void {
   warnLoopbackUrls()
+  // Ключи, заданные в «Ключи и доступы» (ADR-0030), — поверх окружения сервера.
+  const keyStore = new KeyStore()
+  applyKeys(process.env, ENV_BASELINE, keyStore.values())
   // Абсолютный путь workspace заказчика: знает только узел (DSH_HOME).
   const workspacePath = `${process.env.DSH_HOME ?? '/data'}/Customer-requests`
   // workspaces.create требует существующий каталог (realpath): создаём заранее.
@@ -1489,6 +1497,23 @@ export function apply(ctx: HarnessContext): void {
       })
       return () => offs.forEach((off) => off())
     }, 'customer-form: отправка в Confluence')
+    // «Ключи и доступы» (ADR-0030): статус всех ключей, поле только на запись, проверка связи.
+    scoped.effect(() => {
+      const offs = registerKeys(register, {
+        store: keyStore, baseline: ENV_BASELINE, env: process.env, isAdmin,
+        who: (request) => whoIs(request, users, mode),
+        checks: {
+          'confluence-write': () => publishFlow.check(),
+          'data-sources': async () => {
+            const sources = dataSources
+            if (!sources) return { ok: false, text: 'плагин источников данных не подключён' }
+            return (await sources.available().catch(() => false)) ? { ok: true, text: 'шлюз источников отвечает, токен принят' } : { ok: false, text: 'шлюз не отвечает или не принял токен' }
+          },
+          google: () => checkGoogleKey(process.env.GOOGLE_DRIVE_API_KEY?.trim() || undefined),
+        },
+      })
+      return () => offs.forEach((off) => off())
+    }, 'customer-form: ключи и доступы')
     const MCP_ROUTE = '/api/customer-form.mcp'
     const ACCESS_ROUTE = '/api/customer-form.mcpAccess'
     const LOGIN_ROUTE = '/api/customer-form.login'
