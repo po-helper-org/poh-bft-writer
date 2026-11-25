@@ -74,6 +74,9 @@ nav.cs-rail .cs-rail-tab:focus-visible{ outline:2px solid var(--fg); outline-off
 #bftAgentFresh{ height:36px; border-radius:18px; }
 #bftAgentFresh button{ height:28px; border-radius:14px; }
 
+/* Строка над заголовком не уходит под пилюлю «Комментарии» в правом верхнем углу. */
+.cs-kicker{ padding-right:150px; }
+
 /* Раскладка: открытая колонка агента на широком экране сдвигает документ и «Комментарии». */
 @media (min-width:1180px){
   body.cs-ag-open{ padding-right:var(--ag-w); }
