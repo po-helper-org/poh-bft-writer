@@ -24,6 +24,8 @@ export interface KeysDeps {
   /** Проверки связи по виду; нет — ключ без проверки. */
   checks: Partial<Record<KeyCheck, () => Promise<{ ok: boolean; text: string }>>>
   now?(): string
+  /** Ключи, заданные в других разделах настроек: имя → где (например, ключ агента — «Портал»). */
+  external?(): Record<string, string>
 }
 
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers: { 'cache-control': 'no-store' } })
@@ -45,7 +47,7 @@ export async function checkGoogleKey(key: string | undefined, fetchFn: typeof fe
 
 export function registerKeys(register: Register, deps: KeysDeps): Array<() => void> {
   const now = deps.now ?? (() => new Date().toISOString())
-  const view = () => ({ groups: KEY_GROUPS, keys: keyStatuses(deps.store.read(), deps.baseline) })
+  const view = () => ({ groups: KEY_GROUPS, keys: keyStatuses(deps.store.read(), deps.baseline, deps.external?.() ?? {}) })
   const deny = () => json({ error: 'Только администратор портала' }, 403)
   return [
     register({

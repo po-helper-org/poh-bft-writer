@@ -18,7 +18,8 @@ interface KeyStatus {
   editable: boolean
   elsewhere?: string
   set: boolean
-  source: 'settings' | 'env' | 'none'
+  source: 'settings' | 'env' | 'elsewhere' | 'none'
+  where?: string
   changedAt?: string
   by?: string
   envSet: boolean
@@ -53,6 +54,7 @@ const when = (iso?: string) => (iso ? new Date(iso).toLocaleString('ru-RU', { da
 
 function sourceText(k: KeyStatus): string {
   if (k.source === 'settings') return `задан здесь${k.changedAt ? ` ${when(k.changedAt)}` : ''}${k.by ? ` · ${k.by}` : ''}${k.envSet ? ' · перекрывает окружение сервера' : ''}`
+  if (k.source === 'elsewhere') return `задан в ${k.where ?? 'другом разделе настроек'}`
   if (k.source === 'env') return 'задан в окружении сервера (harness/.env) · дата смены неизвестна'
   return 'не задан'
 }

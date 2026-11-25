@@ -55,7 +55,7 @@ export const KEY_SPECS: readonly KeySpec[] = [
   { name: 'CONFLUENCE_PUBLISH_TOKEN', title: 'Ключ записи', group: 'confluence', secret: true, editable: true, check: 'confluence-write', required: true, purpose: 'Создание и обновление страниц БФТ; есть только у исполнителя публикации' },
   { name: 'TRACKER_PASSWORD', title: 'Пароль служебной учётки трекера', group: 'tracker', secret: true, editable: false, purpose: 'Заявки, комментарии, вложения', elsewhere: 'harness/.env (TRACKER_ADMIN_PASSWORD, ставит start.sh)' },
   { name: 'GOOGLE_DRIVE_API_KEY', title: 'Google Drive API', group: 'materials', secret: true, editable: true, check: 'google', purpose: 'Ссылки на папки Google — список файлов через API (без ключа — открытый экспорт)' },
-  { name: 'BFT_REVIEW_AGENT_KEY', title: 'Ключ агента полного ревью', group: 'agents', secret: true, editable: true, purpose: 'ИИ-агент правок: полное ревью через шлюз агентов (адрес — «Настройки → Портал»)' },
+  { name: 'BFT_REVIEW_AGENT_KEY', title: 'Ключ агента полного ревью', group: 'agents', secret: true, editable: false, elsewhere: '«Настройки → Портал → Подключение к шлюзу агентов» (вместе с адресом) или harness/deploy/set-review-agent-key.sh', purpose: 'ИИ-агент правок: полное ревью через шлюз агентов (адрес — «Настройки → Портал»)' },
   { name: 'ADMIN_PASSWORD', title: 'Секрет входа администратора', group: 'access', secret: true, editable: false, purpose: 'Подпись куки администратора (при входе через Authentik пароль не вводится)', elsewhere: 'harness/.env (создаёт start.sh); смена гасит все входы' },
 ]
 
@@ -75,8 +75,10 @@ export interface KeyStatus {
   elsewhere?: string
   /** Задан (значение не пустое). */
   set: boolean
-  /** settings — задан здесь; env — окружение сервера (harness/.env); none — не задан. */
-  source: 'settings' | 'env' | 'none'
+  /** settings — задан здесь; env — окружение сервера (harness/.env); elsewhere — в другом разделе настроек; none — не задан. */
+  source: 'settings' | 'env' | 'elsewhere' | 'none'
+  /** Для source=elsewhere: где именно. */
+  where?: string
   changedAt?: string
   by?: string
   /** Окружение тоже задаёт ключ — «Сбросить» вернёт его. */
@@ -156,17 +158,18 @@ export class KeyStore {
 }
 
 /** Статусы всех ключей; `baseline` — окружение процесса до подстановки значений из настроек. */
-export function keyStatuses(store: StoreFile, baseline: NodeJS.ProcessEnv): KeyStatus[] {
+export function keyStatuses(store: StoreFile, baseline: NodeJS.ProcessEnv, external: Record<string, string> = {}): KeyStatus[] {
   return KEY_SPECS.map((spec) => {
     const saved = store.keys[spec.name]
     const envValue = (baseline[spec.name] ?? '').trim()
-    const source = saved?.value ? 'settings' as const : envValue ? 'env' as const : 'none' as const
+    const where = external[spec.name]
+    const source = saved?.value ? 'settings' as const : where ? 'elsewhere' as const : envValue ? 'env' as const : 'none' as const
     const value = saved?.value ?? envValue
     const check = store.checks?.[spec.name]
     return {
       name: spec.name, title: spec.title, group: spec.group, purpose: spec.purpose, secret: spec.secret, editable: spec.editable,
       ...(spec.elsewhere ? { elsewhere: spec.elsewhere } : {}),
-      set: !!value, source, envSet: !!envValue,
+      set: !!value || !!where, source, envSet: !!envValue, ...(source === 'elsewhere' ? { where } : {}),
       ...(saved ? { changedAt: saved.changedAt, ...(saved.by ? { by: saved.by } : {}) } : {}),
       ...(!spec.secret && value ? { value } : {}),
       checkable: !!spec.check,

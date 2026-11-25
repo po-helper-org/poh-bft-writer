@@ -38,6 +38,8 @@ test('хранилище: файл 600, каталог 700; статус — б�
   const g = statuses.find((k) => k.name === 'GOOGLE_DRIVE_API_KEY')
   assert.equal(g.source, 'env')
   assert.equal(statuses.find((k) => k.name === 'BFT_REVIEW_AGENT_KEY').source, 'none')
+  const ext = keyStatuses(store.read(), {}, { BFT_REVIEW_AGENT_KEY: '«Настройки → Портал»' }).find((k) => k.name === 'BFT_REVIEW_AGENT_KEY')
+  assert.deepEqual([ext.set, ext.source, ext.where], [true, 'elsewhere', '«Настройки → Портал»'], 'ключ агента из раздела «Портал»')
 })
 
 test('окружение процесса: заданное в настройках главнее, сброс возвращает значение окружения', () => {

@@ -1501,6 +1501,8 @@ export function apply(ctx: HarnessContext): void {
     scoped.effect(() => {
       const offs = registerKeys(register, {
         store: keyStore, baseline: ENV_BASELINE, env: process.env, isAdmin,
+        // Ключ агента ревью, сохранённый в «Настройки → Портал», — тоже «задан» (значение не читаем наружу).
+        external: (): Record<string, string> => (portalModels.agent?.key ? { BFT_REVIEW_AGENT_KEY: '«Настройки → Портал»' } : {}),
         who: (request) => whoIs(request, users, mode),
         checks: {
           'confluence-write': () => publishFlow.check(),
