@@ -14,6 +14,7 @@ import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { ComponentType } from 'react'
 import { StreamingMic } from './mic.js'
 import { PortalSettings } from './settings.js'
+import { KeysSettings } from './keys.js'
 import { RecentRequests, rememberSession, type MyRequests } from './recent.js'
 import {
   ACCEPTANCE_PREFIX, ACCEPTANCE_TAB, AcceptanceTab, AcceptanceTitle, BFT_PREFIX, BFT_TAB, BftTab, BftTitle, BftWatcher, bftWatch, bumpBft,
@@ -233,6 +234,11 @@ export function apply(ctx: ClientContext): void {
       sectionSlots.inject('settings.section', () => sectionSlots.register(
         { name: 'settings.section', id: 'customer-form-portal', order: 15, label: () => 'Портал', inject: () => ({ call }) },
         PortalSettings as ComponentType<never>,
+      ))
+      // «Ключи и доступы» (ADR-0030): все ключи портала, поле только на запись, проверка связи.
+      sectionSlots.inject('settings.section', () => sectionSlots.register(
+        { name: 'settings.section', id: 'customer-form-keys', order: 16, label: () => 'Ключи и доступы', inject: () => ({}) },
+        KeysSettings as ComponentType<never>,
       ))
       openPortalSettingsFromLink()
     })

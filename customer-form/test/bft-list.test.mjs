@@ -49,3 +49,19 @@ test('сборка идёт — без выгрузки; отозванная ф
   assert.ok(!card.artifacts.some((a) => a.kind === 'form'))
   assert.equal(card.questions, undefined)
 })
+
+test('стадия — из цикла заявки, если он есть (ADR-0022, шаг 3)', () => {
+  const item = { sessionId: 's1', taskId: 3, title: 'Склад', created: '2026-11-19T09:00:00Z' }
+  const urls = { portal: (p) => `https://portal${p}`, form: (id) => `https://portal/form?id=${id}` }
+  const files = { fast: { approvedAt: '2026-11-19T10:00:00Z' }, deep: { stage: 'ready', startedAt: '2026-11-19T10:01:00Z' } }
+  // Файлы говорят «готов», цикл — «пересборка по ответам»: верим циклу.
+  const rebuilding = bftCard(item, { ...files, lifecycle: { stage: 'rebuilding', waitingFor: ['model'], round: 2 } }, urls)
+  assert.equal(rebuilding.stage, 'deep-building')
+  assert.equal(rebuilding.stageLabel, 'Пересборка по ответам')
+  assert.deepEqual(rebuilding.lifecycle, { stage: 'rebuilding', waitingFor: ['model'], round: 2 })
+  const agreement = bftCard(item, { ...files, lifecycle: { stage: 'agreement', waitingFor: ['customer', 'team:Платёжки'], round: 1 } }, urls)
+  assert.equal(agreement.stage, 'deep-ready')
+  assert.equal(agreement.stageLabel, 'Согласование — ждём заказчика, Платёжки')
+  // Цикла нет — как раньше, из файлов.
+  assert.equal(bftCard(item, files, urls).stageLabel, 'Полный БФТ готов')
+})

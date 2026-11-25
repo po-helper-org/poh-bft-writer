@@ -17,7 +17,7 @@
 
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { copyFile, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { join, posix } from 'node:path'
 import { Backlog, moscowTime, sharedBacklog, ticketRegistered, type Ticket } from './host.js'
 import { sharedMaterials, type Material, type Materials, type WebLike } from './materials.js'
@@ -45,6 +45,16 @@ import { mcpHandler } from './mcp-server.js'
 import { bftMcp, MCP_INSTRUCTIONS } from './mcp-bft.js'
 import { bftCard, type BftState } from './bft-list.js'
 import { registerPlanRoutes, withPlan } from './plan-routes.js'
+import type { PublishRequest } from './confluence-publish.js'
+import { PublishFlow, registerConfluencePublish } from './confluence-publish-routes.js'
+import { withConfluence } from './confluence-publish-page.js'
+import { applyKeys, KeyStore } from './keys.js'
+import { checkGoogleKey, registerKeys } from './keys-routes.js'
+import { registeredEvent, sharedLifecycle } from './lifecycle.js'
+import { AUTO_COLUMNS, startPortalWorker, type MoveTicketRequest, type MoveTicketResult, type DeepBuildRequest, type DeepBuildResult, type RebuildRequest, type RebuildResult } from './lifecycle-worker.js'
+import { historyEvents, isoUtc, trackerObservedEvent, type RequestSnapshot } from './lifecycle-history.js'
+import { lifecyclePage } from './lifecycle-page.js'
+import { inboxView } from './form-inbox.js'
 import { withPageTheme } from './page-theme.js'
 import { withAgent } from './agent-page.js'
 import { canUndo, dshModel, newRevision, normalizeRemarks, poWords, queueRemarks, readRevisions, reviewDue, reviseDeep, revisionsContext, saveRevisions, sinceReview, undoRevision, type Revision, type TextModel } from './bft-revise.js'
@@ -59,6 +69,9 @@ import { titleSession, useSessionTitles } from './session-title.js'
 
 export const name = 'customer-form'
 
+/** Окружение процесса до ключей из «Ключи и доступы» (ADR-0030): «Сбросить» возвращает к нему. */
+const ENV_BASELINE: NodeJS.ProcessEnv = { ...process.env }
+
 /** Страница «Все заявки» портала (ADR-0012, шаг 7). */
 const REQUESTS_PAGE = '/api/customer-form.requests'
 /** Форма вопросов по БФТ (ADR-0018): открытые маршруты по ссылке-ключу и правка PO в портале. */
@@ -68,6 +81,8 @@ const FORM_PREVIEW = '/api/customer-form.formPreview'
 const FORM_CREATE = '/api/customer-form.formCreate'
 const FORM_REVOKE = '/api/customer-form.formRevoke'
 const FORM_EDIT = '/api/customer-form.formEdit'
+/** Входящие события заявки (ADR-0027): отправки формы и статус пересборки — сайдбар документа. */
+const FORM_INBOX = '/api/customer-form.formInbox'
 /** Открытые страницы формы: не индексировать, не кэшировать, без Referer наружу. */
 const PUBLIC_HEADERS = { 'cache-control': 'no-store', 'x-robots-tag': 'noindex, nofollow', 'referrer-policy': 'no-referrer' }
 /**
@@ -246,12 +261,103 @@ function warnLoopbackUrls(env: NodeJS.ProcessEnv = process.env): void {
 
 export function apply(ctx: HarnessContext): void {
   warnLoopbackUrls()
+  // Ключи, заданные в «Ключи и доступы» (ADR-0030), — поверх окружения сервера.
+  const keyStore = new KeyStore()
+  applyKeys(process.env, ENV_BASELINE, keyStore.values())
   // Абсолютный путь workspace заказчика: знает только узел (DSH_HOME).
   const workspacePath = `${process.env.DSH_HOME ?? '/data'}/Customer-requests`
   // workspaces.create требует существующий каталог (realpath): создаём заранее.
   mkdir(workspacePath, { recursive: true }).catch(() => undefined)
 
   const backlog = sharedBacklog()
+  // Жизненный цикл БФТ (ADR-0022): новая заявка → её workflow; заявки, заведённые раньше, —
+  // догружаются при старте (eventId «registered» постоянный — повтор не задваивается).
+  const lifecycle = sharedLifecycle()
+  /** Пауза после последнего ответа формы до пересборки БФТ: отвечают пачкой — собираем один раз (таймер — в цикле, шаг 2). */
+  const FORM_REBUILD_MS = Number(process.env.FORM_REBUILD_MS ?? 120_000)
+  /** Свести с циклом сразу (не ждать сверки раз в минуту) — например, после ответов формы. */
+  /** true — все события заявки доставлены в цикл; false — Temporal выключен или недоступен (дошлёт сверка). */
+  let syncLifecycleNow: (sessionIds: string[]) => Promise<boolean> = async () => false
+  if (lifecycle.enabled) {
+    backlog.onRegistered = (sessionId, ticket, text) => {
+      const at = new Date().toISOString()
+      const title = text.trim().split('\n')[0].slice(0, 80) || undefined
+      void lifecycle.record({ taskId: ticket.taskId, slug: fastSlug(ticket.taskId), sessionId, ...(title ? { title } : {}), createdAt: at }, registeredEvent(at, title))
+    }
+    // Теневой режим (шаг 1): сверка файлов заявок с циклом — история старых заявок и все
+    // живые изменения одним путём (lifecycle-history.ts). eventId постоянные: повтор цикл
+    // отбрасывает; отправленное в этом процессе второй раз не шлётся.
+    const sent = new Set<string>()
+    let syncing = false
+    const snapshotOf = async (item: { sessionId: string; taskId: number; title: string; created: string; status?: string | undefined }): Promise<RequestSnapshot> => {
+      const slug = fastSlug(item.taskId)
+      const files = fastFiles(FAST_ROOT, slug)
+      const [fast, deep, form, revisions, ticket] = await Promise.all([
+        fastState(files), readDeepState(deepFiles(files, slug)), formOfRequest(files.dir).catch(() => undefined),
+        readRevisions(files).catch(() => []), backlog.find(item.sessionId).catch(() => undefined),
+      ])
+      const builtAt = fast ? await stat(files.md).then((st) => st.mtime.toISOString(), () => undefined) : undefined
+      const demo = sharedDemos().get(item.sessionId)
+      const demoApprovedAt = demo?.approvedAt ?? ticket?.demoApprovedAt
+      return {
+        taskId: item.taskId, title: item.title, created: item.created, now: new Date().toISOString(), rebuildAfterMs: FORM_REBUILD_MS,
+        ...(item.status ? { status: item.status } : {}),
+        ...(demo ? { demo: { rev: demo.rev, ...(demoApprovedAt ? { approvedAt: demoApprovedAt } : {}) } } : {}),
+        ...(fast && builtAt ? { fast: { rev: fast.rev, builtAt, ...(fast.approvedAt ? { approvedAt: fast.approvedAt } : {}) } } : {}),
+        ...(deep ? { deep: { stage: deep.stage, startedAt: deep.startedAt, ...(deep.finishedAt ? { finishedAt: deep.finishedAt } : {}), ...(deep.error ? { error: deep.error } : {}) } } : {}),
+        ...(form ? { form: {
+          id: form.id, createdAt: form.createdAt,
+          ...(form.publishedAt ? { publishedAt: form.publishedAt } : {}), ...(form.revokedAt ? { revokedAt: form.revokedAt } : {}),
+          total: latestVersion(form)?.questions.length ?? 0,
+          answers: Object.values(form.answers).map((a) => ({ at: a.at, status: a.status, addressee: a.addressee, ...(a.author ? { author: a.author } : {}) })),
+        } } : {}),
+        revisions: revisions.map((r) => ({ id: r.id, kind: r.kind, at: r.at, stage: r.stage,
+          ...(r.finishedAt ? { finishedAt: r.finishedAt } : {}), ...(r.edits !== undefined ? { edits: r.edits } : {}), ...(r.error ? { error: r.error } : {}) })),
+      }
+    }
+    const deliver = async (sessionIds: string[]) => {
+      // Момент чтения трекера — время наблюдения колонки (шаг 4): цикл сверяет его со своим переносом.
+      const observedAt = new Date().toISOString()
+      const items = await backlog.overview(sessionIds)
+      let delivered = 0
+      let failed = false
+      for (const item of items) {
+        const created = isoUtc(item.created) || new Date().toISOString()
+        const request = { taskId: item.taskId, slug: fastSlug(item.taskId), sessionId: item.sessionId, title: item.title, createdAt: created }
+        const events = [registeredEvent(created, item.title), ...historyEvents(await snapshotOf(item))]
+        for (const event of events) {
+          const key = `${item.taskId}:${event.eventId}`
+          if (sent.has(key)) continue
+          if (!(await lifecycle.record(request, event))) { failed = true; break } // Temporal недоступен — дошлём на следующем заходе
+          sent.add(key)
+          delivered++
+        }
+        // Трекер — проекция цикла (шаг 4): колонка, которой цикл не знает (PO перенёс сам), — событием.
+        if (item.status) {
+          const cycle = await lifecycle.status(item.taskId)
+          const seen = cycle ? trackerObservedEvent(item.status, observedAt, typeof cycle.status.column === 'string' ? cycle.status.column : undefined) : undefined
+          if (seen && (await lifecycle.record(request, seen))) delivered++
+        }
+      }
+      return { items: items.length, delivered, failed }
+    }
+    syncLifecycleNow = (sessionIds) => deliver(sessionIds).then((r) => r.items > 0 && !r.failed, (e) => { console.error('[customer-form] жизненный цикл: событие заявки не отправлено:', e); return false })
+    const syncLifecycle = async () => {
+      if (syncing) return
+      syncing = true
+      try {
+        const { items, delivered } = await deliver(await backlog.sessionIds())
+        if (delivered) console.log(`[customer-form] жизненный цикл: заявок ${items}, новых событий ${delivered}`)
+      } catch (e) {
+        console.error('[customer-form] жизненный цикл: сверка заявок не прошла:', e)
+      } finally {
+        syncing = false
+      }
+    }
+    setTimeout(() => void syncLifecycle(), 20_000)
+    const syncTimer = setInterval(() => void syncLifecycle(), 60_000)
+    ctx.effect(() => () => clearInterval(syncTimer), 'customer-form: сверка жизненного цикла')
+  }
   // «Файлы рабочей области»: папка на каждую заявку (workspace-mirror.ts) — и для
   // заявок, заведённых до зеркала.
   void (async () => {
@@ -450,8 +556,34 @@ export function apply(ctx: HarnessContext): void {
   const deepRunning = new Set<string>()
   /** ИИ-агент правок (ADR-0021): одна правка на заявку за раз. */
   const reviseRunning = new Set<string>()
-  /** Собрать полный БФТ в фоне; повторный вызов во время сборки ничего не делает. */
-  const startDeep = (ticket: Ticket, sessionId: string): boolean => {
+  /** Собрать полный БФТ в этом процессе и дождаться конца (из активности цикла или без Temporal). */
+  const runDeepNow = async (ticket: Ticket, sessionId: string, runtime: DeepRuntime, startedAt: string): Promise<DeepState> => {
+    const slug = fastSlug(ticket.taskId)
+    const fast = fastFiles(FAST_ROOT, slug)
+    deepRunning.add(slug)
+    try {
+      // «Собирается» — сразу: разведка по источникам идёт до сборки, заказчик видит экран ожидания.
+      await saveDeepState(deepFiles(fast, slug), { stage: 'building', startedAt })
+      void mirrorRequest(ticket.taskId, sessionId)
+      const { state, sources, sourcesPath } = await runDeep(fast, slug, deepRequestRef(ticket.taskId, sessionId), runtime, startedAt, { mode: 'live' })
+      // Полный БФТ и карта источников — в папку заявки, не дожидаясь трекера.
+      void mirrorRequest(ticket.taskId, sessionId)
+      await reportDeep(backlog, ticket, slug, deepFiles(fast, slug), state, sources ? sourcesPath : undefined)
+      return state
+    } finally {
+      deepRunning.delete(slug)
+    }
+  }
+  /** Просьба собрать ушла в цикл, сборка ещё не началась: повторный клик не шлёт вторую. */
+  const deepAsked = new Map<string, number>()
+  const DEEP_ASK_MS = 5 * 60_000
+  /**
+   * Собрать полный БФТ (ADR-0022, шаг 3): просьба — событием в цикл заявки, сборку ведёт
+   * он (дочерний DeepBuild → активность buildDeep, пульс и повтор после рестарта портала).
+   * Temporal недоступен — собираем в этом процессе, как раньше. Повторный вызов во время
+   * сборки ничего не делает.
+   */
+  const startDeep = (ticket: Ticket, sessionId: string, reason: 'approved' | 'retry' | 'answers' = 'approved'): boolean => {
     const slug = fastSlug(ticket.taskId)
     // Заявку MCP пишет модель внешнего агента (ADR-0023): портал свою модель на неё не тратит —
     // ни по «Да, согласен» на странице, ни по ответам формы; пересобирает агент (bft_prepare_full_bft).
@@ -459,25 +591,64 @@ export function apply(ctx: HarnessContext): void {
       console.error(`[customer-form] bft-deep ${slug}: заявка MCP — собирает внешний агент, модель портала не вызываю`)
       return false
     }
-    if (deepRunning.has(slug)) return true
+    if (deepRunning.has(slug) || Date.now() - (deepAsked.get(slug) ?? 0) < DEEP_ASK_MS) return true
     if (!deepRuntime) {
       console.error('[customer-form] bft-deep: модель портала недоступна (ctx.llm)')
       return false
     }
     const runtime = deepRuntime
-    const fast = fastFiles(FAST_ROOT, slug)
-    deepRunning.add(slug)
+    const startedAt = new Date().toISOString()
+    deepAsked.set(slug, Date.now())
     void (async () => {
-      // «Собирается» — сразу: разведка по источникам идёт до сборки, заказчик видит экран ожидания.
-      const startedAt = new Date().toISOString()
+      const fast = fastFiles(FAST_ROOT, slug)
+      // Экран ожидания — сразу, не дожидаясь, пока цикл дойдёт до портала.
       await saveDeepState(deepFiles(fast, slug), { stage: 'building', startedAt })
-      void mirrorRequest(ticket.taskId, sessionId)
-      const { state, sources, sourcesPath } = await runDeep(fast, slug, deepRequestRef(ticket.taskId, sessionId), runtime, startedAt, { mode: 'live' })
-      // Полный БФТ и карта источников — в папку заявки, не дожидаясь трекера.
-      void mirrorRequest(ticket.taskId, sessionId)
-      await reportDeep(backlog, ticket, slug, deepFiles(fast, slug), state, sources ? sourcesPath : undefined)
-    })().catch((e) => console.error('[customer-form] bft-deep упал:', e)).finally(() => deepRunning.delete(slug))
+      const summary = reason === 'retry' ? 'Запрошена сборка полного БФТ заново' : reason === 'answers' ? 'Ответы формы — запрошена пересборка' : 'Первичные требования согласованы — запрошена сборка полного БФТ'
+      const asked = lifecycle.enabled && await lifecycle.record(
+        { taskId: ticket.taskId, slug, sessionId, createdAt: startedAt },
+        { eventId: `deep:requested:${startedAt}`, at: startedAt, actor: { kind: reason === 'retry' ? 'po' : 'customer' }, kind: 'deepRequested', summary, data: { reason, startedAt } },
+      )
+      if (asked) return
+      deepAsked.delete(slug)
+      console.error(`[customer-form] bft-deep ${slug}: цикл заявки недоступен — собираю в портале`)
+      await runDeepNow(ticket, sessionId, runtime, startedAt)
+    })().catch((e) => { deepAsked.delete(slug); console.error('[customer-form] bft-deep упал:', e) })
     return true
+  }
+  /**
+   * Активность цикла (шаг 3): собрать полный БФТ и дождаться конца. Пульс раз в 20 с —
+   * портал пропал (выкладка) → Temporal повторит на новом процессе с тем же startedAt.
+   * Сборка не удалась (модель, проверки) — итог «failed», без автоповтора: решает PO.
+   */
+  const buildDeepActivity = async (req: DeepBuildRequest): Promise<DeepBuildResult> => {
+    const slug = fastSlug(req.taskId)
+    const skipped = (reason: string): DeepBuildResult => ({ stage: 'skipped', startedAt: req.startedAt, reason })
+    if (isMcpSession(req.sessionId)) return skipped('заявку MCP собирает внешний агент')
+    const { Context } = await import('@temporalio/activity')
+    const activity = Context.current()
+    const beat = setInterval(() => activity.heartbeat(), 20_000)
+    try {
+      deepAsked.delete(slug)
+      // Идёт сборка (без цикла) или правка ИИ-агента — дождаться: правка ляжет в документ, сборка её учтёт.
+      while (deepRunning.has(slug) || reviseRunning.has(slug)) {
+        activity.heartbeat()
+        await new Promise((r) => setTimeout(r, 10_000))
+      }
+      const fast = fastFiles(FAST_ROOT, slug)
+      if (req.lastSubmitAt) {
+        const deep = await readDeepState(deepFiles(fast, slug))
+        // Ответы уже учтены сборкой, начатой после них, — повторять не нужно.
+        if (deep?.startedAt && deep.startedAt > req.lastSubmitAt) return skipped('ответы уже учтены сборкой')
+      }
+      if (!deepRuntime) throw new Error('модель портала недоступна (ctx.llm)')
+      const ticket = await backlog.find(req.sessionId)
+      if (!ticket) return skipped('заявка не найдена в трекере')
+      console.error(`[customer-form] bft-deep ${slug}: сборка по циклу заявки (${req.reason}, попытка ${activity.info.attempt})`)
+      const state = await runDeepNow(ticket, req.sessionId, deepRuntime, req.startedAt)
+      return { stage: state.stage === 'ready' ? 'ready' : 'failed', startedAt: req.startedAt, ...(state.finishedAt ? { finishedAt: state.finishedAt } : {}), ...(state.error ? { error: state.error } : {}) }
+    } finally {
+      clearInterval(beat)
+    }
   }
   /**
    * Форма вопросов по БФТ (ADR-0018). Запись формы — под замком по id: ответы
@@ -490,9 +661,6 @@ export function apply(ctx: HarnessContext): void {
     return run
   }
   const formGate = new SubmitGate()
-  /** Пауза после последнего ответа до пересборки БФТ: отвечают пачкой — собираем один раз. */
-  const FORM_REBUILD_MS = Number(process.env.FORM_REBUILD_MS ?? 120_000)
-  const rebuildTimers = new Map<string, ReturnType<typeof setTimeout>>()
   /** Ссылка формы для PO: короткий открытый адрес за nginx (BFT_FORM_PUBLIC=1) или маршрут портала. */
   const formUrl = (id: string): string => {
     const pretty = process.env.BFT_FORM_PUBLIC === '1' ? publicPortalUrl(`/form?id=${id}`) : undefined
@@ -548,39 +716,55 @@ export function apply(ctx: HarnessContext): void {
       return {
         sessionId, questions: version.questions, answers: form.answers, removed: removedOf(form), version: version.v,
         ...(form.publishedAt && !form.revokedAt ? { link: formUrl(form.id) } : {}),
-        api: { create: siblingHref(FORM_CREATE), revoke: siblingHref(FORM_REVOKE), edit: siblingHref(FORM_EDIT) },
+        api: { create: siblingHref(FORM_CREATE), revoke: siblingHref(FORM_REVOKE), edit: siblingHref(FORM_EDIT), inbox: siblingHref(FORM_INBOX) },
       }
     })
   }
-  /** Ответы пришли — пересобрать полный БФТ через паузу; идёт сборка — дождаться и собрать ещё раз. */
-  const scheduleRebuild = (form: BftForm) => {
-    clearTimeout(rebuildTimers.get(form.slug))
-    rebuildTimers.set(form.slug, setTimeout(() => {
-      rebuildTimers.delete(form.slug)
-      void (async () => {
-        if (deepRunning.has(form.slug) || reviseRunning.has(form.slug)) return scheduleRebuild(form)
-        const fresh = await readForm(form.id)
-        const doc = await deepDocOf(form.slug)
-        const last = fresh?.lastSubmitAt
-        // Ответы уже учтены сборкой, начатой после них, — повторять не нужно.
-        if (!last || (doc.deep?.startedAt && doc.deep.startedAt > last)) return
-        const ticket = await backlog.find(form.sessionId).catch(() => undefined)
-        if (!ticket) return console.error(`[customer-form] форма ${form.slug}: заявка не найдена — БФТ не пересобран`)
-        console.error(`[customer-form] форма ${form.slug}: ответы — пересобираю полный БФТ`)
-        startDeep(ticket, form.sessionId)
-      })().catch((e) => console.error('[customer-form] пересборка по ответам формы упала:', e))
-    }, FORM_REBUILD_MS))
+  /**
+   * Пересборка по ответам формы (ADR-0022, шаг 2): паузу после ответов отсчитывает цикл
+   * заявки (таймер Temporal — переживает рестарт портала) и зовёт эту активность. Идёт
+   * сборка или правка — ошибка: Temporal повторит позже (тогда соберём ещё раз).
+   */
+  const rebuildFromAnswers = async (req: RebuildRequest): Promise<RebuildResult> => {
+    const slug = fastSlug(req.taskId)
+    if (deepRunning.has(slug) || reviseRunning.has(slug)) throw new Error('идёт сборка или правка полного БФТ — повторю позже')
+    const doc = await deepDocOf(slug)
+    const form = await formOfRequest(doc.files.dir)
+    const last = form?.lastSubmitAt
+    if (!last) return { started: false, reason: 'ответов в форме нет' }
+    // Ответы уже учтены сборкой, начатой после них, — повторять не нужно.
+    if (doc.deep?.startedAt && doc.deep.startedAt > last) return { started: false, reason: 'ответы уже учтены сборкой' }
+    const ticket = await backlog.find(req.sessionId)
+    if (!ticket) return { started: false, reason: 'заявка не найдена в трекере' }
+    console.error(`[customer-form] форма ${slug}: ответы — пересобираю полный БФТ (по циклу заявки)`)
+    return startDeep(ticket, req.sessionId, 'answers') ? { started: true } : { started: false, reason: 'модель портала недоступна или заявку собирает внешний агент' }
   }
-  // Пересборка по ответам и после рестарта: форма с ответами новее сборки.
-  void (async () => {
-    const root = join(process.env.DSH_HOME ?? '/data', 'bft-forms')
-    for (const name of await readdir(root).catch(() => [] as string[])) {
-      const form = await readForm(name.replace(/\.json$/, ''))
-      if (!form || form.revokedAt || !form.lastSubmitAt) continue
-      const deep = await readDeepState(deepFiles(fastFiles(FAST_ROOT, form.slug), form.slug))
-      if (deep?.stage !== 'building' && (!deep?.startedAt || deep.startedAt < form.lastSubmitAt)) scheduleRebuild(form)
+  /** Активность цикла (шаг 4): перенос карточки между авто-колонками + строка в задачу. */
+  const escapeHtml = (t: string) => t.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!)
+  const moveTicket = async (req: MoveTicketRequest): Promise<MoveTicketResult> => {
+    const result = await backlog.moveRequest(req.taskId, req.to, AUTO_COLUMNS)
+    if (result.moved) {
+      await backlog.comment({ taskId: req.taskId, url: '' }, `<p>Статус: «${escapeHtml(req.from)}» → «${escapeHtml(req.to)}» — ${escapeHtml(req.reason)} (жизненный цикл заявки).</p>`)
+        .catch((e) => console.error(`[customer-form] трекер #${req.taskId}: комментарий о переносе не ушёл:`, e))
     }
-  })().catch(() => undefined)
+    return result
+  }
+  /**
+   * Отправка в Confluence (ADR-0028): страницу пишет исполнитель публикации (confluence-publisher,
+   * ключ записи — только у него); портал — итог: комментарий в задачу и запись в хронику цикла.
+   */
+  const confluenceAnnounce = async (req: PublishRequest, page: { pageId: string; url: string; mode: 'create' | 'update' }): Promise<void> => {
+    const ticket = await backlog.find(req.sessionId).catch(() => undefined)
+    const safe = page.url.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!))
+    if (ticket) await backlog.comment(ticket, `<p><strong>📘 БФТ опубликован в Confluence</strong>${page.mode === 'update' ? ' (страница обновлена)' : ''}: <a href="${safe}">${safe}</a> (портал${req.by ? `, ${req.by}` : ''})</p>`)
+    const at = new Date().toISOString()
+    if (lifecycle.enabled) await lifecycle.record({ taskId: req.taskId, slug: req.slug, sessionId: req.sessionId, createdAt: at },
+      { eventId: `confluence:published:${req.run}`, at, actor: { kind: 'system' }, kind: 'note', summary: `БФТ опубликован в Confluence: ${page.url}`, data: { url: page.url, run: req.run } })
+  }
+  if (lifecycle.enabled) {
+    const stopWorker = startPortalWorker({ rebuildFromAnswers, buildDeep: buildDeepActivity, moveTicket, ...{ confluenceAnnounce } })
+    ctx.effect(() => () => void stopWorker(), 'customer-form: активности жизненного цикла (bft-portal)')
+  }
 
   // Тот же запуск — согласованию из формы чата (confirm_bft_fast, fast-approval.ts).
   ctx.effect(() => {
@@ -931,8 +1115,9 @@ export function apply(ctx: HarnessContext): void {
               sectionUrl: siblingHref('/api/customer-form.bftReviseSection'), reviewUrl: siblingHref('/api/customer-form.bftReview'), settingsUrl: `${siblingHref(ADMIN_PAGE)}?to=settings`,
             })
             // «Планирование» (ADR-0025): кнопка вверху, сохранённая заметка и доска — артефактом внизу.
+            // «Отправить в Confluence» (ADR-0028): вкладка в рейке и панель выбора страницы и хода отправки.
             // Единый стиль страницы (ADR-0029) — последним слоем.
-            return new Response(withPageTheme(await withPlan(page, sessionId, files.dir)), { headers })
+            return new Response(withPageTheme(withConfluence(await withPlan(page, sessionId, files.dir), sessionId)), { headers })
           }
         }
         // Заказчику (rev21) — тот же документ: How to demo таблицей, зоны и контакты, без полей для PO.
@@ -1010,14 +1195,22 @@ export function apply(ctx: HarnessContext): void {
           if ('saved' in res && res.saved) {
             await saveForm(form)
             await writeFile(answersPath(opened.doc.files.dir), answersMarkdown(form), 'utf8')
-            scheduleRebuild(form)
             const taskId = Number(/^zayavka-(\d+)$/.exec(form.slug)?.[1])
             if (taskId) void mirrorRequest(taskId, form.sessionId)
+            return { ...res, at: form.lastSubmitAt, sessionId: form.sessionId }
           }
           return res
         })
         if ('error' in result) return Response.json({ error: result.error }, { status: 400, headers: PUBLIC_HEADERS })
-        return Response.json({ ok: true, saved: result.saved }, { headers: PUBLIC_HEADERS })
+        // Отправка → входящее событие процесса заявки сразу (ADR-0027); паузу до пересборки
+        // отсчитывает цикл. Не дождались (Temporal недоступен, медленно) — ответы сохранены, событие дошлёт сверка.
+        const recorded = 'sessionId' in result && result.sessionId
+          ? await Promise.race([syncLifecycleNow([result.sessionId]), new Promise<boolean>((r) => setTimeout(() => r(false), 4000))])
+          : false
+        return Response.json({
+          ok: true, saved: result.saved, ...('at' in result && result.at ? { at: result.at } : {}), recorded,
+          ...(lifecycle.enabled ? { rebuildAfterMs: FORM_REBUILD_MS } : {}),
+        }, { headers: PUBLIC_HEADERS })
       },
     }), 'customer-form: ответы формы вопросов')
 
@@ -1179,17 +1372,95 @@ export function apply(ctx: HarnessContext): void {
           const demo = sharedDemos().get(item.sessionId)
           const form = await formOfRequest(files.dir).catch(() => undefined)
           const questions = form ? latestVersion(form)?.questions ?? [] : []
+          const cycle = lifecycle.enabled ? await lifecycle.status(item.taskId).catch(() => undefined) : undefined
           const state: BftState = {
+            ...(cycle ? { lifecycle: { stage: cycle.status.stage, waitingFor: cycle.status.waitingFor, round: cycle.status.round } } : {}),
             ...(demo ? { demo: { approvedAt: demo.approvedAt } } : {}),
             ...(fast ? { fast: { approvedAt: fast.approvedAt, rev: fast.rev } } : {}),
             ...(deep ? { deep: { stage: deep.stage, startedAt: deep.startedAt, finishedAt: deep.finishedAt } } : {}),
             ...(form ? { form: { id: form.id, publishedAt: form.publishedAt, revokedAt: form.revokedAt, total: questions.length, answered: questions.filter((q) => form.answers[q.qid]?.status === 'answer').length } } : {}),
           }
-          return bftCard(item, state, { portal: portalUrl, form: formUrl, ticket: item.url && !isLoopbackUrl(item.url) ? item.url : undefined })
+          return bftCard(item, state, { portal: portalUrl, form: formUrl, ticket: item.url && !isLoopbackUrl(item.url) ? item.url : undefined, lifecycle: lifecycle.enabled ? portalUrl(`/api/customer-form.lifecyclePage?session=${encodeURIComponent(item.sessionId)}`) : undefined })
         }))
         return Response.json({ ok: true, newUrl: portalUrl('/'), items: cards }, { headers })
       },
     }), 'customer-form: /api/customer-form.bftList')
+
+    // Жизненный цикл заявки (ADR-0022): стадия, ожидания и хроника из workflow Temporal.
+    // За входом портала, как «Все заявки»; цикла нет или Temporal недоступен — 404/503.
+    scoped.effect(() => register({
+      path: '/api/customer-form.lifecycle',
+      methods: ['GET'],
+      requestBody: 'buffered',
+      fetch: async (request: Request) => {
+        const headers = { 'cache-control': 'no-store' }
+        if (!lifecycle.enabled) return Response.json({ ok: false, error: 'жизненный цикл выключен' }, { status: 503, headers })
+        const sessionId = new URL(request.url).searchParams.get('session') ?? ''
+        const ticket = sessionId ? await backlog.find(sessionId).catch(() => undefined) : undefined
+        if (!ticket) return Response.json({ ok: false, error: 'нет такой заявки' }, { status: 404, headers })
+        const got = await lifecycle.status(ticket.taskId)
+        if (!got) return Response.json({ ok: false, error: 'цикл заявки не найден или Temporal недоступен' }, { status: 503, headers })
+        return Response.json({ ok: true, ...got }, { headers })
+      },
+    }), 'customer-form: /api/customer-form.lifecycle')
+
+    // Входящие события заявки (ADR-0027): отправки формы — из процесса заявки (query inbox),
+    // ответы — из файла формы. За входом портала; Temporal недоступен — отправки из файла без статуса.
+    scoped.effect(() => register({
+      path: FORM_INBOX,
+      methods: ['GET'],
+      requestBody: 'buffered',
+      fetch: async (request: Request) => {
+        const headers = { 'cache-control': 'no-store' }
+        const sessionId = new URL(request.url).searchParams.get('session') ?? ''
+        const ticket = sessionId ? await backlog.find(sessionId).catch(() => undefined) : undefined
+        if (!ticket) return Response.json({ ok: false, error: 'нет такой заявки' }, { status: 404, headers })
+        const files = fastFiles(FAST_ROOT, fastSlug(ticket.taskId))
+        const [form, cycle] = await Promise.all([
+          formOfRequest(files.dir).catch(() => undefined),
+          lifecycle.enabled ? lifecycle.inbox(ticket.taskId) : Promise.resolve(undefined),
+        ])
+        return Response.json({ ok: true, ...inboxView(form, cycle) }, { headers })
+      },
+    }), 'customer-form: входящие события заявки')
+
+    // Страница «Жизненный цикл» заявки (ADR-0022): стадия, ожидания и хроника. Администратору —
+    // ссылка на историю цикла в Temporal UI (BFT_TEMPORAL_UI_URL; на сервере — /bft-temporal).
+    const temporalUi = (): string | undefined => {
+      const explicit = (process.env.BFT_TEMPORAL_UI_URL ?? '').trim().replace(/\/+$/, '')
+      if (explicit) return explicit
+      const base = (process.env.PORTAL_PUBLIC_URL ?? '').trim()
+      try { return base && !isLoopbackUrl(base) ? `${new URL(base).origin}/bft-temporal` : undefined } catch { return undefined }
+    }
+    scoped.effect(() => register({
+      path: '/api/customer-form.lifecyclePage',
+      methods: ['GET'],
+      requestBody: 'buffered',
+      fetch: async (request: Request) => {
+        const html = (body: string, status = 200) => new Response(body, { status, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } })
+        const sessionId = new URL(request.url).searchParams.get('session') ?? ''
+        const ticket = sessionId ? await backlog.find(sessionId).catch(() => undefined) : undefined
+        if (!ticket) return html('<!doctype html><meta charset="utf-8"><p style="font:14px sans-serif;padding:16px">Нет такой заявки.</p>', 404)
+        const got = lifecycle.enabled ? await lifecycle.status(ticket.taskId) : undefined
+        if (!got) return html('<!doctype html><meta charset="utf-8"><p style="font:14px sans-serif;padding:16px">Жизненный цикл заявки недоступен: Temporal выключен или ещё не получил её события — обновите через минуту.</p>', 503)
+        const ui = isAdmin(request) ? temporalUi() : undefined
+        return html(lifecyclePage({
+          title: String((got.status as { title?: unknown }).title ?? `Заявка #${ticket.taskId}`), taskId: ticket.taskId,
+          status: got.status as never, timeline: got.timeline as never, backHref: 'customer-form.requests',
+          ...(ui ? { temporalHref: `${ui}/namespaces/bft/workflows/bft-${ticket.taskId}` } : {}),
+        }))
+      },
+    }), 'customer-form: /api/customer-form.lifecyclePage')
+
+    // Temporal UI (ADR-0022) — только администраторам: nginx ведёт сюда всех остальных
+    // (map $bft_temporal_upstream, bft-temporal-map.nginx.conf).
+    scoped.effect(() => register({
+      path: '/api/customer-form.temporalForbidden',
+      methods: ['GET', 'POST'],
+      requestBody: 'buffered',
+      fetch: async () => new Response('Temporal UI — только администраторам портала БФТ (группа ADMIN_SSO_GROUPS в Authentik).\n',
+        { status: 403, headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' } }),
+    }), 'customer-form: /api/customer-form.temporalForbidden')
 
     // ── MCP «Система БФТ» для внешних ИИ-агентов (ADR-0023) ─────────────────────────────
     // Тексты пишет модель агента (его токены); знания, шаблоны, проверки и хранение — портала.
@@ -1197,6 +1468,58 @@ export function apply(ctx: HarnessContext): void {
     const users = new Users()
     const mcpTokens = new McpTokens()
     const mode = authMode()
+    // «Отправить в Confluence» (ADR-0028): выбор родительской страницы, старт и ход workflow.
+    const publishFlow = new PublishFlow()
+    scoped.effect(() => {
+      const offs = registerConfluencePublish(register, {
+        root: FAST_ROOT,
+        confluence: () => materials.confluence,
+        configured: () => !!(process.env.CONFLUENCE_PUBLISH_URL ?? '').trim(),
+        flow: publishFlow,
+        who: (request) => whoIs(request, users, mode),
+        request: async (sessionId) => {
+          const ticket = sessionId ? await backlog.find(sessionId).catch(() => undefined) : undefined
+          if (!ticket) return undefined
+          const slug = fastSlug(ticket.taskId)
+          const files = fastFiles(FAST_ROOT, slug)
+          const deep = deepFiles(files, slug)
+          const ready = (await readDeepState(deep))?.stage === 'ready'
+          const md = await readFile(deep.md, 'utf8').catch(() => '')
+          const fastMd = await readFile(files.md, 'utf8').catch(() => '')
+          const title = /^# (.+)$/m.exec(md.replace(/^---\n[\s\S]*?\n---\n/, ''))?.[1]?.trim() ?? `Заявка #${ticket.taskId}`
+          return { taskId: ticket.taskId, slug, dir: files.dir, md: deep.md, ready, title, systems: fastMd ? reconSubject(fastMd).systems : [] }
+        },
+        started: async (req) => {
+          const at = new Date().toISOString()
+          if (lifecycle.enabled) await lifecycle.record({ taskId: req.taskId, slug: req.slug, sessionId: req.sessionId, createdAt: at },
+            { eventId: `confluence:started:${req.run}`, at, actor: { kind: 'po', ...(req.by ? { name: req.by } : {}) }, kind: 'note', summary: `Отправка в Confluence подстраницей «${req.parent.title}» (Temporal: bft-${req.taskId}-confluence-${req.run})` })
+        },
+      })
+      return () => offs.forEach((off) => off())
+    }, 'customer-form: отправка в Confluence')
+    // «Ключи и доступы» (ADR-0030): статус всех ключей, поле только на запись, проверка связи.
+    scoped.effect(() => {
+      const offs = registerKeys(register, {
+        store: keyStore, baseline: ENV_BASELINE, env: process.env, isAdmin,
+        // Ключ агента ревью, сохранённый в «Настройки → Портал», — тоже «задан» (значение не читаем наружу).
+        external: (): Record<string, string> => ({
+          ...(portalModels.agent?.key ? { BFT_REVIEW_AGENT_KEY: '«Настройки → Портал»' } : {}),
+          // Ключ записи из окружения сервера есть только у исполнителя публикации; порталу — признак.
+          ...(process.env.CONFLUENCE_PUBLISH_TOKEN_SET === '1' ? { CONFLUENCE_PUBLISH_TOKEN: 'окружении сервера (harness/.env) — только у исполнителя публикации' } : {}),
+        }),
+        who: (request) => whoIs(request, users, mode),
+        checks: {
+          'confluence-write': () => publishFlow.check(),
+          'data-sources': async () => {
+            const sources = dataSources
+            if (!sources) return { ok: false, text: 'плагин источников данных не подключён' }
+            return (await sources.available().catch(() => false)) ? { ok: true, text: 'шлюз источников отвечает, токен принят' } : { ok: false, text: 'шлюз не отвечает или не принял токен' }
+          },
+          google: () => checkGoogleKey(process.env.GOOGLE_DRIVE_API_KEY?.trim() || undefined),
+        },
+      })
+      return () => offs.forEach((off) => off())
+    }, 'customer-form: ключи и доступы')
     const MCP_ROUTE = '/api/customer-form.mcp'
     const ACCESS_ROUTE = '/api/customer-form.mcpAccess'
     const LOGIN_ROUTE = '/api/customer-form.login'
@@ -1341,7 +1664,7 @@ export function apply(ctx: HarnessContext): void {
         const ticket = sessionId ? await backlog.find(sessionId).catch(() => undefined) : undefined
         if (!ticket) return Response.json({ error: 'заявка не найдена' }, { status: 404 })
         if (!(await fastState(fastFiles(FAST_ROOT, fastSlug(ticket.taskId))))?.approvedAt) return Response.json({ error: 'первичные требования не согласованы' }, { status: 409 })
-        return startDeep(ticket, sessionId) ? Response.json({ ok: true }) : Response.json({ error: 'модель портала недоступна' }, { status: 503 })
+        return startDeep(ticket, sessionId, 'retry') ? Response.json({ ok: true }) : Response.json({ error: 'модель портала недоступна' }, { status: 503 })
       },
     }), 'customer-form: /api/customer-form.bftDeepRetry')
 

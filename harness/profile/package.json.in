@@ -9,6 +9,9 @@
     "@deepseek-ai/dsh-skill-filesystem": "__DSH_VERSION__",
     "@deepseek-ai/dsh-tool-skill": "__DSH_VERSION__",
     "poh-bft-plugin": "file:plugin",
+    "@temporalio/client": "1.25.0",
+    "@temporalio/activity": "1.25.0",
+    "@temporalio/worker": "1.25.0",
     "customer-form": "file:customer-form"
   },
   "dsh": {

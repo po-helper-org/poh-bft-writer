@@ -28,6 +28,32 @@ services:
     ports: !override
       - "127.0.0.1:3084:3456"
 
+  # Temporal UI (ADR-0022): nginx /bft-temporal/ → 127.0.0.1:3088, только группе администраторов
+  # Authentik (bft-portal.nginx.conf + bft-temporal-map.nginx.conf, install-nginx-bft.sh).
+  temporal-ui:
+    environment:
+      TEMPORAL_UI_PUBLIC_PATH: /bft-temporal
+    ports: !override
+      - "127.0.0.1:3088:8080"
+  bft-flow:
+    build:
+      network: host
+
+  # Отправка в Confluence (ADR-0028): Confluence доступен только через VPN хоста, а файрвол не
+  # пускает контейнеры к портам хоста — исполнитель публикации живёт в сети хоста и ходит в
+  # Temporal через опубликованный только на 127.0.0.1 порт.
+  temporal:
+    ports:
+      - "127.0.0.1:3089:7233"
+  confluence-publisher:
+    network_mode: host
+    environment:
+      TEMPORAL_ADDRESS: 127.0.0.1:3089
+      # Корпоративный Confluence — с сертификатом внутреннего УЦ: доверяем тому же хранилищу, что и хост.
+      NODE_EXTRA_CA_CERTS: /etc/ssl/host-ca.crt
+    volumes:
+      - /etc/ssl/certs/ca-certificates.crt:/etc/ssl/host-ca.crt:ro
+
   # На сервере у docker сеть bridge выключена ("bridge": "none" в daemon.json):
   # сборке нужен выход в интернет через сеть хоста.
   cortex:
