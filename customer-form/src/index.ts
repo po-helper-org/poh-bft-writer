@@ -28,7 +28,8 @@ import { demoPageHtml } from './demo-page.js'
 import type { AgentLike, BlockLike } from './tool.js'
 import { portalNoteSource } from './portal-note.js'
 import { FAST_ROOT, fastFiles, fastPagePath, fastProgress, fastSlug, fastState, isLoopbackUrl, portalUrl, publicPortalUrl, requestRef, SKILLS_PATH, stillBuilding, type FastFiles } from './bft-fast.js'
-import { customerDeepPage, customerFastPage, deepFailedPage, requestsPage, waitingPage, type RequestRow } from './fast-page.js'
+import { customerDeepPage, customerFastPage, deepFailedPage, waitingPage } from './fast-page.js'
+import { requestsError, requestsList, requestsShell } from './requests-page.js'
 import { buildDeep, type DeepJudgeInput, fixQueries, goldenCanon, saveDeepState, searchQueries, deepFiles, readDeepState, readIntake, reconSubject, sourcesForModel, triageFindings, type DeepRoute, type DeepState, type LlmLike, type ReconSubject, type SourcesStatus, type TriageItem, type TriageVerdict } from './bft-deep.js'
 import { EXPORT_TYPES, exportDocument, type ExportFormat } from './export.js'
 import { buildFastFromPrimary, type PrimaryDoc } from './primary.js'
@@ -43,7 +44,7 @@ import { authMode, McpTokens, SESSION_COOKIE, sessionCookie, Users, whoIs } from
 import { accessPage, freshTokenBlock, loginPage, usersPage } from './access-page.js'
 import { mcpHandler } from './mcp-server.js'
 import { bftMcp, MCP_INSTRUCTIONS } from './mcp-bft.js'
-import { bftCard, type BftState } from './bft-list.js'
+import { bftCard, type BftCard, type BftState } from './bft-list.js'
 import { registerPlanRoutes, withPlan } from './plan-routes.js'
 import type { PublishRequest } from './confluence-publish.js'
 import { PublishFlow, registerConfluencePublish } from './confluence-publish-routes.js'
@@ -1330,24 +1331,45 @@ export function apply(ctx: HarnessContext): void {
     // «Планирование» (ADR-0025): заметка и доска декомпозиции из полного БФТ.
     scoped.effect(() => { const offs = registerPlanRoutes(register, backlog); return () => offs.forEach((off) => off()) }, 'customer-form: планирование')
 
-    // Все заявки (ADR-0012, шаг 7): статус заявки и документов, ссылки на документ и выгрузку.
+    // Карточки заявок (ADR-0020): одни и те же данные для «Все заявки» и customer-form.bftList.
+    const bftCards = async (): Promise<BftCard[] | undefined> => {
+      const items = await backlog.overview(await backlog.sessionIds()).catch((e) => {
+        console.error('[customer-form] заявки не загрузились:', e)
+        return undefined
+      })
+      if (!items) return undefined
+      return Promise.all(items.map(async (item) => {
+        const slug = fastSlug(item.taskId)
+        const files = fastFiles(FAST_ROOT, slug)
+        const fast = await fastState(files)
+        const deep = fast?.approvedAt ? await readDeepState(deepFiles(files, slug)) : undefined
+        const demo = sharedDemos().get(item.sessionId)
+        const form = await formOfRequest(files.dir).catch(() => undefined)
+        const questions = form ? latestVersion(form)?.questions ?? [] : []
+        const cycle = lifecycle.enabled ? await lifecycle.status(item.taskId).catch(() => undefined) : undefined
+        const state: BftState = {
+          ...(cycle ? { lifecycle: { stage: cycle.status.stage, waitingFor: cycle.status.waitingFor, round: cycle.status.round } } : {}),
+          ...(demo ? { demo: { approvedAt: demo.approvedAt } } : {}),
+          ...(fast ? { fast: { approvedAt: fast.approvedAt, rev: fast.rev } } : {}),
+          ...(deep ? { deep: { stage: deep.stage, startedAt: deep.startedAt, finishedAt: deep.finishedAt } } : {}),
+          ...(form ? { form: { id: form.id, publishedAt: form.publishedAt, revokedAt: form.revokedAt, total: questions.length, answered: questions.filter((q) => form.answers[q.qid]?.status === 'answer').length } } : {}),
+        }
+        return bftCard(item, state, { portal: portalUrl, form: formUrl, ticket: item.url && !isLoopbackUrl(item.url) ? item.url : undefined, lifecycle: lifecycle.enabled ? portalUrl(`/api/customer-form.lifecyclePage?session=${encodeURIComponent(item.sessionId)}`) : undefined })
+      }))
+    }
+
+    // Все заявки (ADR-0012, шаг 7; ADR-0029): стадия заявки, чат, документ и артефакты.
+    // Страница отдаётся сразу со скелетом, список — фрагментом ?part=list (ждёт трекер).
     scoped.effect(() => register({
       path: REQUESTS_PAGE,
       methods: ['GET'],
       requestBody: 'buffered',
-      fetch: async () => {
-        const items = await backlog.overview(await backlog.sessionIds()).catch((e) => {
-          console.error('[customer-form] все заявки не загрузились:', e)
-          return undefined
-        })
-        const rows = await Promise.all((items ?? []).map(async (item): Promise<RequestRow> => {
-          const slug = fastSlug(item.taskId)
-          const files = fastFiles(FAST_ROOT, slug)
-          const fast = await fastState(files)
-          const deep = fast?.approvedAt ? await readDeepState(deepFiles(files, slug)) : undefined
-          return { ...item, ...(fast ? { fast: fast.approvedAt ? 'approved' as const : 'review' as const } : {}), ...(deep ? { deep: deep.stage } : {}) }
-        }))
-        return new Response(requestsPage(rows, items === undefined), { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } })
+      fetch: async (request: Request) => {
+        const headers = { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }
+        if (new URL(request.url).searchParams.get('part') !== 'list') return new Response(requestsShell(portalUrl('/')), { headers })
+        const cards = await bftCards()
+        if (!cards) return new Response(requestsError(), { status: 502, headers })
+        return new Response(requestsList(cards, portalUrl('/')), { headers })
       },
     }), 'customer-form: все заявки')
 
@@ -1359,29 +1381,8 @@ export function apply(ctx: HarnessContext): void {
       requestBody: 'buffered',
       fetch: async () => {
         const headers = { 'cache-control': 'no-store' }
-        const items = await backlog.overview(await backlog.sessionIds()).catch((e) => {
-          console.error('[customer-form] список БФТ не загрузился:', e)
-          return undefined
-        })
-        if (!items) return Response.json({ ok: false, error: 'трекер не ответил' }, { status: 502, headers })
-        const cards = await Promise.all(items.map(async (item) => {
-          const slug = fastSlug(item.taskId)
-          const files = fastFiles(FAST_ROOT, slug)
-          const fast = await fastState(files)
-          const deep = fast?.approvedAt ? await readDeepState(deepFiles(files, slug)) : undefined
-          const demo = sharedDemos().get(item.sessionId)
-          const form = await formOfRequest(files.dir).catch(() => undefined)
-          const questions = form ? latestVersion(form)?.questions ?? [] : []
-          const cycle = lifecycle.enabled ? await lifecycle.status(item.taskId).catch(() => undefined) : undefined
-          const state: BftState = {
-            ...(cycle ? { lifecycle: { stage: cycle.status.stage, waitingFor: cycle.status.waitingFor, round: cycle.status.round } } : {}),
-            ...(demo ? { demo: { approvedAt: demo.approvedAt } } : {}),
-            ...(fast ? { fast: { approvedAt: fast.approvedAt, rev: fast.rev } } : {}),
-            ...(deep ? { deep: { stage: deep.stage, startedAt: deep.startedAt, finishedAt: deep.finishedAt } } : {}),
-            ...(form ? { form: { id: form.id, publishedAt: form.publishedAt, revokedAt: form.revokedAt, total: questions.length, answered: questions.filter((q) => form.answers[q.qid]?.status === 'answer').length } } : {}),
-          }
-          return bftCard(item, state, { portal: portalUrl, form: formUrl, ticket: item.url && !isLoopbackUrl(item.url) ? item.url : undefined, lifecycle: lifecycle.enabled ? portalUrl(`/api/customer-form.lifecyclePage?session=${encodeURIComponent(item.sessionId)}`) : undefined })
-        }))
+        const cards = await bftCards()
+        if (!cards) return Response.json({ ok: false, error: 'трекер не ответил' }, { status: 502, headers })
         return Response.json({ ok: true, newUrl: portalUrl('/'), items: cards }, { headers })
       },
     }), 'customer-form: /api/customer-form.bftList')

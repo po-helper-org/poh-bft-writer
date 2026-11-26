@@ -279,61 +279,6 @@ export function deepPageBase(html: string, opts: { top: string; afterH1?: string
   return at < 0 ? page + DEEP_STYLE + FORM_STYLE + hide : page.slice(0, at) + DEEP_STYLE + FORM_STYLE + hide + page.slice(at)
 }
 
-/** Строка страницы «Все заявки»: заявка трекера и состояние документов. */
-export interface RequestRow {
-  sessionId: string
-  taskId: number
-  url: string
-  title: string
-  created: string
-  status?: string
-  /** Первичные требования: на проверке у заказчика или согласованы. */
-  fast?: 'review' | 'approved'
-  /** Полный БФТ: собирается, готов, не собран. */
-  deep?: 'building' | 'ready' | 'failed'
-}
-
-/** Все заявки портала (ADR-0012, шаг 7): кто, что, на каком шаге, документ и выгрузка. */
-export function requestsPage(rows: RequestRow[], failed: boolean): string {
-  const docOf = (row: RequestRow): string => {
-    const page = `customer-form.bftFast?session=${encodeURIComponent(row.sessionId)}`
-    const dl = (format: string) => `customer-form.bftDownload?session=${encodeURIComponent(row.sessionId)}&doc=deep&format=${format}`
-    const open = (label: string) => `<a href="${esc(page)}" target="_blank" rel="noreferrer">${label}</a>`
-    if (row.deep === 'ready') return `${open('Полный БФТ')}<span class="dl"><a href="${esc(dl('docx'))}">.docx</a><a href="${esc(dl('pdf'))}">.pdf</a><a href="${esc(dl('md'))}">.md</a></span>`
-    if (row.deep === 'building') return `${open('Полный БФТ')} <span class="muted">собирается…</span>`
-    if (row.deep === 'failed') return `${open('Полный БФТ')} <span class="warn">не собран</span>`
-    if (row.fast) return `${open('Первичные требования')} <span class="muted">${row.fast === 'approved' ? 'согласованы' : 'на проверке'}</span>`
-    return '<span class="muted">в диалоге</span>'
-  }
-  const when = (iso: string) => { try { return new Date(iso).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' }) } catch { return '' } }
-  const body = rows.length
-    ? `<table><thead><tr><th>№</th><th>Заявка</th><th>Статус</th><th>Документ</th><th>Создана</th></tr></thead><tbody>${rows.map((row) => `<tr data-request="${row.taskId}"><td class="n">${row.url ? `<a href="${esc(row.url)}" target="_blank" rel="noreferrer">#${row.taskId}</a>` : `#${row.taskId}`}</td><td>${esc(row.title)}</td><td>${row.status ? `<span class="pill">${esc(row.status)}</span>` : ''}</td><td>${docOf(row)}</td><td class="muted">${esc(when(row.created))}</td></tr>`).join('')}</tbody></table>`
-    : `<p class="muted">${failed ? 'Трекер не ответил — обновите страницу через минуту.' : 'Заявок пока нет.'}</p>`
-  return `<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${FAVICON_TAG}
-<title>Все заявки</title>
-<style>
-:root{ --fg:#111; --muted:#777; --line:#e4e1da; --bg:#fff; }
-@media (prefers-color-scheme:dark){ :root{ --fg:#eee; --muted:#999; --line:#333; --bg:#151515; } }
-body{ margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 Georgia,"Times New Roman",serif; }
-.wrap{ max-width:1000px; margin:0 auto; padding:2rem 16px 4rem; }
-.kicker{ font:.7rem/1.3 "Courier New",monospace; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); }
-h1{ font-size:1.6rem; margin:.3rem 0 1.2rem; }
-.scroll{ overflow-x:auto; }
-table{ border-collapse:collapse; width:100%; min-width:640px; }
-th, td{ text-align:left; vertical-align:top; padding:.55rem .6rem; border-bottom:1px solid var(--line); }
-th{ font:.7rem "Courier New",monospace; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); }
-td.n{ white-space:nowrap; font-variant-numeric:tabular-nums; }
-a{ color:inherit; }
-.muted{ color:var(--muted); font-size:.9rem; }
-.warn{ color:#b45309; font-size:.9rem; }
-.pill{ font-size:.8rem; border:1px solid var(--line); border-radius:999px; padding:1px 8px; white-space:nowrap; }
-.dl{ display:inline-flex; gap:.5rem; margin-left:.6rem; font-size:.85rem; }
-</style></head><body><div class="wrap" data-requests>
-<div class="kicker">Портал заказчика</div><h1>Все заявки</h1>
-<div class="scroll">${body}</div>
-</div></body></html>`
-}
-
 /** Сборка полного БФТ не удалась: причина и «Собрать заново». */
 export function deepFailedPage(sessionId: string, error: string, retryUrl: string, fastUrl: string): string {
   const cfg = JSON.stringify({ sessionId, retryUrl }).replace(/</g, '\\u003c')
