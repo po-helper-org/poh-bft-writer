@@ -56,6 +56,7 @@ import { historyEvents, isoUtc, trackerObservedEvent, type RequestSnapshot } fro
 import { lifecyclePage } from './lifecycle-page.js'
 import { inboxView } from './form-inbox.js'
 import { withPageTheme } from './page-theme.js'
+import { bftFastPage } from './bft-fast-route.js'
 import { withAgent } from './agent-page.js'
 import { canUndo, dshModel, newRevision, normalizeRemarks, poWords, queueRemarks, readRevisions, reviewDue, reviseDeep, revisionsContext, saveRevisions, sinceReview, undoRevision, type Revision, type TextModel } from './bft-revise.js'
 import { docRevOf, pickBlocks } from './doc-sections.js'
@@ -1079,58 +1080,16 @@ export function apply(ctx: HarnessContext): void {
       path: '/api/customer-form.bftFast',
       methods: ['GET'],
       requestBody: 'buffered',
-      fetch: async (request: Request) => {
-        const sessionId = new URL(request.url).searchParams.get('session') ?? ''
-        const ticket = sessionId ? await backlog.find(sessionId).catch(() => undefined) : undefined
-        const slug = ticket ? fastSlug(ticket.taskId) : ''
-        const files = fastFiles(FAST_ROOT, slug)
-        // Идёт сборка (rev16) — экран ожидания; он сам перезагрузится в документ.
-        const progress = fastProgress.get(sessionId)
-        if (progress && await stillBuilding(progress, files)) {
-          return new Response(waitingPage(sessionId, progress, siblingHref('/api/customer-form.bftFastStatus')), { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } })
-        }
-        const html = ticket ? await readFile(files.html, 'utf8').catch(() => undefined) : undefined
-        if (!html) {
-          return new Response('<!doctype html><meta charset="utf-8"><p style="font:14px sans-serif;color:#888;padding:16px">Быстрая версия БФТ ещё не собрана.</p>',
-            { status: 404, headers: { 'content-type': 'text/html; charset=utf-8' } })
-        }
-        const headers = { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }
-        // ?full=1 — канонический bft-fast навыка как есть (он же в заявке).
-        const params = new URL(request.url).searchParams
-        if (params.has('full')) return new Response(html, { headers })
-        // Первичные требования согласованы — та же вкладка показывает полный БФТ (ADR-0012);
-        // ?view=fast — вернуться к первичным требованиям.
-        const fastApproved = (await fastState(files))?.approvedAt
-        const deep = fastApproved ? await readDeepState(deepFiles(files, slug)) : undefined
-        if (deep && params.get('view') !== 'fast') {
-          const fastUrl = siblingHref(`${fastPagePath(sessionId)}&view=fast`)
-          if (deep.stage === 'building') return new Response(waitingPage(sessionId, { stage: 'building', startedAt: deep.startedAt }, siblingHref('/api/customer-form.bftDeepStatus'), 'deep'), { headers })
-          if (deep.stage === 'failed') return new Response(deepFailedPage(sessionId, deep.error ?? 'неизвестная ошибка', siblingHref('/api/customer-form.bftDeepRetry'), fastUrl), { headers })
-          const view = await deepView(slug, sessionId)
-          if (view) {
-            // ИИ-агент правок (ADR-0021): колонка справа — замечания со страницы сразу в документ.
-            const page = withAgent(view, {
-              sessionId, store: `bft-comments-${slug}`, deepAt: deep.finishedAt ?? null,
-              reviseUrl: siblingHref('/api/customer-form.bftRevise'), statusUrl: siblingHref('/api/customer-form.bftReviseStatus'), undoUrl: siblingHref('/api/customer-form.bftReviseUndo'),
-              sectionUrl: siblingHref('/api/customer-form.bftReviseSection'), reviewUrl: siblingHref('/api/customer-form.bftReview'), settingsUrl: `${siblingHref(ADMIN_PAGE)}?to=settings`,
-            })
-            // «Планирование» (ADR-0025): кнопка вверху, сохранённая заметка и доска — артефактом внизу.
-            // «Отправить в Confluence» (ADR-0028): вкладка в рейке и панель выбора страницы и хода отправки.
-            // Единый стиль страницы (ADR-0029) — последним слоем.
-            return new Response(withPageTheme(withConfluence(await withPlan(page, sessionId, files.dir), sessionId)), { headers })
-          }
-        }
-        // Заказчику (rev21) — тот же документ: How to demo таблицей, зоны и контакты, без полей для PO.
-        const state = await fastState(files)
-        const doc = await readFile(files.primary, 'utf8').then((s) => JSON.parse(s) as PrimaryDoc).catch(() => undefined)
-        const demo = sharedDemos().get(sessionId)?.demo
-        return new Response(customerFastPage(html, {
-          sessionId, slug, approveUrl: siblingHref('/api/customer-form.bftFastApprove'),
-          ...(state?.approvedAt ? { approvedAt: state.approvedAt } : {}),
-          ...(demo ? { demo } : {}),
-          ...(doc ? { people: doc.args.people ?? [], ...(doc.brief ? { brief: doc.brief } : {}) } : {}),
-        }), { headers })
-      },
+      // Сборка страницы из частей состояния заявки — bft-fast-route.ts: неполное состояние не роняет её в 500.
+      fetch: async (request: Request) => bftFastPage(new URL(request.url), {
+        root: FAST_ROOT,
+        ticket: (sessionId) => backlog.find(sessionId),
+        progress: (sessionId) => fastProgress.get(sessionId),
+        demo: (sessionId) => sharedDemos().get(sessionId)?.demo,
+        formLayer: deepFormLayer,
+        href: siblingHref,
+        settingsHref: `${siblingHref(ADMIN_PAGE)}?to=settings`,
+      }),
     }), 'customer-form: /api/customer-form.bftFast')
 
     // Форма вопросов по БФТ (ADR-0018). Открытые маршруты — по ссылке-ключу (UUID формы):
